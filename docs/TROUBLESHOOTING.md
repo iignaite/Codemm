@@ -154,3 +154,20 @@ Fix:
 
 - Ensure Electron’s storage directories are writable.
   - You can override paths with: `CODEMM_USER_DATA_DIR`, `CODEMM_CACHE_DIR`, `CODEMM_LOGS_DIR`.
+
+## Generation Fails On Complex Slots
+
+Symptom:
+
+- Generation stops with a generic failure after retries.
+- Progress UI shows slot failures (contract / docker / timeout).
+
+Fix:
+
+- Retry only the failing slot (V2 flow) instead of regenerating the entire thread:
+  - `threads.regenerateSlot({ threadId, slotIndex, strategy })`
+- Inspect persisted diagnostics for the latest run:
+  - `threads.getGenerationDiagnostics({ threadId })`
+- If diagnostics indicate truncation or weak model capability:
+  - use a stronger model in **LLM Settings**
+  - reduce slot complexity (fewer constraints / narrower topics) and retry

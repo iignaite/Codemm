@@ -42,6 +42,7 @@ Keep in mind:
 
 - Codemm’s “agent logic” is backend-owned; the IDE should remain a thin shell over backend contracts.
 - Judging relies on Docker; don’t add a path that executes untrusted code outside Docker.
+- For generation APIs, preserve IPC naming stability (`threads.generate`, `threads.generateV2`, `threads.regenerateSlot`, `threads.getGenerationDiagnostics`).
 
 ## Style / Guardrails
 
