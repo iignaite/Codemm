@@ -106,6 +106,18 @@ function parseGenerationOutcomes(json: string | null | undefined): GenerationOut
   return outcomes;
 }
 
+function parseGeneratedProblems(json: string | null | undefined): GeneratedProblem[] {
+  if (!json || !json.trim()) return [];
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    // Best-effort shape check; contracts are enforced during generation.
+    return parsed.filter((p) => p && typeof p === "object" && typeof (p as any).id === "string") as GeneratedProblem[];
+  } catch {
+    return [];
+  }
+}
+
 function parseLearningMode(raw: unknown): LearningMode {
   const parsed = LearningModeSchema.safeParse(raw);
   return parsed.success ? parsed.data : DEFAULT_LEARNING_MODE;
@@ -735,18 +747,6 @@ export async function generateFromSession(
       throw new Error(`Language "${spec.language}" is not supported for generation yet.`);
     }
 
-    const parseGeneratedProblems = (json: string | null | undefined): GeneratedProblem[] => {
-      if (!json || !json.trim()) return [];
-      try {
-        const parsed = JSON.parse(json);
-        if (!Array.isArray(parsed)) return [];
-        // Best-effort shape check; contracts are enforced during generation.
-        return parsed.filter((p) => p && typeof p === "object" && typeof (p as any).id === "string") as GeneratedProblem[];
-      } catch {
-        return [];
-      }
-    };
-
     let resumeProblems: GeneratedProblem[] = parseGeneratedProblems(s.problems_json);
     let resumeOutcomes: GenerationOutcome[] = parseGenerationOutcomes(s.generation_outcomes_json);
     if (resumeOutcomes.length !== resumeProblems.length) {
@@ -938,5 +938,89 @@ export async function generateFromSession(
     } finally {
       if (progressHeartbeat) clearInterval(progressHeartbeat);
     }
+  });
+}
+
+export async function regenerateSlotFromSession(
+  sessionId: string,
+  slotIndex: number,
+  strategy:
+    | "retry_full_slot"
+    | "repair_reference_solution"
+    | "repair_test_suite"
+    | "downgrade_difficulty"
+    | "narrow_topics" = "retry_full_slot"
+): Promise<GenerateFromSessionResponse & { regeneratedSlotIndex: number; strategy: string }> {
+  return withTraceContext({ sessionId }, async () => {
+    const s = requireSession(sessionId);
+    const state = s.state as SessionState;
+
+    if (state === "GENERATING") {
+      const err = new Error("Cannot regenerate a slot while generation is in progress.");
+      (err as any).status = 409;
+      throw err;
+    }
+
+    if (typeof s.activity_id === "string" && s.activity_id.trim()) {
+      const err = new Error("This session already produced an activity. Create a new thread to regenerate slots.");
+      (err as any).status = 409;
+      throw err;
+    }
+
+    if (state !== "READY" && state !== "FAILED") {
+      const err = new Error(`Cannot regenerate slots when session state is ${state}. Expected READY or FAILED.`);
+      (err as any).status = 409;
+      throw err;
+    }
+
+    const specObj = parseSpecJson(s.spec_json);
+    const specResult = ActivitySpecSchema.safeParse(specObj);
+    if (!specResult.success) {
+      throw new Error(
+        `Invalid ActivitySpec: ${specResult.error.issues[0]?.message ?? "validation failed"}`
+      );
+    }
+    const spec = specResult.data;
+    if (!isLanguageSupportedForGeneration(spec.language)) {
+      throw new Error(`Language "${spec.language}" is not supported for generation yet.`);
+    }
+
+    const learning_mode = parseLearningMode((s as any).learning_mode);
+    const pedagogyPolicy =
+      learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec, learnerProfile: null }) : undefined;
+    const plan = deriveProblemPlan(spec, pedagogyPolicy);
+    if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= plan.length) {
+      throw new Error(`slotIndex must be between 0 and ${Math.max(0, plan.length - 1)}.`);
+    }
+
+    const existingProblems = parseGeneratedProblems(s.problems_json);
+    const existingOutcomes = parseGenerationOutcomes(s.generation_outcomes_json);
+    const keptCount = Math.min(slotIndex, existingProblems.length, existingOutcomes.length);
+
+    const nextProblems = existingProblems.slice(0, keptCount);
+    const nextOutcomes = existingOutcomes.slice(0, keptCount);
+    threadDb.setPlanJson(sessionId, JSON.stringify(plan));
+    threadDb.setProblemsJson(sessionId, JSON.stringify(nextProblems));
+    threadDb.updateGenerationOutcomesJson(sessionId, JSON.stringify(nextOutcomes));
+    threadDb.setLastError(sessionId, null);
+
+    const existingTrace = parseJsonArray(s.intent_trace_json);
+    const traceEntry = {
+      ts: new Date().toISOString(),
+      type: "slot_regeneration_requested",
+      slotIndex,
+      strategy,
+      keptCount,
+    };
+    const nextTrace = appendIntentTrace(existingTrace, traceEntry);
+    threadDb.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
+
+    if (state === "FAILED") {
+      transitionOrThrow("FAILED", "READY");
+      threadDb.updateState(sessionId, "READY");
+    }
+
+    const out = await generateFromSession(sessionId);
+    return { ...out, regeneratedSlotIndex: slotIndex, strategy };
   });
 }
