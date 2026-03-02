@@ -79,6 +79,7 @@ export default function Home() {
   const [specReady, setSpecReady] = useState(false);
   const [progress, setProgress] = useState<GenerationProgressState | null>(null);
   const [progressHint, setProgressHint] = useState<string | null>(null);
+  const [generationRunId, setGenerationRunId] = useState<string | null>(null);
   const progressRef = useRef<null | { unsubscribe: () => Promise<void> }>(null);
 
   const [instructionsOpen, setInstructionsOpen] = useState(false);
@@ -148,6 +149,7 @@ export default function Home() {
       setSpecReady(false);
       setProgress(null);
       setProgressHint(null);
+      setGenerationRunId(null);
       setGenerationLocked(false);
       setMessages([]);
       setChatInput("");
@@ -188,6 +190,7 @@ export default function Home() {
       setSpecReady(false);
       setProgress(null);
       setProgressHint(null);
+      setGenerationRunId(null);
       setGenerationLocked(false);
       setMessages([]);
       setChatInput("");
@@ -396,6 +399,7 @@ export default function Home() {
 
     setLoading(true);
     setGenerationLocked(true);
+    let runIdForDiagnostics: string | null = null;
     try {
       setMessages((prev) => [
         ...prev,
@@ -409,6 +413,7 @@ export default function Home() {
       // Open structured progress stream (no prompts, no reasoning, no logs).
       setProgress(null);
       setProgressHint(null);
+      setGenerationRunId(null);
 
       const hintTimer = window.setTimeout(() => setProgressHint("Progress stream unavailable."), 1200);
 
@@ -524,6 +529,48 @@ export default function Home() {
               return next;
             }
 
+            if (typed.type === "slot_attempt_summary") {
+              const p = getSlot(typed.slotIndex);
+              if (p) {
+                p.attempt = typed.attempt;
+                if (typed.status === "failed") {
+                  p.stage = typed.phase === "validate" ? "docker" : "contract";
+                  p.lastFailure = {
+                    stage: typed.phase === "validate" ? "docker" : "contract",
+                    message: typed.message || "Slot attempt failed.",
+                  };
+                }
+              }
+              if (typed.llm?.truncated) {
+                const modelLabel = typed.llm.model ? `${typed.llm.provider}/${typed.llm.model}` : typed.llm.provider;
+                setProgressHint(`Model output may be truncated (${modelLabel}).`);
+              }
+              return next;
+            }
+
+            if (typed.type === "slot_failure_diagnostic") {
+              const p = getSlot(typed.slotIndex);
+              if (p) {
+                const stage = typed.kind === "compile" || typed.kind === "tests" || typed.kind === "timeout" ? "docker" : "contract";
+                p.stage = stage;
+                p.attempt = typed.attempt;
+                p.lastFailure = {
+                  stage,
+                  message: typed.message || "Slot failed.",
+                };
+              }
+              if (typed.remediation.length > 0) {
+                const prefix = typed.final ? "Final slot failure" : "Slot failure";
+                setProgressHint(`${prefix}: ${typed.remediation.slice(0, 2).join(" | ")}`);
+              }
+              return next;
+            }
+
+            if (typed.type === "slot_repair_applied") {
+              setProgressHint(`Repair applied on slot ${typed.slotIndex + 1}: ${typed.strategy.replaceAll("_", " ")}.`);
+              return next;
+            }
+
             if (typed.type === "slot_completed") {
               const p = getSlot(typed.slotIndex);
               if (p) {
@@ -629,8 +676,15 @@ export default function Home() {
       });
       progressRef.current = { unsubscribe: sub.unsubscribe };
 
-      const data = await requireThreadsApi().generate({ threadId });
+      const threadsApi = requireThreadsApi() as any;
+      const generateFn =
+        typeof threadsApi.generateV2 === "function" ? threadsApi.generateV2.bind(threadsApi) : threadsApi.generate.bind(threadsApi);
+      const data = await generateFn({ threadId });
       window.clearTimeout(hintTimer);
+      if (typeof data?.runId === "string") {
+        runIdForDiagnostics = data.runId;
+        setGenerationRunId(data.runId);
+      }
 
       if (typeof data.activityId === "string") {
         try {
@@ -652,12 +706,33 @@ export default function Home() {
       }
     } catch (e) {
       console.error(e);
+      let diagnosticMessage: string | null = null;
+      try {
+        const threadsApi = requireThreadsApi() as any;
+        if (typeof threadsApi.getGenerationDiagnostics === "function") {
+          const diag = await threadsApi.getGenerationDiagnostics({
+            threadId,
+            ...((runIdForDiagnostics ?? generationRunId) ? { runId: runIdForDiagnostics ?? generationRunId } : {}),
+          });
+          const latest = diag?.latestFailure;
+          if (latest && typeof latest.message === "string") {
+            const actions = Array.isArray(latest.remediation) ? latest.remediation.slice(0, 2).join(" | ") : "";
+            diagnosticMessage = actions
+              ? `Latest failure: ${latest.message} Next actions: ${actions}.`
+              : `Latest failure: ${latest.message}`;
+          }
+        }
+      } catch {
+        // ignore diagnostics fetch errors
+      }
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
           tone: "hint",
-          content: "Failed to generate activity. Please try again.",
+          content: diagnosticMessage
+            ? `Failed to generate activity. ${diagnosticMessage}`
+            : "Failed to generate activity. Please try again.",
         },
       ]);
     } finally {

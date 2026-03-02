@@ -1215,6 +1215,54 @@ async function createWindowAndBoot() {
       return engineCall("threads.generate", { threadId });
     });
 
+    ipcMain.handle("codemm:threads:generateV2", async (_evt, args) => {
+      const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
+      const threadId = reqString(parsed.threadId, "threadId");
+      return engineCall("threads.generateV2", { threadId });
+    });
+
+    ipcMain.handle("codemm:threads:regenerateSlot", async (_evt, args) => {
+      const parsed = validate(
+        z.object({
+          threadId: z.string().min(1).max(128),
+          slotIndex: z.number().int().min(0).max(256),
+          strategy: z
+            .enum([
+              "retry_full_slot",
+              "repair_reference_solution",
+              "repair_test_suite",
+              "downgrade_difficulty",
+              "narrow_topics",
+            ])
+            .optional(),
+        }),
+        args
+      );
+      const threadId = reqString(parsed.threadId, "threadId");
+      return engineCall("threads.regenerateSlot", {
+        threadId,
+        slotIndex: parsed.slotIndex,
+        ...(typeof parsed.strategy === "string" ? { strategy: parsed.strategy } : {}),
+      });
+    });
+
+    ipcMain.handle("codemm:threads:getGenerationDiagnostics", async (_evt, args) => {
+      const parsed = validate(
+        z.object({
+          threadId: z.string().min(1).max(128),
+          runId: z.string().min(1).max(128).optional(),
+          limit: z.number().int().min(1).max(5000).optional(),
+        }),
+        args
+      );
+      const threadId = reqString(parsed.threadId, "threadId");
+      return engineCall("threads.getGenerationDiagnostics", {
+        threadId,
+        ...(typeof parsed.runId === "string" ? { runId: parsed.runId } : {}),
+        ...(typeof parsed.limit === "number" ? { limit: parsed.limit } : {}),
+      });
+    });
+
     ipcMain.handle("codemm:threads:subscribeGeneration", async (_evt, args) => {
       const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
       const threadId = reqString(parsed.threadId, "threadId");
