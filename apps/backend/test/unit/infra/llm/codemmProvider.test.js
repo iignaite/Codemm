@@ -99,7 +99,8 @@ test("llm provider: auto-selects Anthropic when only ANTHROPIC_API_KEY is set", 
   });
 
   assert.equal(calls.length, 1);
-  assert.deepEqual(out, { content: [{ type: "text", text: "ok-from-anthropic" }] });
+  assert.equal(out?.content?.[0]?.text, "ok-from-anthropic");
+  assert.equal(out?.meta?.provider, "anthropic");
 });
 
 test("llm provider: uses Gemini adapter when CODEX_PROVIDER=gemini", async (t) => {
@@ -148,7 +149,8 @@ test("llm provider: uses Gemini adapter when CODEX_PROVIDER=gemini", async (t) =
   });
 
   assert.equal(calls.length, 1);
-  assert.deepEqual(out, { content: [{ type: "text", text: "ok-from-gemini" }] });
+  assert.equal(out?.content?.[0]?.text, "ok-from-gemini");
+  assert.equal(out?.meta?.provider, "gemini");
 });
 
 test("llm provider: Gemini falls back to flash when preferred model 404s", async (t) => {
@@ -199,7 +201,8 @@ test("llm provider: Gemini falls back to flash when preferred model 404s", async
   });
 
   assert.equal(call, 2);
-  assert.deepEqual(out, { content: [{ type: "text", text: "ok-from-fallback" }] });
+  assert.equal(out?.content?.[0]?.text, "ok-from-fallback");
+  assert.equal(out?.meta?.provider, "gemini");
 });
 
 test("llm provider: Gemini uses ListModels to find a supported model when flash also 404s", async (t) => {
@@ -254,7 +257,8 @@ test("llm provider: Gemini uses ListModels to find a supported model when flash 
   });
 
   assert.equal(call, 4);
-  assert.deepEqual(out, { content: [{ type: "text", text: "ok-from-listmodels" }] });
+  assert.equal(out?.content?.[0]?.text, "ok-from-listmodels");
+  assert.equal(out?.meta?.provider, "gemini");
 });
 
 test("llm provider: uses OpenAI adapter when CODEX_PROVIDER=openai", async (t) => {
@@ -303,7 +307,8 @@ test("llm provider: uses OpenAI adapter when CODEX_PROVIDER=openai", async (t) =
   });
 
   assert.equal(calls.length, 1);
-  assert.deepEqual(out, { content: [{ type: "text", text: "ok-from-openai" }] });
+  assert.equal(out?.content?.[0]?.text, "ok-from-openai");
+  assert.equal(out?.meta?.provider, "openai");
 });
 
 test("llm provider: explicit provider with missing key throws a clear error", async (t) => {

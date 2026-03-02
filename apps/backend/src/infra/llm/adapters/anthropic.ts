@@ -57,5 +57,24 @@ export async function createAnthropicCompletion(
           .join("")
       : "";
 
-  return { content: [{ type: "text", text }] };
+  const inputTokens = typeof parsed?.usage?.input_tokens === "number" ? parsed.usage.input_tokens : undefined;
+  const outputTokens = typeof parsed?.usage?.output_tokens === "number" ? parsed.usage.output_tokens : undefined;
+  const usage = {
+    ...(typeof inputTokens === "number" ? { inputTokens } : {}),
+    ...(typeof outputTokens === "number" ? { outputTokens } : {}),
+    ...(typeof inputTokens === "number" && typeof outputTokens === "number"
+      ? { totalTokens: inputTokens + outputTokens }
+      : {}),
+  };
+
+  return {
+    content: [{ type: "text", text }],
+    meta: {
+      provider: "anthropic",
+      model: typeof parsed?.model === "string" ? parsed.model : model,
+      ...(typeof parsed?.stop_reason === "string" ? { finishReason: parsed.stop_reason } : {}),
+      ...(parsed?.stop_reason === "max_tokens" ? { truncated: true } : {}),
+      ...(Object.keys(usage).length > 0 ? { usage } : {}),
+    },
+  };
 }

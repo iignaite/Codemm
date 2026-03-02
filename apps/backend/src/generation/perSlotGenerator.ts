@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { createCodemmCompletion } from "../infra/llm";
+import type { CompletionMeta } from "../infra/llm";
 import { tryParseJson } from "../utils/jsonParser";
 import { buildDefaultClassSkeleton, inferClassName } from "../utils/javaCodegen";
 import {
@@ -136,7 +137,7 @@ async function repairJavaReferenceSolution(args: {
   judgeStdout?: string;
   judgeStderr?: string;
   ctx?: SlotPromptContext;
-}): Promise<{ reference_solution: string; llmOutputHash: string }> {
+}): Promise<{ reference_solution: string; llmOutputHash: string; llm?: CompletionMeta }> {
   const title = args.draft.title;
   const failures = summarizeJUnitFailures(`${args.judgeStdout ?? ""}\n${args.judgeStderr ?? ""}`);
 
@@ -208,7 +209,7 @@ Return JSON: {"reference_solution":"..."} only.
   const parsed = tryParseJson(text) as any;
   const repaired = typeof parsed?.reference_solution === "string" ? parsed.reference_solution.trim() : "";
   if (!repaired) throw new Error("Java reference_solution repair failed: missing reference_solution.");
-  return { reference_solution: repaired, llmOutputHash };
+  return { reference_solution: repaired, llmOutputHash, ...(completion.meta ? { llm: completion.meta } : {}) };
 }
 
 export type RepairContext = {
@@ -221,7 +222,7 @@ export type RepairContext = {
 
 export type GeneratedDraftWithMeta = {
   draft: GeneratedProblemDraft;
-  meta: { llmOutputHash: string; rewrites?: Array<{ id: string; applied: boolean; detail?: string }> };
+  meta: { llmOutputHash: string; llm?: CompletionMeta; rewrites?: Array<{ id: string; applied: boolean; detail?: string }> };
 };
 
 async function repairCppTestSuite(args: {
@@ -818,7 +819,7 @@ export async function generateSingleProblem(
       GeneratedProblemDraft,
       { language: "java"; reference_solution: string }
     >;
-    const { reference_solution, llmOutputHash } = await repairJavaReferenceSolution({
+    const { reference_solution, llmOutputHash, llm } = await repairJavaReferenceSolution({
       slot,
       draft: prev,
       errorMessage: opts.repair.errorMessage ?? "reference solution failed Docker validation",
@@ -837,7 +838,7 @@ export async function generateSingleProblem(
     }
     // Ensure repaired draft still satisfies deterministic Java invariants before running Docker again.
     assertJavaLegacyDraftInvariants(slot, result.data as any);
-    return { draft: result.data, meta: { llmOutputHash } };
+    return { draft: result.data, meta: { llmOutputHash, ...(llm ? { llm } : {}) } };
   }
 
   const prompt = opts?.repair
@@ -846,6 +847,7 @@ export async function generateSingleProblem(
   trace("generation.slot.start", { slotIndex: slot.index, difficulty: slot.difficulty, repair: Boolean(opts?.repair) });
   traceText("generation.prompt", prompt, { extra: { slotIndex: slot.index, repair: Boolean(opts?.repair) } });
 
+  let llmMeta: CompletionMeta | undefined;
   const completion = await createCodemmCompletion({
     system: getSystemPromptForSlot(slot),
     user: prompt,
@@ -853,6 +855,7 @@ export async function generateSingleProblem(
     temperature: opts?.repair ? REPAIR_TEMPERATURE : TEMPERATURE,
     maxTokens: MAX_TOKENS,
   });
+  llmMeta = completion.meta;
 
   const text = completion.content
     .map((block) => (block.type === "text" ? block.text : ""))
@@ -1003,7 +1006,7 @@ export async function generateSingleProblem(
       }
 
       trace("generation.draft.meta", { slotIndex: slot.index, title, language: "python", difficulty, topicTag });
-      return { draft: parsed, meta: { llmOutputHash } };
+      return { draft: parsed, meta: { llmOutputHash, ...(llmMeta ? { llm: llmMeta } : {}) } };
     }
 
     if (slot.language === "cpp") {
@@ -1176,7 +1179,7 @@ export async function generateSingleProblem(
           );
         }
       }
-      return { draft: parsed, meta: { llmOutputHash } };
+      return { draft: parsed, meta: { llmOutputHash, ...(llmMeta ? { llm: llmMeta } : {}) } };
     }
 
     if (slot.language === "sql") {
@@ -1251,7 +1254,7 @@ export async function generateSingleProblem(
       }
 
       trace("generation.draft.meta", { slotIndex: slot.index, title, language: "sql", difficulty, topicTag });
-      return { draft: result.data, meta: { llmOutputHash } };
+      return { draft: result.data, meta: { llmOutputHash, ...(llmMeta ? { llm: llmMeta } : {}) } };
     }
 
     // Workspace variant (Phase B): accept workspace + reference_workspace.
@@ -1460,7 +1463,7 @@ export async function generateSingleProblem(
       }
 
       trace("generation.draft.meta", { slotIndex: slot.index, title, className: targetClassName, difficulty, topicTag });
-      return { draft: result.data, meta: { llmOutputHash, rewrites } };
+      return { draft: result.data, meta: { llmOutputHash, ...(llmMeta ? { llm: llmMeta } : {}), rewrites } };
     }
 
     const baseId =
@@ -1776,7 +1779,7 @@ export async function generateSingleProblem(
       );
     }
 
-    return { draft: result.data, meta: { llmOutputHash, rewrites } };
+    return { draft: result.data, meta: { llmOutputHash, ...(llmMeta ? { llm: llmMeta } : {}), rewrites } };
   } catch (err: any) {
     const msg = err?.message ?? String(err);
     const obligationId = err instanceof ObligationViolationError ? err.obligationId : undefined;
@@ -1784,6 +1787,7 @@ export async function generateSingleProblem(
       slotIndex: slot.index,
       llmOutputHash,
       rawSnippet: text.slice(0, 2400),
+      ...(llmMeta ? { llm: llmMeta } : {}),
       ...(obligationId ? { obligationId } : {}),
     });
   }
