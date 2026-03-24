@@ -55,6 +55,7 @@ test("generation progress: emits per-slot event ordering", async () => {
       "slot_evidence",
       "slot_docker_validation_started",
       "validation_started",
+      "slot_attempt_summary",
       "slot_completed",
       "problem_validated",
     ]

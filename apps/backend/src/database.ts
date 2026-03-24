@@ -677,11 +677,22 @@ export const runDb = {
     const stmt = db.prepare(`UPDATE runs SET status = ?, finished_at = datetime('now') WHERE id = ?`);
     stmt.run(status, id);
   },
+  findById: (id: string) => {
+    const stmt = db.prepare(`SELECT * FROM runs WHERE id = ?`);
+    return stmt.get(id) as any | undefined;
+  },
   latestByThread: (threadId: string, kind: RunKind) => {
     const stmt = db.prepare(
       `SELECT * FROM runs WHERE thread_id = ? AND kind = ? ORDER BY created_at DESC LIMIT 1`
     );
     return stmt.get(threadId, kind) as any | undefined;
+  },
+  listByThread: (threadId: string, kind: RunKind, limit: number = 20) => {
+    const safeLimit = Math.max(1, Math.min(200, Math.floor(limit)));
+    const stmt = db.prepare(
+      `SELECT * FROM runs WHERE thread_id = ? AND kind = ? ORDER BY created_at DESC LIMIT ?`
+    );
+    return stmt.all(threadId, kind, safeLimit) as any[];
   },
 };
 

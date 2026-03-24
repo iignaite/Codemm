@@ -12,6 +12,7 @@ Codemm runs entirely on your machine:
 - A **workspace** (folder on disk) owns all durable state.
 - A **thread** is a local conversation that produces an `ActivitySpec`.
 - A **run** is an append-only execution log (generation / judge), used for replay + debugging.
+- Generation runs now include slot-attempt diagnostics (failure kind, remediation hints, repair steps, token/finish metadata when providers expose it).
 - An **activity** is the output you practice: learner-facing problems + tests, verified in Docker.
 
 Design goals:

@@ -54,5 +54,26 @@ export async function createOpenAiCompletion(
   });
 
   const text = completion.choices[0]?.message?.content ?? "";
-  return { content: [{ type: "text", text }] };
+  const finishReason = completion.choices[0]?.finish_reason ?? undefined;
+  const promptTokens =
+    typeof completion.usage?.prompt_tokens === "number" ? completion.usage.prompt_tokens : undefined;
+  const completionTokens =
+    typeof completion.usage?.completion_tokens === "number" ? completion.usage.completion_tokens : undefined;
+  const totalTokens = typeof completion.usage?.total_tokens === "number" ? completion.usage.total_tokens : undefined;
+  const usage = {
+    ...(typeof promptTokens === "number" ? { inputTokens: promptTokens } : {}),
+    ...(typeof completionTokens === "number" ? { outputTokens: completionTokens } : {}),
+    ...(typeof totalTokens === "number" ? { totalTokens } : {}),
+  };
+
+  return {
+    content: [{ type: "text", text }],
+    meta: {
+      provider: "openai",
+      model: completion.model ?? (opts.model ?? process.env.CODEX_MODEL ?? DEFAULT_OPENAI_MODEL),
+      ...(typeof finishReason === "string" ? { finishReason } : {}),
+      ...(finishReason === "length" ? { truncated: true } : {}),
+      ...(Object.keys(usage).length > 0 ? { usage } : {}),
+    },
+  };
 }

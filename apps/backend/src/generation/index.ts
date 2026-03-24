@@ -2,6 +2,7 @@ import crypto from "crypto";
 import type { ProblemPlan } from "../planner/types";
 import type { GeneratedProblem, GeneratedProblemDraft } from "../contracts/problem";
 import type { GenerationOutcome } from "../contracts/generationOutcome";
+import type { AttemptDiagnostic, GenerationArtifactSet, SlotIntent } from "../contracts/generationDiagnostics";
 import { generateSingleProblem } from "./perSlotGenerator";
 import {
   ReferenceSolutionValidationError,
@@ -10,6 +11,7 @@ import {
 import { trace } from "../utils/trace";
 import { GenerationContractError, GenerationSlotFailureError, type GenerationFailureKind } from "./errors";
 import type { GenerationProgressEvent } from "../contracts/generationProgress";
+import type { CompletionMeta } from "../infra/llm/types";
 import type { SlotPromptContext } from "../languages/types";
 import { applyGuidedScaffoldingAsync } from "./scaffolding";
 import { runTestStrengthGate, TestStrengthGateError } from "./testStrengthGate";
@@ -27,6 +29,116 @@ function discardReferenceArtifacts(draft: GeneratedProblemDraft): GeneratedProbl
   }
   const { reference_workspace, ...rest } = draft;
   return rest;
+}
+
+function sha256Short(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim();
+  if (!value) return undefined;
+  return crypto.createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+function inferFailureKind(err: unknown): GenerationFailureKind {
+  if (err instanceof ReferenceSolutionValidationError) return err.kind;
+  if (err instanceof GenerationContractError) return "contract";
+  if (err instanceof TestStrengthGateError) return "quality";
+  if (/Invalid test_suite|schema validation|public class|Test suite class name/i.test(String((err as any)?.message))) {
+    return "contract";
+  }
+  return "unknown";
+}
+
+function recommendedRemediation(kind: GenerationFailureKind): string[] {
+  if (kind === "compile") return ["Regenerate this slot", "Reduce difficulty for this slot"];
+  if (kind === "tests") return ["Regenerate this slot", "Narrow topic scope"];
+  if (kind === "timeout") return ["Regenerate this slot", "Reduce constraints and complexity"];
+  if (kind === "contract") return ["Regenerate this slot", "Simplify prompt constraints"];
+  if (kind === "quality") return ["Regenerate stronger tests", "Reduce requested hardness"];
+  if (kind === "llm") return ["Retry this slot", "Switch to a stronger model"];
+  return ["Retry this slot", "Narrow topic scope"];
+}
+
+function buildSlotIntent(slot: ProblemPlan[number]): SlotIntent {
+  const style =
+    slot.problem_style === "stdout" || slot.problem_style === "return" || slot.problem_style === "mixed"
+      ? slot.problem_style
+      : "return";
+  return {
+    slotIndex: slot.index,
+    language: slot.language,
+    difficulty: slot.difficulty,
+    topics: [...slot.topics],
+    constraints: slot.constraints,
+    problemStyle: style,
+    testCaseCount: slot.test_case_count,
+  };
+}
+
+function buildArtifactSet(draft: GeneratedProblemDraft): GenerationArtifactSet {
+  const referenceHash =
+    "reference_solution" in draft
+      ? sha256Short((draft as any).reference_solution)
+      : sha256Short(JSON.stringify((draft as any).reference_workspace ?? null));
+  const testSuiteHash = sha256Short((draft as any)?.test_suite);
+  const starterHash = sha256Short((draft as any)?.starter_code);
+  const descriptionHash = sha256Short((draft as any)?.description);
+  const hashes: GenerationArtifactSet["hashes"] = {};
+  if (typeof testSuiteHash === "string") hashes.testSuite = testSuiteHash;
+  if (typeof referenceHash === "string") hashes.reference = referenceHash;
+  if (typeof starterHash === "string") hashes.starter = starterHash;
+  if (typeof descriptionHash === "string") hashes.description = descriptionHash;
+
+  return {
+    ...(typeof (draft as any)?.title === "string" ? { title: String((draft as any).title) } : {}),
+    language: draft.language,
+    hasWorkspace: Boolean((draft as any)?.workspace || (draft as any)?.reference_workspace),
+    hashes,
+  };
+}
+
+function progressSummaryForFailure(args: {
+  slotIndex: number;
+  attempt: number;
+  maxAttempts: number;
+  err: unknown;
+  llmOutputHash?: string;
+  llm?: CompletionMeta;
+  slotIntent: SlotIntent;
+  final: boolean;
+}) {
+  const kind = inferFailureKind(args.err);
+  const message = String((args.err as any)?.message ?? "Unknown generation failure");
+  const phase: AttemptDiagnostic["phase"] =
+    args.err instanceof ReferenceSolutionValidationError
+      ? "validate"
+      : args.err instanceof TestStrengthGateError
+        ? "quality"
+        : "generate";
+  return {
+    summary: {
+      type: "slot_attempt_summary" as const,
+      slotIndex: args.slotIndex,
+      attempt: args.attempt,
+      maxAttempts: args.maxAttempts,
+      phase,
+      status: "failed" as const,
+      kind,
+      message: message.slice(0, 360),
+      remediation: recommendedRemediation(kind),
+      ...(typeof args.llmOutputHash === "string" ? { llmOutputHash: args.llmOutputHash } : {}),
+      ...(args.llm ? { llm: args.llm } : {}),
+      slotIntent: args.slotIntent,
+    },
+    failure: {
+      type: "slot_failure_diagnostic" as const,
+      slotIndex: args.slotIndex,
+      attempt: args.attempt,
+      kind,
+      message: message.slice(0, 360),
+      remediation: recommendedRemediation(kind),
+      final: args.final,
+    },
+  };
 }
 
 /**
@@ -168,6 +280,7 @@ export async function generateProblemsFromPlan(
 
   for (const slot of plan.slice(initialCount)) {
     const maxAttempts = defaultMaxAttempts;
+    const slotIntent = buildSlotIntent(slot);
     const domainSeed = pickDomain(`${slot.language}:${slot.difficulty}:${slot.topics.join(",")}:${slot.index}`);
     const promptContext: SlotPromptContext = {
       domain: domainSeed,
@@ -199,6 +312,7 @@ export async function generateProblemsFromPlan(
     let lastError: Error | null = null;
     let lastDraft: GeneratedProblemDraft | null = null;
     let lastLlmOutputHash: string | undefined;
+    let lastLlmMeta: CompletionMeta | undefined;
     let lastAttemptExpensiveFingerprint: string | undefined;
     let lastExpensiveFailure:
       | { fingerprint: string; error: ReferenceSolutionValidationError | TestStrengthGateError }
@@ -227,6 +341,7 @@ export async function generateProblemsFromPlan(
         const draft: GeneratedProblemDraft = generated.draft;
         lastDraft = draft;
         lastLlmOutputHash = generated.meta.llmOutputHash;
+        lastLlmMeta = generated.meta.llm;
         onProgress?.({ type: "slot_contract_validated", slotIndex: slot.index, attempt: attempts });
         onProgress?.({
           type: "slot_evidence",
@@ -275,6 +390,18 @@ export async function generateProblemsFromPlan(
 
         // Step 4: Discard reference_solution/reference_workspace (CRITICAL: do not persist)
         problem = discardReferenceArtifacts(finalizedDraft);
+        onProgress?.({
+          type: "slot_attempt_summary",
+          slotIndex: slot.index,
+          attempt: attempts,
+          maxAttempts,
+          phase: "complete",
+          status: "success",
+          ...(typeof generated.meta.llmOutputHash === "string" ? { llmOutputHash: generated.meta.llmOutputHash } : {}),
+          ...(generated.meta.llm ? { llm: generated.meta.llm } : {}),
+          slotIntent,
+          artifactSet: buildArtifactSet(draft),
+        });
         onProgress?.({ type: "slot_completed", slotIndex: slot.index });
         onProgress?.({ type: "problem_validated", index: slot.index });
         trace("generation.attempt.success", { slotIndex: slot.index, attempts, title: draft.title });
@@ -307,10 +434,18 @@ export async function generateProblemsFromPlan(
           });
           onProgress?.({ type: "attempt_failed", index: slot.index, attempt: attempts, phase: "generate" });
           lastLlmOutputHash = err.llmOutputHash ?? lastLlmOutputHash;
+          lastLlmMeta = err.llm ?? lastLlmMeta;
           repair = {
             ...(typeof err.rawSnippet === "string" ? { previousRaw: err.rawSnippet } : {}),
             ...(typeof err.message === "string" && err.message ? { errorMessage: err.message } : {}),
           };
+          onProgress?.({
+            type: "slot_repair_applied",
+            slotIndex: slot.index,
+            attempt: attempts,
+            strategy: "retry_full_slot",
+            detail: "Retrying generation with contract diagnostics.",
+          });
         }
 
         if (err instanceof TestStrengthGateError) {
@@ -329,6 +464,13 @@ export async function generateProblemsFromPlan(
             ...(lastDraft ? { previousRaw: JSON.stringify(lastDraft).slice(0, 2400) } : {}),
             errorMessage: err.message,
           };
+          onProgress?.({
+            type: "slot_repair_applied",
+            slotIndex: slot.index,
+            attempt: attempts,
+            strategy: "repair_test_suite",
+            detail: "Retrying with stronger and non-trivial tests.",
+          });
         }
 
         if (err instanceof ReferenceSolutionValidationError && lastDraft) {
@@ -349,6 +491,16 @@ export async function generateProblemsFromPlan(
             judgeStderr: err.judgeStderr,
             errorMessage: err.message,
           };
+          onProgress?.({
+            type: "slot_repair_applied",
+            slotIndex: slot.index,
+            attempt: attempts,
+            strategy: slot.language === "java" ? "repair_reference_solution" : "retry_full_slot",
+            detail:
+              slot.language === "java"
+                ? "Applying targeted reference_solution repair."
+                : "Retrying slot with validator feedback.",
+          });
           trace("generation.attempt.repair", { slotIndex: slot.index, attempts, exitCode: err.exitCode });
         } else {
           if (!(err instanceof GenerationContractError) && !(err instanceof TestStrengthGateError)) {
@@ -357,18 +509,23 @@ export async function generateProblemsFromPlan(
           }
         }
 
-        if (attempts >= maxAttempts) {
+        const finalAttempt = attempts >= maxAttempts;
+        const emitted = progressSummaryForFailure({
+          slotIndex: slot.index,
+          attempt: attempts,
+          maxAttempts,
+          err,
+          ...(typeof lastLlmOutputHash === "string" ? { llmOutputHash: lastLlmOutputHash } : {}),
+          ...(lastLlmMeta ? { llm: lastLlmMeta } : {}),
+          slotIntent,
+          final: finalAttempt,
+        });
+        onProgress?.(emitted.summary);
+        onProgress?.(emitted.failure);
+
+        if (finalAttempt) {
           onProgress?.({ type: "problem_failed", index: slot.index });
-          const kind: GenerationFailureKind =
-            err instanceof ReferenceSolutionValidationError
-              ? err.kind
-              : err instanceof GenerationContractError
-              ? "contract"
-              : err instanceof TestStrengthGateError
-              ? "quality"
-              : /Invalid test_suite|schema validation|public class|Test suite class name/i.test(String(err?.message))
-              ? "contract"
-              : "unknown";
+          const kind: GenerationFailureKind = inferFailureKind(err);
           const failOutcome: GenerationOutcome = {
             slotIndex: slot.index,
             success: false,
@@ -382,6 +539,7 @@ export async function generateProblemsFromPlan(
               attempts: maxAttempts,
               ...(typeof lastDraft?.title === "string" ? { title: lastDraft.title } : {}),
               ...(typeof lastLlmOutputHash === "string" ? { llmOutputHash: lastLlmOutputHash } : {}),
+              ...(lastLlmMeta ? { llm: lastLlmMeta } : {}),
               outcomesSoFar: [...outcomes, failOutcome],
               problemsSoFar: [...problems],
             }

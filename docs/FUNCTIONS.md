@@ -58,3 +58,14 @@ Electron window is configured with:
 - `contextIsolation: true`
 
 IPC is implemented via a strict preload bridge with allowlisted channels only (`apps/ide/preload.js`).
+
+## Generation IPC Surfaces
+
+The desktop bridge exposes generation APIs under `window.codemm.threads`:
+
+- `generate({ threadId })`: existing generation path.
+- `generateV2({ threadId })`: generation with structured per-attempt diagnostics and metadata.
+- `regenerateSlot({ threadId, slotIndex, strategy? })`: truncates checkpoint state at `slotIndex` and regenerates from that slot onward.
+- `getGenerationDiagnostics({ threadId, runId?, limit? })`: returns persisted attempt diagnostics from `runs` + `run_events`.
+
+All generation methods remain IPC-only (renderer -> preload -> Electron main -> engine IPC). No engine HTTP surface is added.

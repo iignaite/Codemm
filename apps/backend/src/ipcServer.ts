@@ -1,7 +1,14 @@
 import crypto from "crypto";
 import { initializeDatabase, activityDb, runDb, runEventDb, submissionDb, threadDb, threadMessageDb } from "./database";
 import type { LearningMode } from "./contracts/learningMode";
-import { createSession, generateFromSession, getSession, processSessionMessage, setSessionInstructions } from "./services/sessionService";
+import {
+  createSession,
+  generateFromSession,
+  getSession,
+  processSessionMessage,
+  regenerateSlotFromSession,
+  setSessionInstructions,
+} from "./services/sessionService";
 import { ActivityLanguageSchema } from "./contracts/activitySpec";
 import {
   getLanguageProfile,
@@ -10,6 +17,7 @@ import {
 } from "./languages/profiles";
 import type { GenerationProgressEvent } from "./contracts/generationProgress";
 import { getGenerationProgressBuffer, subscribeGenerationProgress } from "./generation/progressBus";
+import { collectAttemptDiagnostics } from "./generation/diagnostics";
 import { editDraftProblemWithAi } from "./services/activityProblemEditService";
 import { z } from "zod";
 
@@ -111,6 +119,51 @@ function validateOrThrow(schema: z.ZodTypeAny, paramsRaw: unknown): unknown {
     throw new ValidationError(msg);
   }
   return res.data;
+}
+
+async function runGenerationWithRunTracking(args: {
+  threadId: string;
+  meta: Record<string, unknown>;
+  execute: () => Promise<{ activityId: string; problems: unknown[] }>;
+}): Promise<{ activityId: string; problemCount: number; runId: string }> {
+  const runId = crypto.randomUUID();
+  runDb.create(runId, "generation", { threadId: args.threadId, metaJson: safeJsonStringify(args.meta) });
+
+  let seq = 0;
+  const unsubPersist = subscribeGenerationProgress(args.threadId, (ev: GenerationProgressEvent) => {
+    seq += 1;
+    try {
+      runEventDb.append(runId, seq, "progress", safeJsonStringify(ev));
+    } catch {
+      // ignore persistence failures; stream must still work
+    }
+  });
+
+  try {
+    const { activityId, problems } = await args.execute();
+    runDb.finish(runId, "succeeded");
+    return { activityId, problemCount: Array.isArray(problems) ? problems.length : 0, runId };
+  } catch (err) {
+    try {
+      seq += 1;
+      runEventDb.append(
+        runId,
+        seq,
+        "error",
+        safeJsonStringify({ message: err instanceof Error ? err.message : String(err) })
+      );
+    } catch {
+      // ignore
+    }
+    runDb.finish(runId, "failed");
+    throw err;
+  } finally {
+    try {
+      unsubPersist();
+    } catch {
+      // ignore
+    }
+  }
 }
 
 const rpcHandlers: Record<string, RpcHandlerDef> = {
@@ -303,44 +356,157 @@ const rpcHandlers: Record<string, RpcHandlerDef> = {
       const params = requireParams(paramsRaw);
       const threadId = getString(params.threadId);
       if (!threadId) throw new Error("threadId is required.");
-      const runId = crypto.randomUUID();
-      runDb.create(runId, "generation", { threadId, metaJson: safeJsonStringify({ threadId }) });
-
-      let seq = 0;
-      const unsubPersist = subscribeGenerationProgress(threadId, (ev: GenerationProgressEvent) => {
-        seq += 1;
-        try {
-          runEventDb.append(runId, seq, "progress", safeJsonStringify(ev));
-        } catch {
-          // ignore persistence failures; stream must still work
-        }
+      return runGenerationWithRunTracking({
+        threadId,
+        meta: { threadId, mode: "v1", operation: "generate" },
+        execute: async () => generateFromSession(threadId),
       });
+    },
+  },
 
-      try {
-        const { activityId, problems } = await generateFromSession(threadId);
-        runDb.finish(runId, "succeeded");
-        return { activityId, problemCount: problems.length, runId };
-      } catch (err) {
-        try {
-          seq += 1;
-          runEventDb.append(
-            runId,
-            seq,
-            "error",
-            safeJsonStringify({ message: err instanceof Error ? err.message : String(err) })
-          );
-        } catch {
-          // ignore
-        }
-        runDb.finish(runId, "failed");
-        throw err;
-      } finally {
-        try {
-          unsubPersist();
-        } catch {
-          // ignore
-        }
+  "threads.generateV2": {
+    schema: z.object({ threadId: z.string().min(1).max(128) }).passthrough(),
+    handler: async (paramsRaw) => {
+      const params = requireParams(paramsRaw);
+      const threadId = getString(params.threadId);
+      if (!threadId) throw new Error("threadId is required.");
+      return runGenerationWithRunTracking({
+        threadId,
+        meta: { threadId, mode: "v2", operation: "generate" },
+        execute: async () => generateFromSession(threadId),
+      });
+    },
+  },
+
+  "threads.regenerateSlot": {
+    schema: z
+      .object({
+        threadId: z.string().min(1).max(128),
+        slotIndex: z.number().int().min(0).max(256),
+        strategy: z
+          .enum([
+            "retry_full_slot",
+            "repair_reference_solution",
+            "repair_test_suite",
+            "downgrade_difficulty",
+            "narrow_topics",
+          ])
+          .optional(),
+      })
+      .passthrough(),
+    handler: async (paramsRaw) => {
+      const params = requireParams(paramsRaw);
+      const threadId = getString(params.threadId);
+      const slotIndex = typeof params.slotIndex === "number" ? params.slotIndex : null;
+      const strategy =
+        params.strategy === "retry_full_slot" ||
+        params.strategy === "repair_reference_solution" ||
+        params.strategy === "repair_test_suite" ||
+        params.strategy === "downgrade_difficulty" ||
+        params.strategy === "narrow_topics"
+          ? params.strategy
+          : "retry_full_slot";
+      if (!threadId) throw new Error("threadId is required.");
+      if (slotIndex === null) throw new Error("slotIndex is required.");
+
+      return runGenerationWithRunTracking({
+        threadId,
+        meta: { threadId, mode: "v2", operation: "regenerate_slot", slotIndex, strategy },
+        execute: async () => {
+          const out = await regenerateSlotFromSession(threadId, slotIndex, strategy);
+          return { activityId: out.activityId, problems: out.problems };
+        },
+      });
+    },
+  },
+
+  "threads.getGenerationDiagnostics": {
+    schema: z
+      .object({
+        threadId: z.string().min(1).max(128),
+        runId: z.string().min(1).max(128).optional(),
+        limit: z.number().int().min(1).max(5000).optional(),
+      })
+      .passthrough(),
+    handler: async (paramsRaw) => {
+      const params = requireParams(paramsRaw);
+      const threadId = getString(params.threadId);
+      const runId = getString(params.runId);
+      const limit = typeof params.limit === "number" && Number.isFinite(params.limit) ? params.limit : 5000;
+      if (!threadId) throw new Error("threadId is required.");
+
+      // Ensure thread exists before listing diagnostics.
+      getSession(threadId);
+
+      const run = runId ? runDb.findById(runId) : runDb.latestByThread(threadId, "generation");
+      if (!run) {
+        return {
+          threadId,
+          runId: null,
+          run: null,
+          summary: {
+            totalAttempts: 0,
+            failedAttempts: 0,
+            successfulAttempts: 0,
+          },
+          diagnostics: [],
+          latestFailure: null,
+          errors: [],
+        };
       }
+
+      if (run.kind !== "generation") {
+        throw new Error("runId does not reference a generation run.");
+      }
+      if (String(run.thread_id ?? "") !== threadId) {
+        throw new Error("runId does not belong to the provided threadId.");
+      }
+
+      const rows = runEventDb.listByRun(run.id, limit);
+      const { diagnostics, latestFailure } = collectAttemptDiagnostics(rows);
+      const failedAttempts = diagnostics.filter((d) => d.status === "failed").length;
+      const successfulAttempts = diagnostics.filter((d) => d.status === "success").length;
+      const errors = rows
+        .filter((r) => r.type === "error")
+        .map((r) => {
+          try {
+            const payload = JSON.parse(r.payload_json);
+            return {
+              seq: r.seq,
+              ...(typeof payload?.message === "string" ? { message: payload.message } : { message: "Unknown error" }),
+              createdAt: r.created_at,
+            };
+          } catch {
+            return { seq: r.seq, message: "Unknown error", createdAt: r.created_at };
+          }
+        });
+
+      return {
+        threadId,
+        runId: run.id,
+        run: {
+          id: run.id,
+          status: run.status,
+          createdAt: run.created_at,
+          finishedAt: run.finished_at ?? null,
+          meta: (() => {
+            try {
+              return run.meta_json ? JSON.parse(run.meta_json) : null;
+            } catch {
+              return null;
+            }
+          })(),
+        },
+        summary: {
+          totalAttempts: diagnostics.length,
+          failedAttempts,
+          successfulAttempts,
+          ...(latestFailure ? { finalFailureKind: latestFailure.kind } : {}),
+        },
+        diagnostics,
+        latestFailure,
+        errors,
+      };
     },
   },
 

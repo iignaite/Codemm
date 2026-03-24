@@ -75,5 +75,24 @@ export async function createOllamaCompletion(
     throw new Error("Ollama returned an empty completion.");
   }
 
-  return { content: [{ type: "text", text }] };
+  const promptEvalCount = typeof json?.prompt_eval_count === "number" ? json.prompt_eval_count : undefined;
+  const evalCount = typeof json?.eval_count === "number" ? json.eval_count : undefined;
+  const usage = {
+    ...(typeof promptEvalCount === "number" ? { inputTokens: promptEvalCount } : {}),
+    ...(typeof evalCount === "number" ? { outputTokens: evalCount } : {}),
+    ...(typeof promptEvalCount === "number" && typeof evalCount === "number"
+      ? { totalTokens: promptEvalCount + evalCount }
+      : {}),
+  };
+
+  return {
+    content: [{ type: "text", text }],
+    meta: {
+      provider: "ollama",
+      model,
+      ...(typeof json?.done_reason === "string" ? { finishReason: json.done_reason } : {}),
+      ...(json?.done_reason === "length" ? { truncated: true } : {}),
+      ...(Object.keys(usage).length > 0 ? { usage } : {}),
+    },
+  };
 }

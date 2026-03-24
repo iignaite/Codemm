@@ -3,6 +3,7 @@ export * from "./learnerProfile";
 export * from "./learningMode";
 export * from "./session";
 export * from "./problem";
+export * from "./generationDiagnostics";
 export * from "../languages/java/rules";
 export * from "../languages/python/rules";
 export * from "../languages/cpp/rules";

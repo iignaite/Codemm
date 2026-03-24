@@ -1,5 +1,6 @@
 import type { GenerationOutcome } from "../contracts/generationOutcome";
 import type { GeneratedProblem } from "../contracts/problem";
+import type { CompletionMeta } from "../infra/llm/types";
 
 export type GenerationFailureKind =
   | "compile"
@@ -15,10 +16,11 @@ export class GenerationContractError extends Error {
   llmOutputHash: string | undefined;
   rawSnippet: string | undefined;
   obligationId: string | undefined;
+  llm: CompletionMeta | undefined;
 
   constructor(
     message: string,
-    opts: { slotIndex: number; llmOutputHash?: string; rawSnippet?: string; obligationId?: string }
+    opts: { slotIndex: number; llmOutputHash?: string; rawSnippet?: string; obligationId?: string; llm?: CompletionMeta }
   ) {
     super(message);
     this.name = "GenerationContractError";
@@ -26,6 +28,7 @@ export class GenerationContractError extends Error {
     this.llmOutputHash = opts.llmOutputHash;
     this.rawSnippet = opts.rawSnippet;
     this.obligationId = opts.obligationId;
+    this.llm = opts.llm;
   }
 }
 
@@ -35,6 +38,7 @@ export class GenerationSlotFailureError extends Error {
   attempts: number;
   title: string | undefined;
   llmOutputHash: string | undefined;
+  llm: CompletionMeta | undefined;
   outcomesSoFar: GenerationOutcome[] | undefined;
   problemsSoFar: GeneratedProblem[] | undefined;
 
@@ -46,6 +50,7 @@ export class GenerationSlotFailureError extends Error {
       attempts: number;
       title?: string;
       llmOutputHash?: string;
+      llm?: CompletionMeta;
       outcomesSoFar?: GenerationOutcome[];
       problemsSoFar?: GeneratedProblem[];
     }
@@ -57,6 +62,7 @@ export class GenerationSlotFailureError extends Error {
     this.attempts = opts.attempts;
     this.title = opts.title;
     this.llmOutputHash = opts.llmOutputHash;
+    this.llm = opts.llm;
     this.outcomesSoFar = opts.outcomesSoFar;
     this.problemsSoFar = opts.problemsSoFar;
   }

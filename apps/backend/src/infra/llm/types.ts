@@ -8,4 +8,21 @@ export type CompletionOpts = {
   maxTokens?: number;
 };
 
-export type CompletionResult = { content: Array<{ type: "text"; text: string }> };
+export type CompletionUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
+
+export type CompletionMeta = {
+  provider: LlmProvider;
+  model?: string;
+  finishReason?: string;
+  truncated?: boolean;
+  usage?: CompletionUsage;
+};
+
+export type CompletionResult = {
+  content: Array<{ type: "text"; text: string }>;
+  meta?: CompletionMeta;
+};

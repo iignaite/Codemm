@@ -1,4 +1,6 @@
 import type { Difficulty } from "./activitySpec";
+import type { AttemptDiagnostic, RepairStrategy } from "./generationDiagnostics";
+import type { GenerationFailureKind } from "../generation/errors";
 
 export type GenerationProgressEvent =
   // Phase 2B: richer structured events for per-slot progress UI.
@@ -23,6 +25,37 @@ export type GenerationProgressEvent =
   | { type: "slot_contract_failed"; slotIndex: number; attempt: number; shortError: string }
   | { type: "slot_docker_validation_started"; slotIndex: number; attempt: number }
   | { type: "slot_docker_validation_failed"; slotIndex: number; attempt: number; shortError: string }
+  | {
+      type: "slot_attempt_summary";
+      slotIndex: number;
+      attempt: number;
+      maxAttempts: number;
+      phase: AttemptDiagnostic["phase"];
+      status: AttemptDiagnostic["status"];
+      kind?: GenerationFailureKind;
+      message?: string;
+      remediation?: string[];
+      llmOutputHash?: string;
+      llm?: AttemptDiagnostic["llm"];
+      slotIntent?: AttemptDiagnostic["slotIntent"];
+      artifactSet?: AttemptDiagnostic["artifactSet"];
+    }
+  | {
+      type: "slot_failure_diagnostic";
+      slotIndex: number;
+      attempt: number;
+      kind: GenerationFailureKind;
+      message: string;
+      remediation: string[];
+      final: boolean;
+    }
+  | {
+      type: "slot_repair_applied";
+      slotIndex: number;
+      attempt: number;
+      strategy: RepairStrategy;
+      detail?: string;
+    }
   | { type: "slot_completed"; slotIndex: number }
   | { type: "generation_completed"; activityId: string }
   | { type: "generation_failed"; error: string; slotIndex?: number }

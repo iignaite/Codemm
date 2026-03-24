@@ -170,5 +170,33 @@ export async function createGeminiCompletion(
         .trim()
       : "";
 
-  return { content: [{ type: "text", text }] };
+  const finishReason =
+    typeof parsed?.candidates?.[0]?.finishReason === "string" ? parsed.candidates[0].finishReason : undefined;
+  const promptTokenCount =
+    typeof parsed?.usageMetadata?.promptTokenCount === "number" ? parsed.usageMetadata.promptTokenCount : undefined;
+  const candidatesTokenCount =
+    typeof parsed?.usageMetadata?.candidatesTokenCount === "number"
+      ? parsed.usageMetadata.candidatesTokenCount
+      : undefined;
+  const totalTokenCount =
+    typeof parsed?.usageMetadata?.totalTokenCount === "number" ? parsed.usageMetadata.totalTokenCount : undefined;
+  const usage = {
+    ...(typeof promptTokenCount === "number" ? { inputTokens: promptTokenCount } : {}),
+    ...(typeof candidatesTokenCount === "number" ? { outputTokens: candidatesTokenCount } : {}),
+    ...(typeof totalTokenCount === "number" ? { totalTokens: totalTokenCount } : {}),
+  };
+
+  return {
+    content: [{ type: "text", text }],
+    meta: {
+      provider: "gemini",
+      model:
+        typeof parsed?.modelVersion === "string"
+          ? parsed.modelVersion
+          : Array.from(tried).slice(-1)[0] ?? firstModel,
+      ...(typeof finishReason === "string" ? { finishReason } : {}),
+      ...(finishReason === "MAX_TOKENS" ? { truncated: true } : {}),
+      ...(Object.keys(usage).length > 0 ? { usage } : {}),
+    },
+  };
 }
