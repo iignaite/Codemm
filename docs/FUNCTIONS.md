@@ -10,7 +10,13 @@ This document describes what the desktop wrapper does (and does not do).
 - Builds judge Docker images if missing (from `apps/backend/Dockerfile.*-judge`).
 - Starts the local engine (`apps/backend`) as a child process via Node IPC (`spawn` with `ELECTRON_RUN_AS_NODE=1` → `apps/backend/ipc-server.js`).
 - Verifies engine connectivity via an IPC ping (no HTTP ports/health checks).
-- Configures the engine LLM provider in-memory via IPC (keys are not passed via environment variables).
+- Resolves a run-scoped LLM snapshot for every LLM-backed engine call (keys are not passed via environment variables).
+- Owns the local Ollama runtime control plane:
+  - detect/install runtime
+  - start server
+  - select/pull model
+  - probe readiness
+  - lease local provider snapshots
 - Starts `apps/frontend` as a child process:
   - dev: `next dev` via npm workspaces
   - standalone: `apps/frontend/.next/standalone/server.js`
@@ -39,6 +45,9 @@ This document describes what the desktop wrapper does (and does not do).
 - `CODEMM_OLLAMA_MODEL` optional model name for Ollama (fallback/legacy; preferred config is via UI → LLM Settings)
 - `CODEMM_OLLAMA_URL` optional base URL for Ollama (default `http://127.0.0.1:11434`)
 - `OLLAMA_PATH` optional path to the `ollama` binary (for auto-start/pull)
+- `CODEMM_OLLAMA_INSTALL_URL_DARWIN` optional override for the macOS Ollama install artifact
+- `CODEMM_OLLAMA_INSTALL_URL_WINDOWS` optional override for the Windows Ollama install artifact
+- `CODEMM_OLLAMA_INSTALL_URL_LINUX` optional override for the Linux Ollama install artifact
 - `CODEMM_USER_DATA_DIR` overrides Electron `userData` dir
 - `CODEMM_CACHE_DIR` overrides Electron cache dir
 - `CODEMM_LOGS_DIR` overrides Electron logs dir
@@ -69,3 +78,15 @@ The desktop bridge exposes generation APIs under `window.codemm.threads`:
 - `getGenerationDiagnostics({ threadId, runId?, limit? })`: returns persisted attempt diagnostics from `runs` + `run_events`.
 
 All generation methods remain IPC-only (renderer -> preload -> Electron main -> engine IPC). No engine HTTP surface is added.
+
+## Local LLM IPC Surfaces
+
+The desktop bridge exposes local-runtime control under `window.codemm.llm`:
+
+- `getStatus()`
+- `ensureReady({ activateOnSuccess?, useCase? })`
+- `acquireLease({ reason, forcedModel?, useCase? })`
+- `releaseLease({ leaseId })`
+- `subscribeStatus({ onEvent })`
+
+These methods are renderer-safe wrappers around the main-process orchestrator. The renderer does not run lifecycle logic itself.

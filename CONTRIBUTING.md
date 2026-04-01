@@ -10,6 +10,7 @@ The goal is a single desktop app experience while keeping backend determinism an
 ## Repo Layout
 
 - `apps/ide/main.js` Electron main process (starts backend + frontend, then opens a window)
+- `apps/ide/localLlm/*` local-runtime orchestration (install/start/pull/probe/lease)
 - `package.json` npm workspaces root + scripts
 - `apps/ide/package.json` Electron dev entrypoint
 - `docs/` project docs (functions, troubleshooting, handoffs)
@@ -35,6 +36,7 @@ This will:
 ## Making Changes
 
 - Desktop wrapper logic: edit `main.js`
+- Local-runtime orchestration: edit files in `apps/ide/localLlm`
 - Backend behavior/API/judge: edit files in `apps/backend`
 - UI/UX: edit files in `apps/frontend`
 

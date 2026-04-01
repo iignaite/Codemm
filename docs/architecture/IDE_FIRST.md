@@ -66,16 +66,30 @@ Target (final):
   - `window.codemm.secrets.getLlmSettings()`
   - `window.codemm.secrets.setLlmSettings({ provider, apiKey })`
   - `window.codemm.secrets.clearLlmSettings()`
-- Engine is configured in-memory via IPC (`engine.configureLlm`) (no secrets in renderer JS and no env-based key injection).
-- Changing provider/keys applies to the running engine (new runs use the new configuration).
+- Renderer accesses local-runtime control via:
+  - `window.codemm.llm.getStatus()`
+  - `window.codemm.llm.ensureReady(...)`
+  - `window.codemm.llm.subscribeStatus(...)`
+- Engine calls receive a run-scoped `llmSnapshot` over IPC instead of mutating a process-global runtime config.
+- Changing provider/keys affects future LLM-backed runs. In-flight local runs stay pinned to their acquired snapshot lease.
 
 ### Local-Only LLM Option (No API Key): Ollama
 
-Codemm can run without a paid API key by using a local model via Ollama:
+Codemm can run without a paid API key by using the local-runtime control plane:
 
-- Set provider to `ollama` and configure a local model name (stored locally; not secret).
-- The engine calls Ollama over localhost (default `http://127.0.0.1:11434`).
-- The desktop app can (best-effort) start `ollama serve` and pull missing models via the Ollama CLI.
+- Renderer stays UI-only.
+- Electron main owns local runtime install/start/pull/probe/orchestration.
+- Backend performs inference only after receiving a `READY` Ollama snapshot.
+- One-button activation happens from **LLM Settings** via `Use Local Model`.
+
+See `docs/architecture/LOCAL_LLM_ORCHESTRATION.md` for:
+
+- full architecture
+- state machine
+- sequence flow
+- runtime flow
+- IPC contracts
+- snapshot + lease behavior
 
 ## Deleted SaaS Concepts (By Design)
 

@@ -26,6 +26,7 @@ Design goals:
 Processes (today):
 
 - **Electron main** (`apps/ide/main.js`): boot orchestration, workspace selection, secrets handling, IPC bridge.
+- **Local LLM orchestrator** (`apps/ide/localLlm/*`): install/start/pull/probe/lease control for one-button Ollama fallback.
 - **Local engine** (`apps/backend`): agent loop + SQLite persistence + Docker judge. Exposes RPC via Node IPC (`process.send`).
 - **Renderer UI** (`apps/frontend`): Next.js UI loaded inside Electron; uses `window.codemm.*` via a preload allowlist (`apps/ide/preload.js`).
 
@@ -45,19 +46,24 @@ There is no internal HTTP API for engine calls. UI → engine is IPC only.
 - Secrets:
   - stored locally via Electron `safeStorage` (encrypted at rest)
   - never returned to renderer JS
-  - engine is configured in-memory on boot via IPC (API keys are not passed via environment variables)
+  - engine receives a run-scoped LLM snapshot over IPC (API keys are not passed via environment variables)
 - Renderer loading:
   - UI is served from localhost (transitional) and verified via `GET /codemm/health` + an ephemeral boot token before the Electron window loads it (mitigates localhost port hijacking).
 
-## No API Key? Use Ollama (Local Model)
+## No API Key? Use Local Model
 
-If you can’t use a paid API key, Codemm can use a local model via Ollama:
+If you can’t use a paid API key, Codemm can use a local Ollama model with one action:
 
-1) Install Ollama (it runs on `http://127.0.0.1:11434`).
-2) In Codemm → **LLM Settings**:
-   - Provider: `Ollama (local)`
-   - Model: e.g. `qwen2.5-coder:7b`
-3) Click **Ensure + pull model** to start Ollama (best-effort) and pull the model from inside the app.
+1. Open **LLM Settings**.
+2. Click **Use Local Model**.
+3. Codemm will:
+   - detect and install Ollama if it is missing
+   - start the local runtime
+   - choose a compatible model for the machine
+   - pull the model if needed
+   - probe the model before switching inference over
+
+Architecture details are in `docs/architecture/LOCAL_LLM_ORCHESTRATION.md`.
 
 ## Development
 
@@ -74,7 +80,7 @@ npm install
 npm run dev
 ```
 
-On first launch, pick a workspace folder. Configure your provider via **LLM Settings** in the UI.
+On first launch, pick a workspace folder. Then either save a cloud provider key or click **Use Local Model** in **LLM Settings**.
 
 Dev default: when running from the repo, if `CODEMM_WORKSPACE_DIR` is not set, Codemm defaults the workspace to the repo root so the local `.codemm/` folder is created inside the repo (and is gitignored).
 
@@ -92,6 +98,7 @@ Builds are typically produced on the target OS (mac builds on macOS, win builds 
 ## Docs Index
 
 - IDE-first mental model + topology: `docs/architecture/IDE_FIRST.md`
+- Local runtime orchestration: `docs/architecture/LOCAL_LLM_ORCHESTRATION.md`
 - Migration phases: `docs/architecture/MIGRATION.md`
 - Wrapper behavior: `docs/FUNCTIONS.md`
 - Security notes: `docs/SECURITY.md`
@@ -107,3 +114,6 @@ Builds are typically produced on the target OS (mac builds on macOS, win builds 
 - `CODEMM_WORKSPACE_DIR` (skip workspace picker)
 - `CODEMM_WORKSPACE_DATA_DIR` (override workspace data dir; relative paths resolve from `CODEMM_WORKSPACE_DIR`)
 - `CODEMM_DB_PATH` (override DB file path)
+- `CODEMM_OLLAMA_INSTALL_URL_DARWIN` (override macOS Ollama install artifact)
+- `CODEMM_OLLAMA_INSTALL_URL_WINDOWS` (override Windows Ollama install artifact)
+- `CODEMM_OLLAMA_INSTALL_URL_LINUX` (override Linux Ollama install artifact)

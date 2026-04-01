@@ -133,16 +133,29 @@ Fix (dev):
 - If you want the engine to run under your system Node instead of Electron’s Node (avoids ABI mismatch):
   - `CODEMM_NODE_BIN=node npm run dev`
 
-## Ollama Not Running / Model Not Found
+## Local Model Activation Fails
 
 Symptom:
 
-- Generation fails with an Ollama error (connection refused / model not configured / model not found).
+- `Use Local Model` stays in a failed state.
+- Local runtime status shows `Failed` or `Needs recovery`.
 
 Fix:
 
-- Install Ollama (local server).
-- In **LLM Settings**: Provider `Ollama (local)` → set Model (example: `qwen2.5-coder:7b`) → click **Ensure + pull model**.
+- Open **LLM Settings** and inspect the local runtime status card.
+- Retry **Use Local Model**. Codemm will re-run install/start/pull/probe automatically.
+- If the error persists:
+  - ensure the machine has enough free RAM and disk for the selected profile
+  - ensure the network allows downloading Ollama and model artifacts
+  - inspect the latest status message and error code shown in the UI
+  - if needed, remove the cached runtime state under Electron `userData` and retry
+
+Common failure classes:
+
+- `INSTALL_FAILED`
+- `SERVER_START_FAILED`
+- `MODEL_PULL_FAILED`
+- `PROBE_FAILED`
 
 ## Electron/Chromium Cache Error: “Failed to write the temporary index file”
 
