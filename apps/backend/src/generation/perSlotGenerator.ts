@@ -24,7 +24,6 @@ import { ObligationViolationError, type ObligationId } from "./obligations";
 import { demoteExtraTopLevelPublicTypes, promoteOneTopLevelTypeToPublic, rewriteJavaTopLevelPublicClassName } from "../utils/javaRewrite";
 import { buildJavaStdinSampleDrivenJUnitTestSuite, computeJavaStdoutSamplesByExecutingReference } from "../languages/java/sampleDrivenTests";
 
-const CODEX_MODEL = process.env.CODEX_MODEL;
 const MAX_TOKENS = 5000;
 const TEMPERATURE = 0.3;
 const REPAIR_TEMPERATURE = 0.4;
@@ -199,7 +198,6 @@ Return JSON: {"reference_solution":"..."} only.
   const completion = await createCodemmCompletion({
     system,
     user,
-    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
     temperature: REPAIR_TEMPERATURE,
     maxTokens: MAX_TOKENS,
   });
@@ -308,7 +306,6 @@ Return JSON: {"test_suite":"..."} only.
   const completion = await createCodemmCompletion({
     system,
     user,
-    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
     temperature: 0.2,
     maxTokens: 2400,
   });
@@ -386,7 +383,6 @@ Return JSON: {"test_suite":"..."} only.
   const completion = await createCodemmCompletion({
     system,
     user,
-    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
     temperature: 0,
     maxTokens: 2000,
   });
@@ -851,7 +847,6 @@ export async function generateSingleProblem(
   const completion = await createCodemmCompletion({
     system: getSystemPromptForSlot(slot),
     user: prompt,
-    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
     temperature: opts?.repair ? REPAIR_TEMPERATURE : TEMPERATURE,
     maxTokens: MAX_TOKENS,
   });

@@ -8,9 +8,10 @@ const net = require("net");
 const os = require("os");
 const path = require("path");
 const { z } = require("zod");
+const { LocalLlmOrchestrator } = require("./localLlm/orchestrator");
+const { OLLAMA_DEFAULT_URL } = require("./localLlm/ollamaRuntimeDriver");
 
 const DEFAULT_FRONTEND_PORT = Number.parseInt(process.env.CODEMM_FRONTEND_PORT || "3000", 10);
-const OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434";
 
 // Keep a global reference so the window isn't garbage-collected on macOS.
 /** @type {import("electron").BrowserWindow | null} */
@@ -18,6 +19,7 @@ let mainWindow = null;
 let ipcWired = false;
 let currentWorkspace = null; // { workspaceDir, workspaceDataDir, backendDbPath, userDataDir }
 let engine = null; // { proc, call, onEvent, shutdown }
+let localLlmOrchestrator = null;
 
 function getPathKey(env) {
   if (!env || typeof env !== "object") return "PATH";
@@ -54,15 +56,6 @@ function tryRegisterIpcListener(channel, listener) {
     // ignore
   }
 }
-
-// Register a small set of handlers early so UI actions don't depend on the workspace boot path.
-tryRegisterIpcHandler("codemm:ollama:openInstall", async () => {
-  await shell.openExternal("https://ollama.com/download");
-  return { ok: true };
-});
-tryRegisterIpcListener("codemm:ollama:openInstall", () => {
-  shell.openExternal("https://ollama.com/download").catch(() => {});
-});
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -204,25 +197,27 @@ function loadSecrets({ userDataDir }) {
   const provider = typeof llm.provider === "string" ? llm.provider : null;
   const apiKeyEncB64 = typeof llm.apiKeyEncB64 === "string" ? llm.apiKeyEncB64 : null;
   const model = typeof llm.model === "string" ? llm.model : null;
+  const baseURL = typeof llm.baseURL === "string" ? llm.baseURL : null;
   const updatedAt = typeof llm.updatedAt === "string" ? llm.updatedAt : null;
   if (!provider) return { secretsPath, llm: null };
 
   try {
     if (!apiKeyEncB64) {
-      return { secretsPath, llm: { provider, apiKey: null, model, updatedAt } };
+      return { secretsPath, llm: { provider, apiKey: null, model, baseURL, updatedAt } };
     }
     const buf = Buffer.from(apiKeyEncB64, "base64");
     const apiKey = safeStorage.decryptString(buf);
-    return { secretsPath, llm: { provider, apiKey, model, updatedAt } };
+    return { secretsPath, llm: { provider, apiKey, model, baseURL, updatedAt } };
   } catch {
     return { secretsPath, llm: null };
   }
 }
 
-function saveSecrets({ userDataDir, provider, apiKey, model }) {
+function saveSecrets({ userDataDir, provider, apiKey, model, baseURL }) {
   const secretsPath = resolveSecretsStorePath({ userDataDir });
   const nextModel = typeof model === "string" && model.trim() ? model.trim() : null;
   const nextApiKey = typeof apiKey === "string" && apiKey.trim() ? apiKey.trim() : null;
+  const nextBaseURL = typeof baseURL === "string" && baseURL.trim() ? baseURL.trim() : null;
   const apiKeyEncB64 = (() => {
     if (!nextApiKey) return null;
     if (!safeStorage.isEncryptionAvailable()) {
@@ -231,7 +226,7 @@ function saveSecrets({ userDataDir, provider, apiKey, model }) {
     return safeStorage.encryptString(nextApiKey).toString("base64");
   })();
   const updatedAt = new Date().toISOString();
-  writeJsonFile(secretsPath, { v: 1, llm: { provider, apiKeyEncB64, model: nextModel, updatedAt } });
+  writeJsonFile(secretsPath, { v: 1, llm: { provider, apiKeyEncB64, model: nextModel, baseURL: nextBaseURL, updatedAt } });
   return { secretsPath, updatedAt };
 }
 
@@ -341,30 +336,6 @@ function commandExists(cmd, args = ["--version"]) {
   return res.status === 0;
 }
 
-function httpGetJson(url, { timeoutMs = 2000 } = {}) {
-  return new Promise((resolve, reject) => {
-    const req = http.get(url, (res) => {
-      const chunks = [];
-      res.on("data", (c) => chunks.push(c));
-      res.on("end", () => {
-        const code = res.statusCode ?? 0;
-        if (code < 200 || code >= 300) return reject(new Error(`HTTP ${code}`));
-        try {
-          const raw = Buffer.concat(chunks).toString("utf8");
-          resolve(JSON.parse(raw));
-        } catch (e) {
-          reject(e);
-        }
-      });
-      res.on("error", reject);
-    });
-    req.on("error", reject);
-    req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error("timeout"));
-    });
-  });
-}
-
 function findDockerBinary() {
   if (process.env.DOCKER_PATH && existsExecutable(process.env.DOCKER_PATH)) {
     return process.env.DOCKER_PATH;
@@ -398,100 +369,6 @@ function findDockerBinary() {
   }
 
   return null;
-}
-
-function findOllamaBinary() {
-  if (process.env.OLLAMA_PATH && existsExecutable(process.env.OLLAMA_PATH)) {
-    return process.env.OLLAMA_PATH;
-  }
-
-  /** @type {string[]} */
-  const candidates = [];
-
-  if (commandExists("ollama", ["--version"])) candidates.push("ollama");
-
-  if (process.platform === "darwin") {
-    candidates.push("/usr/local/bin/ollama", "/opt/homebrew/bin/ollama");
-  } else if (process.platform === "win32") {
-    const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
-    candidates.push(
-      path.join(localAppData, "Programs", "Ollama", "ollama.exe"),
-      "C:\\\\Program Files\\\\Ollama\\\\ollama.exe"
-    );
-  } else {
-    candidates.push("/usr/bin/ollama", "/usr/local/bin/ollama");
-  }
-
-  for (const c of candidates) {
-    if (c === "ollama") return "ollama";
-    if (existsExecutable(c)) return c;
-  }
-
-  return null;
-}
-
-async function getOllamaStatus({ baseURL = OLLAMA_DEFAULT_URL, model = null } = {}) {
-  const base = String(baseURL || OLLAMA_DEFAULT_URL).replace(/\/+$/, "");
-  const ollamaBin = findOllamaBinary();
-  const installed = Boolean(ollamaBin);
-
-  let running = false;
-  let version = null;
-  let models = null;
-  let modelPresent = null;
-  let lastError = null;
-
-  try {
-    const v = await httpGetJson(`${base}/api/version`, { timeoutMs: 1500 });
-    running = true;
-    version = v && typeof v.version === "string" ? v.version : null;
-  } catch (e) {
-    lastError = e?.message ? String(e.message) : "not running";
-  }
-
-  if (running) {
-    try {
-      const tags = await httpGetJson(`${base}/api/tags`, { timeoutMs: 3000 });
-      const arr = Array.isArray(tags?.models) ? tags.models : [];
-      const names = arr
-        .map((m) => (m && typeof m.name === "string" ? m.name : null))
-        .filter((x) => typeof x === "string");
-      models = names;
-      if (typeof model === "string" && model.trim()) {
-        modelPresent = names.includes(model.trim());
-      }
-    } catch (e) {
-      lastError = e?.message ? String(e.message) : "failed to list models";
-    }
-  }
-
-  return {
-    baseURL: base,
-    installed,
-    running,
-    version,
-    models,
-    modelPresent,
-    error: lastError,
-    ollamaBin,
-  };
-}
-
-async function startOllamaServe(ollamaBin, { baseURL = OLLAMA_DEFAULT_URL } = {}) {
-  const base = String(baseURL || OLLAMA_DEFAULT_URL).replace(/\/+$/, "");
-  const proc = spawn(ollamaBin, ["serve"], { detached: true, stdio: "ignore", windowsHide: true });
-  proc.unref();
-
-  const deadline = Date.now() + 12_000;
-  while (Date.now() < deadline) {
-    try {
-      await httpGetJson(`${base}/api/version`, { timeoutMs: 1200 });
-      return { ok: true };
-    } catch {
-      await sleep(500);
-    }
-  }
-  return { ok: false, reason: "Timed out waiting for Ollama to start." };
 }
 
 function checkDockerRunning({ dockerBin, timeoutMs = 8000 }) {
@@ -666,7 +543,7 @@ function startEngineIpc({ backendDir, env, onEvent }) {
     rejectAll(err instanceof Error ? err : new Error(String(err)));
   });
 
-  function call(method, params) {
+  function call(method, params, context) {
     if (!proc || !proc.connected) {
       return Promise.reject(new Error("Engine not connected."));
     }
@@ -681,7 +558,7 @@ function startEngineIpc({ backendDir, env, onEvent }) {
     const p = new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject, timeout });
     });
-    proc.send({ id, type: "req", method, params: params ?? {} });
+    proc.send({ id, type: "req", method, params: params ?? {}, ...(context ? { context } : {}) });
     return p;
   }
 
@@ -696,6 +573,11 @@ function startEngineIpc({ backendDir, env, onEvent }) {
 function requireEngine() {
   if (!engine) throw new Error("Engine unavailable. Restart the IDE.");
   return engine;
+}
+
+function requireLocalLlmOrchestrator() {
+  if (!localLlmOrchestrator) throw new Error("Local LLM runtime is unavailable. Restart the IDE.");
+  return localLlmOrchestrator;
 }
 
 async function pickAvailablePort(preferredPort) {
@@ -915,6 +797,37 @@ async function createWindowAndBoot() {
   const workspaceDataDir = resolveWorkspaceDataDir({ userDataDir: storage.userDataDir, workspaceDir });
   const backendDbPath = path.join(workspaceDataDir, "codemm.db");
   currentWorkspace = { workspaceDir, workspaceDataDir, backendDbPath, userDataDir: storage.userDataDir };
+  localLlmOrchestrator = new LocalLlmOrchestrator({
+    userDataDir: storage.userDataDir,
+    baseURL: OLLAMA_DEFAULT_URL,
+    preferenceStore: {
+      getLocalPreferredModel: () => {
+        const llm = loadSecrets({ userDataDir: storage.userDataDir }).llm;
+        return llm && String(llm.provider || "").toLowerCase() === "ollama" ? llm.model ?? null : null;
+      },
+      setLocalPreferredModel: (model) => {
+        const current = loadSecrets({ userDataDir: storage.userDataDir }).llm;
+        if (!current) return;
+        if (String(current.provider || "").toLowerCase() !== "ollama") return;
+        saveSecrets({
+          userDataDir: storage.userDataDir,
+          provider: "ollama",
+          apiKey: null,
+          model,
+          baseURL: current.baseURL || OLLAMA_DEFAULT_URL,
+        });
+      },
+      activateLocalProvider: ({ model }) => {
+        saveSecrets({
+          userDataDir: storage.userDataDir,
+          provider: "ollama",
+          apiKey: null,
+          model: model || null,
+          baseURL: OLLAMA_DEFAULT_URL,
+        });
+      },
+    },
+  });
 
   console.log(`[ide] workspaceDir=${workspaceDir}`);
   console.log(`[ide] workspaceDataDir=${workspaceDataDir}`);
@@ -947,9 +860,10 @@ async function createWindowAndBoot() {
       const { llm } = loadSecrets({ userDataDir: storage.userDataDir });
       const isOllama = llm && String(llm.provider || "").toLowerCase() === "ollama";
       return {
-        configured: Boolean(llm && (llm.apiKey || (isOllama && llm.model))),
+        configured: Boolean(llm && (llm.apiKey || isOllama)),
         provider: llm ? llm.provider : null,
         model: llm ? llm.model ?? null : null,
+        baseURL: llm ? llm.baseURL ?? null : null,
         updatedAt: llm ? llm.updatedAt ?? null : null,
       };
     });
@@ -959,186 +873,44 @@ async function createWindowAndBoot() {
         z.object({
           provider: z.enum(["openai", "anthropic", "gemini", "ollama"]),
           apiKey: z.string().min(10).max(500).optional(),
-          model: z.string().min(1).max(128).optional(),
+          model: z.string().min(1).max(128).optional().nullable(),
+          baseURL: z.string().min(1).max(512).optional().nullable(),
         }),
         args
       );
       const provider = parsed.provider.trim().toLowerCase();
       const apiKey = typeof parsed.apiKey === "string" ? parsed.apiKey.trim() : "";
       const model = typeof parsed.model === "string" ? parsed.model.trim() : "";
+      const baseURL = typeof parsed.baseURL === "string" ? parsed.baseURL.trim() : "";
       if (!(provider === "openai" || provider === "anthropic" || provider === "gemini" || provider === "ollama")) {
         throw new Error("Invalid provider.");
       }
-      if (provider === "ollama") {
-        if (!model) throw new Error("Model is required for Ollama.");
-      } else {
+      if (provider !== "ollama") {
         if (!apiKey || apiKey.length < 10) throw new Error("API key is required.");
       }
 
       const { updatedAt } = saveSecrets({
         userDataDir: storage.userDataDir,
         provider,
-        ...(provider === "ollama" ? { apiKey: null, model } : { apiKey, model: null }),
+        ...(provider === "ollama"
+          ? { apiKey: null, model: model || null, baseURL: baseURL || OLLAMA_DEFAULT_URL }
+          : { apiKey, model: model || null, baseURL: baseURL || null }),
       });
-      // Apply to running engine (best-effort); do not expose secrets to renderer JS.
-      try {
-        if (engine) {
-          await requireEngine().call("engine.configureLlm", {
-            provider,
-            apiKey: provider === "ollama" ? null : apiKey,
-            model: provider === "ollama" ? model : null,
-            baseURL: provider === "ollama" ? OLLAMA_DEFAULT_URL : null,
-          });
-        }
-      } catch (e) {
-        console.warn("[ide] Failed to apply LLM settings to running engine (restart may be required):", e?.message || e);
-      }
       dialog.showMessageBox({
         type: "info",
         message: "LLM settings saved",
-        detail: "Applied to the local engine. Existing runs keep their original provider configuration.",
+        detail: provider === "ollama" ? "Local model preference saved." : "Cloud provider settings saved.",
       }).catch(() => {});
       return { ok: true, updatedAt };
     });
 
     ipcMain.handle("codemm:secrets:clearLlmSettings", async () => {
       clearSecrets({ userDataDir: storage.userDataDir });
-      try {
-        if (engine) {
-          await requireEngine().call("engine.configureLlm", { provider: null, apiKey: null, model: null, baseURL: null });
-        }
-      } catch (e) {
-        console.warn("[ide] Failed to clear running engine LLM config (restart may be required):", e?.message || e);
-      }
       dialog.showMessageBox({
         type: "info",
         message: "LLM settings cleared",
-        detail: "Applied to the local engine. Existing runs keep their original provider configuration.",
+        detail: "Provider preference cleared.",
       }).catch(() => {});
-      return { ok: true };
-    });
-
-    // Ollama helpers (local-only).
-    const ollamaPullSubs = new Map(); // subId -> { buffered: any[], proc: import("child_process").ChildProcess|null }
-
-    const sendOllamaEvent = (subId, event) => {
-      const sub = ollamaPullSubs.get(subId);
-      if (!sub) return;
-      sub.buffered.push(event);
-      if (sub.buffered.length > 200) sub.buffered.shift();
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("codemm:ollama:pullEvent", { subId, event });
-      }
-    };
-
-    const ensureSafeModelName = (raw) => {
-      const s = typeof raw === "string" ? raw.trim() : "";
-      if (!s) return null;
-      if (s.length > 128) throw new Error("Model name is too long.");
-      if (/\s/.test(s)) throw new Error("Model name must not contain whitespace.");
-      return s;
-    };
-
-    async function startOllamaPull({ model, baseURL, subId }) {
-      const ollamaBin = findOllamaBinary();
-      if (!ollamaBin) throw new Error("Ollama is not installed.");
-      sendOllamaEvent(subId, { type: "status", message: `Pulling model \"${model}\"…` });
-      const proc = spawn(ollamaBin, ["pull", model], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-      const sub = ollamaPullSubs.get(subId);
-      if (sub) sub.proc = proc;
-
-      const forward = (stream, buf) => {
-        const text = String(buf ?? "");
-        if (!text) return;
-        sendOllamaEvent(subId, { type: "log", stream, text });
-      };
-      proc.stdout?.on("data", (b) => forward("stdout", b));
-      proc.stderr?.on("data", (b) => forward("stderr", b));
-      proc.on("close", async (code) => {
-        sendOllamaEvent(subId, { type: "done", code: typeof code === "number" ? code : null });
-        try {
-          const st = await getOllamaStatus({ baseURL, model });
-          sendOllamaEvent(subId, { type: "status", message: st.modelPresent ? "Model is ready." : "Pull finished." });
-        } catch {
-          // ignore
-        }
-      });
-    }
-
-    ipcMain.handle("codemm:ollama:getStatus", async (_evt, args) => {
-      const parsed = validate(
-        z
-          .object({
-            model: z.string().min(1).max(128).optional(),
-            baseURL: z.string().min(1).max(256).optional(),
-          })
-          .optional(),
-        args
-      );
-      const model = ensureSafeModelName(parsed?.model ?? null);
-      const baseURL = typeof parsed?.baseURL === "string" ? parsed.baseURL.trim() : OLLAMA_DEFAULT_URL;
-      const st = await getOllamaStatus({ baseURL, model });
-      return {
-        installed: st.installed,
-        running: st.running,
-        version: st.version,
-        baseURL: st.baseURL,
-        model,
-        modelPresent: st.modelPresent,
-        models: st.models,
-        error: st.error,
-      };
-    });
-
-    ipcMain.handle("codemm:ollama:ensure", async (_evt, args) => {
-      const parsed = validate(
-        z.object({
-          model: z.string().min(1).max(128),
-          baseURL: z.string().min(1).max(256).optional(),
-        }),
-        args
-      );
-      const model = ensureSafeModelName(parsed.model);
-      const baseURL = typeof parsed.baseURL === "string" ? parsed.baseURL.trim() : OLLAMA_DEFAULT_URL;
-      if (!model) throw new Error("Model is required.");
-
-      const st0 = await getOllamaStatus({ baseURL, model });
-      if (!st0.installed) return { ok: false, reason: "OLLAMA_NOT_INSTALLED" };
-
-      if (!st0.running) {
-        const bin = findOllamaBinary();
-        if (!bin) return { ok: false, reason: "OLLAMA_NOT_INSTALLED" };
-        const started = await startOllamaServe(bin, { baseURL });
-        if (!started.ok) return { ok: false, reason: "OLLAMA_START_FAILED", detail: started.reason };
-      }
-
-      const st1 = await getOllamaStatus({ baseURL, model });
-      if (st1.modelPresent) {
-        return { ok: true, pulling: false, status: { ...st1, ollamaBin: undefined } };
-      }
-
-      const subId = crypto.randomUUID();
-      ollamaPullSubs.set(subId, { buffered: [], proc: null });
-      sendOllamaEvent(subId, { type: "status", message: "Starting model pull…" });
-      startOllamaPull({ model, baseURL, subId }).catch((e) => {
-        sendOllamaEvent(subId, { type: "error", message: e?.message || "Pull failed." });
-        sendOllamaEvent(subId, { type: "done", code: null });
-      });
-      return { ok: true, pulling: true, subId, buffered: ollamaPullSubs.get(subId)?.buffered ?? [] };
-    });
-
-    ipcMain.handle("codemm:ollama:unsubscribePull", async (_evt, args) => {
-      const parsed = validate(z.object({ subId: z.string().min(1).max(128) }), args);
-      const subId = reqString(parsed.subId, "subId");
-      const sub = ollamaPullSubs.get(subId);
-      if (sub && sub.proc) {
-        try {
-          killProcessTree(sub.proc);
-        } catch {
-          // ignore
-        }
-      }
-      ollamaPullSubs.delete(subId);
       return { ok: true };
     });
 
@@ -1147,8 +919,142 @@ async function createWindowAndBoot() {
       if (!s) throw new Error(`${name} is required.`);
       return s;
     };
+    const llmStatusSubs = new Map();
 
-    const engineCall = (method, params) => requireEngine().call(method, params);
+    const buildRemoteSnapshot = (llm) => {
+      if (!llm || !llm.provider) return null;
+      const provider = String(llm.provider).trim().toLowerCase();
+      if (provider !== "openai" && provider !== "anthropic" && provider !== "gemini") return null;
+      if (!(llm.apiKey && String(llm.apiKey).trim())) {
+        throw new Error(`Missing API key for ${provider}.`);
+      }
+      return {
+        provider,
+        apiKey: llm.apiKey,
+        ...(llm.model ? { model: llm.model } : {}),
+        ...(llm.baseURL ? { baseURL: llm.baseURL } : {}),
+        revision: `remote-${provider}`,
+      };
+    };
+
+    const broadcastLlmStatus = (status) => {
+      for (const subId of llmStatusSubs.keys()) {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("codemm:llm:statusEvent", { subId, status });
+        }
+      }
+    };
+
+    requireLocalLlmOrchestrator().subscribe((status) => {
+      broadcastLlmStatus(status);
+    });
+
+    const resolveLlmSnapshotForMethod = async (method, opts = {}) => {
+      const llm = loadSecrets({ userDataDir: storage.userDataDir }).llm;
+      if (!llm || !llm.provider) {
+        throw new Error("No LLM configured.");
+      }
+
+      const provider = String(llm.provider).trim().toLowerCase();
+      if (provider === "ollama") {
+        const snapshot = await requireLocalLlmOrchestrator().acquireLease({
+          reason: method,
+          useCase: opts.useCase || "general",
+          ...(typeof llm.model === "string" && llm.model.trim() ? { forcedModel: llm.model.trim() } : {}),
+        });
+        return { snapshot, release: async () => requireLocalLlmOrchestrator().releaseLease(snapshot.leaseId) };
+      }
+
+      const snapshot = buildRemoteSnapshot(llm);
+      if (!snapshot) {
+        throw new Error(`Unsupported provider "${provider}".`);
+      }
+      return { snapshot, release: async () => {} };
+    };
+
+    const engineCall = async (method, params, opts = {}) => {
+      if (!opts.llm) return requireEngine().call(method, params);
+      const { snapshot, release } = await resolveLlmSnapshotForMethod(method, opts);
+      try {
+        return await requireEngine().call(method, params, { llmSnapshot: snapshot });
+      } catch (err) {
+        if (snapshot?.provider === "ollama") {
+          try {
+            requireLocalLlmOrchestrator().markDegraded(err);
+          } catch {
+            // ignore degradation bookkeeping failures
+          }
+        }
+        throw err;
+      } finally {
+        await release();
+      }
+    };
+
+    ipcMain.handle("codemm:llm:getStatus", async () => {
+      const llm = loadSecrets({ userDataDir: storage.userDataDir }).llm;
+      return {
+        activeProvider: llm?.provider ?? null,
+        configured: Boolean(llm && (llm.apiKey || String(llm.provider || "").toLowerCase() === "ollama")),
+        local: requireLocalLlmOrchestrator().getStatus(),
+      };
+    });
+
+    ipcMain.handle("codemm:llm:ensureReady", async (_evt, args) => {
+      const parsed = validate(
+        z
+          .object({
+            activateOnSuccess: z.boolean().optional(),
+            forcedModel: z.string().min(1).max(128).optional().nullable(),
+            useCase: z.enum(["general", "dialogue", "generation", "edit"]).optional(),
+          })
+          .optional(),
+        args
+      );
+      const ready = await requireLocalLlmOrchestrator().ensureReady({
+        activateOnSuccess: parsed?.activateOnSuccess === true,
+        forcedModel: typeof parsed?.forcedModel === "string" ? parsed.forcedModel : null,
+        useCase: parsed?.useCase ?? "general",
+      });
+      return { ok: true, ready, status: requireLocalLlmOrchestrator().getStatus() };
+    });
+
+    ipcMain.handle("codemm:llm:acquireLease", async (_evt, args) => {
+      const parsed = validate(
+        z
+          .object({
+            reason: z.string().min(1).max(256),
+            forcedModel: z.string().min(1).max(128).optional().nullable(),
+            useCase: z.enum(["general", "dialogue", "generation", "edit"]).optional(),
+          })
+          .passthrough(),
+        args
+      );
+      const snapshot = await requireLocalLlmOrchestrator().acquireLease({
+        reason: parsed.reason,
+        forcedModel: typeof parsed.forcedModel === "string" ? parsed.forcedModel : null,
+        useCase: parsed.useCase ?? "general",
+      });
+      return { ok: true, snapshot };
+    });
+
+    ipcMain.handle("codemm:llm:releaseLease", async (_evt, args) => {
+      const parsed = validate(z.object({ leaseId: z.string().min(1).max(128) }), args);
+      await requireLocalLlmOrchestrator().releaseLease(parsed.leaseId);
+      return { ok: true };
+    });
+
+    ipcMain.handle("codemm:llm:subscribeStatus", async () => {
+      const subId = crypto.randomUUID();
+      llmStatusSubs.set(subId, true);
+      return { subId, buffered: [requireLocalLlmOrchestrator().getStatus()] };
+    });
+
+    ipcMain.handle("codemm:llm:unsubscribeStatus", async (_evt, args) => {
+      const parsed = validate(z.object({ subId: z.string().min(1).max(128) }), args);
+      llmStatusSubs.delete(parsed.subId);
+      return { ok: true };
+    });
 
     // Threads (local-only; no HTTP boundary).
     ipcMain.handle("codemm:threads:create", async (_evt, args) => {
@@ -1206,19 +1112,19 @@ async function createWindowAndBoot() {
       const threadId = reqString(parsed.threadId, "threadId");
       const message = reqString(parsed.message, "message");
       if (message.length > 50_000) throw new Error("message is too large.");
-      return engineCall("threads.postMessage", { threadId, message });
+      return engineCall("threads.postMessage", { threadId, message }, { llm: true, useCase: "dialogue" });
     });
 
     ipcMain.handle("codemm:threads:generate", async (_evt, args) => {
       const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
       const threadId = reqString(parsed.threadId, "threadId");
-      return engineCall("threads.generate", { threadId });
+      return engineCall("threads.generate", { threadId }, { llm: true, useCase: "generation" });
     });
 
     ipcMain.handle("codemm:threads:generateV2", async (_evt, args) => {
       const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
       const threadId = reqString(parsed.threadId, "threadId");
-      return engineCall("threads.generateV2", { threadId });
+      return engineCall("threads.generateV2", { threadId }, { llm: true, useCase: "generation" });
     });
 
     ipcMain.handle("codemm:threads:regenerateSlot", async (_evt, args) => {
@@ -1243,7 +1149,7 @@ async function createWindowAndBoot() {
         threadId,
         slotIndex: parsed.slotIndex,
         ...(typeof parsed.strategy === "string" ? { strategy: parsed.strategy } : {}),
-      });
+      }, { llm: true, useCase: "generation" });
     });
 
     ipcMain.handle("codemm:threads:getGenerationDiagnostics", async (_evt, args) => {
@@ -1329,7 +1235,7 @@ async function createWindowAndBoot() {
       const problemId = reqString(parsed.problemId, "problemId");
       const instruction = reqString(parsed.instruction, "instruction");
       if (instruction.length > 8_000) throw new Error("instruction is too large.");
-      return engineCall("activities.aiEdit", { id, problemId, instruction });
+      return engineCall("activities.aiEdit", { id, problemId, instruction }, { llm: true, useCase: "edit" });
     });
 
     // Judge (Docker-backed)
@@ -1713,9 +1619,6 @@ async function createWindowAndBoot() {
     prependToPath(baseEnv, dockerDir);
   }
 
-  // Load locally stored LLM settings (if configured). Secrets never go to renderer JS.
-  const secrets = loadSecrets({ userDataDir: storage.userDataDir }).llm;
-
   // Ensure monorepo dependencies exist (npm workspaces).
   {
     if (!app.isPackaged) {
@@ -1823,16 +1726,6 @@ async function createWindowAndBoot() {
     backendProc.shutdown();
     app.quit();
     return;
-  }
-
-  // Configure LLM provider in-memory in the engine (avoid passing API keys via env).
-  try {
-    const provider = secrets && typeof secrets.provider === "string" ? secrets.provider.trim().toLowerCase() : null;
-    const apiKey = secrets && typeof secrets.apiKey === "string" ? secrets.apiKey : null;
-    const model = secrets && typeof secrets.model === "string" ? secrets.model : null;
-    await backendProc.call("engine.configureLlm", { provider, apiKey, model, baseURL: null });
-  } catch {
-    // ignore; engine will error later if generation is attempted without configuration
   }
 
   const preferredFrontendPort = DEFAULT_FRONTEND_PORT;
