@@ -1138,19 +1138,24 @@ export default function Home() {
 
                 {chatLoading && (
                   <div className="flex justify-start">
-                    <div className={`flex items-center gap-2 rounded-2xl px-4 py-3 ${darkMode ? "bg-slate-900/60" : "bg-slate-100"}`}>
-                      <span
-                        className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
-                        style={{ animationDelay: "0ms" }}
-                      />
-                      <span
-                        className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
-                        style={{ animationDelay: "150ms" }}
-                      />
-                      <span
-                        className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
-                        style={{ animationDelay: "300ms" }}
-                      />
+                    <div className={`flex items-center gap-3 rounded-2xl px-4 py-3 ${darkMode ? "bg-slate-900/60" : "bg-slate-100"}`}>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
+                          style={{ animationDelay: "0ms" }}
+                        />
+                        <span
+                          className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
+                          style={{ animationDelay: "150ms" }}
+                        />
+                        <span
+                          className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
+                          style={{ animationDelay: "300ms" }}
+                        />
+                      </div>
+                      <span className={`text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                        Codemm is preparing a reply
+                      </span>
                     </div>
                   </div>
                 )}
