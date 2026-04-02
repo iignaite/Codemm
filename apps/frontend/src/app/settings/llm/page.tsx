@@ -102,6 +102,27 @@ function localStateLabel(state: string | null | undefined) {
   }
 }
 
+function localSummary(state: string | null | undefined, model: string | null | undefined) {
+  switch (state) {
+    case "READY":
+      return model ? `Codemm is ready to use ${model}.` : "Codemm is ready to use your local model.";
+    case "INSTALLING":
+      return "Installing the local runtime.";
+    case "STARTING":
+      return "Starting the local runtime.";
+    case "PULLING_MODEL":
+      return model ? `Downloading ${model}.` : "Downloading the selected model.";
+    case "PROBING":
+      return model ? `Warming ${model} for first use.` : "Warming the local model.";
+    case "FAILED":
+      return "Local setup needs attention before it can be used.";
+    case "DEGRADED":
+      return "The local runtime needs to recover before it can be used.";
+    default:
+      return "Set up a local model for Codemm.";
+  }
+}
+
 export default function LlmSettingsPage() {
   const { darkMode } = useThemeMode();
 
@@ -252,6 +273,8 @@ export default function LlmSettingsPage() {
   }
 
   const local = llmStatus?.local ?? null;
+  const isLocalActive = status?.provider === "ollama" && local?.state === "READY";
+  const activeModel = local?.runtime.activeModel || status?.model || null;
   const localOperationMeta = useMemo(() => {
     if (!local?.operation) return null;
     const downloaded = formatBytes(local.operation.downloaded);
@@ -260,6 +283,13 @@ export default function LlmSettingsPage() {
     if (downloaded) return downloaded;
     return null;
   }, [local]);
+  const localPrimaryCopy = activatingLocal
+    ? local?.operation?.message || "Preparing your local model…"
+    : isLocalActive
+      ? activeModel
+        ? `Codemm is now using ${activeModel}.`
+        : "Codemm is now using your local Ollama model."
+      : localSummary(local?.state, activeModel);
 
   return (
     <div className={`min-h-screen transition-colors ${darkMode ? "bg-slate-900 text-slate-100" : "bg-white text-slate-900"}`}>
@@ -268,7 +298,7 @@ export default function LlmSettingsPage() {
           <div>
             <h1 className="text-2xl font-semibold">LLM Settings</h1>
             <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-              Cloud providers use locally stored API keys. Local fallback uses a one-button Ollama runtime that installs, starts, pulls, probes, and activates automatically.
+              Choose a cloud API key or let Codemm run a local Ollama model on this machine.
             </p>
           </div>
           <button
@@ -283,10 +313,27 @@ export default function LlmSettingsPage() {
 
         <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <section className={`rounded-2xl border p-5 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
-            <h2 className="text-lg font-semibold">Use Local Model</h2>
-            <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-              One action triggers runtime detection, installation when needed, server startup, model selection, pull, probe, and provider activation.
-            </p>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold">Local Model</h2>
+                <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                  Codemm can install and use Ollama automatically.
+                </p>
+              </div>
+              <div
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  isLocalActive
+                    ? darkMode
+                      ? "bg-emerald-950 text-emerald-200"
+                      : "bg-emerald-50 text-emerald-700"
+                    : darkMode
+                      ? "bg-slate-800 text-slate-300"
+                      : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {isLocalActive ? "Using local model" : "Not using local model"}
+              </div>
+            </div>
 
             {error ? (
               <div className={`mt-4 rounded-lg px-3 py-2 text-sm ${darkMode ? "bg-rose-950 text-rose-200" : "bg-rose-50 text-rose-700"}`}>
@@ -294,39 +341,50 @@ export default function LlmSettingsPage() {
               </div>
             ) : null}
 
-            <div className={`mt-5 rounded-xl border p-4 ${darkMode ? "border-slate-800 bg-slate-900/60" : "border-slate-200 bg-slate-50"}`}>
+            <div className={`mt-5 rounded-xl border p-5 ${darkMode ? "border-slate-800 bg-slate-900/60" : "border-slate-200 bg-slate-50"}`}>
+              <div className="text-xl font-semibold">{localPrimaryCopy}</div>
+              <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                {isLocalActive
+                  ? "New chat, generation, hint, and edit requests will use the local model."
+                  : activatingLocal
+                    ? "This may take a few minutes the first time."
+                    : "Click once to set up Ollama and switch Codemm to local inference."}
+              </p>
+
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <div className="text-sm font-medium">Local runtime status</div>
+                  <div className="text-sm font-medium">Status</div>
                   <div className={`mt-1 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
                     {localStateLabel(local?.state)}
                   </div>
                 </div>
                 <button
                   className={`rounded-lg px-4 py-2 text-sm font-semibold ${
-                    darkMode ? "bg-emerald-600 hover:bg-emerald-500 text-white" : "bg-emerald-600 hover:bg-emerald-500 text-white"
+                    isLocalActive
+                      ? darkMode
+                        ? "bg-slate-800 text-slate-300"
+                        : "bg-slate-100 text-slate-600"
+                      : darkMode
+                        ? "bg-emerald-600 hover:bg-emerald-500 text-white"
+                        : "bg-emerald-600 hover:bg-emerald-500 text-white"
                   } ${activatingLocal || loading ? "opacity-60" : ""}`}
                   onClick={activateLocalModel}
-                  disabled={loading || activatingLocal}
+                  disabled={loading || activatingLocal || isLocalActive}
                 >
-                  {activatingLocal ? "Preparing local model…" : "Use Local Model"}
+                  {activatingLocal ? "Preparing local model…" : isLocalActive ? "Local model in use" : "Use Local Model"}
                 </button>
               </div>
 
               <div className="mt-4 grid gap-2 text-sm">
-                <div>Provider: {status?.provider === "ollama" ? "Local model active" : "Not active"}</div>
-                <div>Model: {local?.runtime.activeModel || "Not selected yet"}</div>
-                <div>Runtime URL: {local?.runtime.baseURL || "Unavailable"}</div>
-                <div>Version: {local?.runtime.version || "Unknown"}</div>
-                <div>Leases: {typeof local?.runtime.leaseCount === "number" ? local.runtime.leaseCount : 0}</div>
+                <div>Current model: {activeModel || "Choosing a model..."}</div>
+                <div>{isLocalActive ? "Inference is currently routed to your local model." : "Codemm will switch to the local model when setup finishes."}</div>
               </div>
 
               {local?.operation ? (
                 <div className={`mt-4 rounded-lg px-3 py-3 text-sm ${darkMode ? "bg-slate-950 text-slate-200" : "bg-white text-slate-700"}`}>
                   <div className="font-medium">{local.operation.message}</div>
                   <div className={`mt-1 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                    Step: {local.operation.kind}
-                    {local.operation.model ? ` • ${local.operation.model}` : ""}
+                    {local.operation.model ? `${local.operation.model}` : local.operation.kind}
                     {localOperationMeta ? ` • ${localOperationMeta}` : ""}
                   </div>
                 </div>
@@ -334,23 +392,30 @@ export default function LlmSettingsPage() {
 
               {local?.runtime.lastError ? (
                 <div className={`mt-4 rounded-lg px-3 py-3 text-sm ${darkMode ? "bg-rose-950 text-rose-200" : "bg-rose-50 text-rose-700"}`}>
-                  <div className="font-medium">{local.runtime.lastError.code}</div>
+                  <div className="font-medium">Local setup needs attention</div>
                   <div className="mt-1">{local.runtime.lastError.message}</div>
                 </div>
               ) : null}
 
-              {local?.runtime.lastReadyAt ? (
-                <div className={`mt-4 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                  Last ready check: {new Date(local.runtime.lastReadyAt).toLocaleString()}
+              <details className={`mt-4 rounded-lg border px-3 py-3 text-sm ${darkMode ? "border-slate-800 bg-slate-950 text-slate-300" : "border-slate-200 bg-white text-slate-600"}`}>
+                <summary className="cursor-pointer font-medium">Technical details</summary>
+                <div className="mt-3 grid gap-2 text-sm">
+                  <div>Runtime URL: {local?.runtime.baseURL || "Unavailable"}</div>
+                  <div>Version: {local?.runtime.version || "Unknown"}</div>
+                  <div>Leases: {typeof local?.runtime.leaseCount === "number" ? local.runtime.leaseCount : 0}</div>
+                  <div>Configured provider: {status?.provider || "None"}</div>
+                  <div>Last updated: {status?.updatedAt ? new Date(status.updatedAt).toLocaleString() : "Never"}</div>
+                  {local?.runtime.lastReadyAt ? <div>Last ready check: {new Date(local.runtime.lastReadyAt).toLocaleString()}</div> : null}
+                  {local?.runtime.lastError ? <div>Error code: {local.runtime.lastError.code}</div> : null}
                 </div>
-              ) : null}
+              </details>
             </div>
           </section>
 
           <section className={`rounded-2xl border p-5 ${darkMode ? "border-slate-800 bg-slate-950" : "border-slate-200 bg-white"}`}>
-            <h2 className="text-lg font-semibold">Use Cloud Provider</h2>
+            <h2 className="text-lg font-semibold">Cloud Provider</h2>
             <p className={`mt-2 text-sm ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
-              Cloud providers stay available. Saving a key switches new LLM work to that provider until local mode is activated again.
+              Save an API key here if you want to switch away from the local model.
             </p>
 
             <div className="mt-5 grid gap-4">
@@ -393,7 +458,7 @@ export default function LlmSettingsPage() {
                 onClick={saveRemoteProvider}
                 disabled={saving || !apiKey.trim()}
               >
-                {saving ? "Saving…" : "Save Cloud Provider"}
+                {saving ? "Saving…" : "Use Cloud Provider"}
               </button>
               <button
                 className={`rounded-lg px-4 py-2 text-sm font-semibold ${
@@ -409,10 +474,18 @@ export default function LlmSettingsPage() {
         </div>
 
         <div className={`mt-6 rounded-2xl border p-5 text-sm ${darkMode ? "border-slate-800 bg-slate-950 text-slate-300" : "border-slate-200 bg-white text-slate-600"}`}>
-          <div>Active provider: {llmStatus?.activeProvider || status?.provider || "None"}</div>
-          <div className="mt-1">Configured: {status?.configured ? "Yes" : "No"}</div>
-          <div className="mt-1">Last updated: {status?.updatedAt ? new Date(status.updatedAt).toLocaleString() : "Never"}</div>
-          {status?.provider === "ollama" && local?.runtime.activeModel ? <div className="mt-1">Pinned local model: {local.runtime.activeModel}</div> : null}
+          <div className="font-medium">
+            {isLocalActive
+              ? `Currently using local model${activeModel ? `: ${activeModel}` : ""}`
+              : status?.provider
+                ? `Currently using ${status.provider}`
+                : "No provider configured"}
+          </div>
+          <div className="mt-1">
+            {isLocalActive
+              ? "Codemm is routing LLM requests to Ollama on this machine."
+              : "Switch to a local model or save a cloud API key."}
+          </div>
         </div>
       </div>
     </div>
