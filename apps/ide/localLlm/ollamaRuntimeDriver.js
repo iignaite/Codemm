@@ -28,6 +28,13 @@ function tail(text, limit = 1200) {
   return value.length > limit ? value.slice(value.length - limit) : value;
 }
 
+function isTimeoutError(err) {
+  if (!err) return false;
+  if (err.name === "TimeoutError") return true;
+  const message = typeof err.message === "string" ? err.message : String(err);
+  return /timed out|timeout|aborted due to timeout/i.test(message);
+}
+
 function findOllamaBinary(explicitPath) {
   if (explicitPath && existsExecutable(explicitPath)) return explicitPath;
   if (process.env.OLLAMA_PATH && existsExecutable(process.env.OLLAMA_PATH)) return process.env.OLLAMA_PATH;
@@ -340,45 +347,63 @@ async function pullModel({ binaryPath, model, onProgress }) {
 
 async function probeReadiness({ baseURL, model }) {
   const normalizedBaseUrl = String(baseURL || OLLAMA_DEFAULT_URL).replace(/\/+$/, "");
-  try {
-    const response = await fetch(`${normalizedBaseUrl}/api/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        options: { temperature: 0, num_predict: 16 },
-        messages: [
-          { role: "system", content: "Reply with READY only." },
-          { role: "user", content: "READY" },
-        ],
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${text.slice(0, 400)}`);
-    }
-    let parsed;
+  const probeTimeoutsMs = [30_000, 90_000];
+  let lastError = null;
+
+  for (let index = 0; index < probeTimeoutsMs.length; index += 1) {
+    const timeoutMs = probeTimeoutsMs[index];
     try {
-      parsed = JSON.parse(text);
-    } catch {
-      throw new Error(`non-JSON response: ${text.slice(0, 200)}`);
+      const response = await fetch(`${normalizedBaseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          keep_alive: "10m",
+          options: { temperature: 0, num_predict: 8 },
+          messages: [
+            { role: "system", content: "Reply with READY only." },
+            { role: "user", content: "READY" },
+          ],
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${text.slice(0, 400)}`);
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error(`non-JSON response: ${text.slice(0, 200)}`);
+      }
+      const content =
+        (parsed && parsed.message && typeof parsed.message.content === "string" ? parsed.message.content : "") ||
+        (parsed && typeof parsed.response === "string" ? parsed.response : "");
+      if (!content.trim()) {
+        throw new Error("empty completion");
+      }
+      return { ok: true, content, timeoutMs };
+    } catch (err) {
+      lastError = err;
+      if (!isTimeoutError(err) || index === probeTimeoutsMs.length - 1) {
+        break;
+      }
+      await sleep(1_000);
     }
-    const content =
-      (parsed && parsed.message && typeof parsed.message.content === "string" ? parsed.message.content : "") ||
-      (parsed && typeof parsed.response === "string" ? parsed.response : "");
-    if (!content.trim()) {
-      throw new Error("empty completion");
-    }
-    return { ok: true, content };
-  } catch (err) {
-    throw asLocalLlmError(err, {
-      code: "PROBE_FAILED",
-      stage: "PROBING",
-      message: `Probe inference failed for Ollama model "${model}".`,
-    });
   }
+
+  throw asLocalLlmError(lastError, {
+    code: "PROBE_FAILED",
+    stage: "PROBING",
+    message: `Probe inference failed for Ollama model "${model}".`,
+    detail: {
+      model,
+      baseURL: normalizedBaseUrl,
+      attemptedTimeoutsMs: probeTimeoutsMs,
+    },
+  });
 }
 
 module.exports = {
