@@ -3,7 +3,7 @@ import type { ProblemPlan } from "../planner/types";
 import type { GeneratedProblem, GeneratedProblemDraft } from "../contracts/problem";
 import type { GenerationOutcome } from "../contracts/generationOutcome";
 import type { AttemptDiagnostic, GenerationArtifactSet, SlotIntent } from "../contracts/generationDiagnostics";
-import { generateSingleProblem } from "./perSlotGenerator";
+import { generateSingleProblem, type RepairContext } from "./perSlotGenerator";
 import {
   ReferenceSolutionValidationError,
   validateReferenceSolution,
@@ -280,7 +280,8 @@ export async function generateProblemsFromPlan(
 
   for (const slot of plan.slice(initialCount)) {
     const maxAttempts = defaultMaxAttempts;
-    const slotIntent = buildSlotIntent(slot);
+  const slotIntent = buildSlotIntent(slot);
+  const repairHistory: NonNullable<RepairContext["history"]> = [];
     const domainSeed = pickDomain(`${slot.language}:${slot.difficulty}:${slot.topics.join(",")}:${slot.index}`);
     const promptContext: SlotPromptContext = {
       domain: domainSeed,
@@ -317,15 +318,7 @@ export async function generateProblemsFromPlan(
     let lastExpensiveFailure:
       | { fingerprint: string; error: ReferenceSolutionValidationError | TestStrengthGateError }
       | null = null;
-    let repair:
-      | {
-          previousDraft?: GeneratedProblemDraft;
-          previousRaw?: string;
-          errorMessage?: string;
-          judgeStdout?: string;
-          judgeStderr?: string;
-        }
-      | undefined;
+    let repair: RepairContext | undefined;
 
     while (!problem && attempts < maxAttempts) {
       attempts++;
@@ -438,7 +431,24 @@ export async function generateProblemsFromPlan(
           repair = {
             ...(typeof err.rawSnippet === "string" ? { previousRaw: err.rawSnippet } : {}),
             ...(typeof err.message === "string" && err.message ? { errorMessage: err.message } : {}),
+            history: [
+              ...repairHistory,
+              {
+                attempt: attempts,
+                phase: "contract",
+                message: String(err.message ?? "").slice(0, 600),
+                strategy: "retry_full_slot",
+                ...(typeof err.obligationId === "string" && err.obligationId ? { obligationId: err.obligationId } : {}),
+              },
+            ],
           };
+          repairHistory.push({
+            attempt: attempts,
+            phase: "contract",
+            message: String(err.message ?? "").slice(0, 600),
+            strategy: "retry_full_slot",
+            ...(typeof err.obligationId === "string" && err.obligationId ? { obligationId: err.obligationId } : {}),
+          });
           onProgress?.({
             type: "slot_repair_applied",
             slotIndex: slot.index,
@@ -463,7 +473,22 @@ export async function generateProblemsFromPlan(
           repair = {
             ...(lastDraft ? { previousRaw: JSON.stringify(lastDraft).slice(0, 2400) } : {}),
             errorMessage: err.message,
+            history: [
+              ...repairHistory,
+              {
+                attempt: attempts,
+                phase: "quality",
+                message: String(err.message ?? "").slice(0, 600),
+                strategy: "repair_test_suite",
+              },
+            ],
           };
+          repairHistory.push({
+            attempt: attempts,
+            phase: "quality",
+            message: String(err.message ?? "").slice(0, 600),
+            strategy: "repair_test_suite",
+          });
           onProgress?.({
             type: "slot_repair_applied",
             slotIndex: slot.index,
@@ -490,7 +515,22 @@ export async function generateProblemsFromPlan(
             judgeStdout: err.judgeStdout,
             judgeStderr: err.judgeStderr,
             errorMessage: err.message,
+            history: [
+              ...repairHistory,
+              {
+                attempt: attempts,
+                phase: "validate",
+                message: String(err.message ?? "").slice(0, 600),
+                strategy: slot.language === "java" ? "repair_reference_solution" : "retry_full_slot",
+              },
+            ],
           };
+          repairHistory.push({
+            attempt: attempts,
+            phase: "validate",
+            message: String(err.message ?? "").slice(0, 600),
+            strategy: slot.language === "java" ? "repair_reference_solution" : "retry_full_slot",
+          });
           onProgress?.({
             type: "slot_repair_applied",
             slotIndex: slot.index,

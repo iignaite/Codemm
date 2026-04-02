@@ -76,6 +76,7 @@ export default function Home() {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [learningMode, setLearningMode] = useState<LearningMode>("practice");
   const [generationLocked, setGenerationLocked] = useState(false);
+  const generationLoadingRef = useRef(false);
   const [specReady, setSpecReady] = useState(false);
   const specReadyRef = useRef(false);
   const chatLoadingRef = useRef(false);
@@ -154,6 +155,7 @@ export default function Home() {
       setProgressHint(null);
       setGenerationRunId(null);
       setGenerationLocked(false);
+      generationLoadingRef.current = false;
       setMessages([]);
       setChatInput("");
       setHasInteracted(false);
@@ -196,6 +198,7 @@ export default function Home() {
       setProgressHint(null);
       setGenerationRunId(null);
       setGenerationLocked(false);
+      generationLoadingRef.current = false;
       setMessages([]);
       setChatInput("");
       setHasInteracted(false);
@@ -426,10 +429,11 @@ export default function Home() {
   }
 
   async function handleGenerate() {
-    if (!threadId || !specReady) {
+    if (!threadId || !specReady || generationLoadingRef.current) {
       return;
     }
 
+    generationLoadingRef.current = true;
     setLoading(true);
     setGenerationLocked(true);
     let runIdForDiagnostics: string | null = null;
@@ -763,9 +767,11 @@ export default function Home() {
         {
           role: "assistant",
           tone: "hint",
-          content: diagnosticMessage
-            ? `Failed to generate activity. ${diagnosticMessage}`
-            : "Failed to generate activity. Please try again.",
+          content: /session state is GENERATING/i.test(e instanceof Error ? e.message : String(e ?? ""))
+            ? "Generation is already running. Please wait for the current attempt to finish."
+            : diagnosticMessage
+              ? `Failed to generate activity. ${diagnosticMessage}`
+              : "Failed to generate activity. Please try again.",
         },
       ]);
     } finally {
@@ -776,6 +782,7 @@ export default function Home() {
         // ignore
       }
       setLoading(false);
+      generationLoadingRef.current = false;
     }
   }
 
