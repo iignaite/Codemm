@@ -7,6 +7,13 @@ const { commandExists, downloadToFile, existsExecutable, httpGetJson, runCommand
 
 const OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434";
 
+function getMacAppBinaryCandidates(appRoot) {
+  return [
+    path.join(appRoot, "Contents", "Resources", "ollama"),
+    path.join(appRoot, "Contents", "MacOS", "Ollama"),
+  ];
+}
+
 function findOllamaBinary(explicitPath) {
   if (explicitPath && existsExecutable(explicitPath)) return explicitPath;
   if (process.env.OLLAMA_PATH && existsExecutable(process.env.OLLAMA_PATH)) return process.env.OLLAMA_PATH;
@@ -18,7 +25,8 @@ function findOllamaBinary(explicitPath) {
     candidates.push(
       "/usr/local/bin/ollama",
       "/opt/homebrew/bin/ollama",
-      path.join(os.homedir(), "Applications", "Ollama.app", "Contents", "MacOS", "Ollama")
+      ...getMacAppBinaryCandidates("/Applications/Ollama.app"),
+      ...getMacAppBinaryCandidates(path.join(os.homedir(), "Applications", "Ollama.app"))
     );
   } else if (process.platform === "win32") {
     const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
@@ -63,7 +71,7 @@ function getManagedInstallPaths(userDataDir) {
       rootDir,
       downloadsDir,
       archivePath: path.join(downloadsDir, "ollama-darwin.zip"),
-      managedBinaryPath: path.join(rootDir, "Ollama.app", "Contents", "MacOS", "Ollama"),
+      managedBinaryPath: path.join(rootDir, "Ollama.app", "Contents", "Resources", "ollama"),
     };
   }
   if (process.platform === "win32") {
