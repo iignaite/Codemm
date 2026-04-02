@@ -16,6 +16,7 @@ import type { SlotPromptContext } from "../languages/types";
 import { applyGuidedScaffoldingAsync } from "./scaffolding";
 import { runTestStrengthGate, TestStrengthGateError } from "./testStrengthGate";
 import { deriveSlotObligations } from "./obligations";
+import { isValidJUnit5TestSuiteCountRange, pruneJUnitTestMethods } from "../languages/java/rules";
 
 /**
  * Discard reference_solution from GeneratedProblemDraft to produce GeneratedProblem.
@@ -93,6 +94,37 @@ function buildArtifactSet(draft: GeneratedProblemDraft): GenerationArtifactSet {
     language: draft.language,
     hasWorkspace: Boolean((draft as any)?.workspace || (draft as any)?.reference_workspace),
     hashes,
+  };
+}
+
+function extractFailedJavaTestNames(output: string): string[] {
+  const clean = String(output ?? "");
+  const names = new Set<string>();
+  const re = /\b([A-Za-z_][A-Za-z0-9_]*)\(\)\s+\[X\]\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(clean)) !== null) {
+    if (match[1]) names.add(match[1]);
+  }
+  return [...names];
+}
+
+function maybeDropFailingJavaTests(
+  draft: GeneratedProblemDraft,
+  err: ReferenceSolutionValidationError
+): { draft: GeneratedProblemDraft; droppedTests: string[] } | null {
+  if (draft.language !== "java") return null;
+  if (!("test_suite" in draft) || typeof draft.test_suite !== "string") return null;
+
+  const failedTests = extractFailedJavaTestNames(`${err.judgeStdout ?? ""}\n${err.judgeStderr ?? ""}`);
+  if (failedTests.length === 0) return null;
+
+  const pruned = pruneJUnitTestMethods(draft.test_suite, failedTests);
+  if (pruned.dropped.length === 0) return null;
+  if (!isValidJUnit5TestSuiteCountRange(pruned.testSuite, 1, 8)) return null;
+
+  return {
+    draft: { ...draft, test_suite: pruned.testSuite },
+    droppedTests: pruned.dropped,
   };
 }
 
@@ -499,6 +531,51 @@ export async function generateProblemsFromPlan(
         }
 
         if (err instanceof ReferenceSolutionValidationError && lastDraft) {
+          if (slot.language === "java" && err.kind === "tests") {
+            const degraded = maybeDropFailingJavaTests(lastDraft, err);
+            if (degraded) {
+              try {
+                await validateReferenceSolutionFn(degraded.draft);
+                const finalizedDraft = slot.pedagogy
+                  ? { ...(await applyGuidedScaffoldingAsync(degraded.draft, slot)), pedagogy: slot.pedagogy }
+                  : degraded.draft;
+
+                problem = discardReferenceArtifacts(finalizedDraft);
+                lastDraft = degraded.draft;
+
+                onProgress?.({
+                  type: "slot_repair_applied",
+                  slotIndex: slot.index,
+                  attempt: attempts,
+                  strategy: "repair_test_suite",
+                  detail: `Dropped failing JUnit tests: ${degraded.droppedTests.join(", ")}.`,
+                });
+                onProgress?.({
+                  type: "slot_attempt_summary",
+                  slotIndex: slot.index,
+                  attempt: attempts,
+                  maxAttempts,
+                  phase: "complete",
+                  status: "success",
+                  ...(typeof lastLlmOutputHash === "string" ? { llmOutputHash: lastLlmOutputHash } : {}),
+                  ...(lastLlmMeta ? { llm: lastLlmMeta } : {}),
+                  slotIntent,
+                  artifactSet: buildArtifactSet(degraded.draft),
+                });
+                onProgress?.({ type: "slot_completed", slotIndex: slot.index });
+                onProgress?.({ type: "problem_validated", index: slot.index });
+                trace("generation.attempt.success.degraded_tests", {
+                  slotIndex: slot.index,
+                  attempts,
+                  droppedTests: degraded.droppedTests,
+                });
+                continue;
+              } catch {
+                // Fall through to normal repair handling if the reduced suite still fails.
+              }
+            }
+          }
+
           if (typeof lastAttemptExpensiveFingerprint === "string" && lastAttemptExpensiveFingerprint) {
             lastExpensiveFailure = { fingerprint: lastAttemptExpensiveFingerprint, error: err };
           }
