@@ -1112,7 +1112,20 @@ async function createWindowAndBoot() {
       const threadId = reqString(parsed.threadId, "threadId");
       const message = reqString(parsed.message, "message");
       if (message.length > 50_000) throw new Error("message is too large.");
-      return engineCall("threads.postMessage", { threadId, message }, { llm: true, useCase: "dialogue" });
+      try {
+        return await engineCall("threads.postMessage", { threadId, message }, { llm: true, useCase: "dialogue" });
+      } catch (error) {
+        const text = error instanceof Error ? error.message : String(error ?? "");
+        if (/session state is READY/i.test(text)) {
+          return {
+            accepted: true,
+            done: true,
+            state: "READY",
+            next_action: "ready",
+          };
+        }
+        throw error;
+      }
     });
 
     ipcMain.handle("codemm:threads:generate", async (_evt, args) => {

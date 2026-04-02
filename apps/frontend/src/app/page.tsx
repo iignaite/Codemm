@@ -77,6 +77,8 @@ export default function Home() {
   const [learningMode, setLearningMode] = useState<LearningMode>("practice");
   const [generationLocked, setGenerationLocked] = useState(false);
   const [specReady, setSpecReady] = useState(false);
+  const specReadyRef = useRef(false);
+  const chatLoadingRef = useRef(false);
   const [progress, setProgress] = useState<GenerationProgressState | null>(null);
   const [progressHint, setProgressHint] = useState<string | null>(null);
   const [generationRunId, setGenerationRunId] = useState<string | null>(null);
@@ -147,6 +149,7 @@ export default function Home() {
       setLearningMode(mode);
       setThreadId(null);
       setSpecReady(false);
+      specReadyRef.current = false;
       setProgress(null);
       setProgressHint(null);
       setGenerationRunId(null);
@@ -154,6 +157,7 @@ export default function Home() {
       setMessages([]);
       setChatInput("");
       setHasInteracted(false);
+      chatLoadingRef.current = false;
       setInstructionsOpen(false);
       setInstructionsSaved("");
       setInstructionsDraft("");
@@ -209,7 +213,9 @@ export default function Home() {
       localStorage.setItem("codem-last-learning-mode", mode);
 
       const state = String(data?.state ?? "");
-      setSpecReady(state === "READY" || state === "GENERATING" || state === "SAVED");
+      const ready = state === "READY" || state === "GENERATING" || state === "SAVED";
+      setSpecReady(ready);
+      specReadyRef.current = ready;
       setGenerationLocked(state === "GENERATING");
 
       const instr = typeof data?.instructions_md === "string" ? data.instructions_md : "";
@@ -335,7 +341,7 @@ export default function Home() {
   }
 
   async function handleChatSend() {
-    if (!threadId) return;
+    if (!threadId || specReadyRef.current || chatLoadingRef.current) return;
 
     const rawInput = chatInput.trim();
     if (!rawInput) return;
@@ -348,15 +354,27 @@ export default function Home() {
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setChatInput("");
     setChatLoading(true);
+    chatLoadingRef.current = true;
 
     try {
       const data = await requireThreadsApi().postMessage({ threadId, message: normalized.value });
 
       interpretResponse(data);
 
-      setSpecReady(data.done === true);
+      const ready = data.done === true || data.state === "READY";
+      setSpecReady(ready);
+      specReadyRef.current = ready;
 
-      if (typeof data.nextQuestion === "string" && data.nextQuestion.trim()) {
+      if (ready && data.next_action === "ready") {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            tone: "info",
+            content: 'Activity spec is ready. Click "Generate" to create problems.',
+          },
+        ]);
+      } else if (typeof data.nextQuestion === "string" && data.nextQuestion.trim()) {
         const assistantTone: ChatMessage["tone"] = data.accepted ? "question" : "hint";
         const assistantContent =
           data.accepted
@@ -378,17 +396,32 @@ export default function Home() {
       }
     } catch (e) {
       console.error(e);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          tone: "hint",
-          content:
-            "Sorry, something went wrong processing your answer. Please try again in the expected format.",
-        },
-      ]);
+      const message = e instanceof Error ? e.message : String(e ?? "");
+      if (/session state is READY/i.test(message)) {
+        setSpecReady(true);
+        specReadyRef.current = true;
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            tone: "info",
+            content: 'Activity spec is already ready. Click "Generate" to create problems.',
+          },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            tone: "hint",
+            content:
+              "Sorry, something went wrong processing your answer. Please try again in the expected format.",
+          },
+        ]);
+      }
     } finally {
       setChatLoading(false);
+      chatLoadingRef.current = false;
     }
   }
 
