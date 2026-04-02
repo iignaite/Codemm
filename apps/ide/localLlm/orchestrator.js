@@ -167,6 +167,7 @@ class LocalLlmOrchestrator extends EventEmitter {
         });
         this.#transition("RUNNING", null, { serverPid: started.pid, baseURL: started.baseURL });
       } else {
+        this.#transition("STARTING", { kind: "start", message: "Connecting to existing Ollama runtime…" });
         this.#transition("RUNNING", null, {
           binaryPath: installation.binaryPath,
           version: installation.version,
