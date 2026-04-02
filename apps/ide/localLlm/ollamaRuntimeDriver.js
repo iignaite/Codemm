@@ -65,7 +65,7 @@ async function getVersion(baseURL) {
 
 function resolveInstallArtifactUrl() {
   if (process.platform === "darwin") {
-    return process.env.CODEMM_OLLAMA_INSTALL_URL_DARWIN || "https://ollama.com/download/Ollama-darwin.zip";
+    return process.env.CODEMM_OLLAMA_INSTALL_URL_DARWIN || "https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz";
   }
   if (process.platform === "win32") {
     return process.env.CODEMM_OLLAMA_INSTALL_URL_WINDOWS || "https://ollama.com/download/OllamaSetup.exe";
@@ -84,8 +84,8 @@ function getManagedInstallPaths(userDataDir) {
     return {
       rootDir,
       downloadsDir,
-      archivePath: path.join(downloadsDir, "ollama-darwin.zip"),
-      managedBinaryPath: path.join(rootDir, "Ollama.app", "Contents", "Resources", "ollama"),
+      archivePath: path.join(downloadsDir, "ollama-darwin.tgz"),
+      managedBinaryPath: path.join(rootDir, "bin", "ollama"),
     };
   }
   if (process.platform === "win32") {
@@ -123,12 +123,20 @@ async function installOllama({ userDataDir, onProgress }) {
   });
 
   if (process.platform === "darwin") {
-    fs.mkdirSync(paths.rootDir, { recursive: true });
-    const unpack = await runCommand("ditto", ["-x", "-k", paths.archivePath, paths.rootDir], { timeoutMs: 10 * 60_000 });
+    const binDir = path.dirname(paths.managedBinaryPath);
+    fs.mkdirSync(binDir, { recursive: true });
+    const unpack = await runCommand("tar", ["-xzf", paths.archivePath, "-C", binDir], { timeoutMs: 10 * 60_000 });
     if (unpack.code !== 0) {
-      throw new LocalLlmError("INSTALL_FAILED", "Failed to unpack Ollama archive on macOS.", {
+      throw new LocalLlmError("INSTALL_FAILED", "Failed to unpack Ollama CLI archive on macOS.", {
         stage: "INSTALLING",
         detail: unpack.stderr || unpack.stdout,
+      });
+    }
+    const chmod = await runCommand("chmod", ["+x", paths.managedBinaryPath], { timeoutMs: 30_000 });
+    if (chmod.code !== 0) {
+      throw new LocalLlmError("INSTALL_FAILED", "Failed to mark Ollama CLI executable on macOS.", {
+        stage: "INSTALLING",
+        detail: chmod.stderr || chmod.stdout,
       });
     }
   } else if (process.platform === "win32") {
