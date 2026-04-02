@@ -14,6 +14,20 @@ function getMacAppBinaryCandidates(appRoot) {
   ];
 }
 
+function getMacAppRoot(binaryPath) {
+  if (typeof binaryPath !== "string") return null;
+  const marker = `${path.sep}Contents${path.sep}`;
+  const idx = binaryPath.indexOf(marker);
+  if (idx < 0) return null;
+  const root = binaryPath.slice(0, idx);
+  return root.endsWith(".app") ? root : null;
+}
+
+function tail(text, limit = 1200) {
+  const value = String(text || "");
+  return value.length > limit ? value.slice(value.length - limit) : value;
+}
+
 function findOllamaBinary(explicitPath) {
   if (explicitPath && existsExecutable(explicitPath)) return explicitPath;
   if (process.env.OLLAMA_PATH && existsExecutable(process.env.OLLAMA_PATH)) return process.env.OLLAMA_PATH;
@@ -186,26 +200,101 @@ async function detectInstallation({ persistedBinaryPath, baseURL }) {
 
 async function startServer({ binaryPath, baseURL, onProgress }) {
   const normalizedBaseUrl = String(baseURL || OLLAMA_DEFAULT_URL).replace(/\/+$/, "");
-  onProgress?.({ message: "Starting Ollama runtime…" });
+  const attempts = [{ cmd: binaryPath, args: ["serve"], label: "cli", allowSuccessExitBeforeReady: false }];
 
-  const child = spawn(binaryPath, ["serve"], {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true,
-  });
-  child.unref();
-
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    try {
-      await getVersion(normalizedBaseUrl);
-      return { pid: child.pid, baseURL: normalizedBaseUrl };
-    } catch {
-      await sleep(500);
+  if (process.platform === "darwin") {
+    const appRoot = getMacAppRoot(binaryPath);
+    if (appRoot) {
+      const appExecutable = path.join(appRoot, "Contents", "MacOS", "Ollama");
+      if (existsExecutable(appExecutable) && appExecutable !== binaryPath) {
+        attempts.push({ cmd: appExecutable, args: ["serve"], label: "app-executable", allowSuccessExitBeforeReady: false });
+      }
+      attempts.push({ cmd: "open", args: ["-a", appRoot], label: "open-app", allowSuccessExitBeforeReady: true });
     }
   }
 
-  throw new LocalLlmError("SERVER_START_FAILED", "Timed out waiting for Ollama to start.", {
+  let lastFailure = null;
+  for (const attempt of attempts) {
+    onProgress?.({ message: `Starting Ollama runtime (${attempt.label})…` });
+
+    const child = spawn(attempt.cmd, attempt.args, {
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let exitCode = null;
+    let exitSignal = null;
+    let spawnError = null;
+
+    child.stdout?.on("data", (buf) => {
+      stdout += String(buf || "");
+    });
+    child.stderr?.on("data", (buf) => {
+      stderr += String(buf || "");
+    });
+    child.on("error", (err) => {
+      spawnError = err;
+    });
+    child.on("exit", (code, signal) => {
+      exitCode = code;
+      exitSignal = signal;
+    });
+
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      if (spawnError) {
+        break;
+      }
+
+      try {
+        await getVersion(normalizedBaseUrl);
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        child.unref();
+        return { pid: child.pid, baseURL: normalizedBaseUrl };
+      } catch {
+        if (
+          (exitCode !== null && (!attempt.allowSuccessExitBeforeReady || exitCode !== 0)) ||
+          exitSignal !== null
+        ) {
+          break;
+        }
+        await sleep(500);
+      }
+    }
+
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    child.unref();
+
+    lastFailure = new LocalLlmError(
+      "SERVER_START_FAILED",
+      spawnError
+        ? `Failed to launch Ollama using ${attempt.label}.`
+        : (exitCode !== null && (!attempt.allowSuccessExitBeforeReady || exitCode !== 0)) || exitSignal !== null
+          ? `Ollama exited before becoming ready using ${attempt.label}.`
+          : `Timed out waiting for Ollama to start using ${attempt.label}.`,
+      {
+        stage: "STARTING",
+        detail: {
+          baseURL: normalizedBaseUrl,
+          attempt: attempt.label,
+          cmd: attempt.cmd,
+          args: attempt.args,
+          exitCode,
+          exitSignal,
+          stdout: tail(stdout),
+          stderr: tail(stderr),
+          spawnError: spawnError ? String(spawnError.message || spawnError) : null,
+        },
+      }
+    );
+  }
+
+  throw lastFailure || new LocalLlmError("SERVER_START_FAILED", "Timed out waiting for Ollama to start.", {
     stage: "STARTING",
     detail: normalizedBaseUrl,
   });
