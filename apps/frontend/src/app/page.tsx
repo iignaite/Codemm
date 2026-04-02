@@ -429,7 +429,7 @@ export default function Home() {
   }
 
   async function handleGenerate() {
-    if (!threadId || !specReady || generationLoadingRef.current) {
+    if (!threadId || !specReady || generationLocked || generationLoadingRef.current) {
       return;
     }
 
@@ -788,6 +788,7 @@ export default function Home() {
         // ignore
       }
       setLoading(false);
+      setGenerationLocked(false);
       generationLoadingRef.current = false;
     }
   }
@@ -1279,7 +1280,7 @@ export default function Home() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleGenerate}
-                      disabled={!specReady || isBusy}
+                      disabled={!specReady || isBusy || generationLocked}
                       data-tour="generate"
                       className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
                         darkMode
