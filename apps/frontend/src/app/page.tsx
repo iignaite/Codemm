@@ -452,41 +452,47 @@ export default function Home() {
       setProgressHint(null);
       setGenerationRunId(null);
 
-      const hintTimer = window.setTimeout(() => setProgressHint("Progress stream unavailable."), 1200);
+      const hintTimer = window.setTimeout(
+        () => setProgressHint("Preparing generation... local models can take longer to emit the first update."),
+        4000,
+      );
 
       const sub = await requireThreadsApi().subscribeGeneration({
         threadId,
         onEvent: (ev: unknown) => {
           window.clearTimeout(hintTimer);
-        try {
-          if (!ev || typeof (ev as any).type !== "string") return;
-          const typed = ev as GenerationProgressEvent;
+          setProgressHint((prev) =>
+            prev === "Preparing generation... local models can take longer to emit the first update." ? null : prev,
+          );
+          try {
+            if (!ev || typeof (ev as any).type !== "string") return;
+            const typed = ev as GenerationProgressEvent;
 
-          setProgress((prev) => {
-            if (typed.type === "generation_started") {
-              const total = Math.max(1, typed.totalSlots ?? typed.totalProblems ?? 1);
-              const slots: SlotProgress[] = Array.from({ length: total }, () => ({
-                stage: "queued",
-                attempt: 0,
-                difficulty: null,
-                topic: null,
-                language: null,
-                stageDone: { llm: false, contract: false, docker: false },
-                lastFailure: null,
-              }));
-              return { totalSlots: total, run: typed.run ?? 1, slots, error: null, lastHeartbeatTs: null };
-            }
+            setProgress((prev) => {
+              if (typed.type === "generation_started") {
+                const total = Math.max(1, typed.totalSlots ?? typed.totalProblems ?? 1);
+                const slots: SlotProgress[] = Array.from({ length: total }, () => ({
+                  stage: "queued",
+                  attempt: 0,
+                  difficulty: null,
+                  topic: null,
+                  language: null,
+                  stageDone: { llm: false, contract: false, docker: false },
+                  lastFailure: null,
+                }));
+                return { totalSlots: total, run: typed.run ?? 1, slots, error: null, lastHeartbeatTs: null };
+              }
 
-            if (!prev) return prev;
+              if (!prev) return prev;
 
-            const next: GenerationProgressState = {
-              ...prev,
-              slots: prev.slots.map((p) => ({
-                ...p,
-                stageDone: { ...p.stageDone },
-                lastFailure: p.lastFailure ? { ...p.lastFailure } : null,
-              })),
-            };
+              const next: GenerationProgressState = {
+                ...prev,
+                slots: prev.slots.map((p) => ({
+                  ...p,
+                  stageDone: { ...p.stageDone },
+                  lastFailure: p.lastFailure ? { ...p.lastFailure } : null,
+                })),
+              };
 
             if (typed.type === "heartbeat") {
               next.lastHeartbeatTs = typed.ts;
@@ -704,11 +710,11 @@ export default function Home() {
               return next;
             }
 
-            return next;
-          });
-        } catch {
-          // ignore parse errors
-        }
+              return next;
+            });
+          } catch {
+            // ignore parse errors
+          }
         },
       });
       progressRef.current = { unsubscribe: sub.unsubscribe };
