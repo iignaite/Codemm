@@ -68,7 +68,7 @@ export async function createGeminiCompletion(
     /\/+$/,
     ""
   );
-  const preferredModel = opts.model ?? process.env.GEMINI_MODEL ?? process.env.CODEX_MODEL ?? DEFAULT_GEMINI_MODEL;
+  const preferredModel = opts.model ?? process.env.GEMINI_MODEL ?? DEFAULT_GEMINI_MODEL;
 
   // Conservative: combine system + user to avoid API/version quirks around system instruction fields.
   const prompt = `${opts.system}\n\n${opts.user}`.trim();

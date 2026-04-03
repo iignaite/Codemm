@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-const generationListeners = new Map(); // subId -> handler
-const ollamaPullListeners = new Map(); // subId -> handler
+const generationListeners = new Map();
+const llmStatusListeners = new Map();
 
 ipcRenderer.on("codemm:threads:generationEvent", (_evt, payload) => {
   const subId = payload && typeof payload.subId === "string" ? payload.subId : null;
@@ -11,19 +11,19 @@ ipcRenderer.on("codemm:threads:generationEvent", (_evt, payload) => {
   try {
     handler(payload.event);
   } catch {
-    // ignore
+    // ignore listener failures
   }
 });
 
-ipcRenderer.on("codemm:ollama:pullEvent", (_evt, payload) => {
+ipcRenderer.on("codemm:llm:statusEvent", (_evt, payload) => {
   const subId = payload && typeof payload.subId === "string" ? payload.subId : null;
   if (!subId) return;
-  const handler = ollamaPullListeners.get(subId);
+  const handler = llmStatusListeners.get(subId);
   if (!handler) return;
   try {
-    handler(payload.event);
+    handler(payload.status);
   } catch {
-    // ignore
+    // ignore listener failures
   }
 });
 
@@ -36,6 +36,40 @@ contextBridge.exposeInMainWorld("codemm", {
     getLlmSettings: () => ipcRenderer.invoke("codemm:secrets:getLlmSettings"),
     setLlmSettings: (args) => ipcRenderer.invoke("codemm:secrets:setLlmSettings", args),
     clearLlmSettings: () => ipcRenderer.invoke("codemm:secrets:clearLlmSettings"),
+  },
+  llm: {
+    getStatus: () => ipcRenderer.invoke("codemm:llm:getStatus"),
+    ensureReady: (args) => ipcRenderer.invoke("codemm:llm:ensureReady", args),
+    acquireLease: (args) => ipcRenderer.invoke("codemm:llm:acquireLease", args),
+    releaseLease: (args) => ipcRenderer.invoke("codemm:llm:releaseLease", args),
+    subscribeStatus: async ({ onEvent }) => {
+      if (typeof onEvent !== "function") throw new Error("onEvent must be a function.");
+      const res = await ipcRenderer.invoke("codemm:llm:subscribeStatus");
+      const subId = res && typeof res.subId === "string" ? res.subId : null;
+      if (!subId) throw new Error("Failed to subscribe to local LLM status.");
+
+      llmStatusListeners.set(subId, onEvent);
+      const buffered = res && Array.isArray(res.buffered) ? res.buffered : [];
+      for (const event of buffered) {
+        try {
+          onEvent(event);
+        } catch {
+          // ignore listener failures
+        }
+      }
+
+      return {
+        subId,
+        unsubscribe: async () => {
+          llmStatusListeners.delete(subId);
+          try {
+            await ipcRenderer.invoke("codemm:llm:unsubscribeStatus", { subId });
+          } catch {
+            // ignore unsubscribe failures
+          }
+        },
+      };
+    },
   },
   threads: {
     create: (args) => ipcRenderer.invoke("codemm:threads:create", args),
@@ -51,16 +85,15 @@ contextBridge.exposeInMainWorld("codemm", {
       if (typeof onEvent !== "function") throw new Error("onEvent must be a function.");
       const res = await ipcRenderer.invoke("codemm:threads:subscribeGeneration", { threadId });
       const subId = res && typeof res.subId === "string" ? res.subId : null;
-      if (!subId) throw new Error("Failed to subscribe.");
+      if (!subId) throw new Error("Failed to subscribe to generation progress.");
 
       generationListeners.set(subId, onEvent);
-
       const buffered = res && Array.isArray(res.buffered) ? res.buffered : [];
-      for (const ev of buffered) {
+      for (const event of buffered) {
         try {
-          onEvent(ev);
+          onEvent(event);
         } catch {
-          // ignore
+          // ignore listener failures
         }
       }
 
@@ -71,7 +104,7 @@ contextBridge.exposeInMainWorld("codemm", {
           try {
             await ipcRenderer.invoke("codemm:threads:unsubscribeGeneration", { subId });
           } catch {
-            // ignore
+            // ignore unsubscribe failures
           }
         },
       };
@@ -87,51 +120,5 @@ contextBridge.exposeInMainWorld("codemm", {
   judge: {
     run: (args) => ipcRenderer.invoke("codemm:judge:run", args),
     submit: (args) => ipcRenderer.invoke("codemm:judge:submit", args),
-  },
-  ollama: {
-    getStatus: (args) => ipcRenderer.invoke("codemm:ollama:getStatus", args),
-    openInstall: async () => {
-      try {
-        // Use fire-and-forget so the renderer doesn't depend on an `ipcMain.handle(...)` being registered.
-        // (We also register a handler in Electron main; this is just extra robustness.)
-        ipcRenderer.send("codemm:ollama:openInstall");
-        return { ok: true };
-      } catch (e) {
-        return { ok: false, error: e?.message ? String(e.message) : "Failed to open install link." };
-      }
-    },
-    ensure: async ({ model, baseURL, onEvent }) => {
-      if (typeof model !== "string" || !model.trim()) throw new Error("model is required.");
-      const res = await ipcRenderer.invoke("codemm:ollama:ensure", { model, ...(typeof baseURL === "string" && baseURL.trim() ? { baseURL } : {}) });
-      const subId = res && typeof res.subId === "string" ? res.subId : null;
-      if (subId && typeof onEvent === "function") {
-        ollamaPullListeners.set(subId, onEvent);
-        const buffered = res && Array.isArray(res.buffered) ? res.buffered : [];
-        for (const ev of buffered) {
-          try {
-            onEvent(ev);
-          } catch {
-            // ignore
-          }
-        }
-      }
-
-      return {
-        ...res,
-        ...(subId
-          ? {
-              subId,
-              unsubscribe: async () => {
-                ollamaPullListeners.delete(subId);
-                try {
-                  await ipcRenderer.invoke("codemm:ollama:unsubscribePull", { subId });
-                } catch {
-                  // ignore
-                }
-              },
-            }
-          : {}),
-      };
-    },
   },
 });

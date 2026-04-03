@@ -24,7 +24,6 @@ import { ObligationViolationError, type ObligationId } from "./obligations";
 import { demoteExtraTopLevelPublicTypes, promoteOneTopLevelTypeToPublic, rewriteJavaTopLevelPublicClassName } from "../utils/javaRewrite";
 import { buildJavaStdinSampleDrivenJUnitTestSuite, computeJavaStdoutSamplesByExecutingReference } from "../languages/java/sampleDrivenTests";
 
-const CODEX_MODEL = process.env.CODEX_MODEL;
 const MAX_TOKENS = 5000;
 const TEMPERATURE = 0.3;
 const REPAIR_TEMPERATURE = 0.4;
@@ -199,7 +198,6 @@ Return JSON: {"reference_solution":"..."} only.
   const completion = await createCodemmCompletion({
     system,
     user,
-    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
     temperature: REPAIR_TEMPERATURE,
     maxTokens: MAX_TOKENS,
   });
@@ -218,7 +216,33 @@ export type RepairContext = {
   errorMessage?: string;
   judgeStdout?: string;
   judgeStderr?: string;
+  history?: Array<{
+    attempt: number;
+    phase: "contract" | "validate" | "quality" | "unknown";
+    message: string;
+    strategy?: string;
+    obligationId?: string;
+  }>;
 };
+
+function formatRepairHistory(
+  history?: Array<{
+    attempt: number;
+    phase: "contract" | "validate" | "quality" | "unknown";
+    message: string;
+    strategy?: string;
+    obligationId?: string;
+  }>
+): string {
+  if (!Array.isArray(history) || history.length === 0) return "";
+  const lines = history.slice(-3).map((entry) => {
+    const parts = [`Attempt ${entry.attempt}`, `phase=${entry.phase}`];
+    if (entry.obligationId) parts.push(`obligation=${entry.obligationId}`);
+    if (entry.strategy) parts.push(`repair=${entry.strategy}`);
+    return `- ${parts.join(", ")}: ${String(entry.message ?? "").slice(0, 320)}`;
+  });
+  return `\nRecent failure history (do not repeat these mistakes):\n${lines.join("\n")}\n`;
+}
 
 export type GeneratedDraftWithMeta = {
   draft: GeneratedProblemDraft;
@@ -308,7 +332,6 @@ Return JSON: {"test_suite":"..."} only.
   const completion = await createCodemmCompletion({
     system,
     user,
-    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
     temperature: 0.2,
     maxTokens: 2400,
   });
@@ -386,7 +409,6 @@ Return JSON: {"test_suite":"..."} only.
   const completion = await createCodemmCompletion({
     system,
     user,
-    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
     temperature: 0,
     maxTokens: 2000,
   });
@@ -534,6 +556,7 @@ function buildJavaRepairPrompt(slot: ProblemSlot, repair: RepairContext, ctx?: S
   const stderrSnippet = (repair.judgeStderr ?? "").slice(0, 1600);
   const rawSnippet = (repair.previousRaw ?? "").slice(0, 2400);
   const errorMessage = (repair.errorMessage ?? "").slice(0, 600);
+  const historyBlock = formatRepairHistory(repair.history);
   const isContractRepair = !repair.previousDraft && !stdoutSnippet && !stderrSnippet;
 
   if (isContractRepair) {
@@ -552,6 +575,7 @@ ${ctx?.avoidTitles?.length ? `Avoid reusing titles too similar to: ${ctx.avoidTi
 
 Validation failure reason:
 ${errorMessage || "(not provided)"}
+${historyBlock}
 
 Hard structure rules (do not violate):
 - Return ONLY valid JSON (no markdown, no code fences, no prose).
@@ -598,6 +622,7 @@ ${stderrSnippet || "(empty)"}
 
 Error reason:
 ${errorMessage || "(not provided)"}
+${historyBlock}
 
 Hard structure rules (do not violate):
 - If using legacy fields: starter_code + reference_solution must be valid Java 17 with no package declarations.
@@ -630,6 +655,7 @@ function buildPythonRepairPrompt(slot: ProblemSlot, repair: RepairContext, ctx?:
   const stderrSnippet = (repair.judgeStderr ?? "").slice(0, 1600);
   const rawSnippet = (repair.previousRaw ?? "").slice(0, 2400);
   const errorMessage = (repair.errorMessage ?? "").slice(0, 600);
+  const historyBlock = formatRepairHistory(repair.history);
 
   return `You previously generated a problem JSON for this slot, but the reference_solution FAILED when executed against the test_suite in Docker/pytest.
 
@@ -654,6 +680,7 @@ ${stderrSnippet || "(empty)"}
 
 Error reason:
 ${errorMessage || "(not provided)"}
+${historyBlock}
 
 Hard structure rules (do not violate):
 - starter_code and reference_solution must define solve(...)
@@ -686,6 +713,7 @@ function buildCppRepairPrompt(slot: ProblemSlot, repair: RepairContext, ctx?: Sl
   const stderrSnippet = (repair.judgeStderr ?? "").slice(0, 1600);
   const rawSnippet = (repair.previousRaw ?? "").slice(0, 2400);
   const errorMessage = (repair.errorMessage ?? "").slice(0, 600);
+  const historyBlock = formatRepairHistory(repair.history);
 
   return `You previously generated a problem JSON for this slot, but the reference_solution FAILED when executed against the test_suite in Docker/g++.
 
@@ -710,6 +738,7 @@ ${stderrSnippet || "(empty)"}
 
 Error reason:
 ${errorMessage || "(not provided)"}
+${historyBlock}
 
 Hard structure rules (do not violate):
 - starter_code and reference_solution must define solve(...) (no main())
@@ -745,6 +774,7 @@ function buildSqlRepairPrompt(slot: ProblemSlot, repair: RepairContext, ctx?: Sl
   const stderrSnippet = (repair.judgeStderr ?? "").slice(0, 1600);
   const rawSnippet = (repair.previousRaw ?? "").slice(0, 2400);
   const errorMessage = (repair.errorMessage ?? "").slice(0, 600);
+  const historyBlock = formatRepairHistory(repair.history);
 
   return `You previously generated a problem JSON for this slot, but the reference_solution FAILED when executed against the test_suite in Docker/SQLite.
 
@@ -769,6 +799,7 @@ ${stderrSnippet || "(empty)"}
 
 Error reason:
 ${errorMessage || "(not provided)"}
+${historyBlock}
 
 Hard structure rules (do not violate):
 - starter_code and reference_solution must be a single read-only query (WITH/SELECT only)
@@ -851,7 +882,6 @@ export async function generateSingleProblem(
   const completion = await createCodemmCompletion({
     system: getSystemPromptForSlot(slot),
     user: prompt,
-    ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
     temperature: opts?.repair ? REPAIR_TEMPERATURE : TEMPERATURE,
     maxTokens: MAX_TOKENS,
   });

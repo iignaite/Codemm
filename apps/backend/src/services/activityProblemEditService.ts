@@ -6,7 +6,6 @@ import { tryParseJson } from "../utils/jsonParser";
 import { validateReferenceSolution } from "../generation/referenceSolutionValidator";
 import { traceText } from "../utils/trace";
 
-const CODEX_MODEL = process.env.CODEX_MODEL;
 const MAX_TOKENS = 5000;
 const TEMPERATURE = 0.25;
 
@@ -248,7 +247,6 @@ export async function editDraftProblemWithAi(args: {
       const completion = await createCompletion({
         system,
         user: attempt === 1 ? user : `${user}\n\nPrevious attempt failed. Return ONLY valid JSON matching the schema exactly.`,
-        ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
         temperature: TEMPERATURE,
         maxTokens: MAX_TOKENS,
       });

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { JavaSourceNoPackageSchema, isValidJUnit5TestSuite } from "../languages/java/rules";
+import { JavaSourceNoPackageSchema, isValidJUnit5TestSuite, isValidJUnit5TestSuiteCountRange } from "../languages/java/rules";
 import { PythonSourceSchema, isValidPytestTestSuite } from "../languages/python/rules";
 import { CppSourceSchema, isValidCppTestSuite } from "../languages/cpp/rules";
 import { SqlQuerySchema, diagnoseSqlTestSuite, isValidSqlTestSuite } from "../languages/sql/rules";
@@ -89,11 +89,11 @@ const JavaTestSuiteSchema = z
   .string()
   .min(1)
   .superRefine((ts, ctx) => {
-    if (!isValidJUnit5TestSuite(ts, 8)) {
+    if (!isValidJUnit5TestSuiteCountRange(ts, 1, 8)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "Invalid test_suite: must have exactly 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.",
+          "Invalid test_suite: must have 1 to 8 @Test methods, JUnit 5 imports, no package, and non-trivial assertions.",
       });
     }
   });

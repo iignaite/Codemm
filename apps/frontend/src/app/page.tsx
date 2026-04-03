@@ -76,7 +76,10 @@ export default function Home() {
   const [threadId, setThreadId] = useState<string | null>(null);
   const [learningMode, setLearningMode] = useState<LearningMode>("practice");
   const [generationLocked, setGenerationLocked] = useState(false);
+  const generationLoadingRef = useRef(false);
   const [specReady, setSpecReady] = useState(false);
+  const specReadyRef = useRef(false);
+  const chatLoadingRef = useRef(false);
   const [progress, setProgress] = useState<GenerationProgressState | null>(null);
   const [progressHint, setProgressHint] = useState<string | null>(null);
   const [generationRunId, setGenerationRunId] = useState<string | null>(null);
@@ -147,13 +150,16 @@ export default function Home() {
       setLearningMode(mode);
       setThreadId(null);
       setSpecReady(false);
+      specReadyRef.current = false;
       setProgress(null);
       setProgressHint(null);
       setGenerationRunId(null);
       setGenerationLocked(false);
+      generationLoadingRef.current = false;
       setMessages([]);
       setChatInput("");
       setHasInteracted(false);
+      chatLoadingRef.current = false;
       setInstructionsOpen(false);
       setInstructionsSaved("");
       setInstructionsDraft("");
@@ -192,6 +198,7 @@ export default function Home() {
       setProgressHint(null);
       setGenerationRunId(null);
       setGenerationLocked(false);
+      generationLoadingRef.current = false;
       setMessages([]);
       setChatInput("");
       setHasInteracted(false);
@@ -209,7 +216,9 @@ export default function Home() {
       localStorage.setItem("codem-last-learning-mode", mode);
 
       const state = String(data?.state ?? "");
-      setSpecReady(state === "READY" || state === "GENERATING" || state === "SAVED");
+      const ready = state === "READY" || state === "GENERATING" || state === "SAVED";
+      setSpecReady(ready);
+      specReadyRef.current = ready;
       setGenerationLocked(state === "GENERATING");
 
       const instr = typeof data?.instructions_md === "string" ? data.instructions_md : "";
@@ -335,7 +344,7 @@ export default function Home() {
   }
 
   async function handleChatSend() {
-    if (!threadId) return;
+    if (!threadId || specReadyRef.current || chatLoadingRef.current) return;
 
     const rawInput = chatInput.trim();
     if (!rawInput) return;
@@ -348,15 +357,27 @@ export default function Home() {
     setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
     setChatInput("");
     setChatLoading(true);
+    chatLoadingRef.current = true;
 
     try {
       const data = await requireThreadsApi().postMessage({ threadId, message: normalized.value });
 
       interpretResponse(data);
 
-      setSpecReady(data.done === true);
+      const ready = data.done === true || data.state === "READY";
+      setSpecReady(ready);
+      specReadyRef.current = ready;
 
-      if (typeof data.nextQuestion === "string" && data.nextQuestion.trim()) {
+      if (ready && data.next_action === "ready") {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            tone: "info",
+            content: 'Activity spec is ready. Click "Generate" to create problems.',
+          },
+        ]);
+      } else if (typeof data.nextQuestion === "string" && data.nextQuestion.trim()) {
         const assistantTone: ChatMessage["tone"] = data.accepted ? "question" : "hint";
         const assistantContent =
           data.accepted
@@ -378,25 +399,41 @@ export default function Home() {
       }
     } catch (e) {
       console.error(e);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          tone: "hint",
-          content:
-            "Sorry, something went wrong processing your answer. Please try again in the expected format.",
-        },
-      ]);
+      const message = e instanceof Error ? e.message : String(e ?? "");
+      if (/session state is READY/i.test(message)) {
+        setSpecReady(true);
+        specReadyRef.current = true;
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            tone: "info",
+            content: 'Activity spec is already ready. Click "Generate" to create problems.',
+          },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            tone: "hint",
+            content:
+              "Sorry, something went wrong processing your answer. Please try again in the expected format.",
+          },
+        ]);
+      }
     } finally {
       setChatLoading(false);
+      chatLoadingRef.current = false;
     }
   }
 
   async function handleGenerate() {
-    if (!threadId || !specReady) {
+    if (!threadId || !specReady || generationLocked || generationLoadingRef.current) {
       return;
     }
 
+    generationLoadingRef.current = true;
     setLoading(true);
     setGenerationLocked(true);
     let runIdForDiagnostics: string | null = null;
@@ -415,41 +452,47 @@ export default function Home() {
       setProgressHint(null);
       setGenerationRunId(null);
 
-      const hintTimer = window.setTimeout(() => setProgressHint("Progress stream unavailable."), 1200);
+      const hintTimer = window.setTimeout(
+        () => setProgressHint("Preparing generation... local models can take longer to emit the first update."),
+        4000,
+      );
 
       const sub = await requireThreadsApi().subscribeGeneration({
         threadId,
         onEvent: (ev: unknown) => {
           window.clearTimeout(hintTimer);
-        try {
-          if (!ev || typeof (ev as any).type !== "string") return;
-          const typed = ev as GenerationProgressEvent;
+          setProgressHint((prev) =>
+            prev === "Preparing generation... local models can take longer to emit the first update." ? null : prev,
+          );
+          try {
+            if (!ev || typeof (ev as any).type !== "string") return;
+            const typed = ev as GenerationProgressEvent;
 
-          setProgress((prev) => {
-            if (typed.type === "generation_started") {
-              const total = Math.max(1, typed.totalSlots ?? typed.totalProblems ?? 1);
-              const slots: SlotProgress[] = Array.from({ length: total }, () => ({
-                stage: "queued",
-                attempt: 0,
-                difficulty: null,
-                topic: null,
-                language: null,
-                stageDone: { llm: false, contract: false, docker: false },
-                lastFailure: null,
-              }));
-              return { totalSlots: total, run: typed.run ?? 1, slots, error: null, lastHeartbeatTs: null };
-            }
+            setProgress((prev) => {
+              if (typed.type === "generation_started") {
+                const total = Math.max(1, typed.totalSlots ?? typed.totalProblems ?? 1);
+                const slots: SlotProgress[] = Array.from({ length: total }, () => ({
+                  stage: "queued",
+                  attempt: 0,
+                  difficulty: null,
+                  topic: null,
+                  language: null,
+                  stageDone: { llm: false, contract: false, docker: false },
+                  lastFailure: null,
+                }));
+                return { totalSlots: total, run: typed.run ?? 1, slots, error: null, lastHeartbeatTs: null };
+              }
 
-            if (!prev) return prev;
+              if (!prev) return prev;
 
-            const next: GenerationProgressState = {
-              ...prev,
-              slots: prev.slots.map((p) => ({
-                ...p,
-                stageDone: { ...p.stageDone },
-                lastFailure: p.lastFailure ? { ...p.lastFailure } : null,
-              })),
-            };
+              const next: GenerationProgressState = {
+                ...prev,
+                slots: prev.slots.map((p) => ({
+                  ...p,
+                  stageDone: { ...p.stageDone },
+                  lastFailure: p.lastFailure ? { ...p.lastFailure } : null,
+                })),
+              };
 
             if (typed.type === "heartbeat") {
               next.lastHeartbeatTs = typed.ts;
@@ -667,11 +710,11 @@ export default function Home() {
               return next;
             }
 
-            return next;
-          });
-        } catch {
-          // ignore parse errors
-        }
+              return next;
+            });
+          } catch {
+            // ignore parse errors
+          }
         },
       });
       progressRef.current = { unsubscribe: sub.unsubscribe };
@@ -730,9 +773,11 @@ export default function Home() {
         {
           role: "assistant",
           tone: "hint",
-          content: diagnosticMessage
-            ? `Failed to generate activity. ${diagnosticMessage}`
-            : "Failed to generate activity. Please try again.",
+          content: /session state is GENERATING/i.test(e instanceof Error ? e.message : String(e ?? ""))
+            ? "Generation is already running. Please wait for the current attempt to finish."
+            : diagnosticMessage
+              ? `Failed to generate activity. ${diagnosticMessage}`
+              : "Failed to generate activity. Please try again.",
         },
       ]);
     } finally {
@@ -743,6 +788,8 @@ export default function Home() {
         // ignore
       }
       setLoading(false);
+      setGenerationLocked(false);
+      generationLoadingRef.current = false;
     }
   }
 
@@ -1092,19 +1139,24 @@ export default function Home() {
 
                 {chatLoading && (
                   <div className="flex justify-start">
-                    <div className={`flex items-center gap-2 rounded-2xl px-4 py-3 ${darkMode ? "bg-slate-900/60" : "bg-slate-100"}`}>
-                      <span
-                        className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
-                        style={{ animationDelay: "0ms" }}
-                      />
-                      <span
-                        className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
-                        style={{ animationDelay: "150ms" }}
-                      />
-                      <span
-                        className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
-                        style={{ animationDelay: "300ms" }}
-                      />
+                    <div className={`flex items-center gap-3 rounded-2xl px-4 py-3 ${darkMode ? "bg-slate-900/60" : "bg-slate-100"}`}>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
+                          style={{ animationDelay: "0ms" }}
+                        />
+                        <span
+                          className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
+                          style={{ animationDelay: "150ms" }}
+                        />
+                        <span
+                          className={`h-1.5 w-1.5 animate-bounce rounded-full ${darkMode ? "bg-slate-500" : "bg-slate-400"}`}
+                          style={{ animationDelay: "300ms" }}
+                        />
+                      </div>
+                      <span className={`text-xs ${darkMode ? "text-slate-300" : "text-slate-600"}`}>
+                        Codemm is preparing a reply
+                      </span>
                     </div>
                   </div>
                 )}
@@ -1228,7 +1280,7 @@ export default function Home() {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleGenerate}
-                      disabled={!specReady || isBusy}
+                      disabled={!specReady || isBusy || generationLocked}
                       data-tour="generate"
                       className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
                         darkMode

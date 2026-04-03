@@ -44,7 +44,7 @@ export async function createOpenAiCompletion(
 ): Promise<CompletionResult> {
   const client = getOpenAiClientForRequest(auth);
   const completion = await client.chat.completions.create({
-    model: opts.model ?? process.env.CODEX_MODEL ?? DEFAULT_OPENAI_MODEL,
+    model: opts.model ?? DEFAULT_OPENAI_MODEL,
     temperature: opts.temperature ?? 0.3,
     max_tokens: opts.maxTokens ?? 5000,
     messages: [
@@ -70,7 +70,7 @@ export async function createOpenAiCompletion(
     content: [{ type: "text", text }],
     meta: {
       provider: "openai",
-      model: completion.model ?? (opts.model ?? process.env.CODEX_MODEL ?? DEFAULT_OPENAI_MODEL),
+      model: completion.model ?? (opts.model ?? DEFAULT_OPENAI_MODEL),
       ...(typeof finishReason === "string" ? { finishReason } : {}),
       ...(finishReason === "length" ? { truncated: true } : {}),
       ...(Object.keys(usage).length > 0 ? { usage } : {}),

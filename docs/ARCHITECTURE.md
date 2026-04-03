@@ -5,6 +5,7 @@ Codemm-Desktop is a local-only Electron desktop app.
 Core docs:
 
 - IDE-first model + state ownership: `docs/architecture/IDE_FIRST.md`
+- Local LLM control plane: `docs/architecture/LOCAL_LLM_ORCHESTRATION.md`
 - Migration phases + transitional layers: `docs/architecture/MIGRATION.md`
 
 ## Processes
@@ -21,7 +22,7 @@ Core docs:
 4. Ensure judge images exist (build `apps/backend/Dockerfile.*-judge` as needed).
 5. Start engine via IPC (`fork` → `apps/backend/ipc-server.js`) with:
    - `CODEMM_DB_PATH=<workspaceDataDir>/codemm.db`
-   - LLM provider configured in-memory via IPC (`engine.configureLlm`)
+   - run-scoped LLM snapshots sent over IPC for LLM-backed calls
 6. Start frontend on `CODEMM_FRONTEND_PORT` (default 3000).
 7. Load the frontend URL inside Electron with a preload bridge (`apps/ide/preload.js`).
 

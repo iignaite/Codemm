@@ -9,6 +9,8 @@ import {
   regenerateSlotFromSession,
   setSessionInstructions,
 } from "./services/sessionService";
+import { withResolvedLlmSnapshot } from "./infra/llm/executionContext";
+import type { ResolvedLlmSnapshot } from "./infra/llm/types";
 import { ActivityLanguageSchema } from "./contracts/activitySpec";
 import {
   getLanguageProfile,
@@ -28,6 +30,9 @@ type RpcRequest = {
   type: "req";
   method: string;
   params?: JsonObject;
+  context?: {
+    llmSnapshot?: ResolvedLlmSnapshot | null;
+  };
 };
 
 type RpcResponse =
@@ -169,39 +174,6 @@ async function runGenerationWithRunTracking(args: {
 const rpcHandlers: Record<string, RpcHandlerDef> = {
   "engine.ping": {
     handler: async () => ({ ok: true }),
-  },
-
-  "engine.configureLlm": {
-    schema: z
-      .object({
-        provider: z.string().min(1).max(32).nullable().optional(),
-        apiKey: z.string().min(1).max(2000).nullable().optional(),
-        model: z.string().min(1).max(256).nullable().optional(),
-        baseURL: z.string().min(1).max(512).nullable().optional(),
-      })
-      .passthrough(),
-    handler: async (paramsRaw) => {
-      const params = requireParams(paramsRaw);
-      const provider = getString(params.provider);
-      const apiKey = getString(params.apiKey);
-      const model = getString(params.model);
-      const baseURL = getString(params.baseURL);
-
-      // Store in-memory only (do not persist).
-      const { setRuntimeLlmConfig } = await import("./infra/llm/runtimeConfig");
-      const normalizedProvider =
-        provider === "openai" || provider === "anthropic" || provider === "gemini" || provider === "ollama"
-          ? provider
-          : null;
-      setRuntimeLlmConfig({
-        provider: normalizedProvider,
-        apiKey: apiKey ?? null,
-        model: model ?? null,
-        baseURL: baseURL ?? null,
-      });
-
-      return { ok: true };
-    },
   },
 
   "threads.create": {
@@ -931,13 +903,18 @@ const rpcHandlers: Record<string, RpcHandlerDef> = {
   },
 };
 
-async function handle(method: string, paramsRaw: unknown): Promise<unknown> {
+async function handle(method: string, paramsRaw: unknown, contextRaw?: unknown): Promise<unknown> {
   const def = rpcHandlers[method];
   if (!def) {
     throw new Error(`Unknown method: ${method}`);
   }
   const validated = def.schema ? validateOrThrow(def.schema, paramsRaw) : paramsRaw;
-  return def.handler(validated);
+  const context = isObject(contextRaw) ? contextRaw : {};
+  const llmSnapshot =
+    isObject((context as any).llmSnapshot) && typeof (context as any).llmSnapshot.provider === "string"
+      ? ((context as any).llmSnapshot as ResolvedLlmSnapshot)
+      : null;
+  return withResolvedLlmSnapshot(llmSnapshot, () => def.handler(validated));
 }
 
 function onMessage(raw: unknown) {
@@ -948,7 +925,7 @@ function onMessage(raw: unknown) {
   if (typeof msg.method !== "string" || !msg.method) return;
 
   Promise.resolve()
-    .then(() => handle(msg.method!, msg.params))
+    .then(() => handle(msg.method!, msg.params, msg.context))
     .then((result) => replyOk(msg.id!, result))
     .catch((err) => replyErr(msg.id!, err));
 }

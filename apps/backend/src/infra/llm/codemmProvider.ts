@@ -1,9 +1,9 @@
-import type { CompletionOpts, CompletionResult, LlmProvider } from "./types";
+import type { CompletionOpts, CompletionResult, LlmProvider, ResolvedLlmSnapshot } from "./types";
 import { createAnthropicCompletion, hasAnthropicApiKey } from "./adapters/anthropic";
 import { createGeminiCompletion, hasGeminiApiKey } from "./adapters/gemini";
 import { createOllamaCompletion, hasOllamaModelConfigured } from "./adapters/ollama";
 import { createOpenAiCompletion, hasOpenAiApiKey, getOpenAiClient } from "./adapters/openai";
-import { getRuntimeLlmConfig } from "./runtimeConfig";
+import { getResolvedLlmSnapshot } from "./executionContext";
 
 function normalizeProvider(raw: unknown): LlmProvider | null {
   const s = String(raw ?? "").trim().toLowerCase();
@@ -17,30 +17,57 @@ function normalizeProvider(raw: unknown): LlmProvider | null {
 }
 
 function getConfiguredProvider(): LlmProvider | null {
-  const runtime = getRuntimeLlmConfig();
-  if (runtime.provider) return runtime.provider;
   const raw = process.env.CODEX_PROVIDER ?? process.env.CODEMM_LLM_PROVIDER;
   return normalizeProvider(raw);
 }
 
 export function hasAnyLlmApiKey(): boolean {
+  const snapshot = getResolvedLlmSnapshot();
+  if (
+    snapshot &&
+    (snapshot.provider === "openai" || snapshot.provider === "anthropic" || snapshot.provider === "gemini")
+  ) {
+    return Boolean(snapshot.apiKey && snapshot.apiKey.trim());
+  }
   return hasOpenAiApiKey() || hasAnthropicApiKey() || hasGeminiApiKey();
 }
 
 export function hasAnyLlmConfigured(): boolean {
-  const runtime = getRuntimeLlmConfig();
-  if (runtime.provider === "ollama") return Boolean(runtime.model && runtime.model.trim());
-  if (runtime.provider === "openai" || runtime.provider === "anthropic" || runtime.provider === "gemini") {
-    return Boolean(runtime.apiKey && runtime.apiKey.trim());
+  const snapshot = getResolvedLlmSnapshot();
+  if (snapshot?.provider === "ollama") {
+    return snapshot.readiness === "READY" && Boolean(snapshot.model && snapshot.model.trim());
   }
+  if (
+    snapshot &&
+    (snapshot.provider === "openai" || snapshot.provider === "anthropic" || snapshot.provider === "gemini")
+  ) {
+    return Boolean(snapshot.apiKey && snapshot.apiKey.trim());
+  }
+
   return hasAnyLlmApiKey() || hasOllamaModelConfigured();
 }
 
 function resolveProviderOrThrow(): LlmProvider {
+  const snapshot = getResolvedLlmSnapshot();
+  if (snapshot?.provider) {
+    if (snapshot.provider === "ollama" && snapshot.readiness !== "READY") {
+      throw new Error("Local Ollama snapshot is not READY.");
+    }
+    if (
+      (snapshot.provider === "openai" || snapshot.provider === "anthropic" || snapshot.provider === "gemini") &&
+      !(snapshot.apiKey && String(snapshot.apiKey).trim())
+    ) {
+      throw new Error(`Resolved ${snapshot.provider} snapshot is missing an API key.`);
+    }
+    if (snapshot.provider === "ollama" && !(snapshot.model && String(snapshot.model).trim())) {
+      throw new Error("Resolved Ollama snapshot is missing a model.");
+    }
+    return snapshot.provider;
+  }
+
   const explicit = getConfiguredProvider();
-  const runtime = getRuntimeLlmConfig();
   if (explicit === "openai") {
-    if (!(runtime.provider === "openai" ? Boolean(runtime.apiKey && runtime.apiKey.trim()) : hasOpenAiApiKey())) {
+    if (!hasOpenAiApiKey()) {
       throw new Error(
         "Missing OpenAI API key. Set CODEX_API_KEY or OPENAI_API_KEY, or set CODEX_PROVIDER=anthropic|gemini."
       );
@@ -48,29 +75,25 @@ function resolveProviderOrThrow(): LlmProvider {
     return "openai";
   }
   if (explicit === "anthropic") {
-    if (!(runtime.provider === "anthropic" ? Boolean(runtime.apiKey && runtime.apiKey.trim()) : hasAnthropicApiKey())) {
+    if (!hasAnthropicApiKey()) {
       throw new Error("Missing Anthropic API key. Set ANTHROPIC_API_KEY, or set CODEX_PROVIDER=openai|gemini.");
     }
     return "anthropic";
   }
   if (explicit === "gemini") {
-    if (!(runtime.provider === "gemini" ? Boolean(runtime.apiKey && runtime.apiKey.trim()) : hasGeminiApiKey())) {
+    if (!hasGeminiApiKey()) {
       throw new Error("Missing Gemini API key. Set GEMINI_API_KEY/GOOGLE_API_KEY, or set CODEX_PROVIDER=openai|anthropic.");
     }
     return "gemini";
   }
   if (explicit === "ollama") {
-    if (!(runtime.provider === "ollama" ? Boolean(runtime.model && runtime.model.trim()) : hasOllamaModelConfigured())) {
+    if (!hasOllamaModelConfigured()) {
       throw new Error('Missing Ollama model. Set CODEMM_OLLAMA_MODEL (example: "qwen2.5-coder:7b") and ensure Ollama is running.');
     }
     return "ollama";
   }
 
   // Auto mode: choose the first available provider (one provider per process).
-  if (runtime.provider === "openai" && runtime.apiKey) return "openai";
-  if (runtime.provider === "anthropic" && runtime.apiKey) return "anthropic";
-  if (runtime.provider === "gemini" && runtime.apiKey) return "gemini";
-  if (runtime.provider === "ollama" && runtime.model) return "ollama";
   if (hasOpenAiApiKey()) return "openai";
   if (hasAnthropicApiKey()) return "anthropic";
   if (hasGeminiApiKey()) return "gemini";
@@ -82,39 +105,55 @@ function resolveProviderOrThrow(): LlmProvider {
 }
 
 export async function createCodemmCompletion(opts: CompletionOpts): Promise<CompletionResult> {
+  const snapshot = getResolvedLlmSnapshot();
   const provider = resolveProviderOrThrow();
-  const runtime = getRuntimeLlmConfig();
 
   const resolvedOpts: CompletionOpts =
-    runtime && runtime.model && !opts.model
-      ? { ...opts, model: runtime.model }
+    snapshot && snapshot.model && !opts.model
+      ? { ...opts, model: snapshot.model }
       : opts;
 
   if (provider === "openai") {
-    if (runtime.provider === "openai" && runtime.apiKey) {
-      return createOpenAiCompletion(resolvedOpts, { apiKey: runtime.apiKey, ...(runtime.baseURL ? { baseURL: runtime.baseURL } : {}) });
+    if (snapshot?.provider === "openai" && snapshot.apiKey) {
+      return createOpenAiCompletion(resolvedOpts, {
+        apiKey: snapshot.apiKey,
+        ...(snapshot.baseURL ? { baseURL: snapshot.baseURL } : {}),
+      });
     }
     return createOpenAiCompletion(resolvedOpts);
   }
   if (provider === "anthropic") {
-    if (runtime.provider === "anthropic" && runtime.apiKey) {
-      return createAnthropicCompletion(resolvedOpts, { apiKey: runtime.apiKey, ...(runtime.baseURL ? { baseURL: runtime.baseURL } : {}) });
+    if (snapshot?.provider === "anthropic" && snapshot.apiKey) {
+      return createAnthropicCompletion(resolvedOpts, {
+        apiKey: snapshot.apiKey,
+        ...(snapshot.baseURL ? { baseURL: snapshot.baseURL } : {}),
+      });
     }
     return createAnthropicCompletion(resolvedOpts);
   }
   if (provider === "gemini") {
-    if (runtime.provider === "gemini" && runtime.apiKey) {
-      return createGeminiCompletion(resolvedOpts, { apiKey: runtime.apiKey, ...(runtime.baseURL ? { baseURL: runtime.baseURL } : {}) });
+    if (snapshot?.provider === "gemini" && snapshot.apiKey) {
+      return createGeminiCompletion(resolvedOpts, {
+        apiKey: snapshot.apiKey,
+        ...(snapshot.baseURL ? { baseURL: snapshot.baseURL } : {}),
+      });
     }
     return createGeminiCompletion(resolvedOpts);
   }
   if (provider === "ollama") {
-    if (runtime.provider === "ollama") {
-      return createOllamaCompletion(resolvedOpts, { ...(runtime.baseURL ? { baseURL: runtime.baseURL } : {}), ...(runtime.model ? { model: runtime.model } : {}) });
+    if (snapshot?.provider === "ollama") {
+      return createOllamaCompletion(resolvedOpts, {
+        ...(snapshot.baseURL ? { baseURL: snapshot.baseURL } : {}),
+        ...(snapshot.model ? { model: snapshot.model } : {}),
+      });
     }
     return createOllamaCompletion(resolvedOpts);
   }
   return createGeminiCompletion(resolvedOpts);
+}
+
+export function getResolvedSnapshotOrNull(): ResolvedLlmSnapshot | null {
+  return getResolvedLlmSnapshot();
 }
 
 // Backwards-compatible alias for older call sites.

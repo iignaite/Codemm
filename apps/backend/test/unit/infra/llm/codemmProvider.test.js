@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const provider = require("../../../../src/infra/llm/codemmProvider");
+const { withResolvedLlmSnapshot } = require("../../../../src/infra/llm/executionContext");
 
 function withEnv(t, patch) {
   const keys = Object.keys(patch);
@@ -324,5 +325,60 @@ test("llm provider: explicit provider with missing key throws a clear error", as
   await assert.rejects(
     () => provider.createCodemmCompletion({ system: "SYS", user: "USER" }),
     /Missing Anthropic API key/i
+  );
+});
+
+test("llm provider: resolved snapshot pins the OpenAI request model and base URL", async (t) => {
+  /** @type {{url: string, init: any}[]} */
+  const calls = [];
+
+  stubFetch(t, async (input, init) => {
+    const url = asUrl(input);
+    calls.push({ url, init });
+    assert.ok(url.startsWith("https://snapshot.example/v1/chat/completions"));
+    assert.ok(getHeader((init && init.headers) || input.headers, "authorization").includes("snapshot_test_key"));
+
+    const body = await asBody(input, init);
+    assert.equal(body.model, "gpt-snapshot");
+
+    return new Response(JSON.stringify({ choices: [{ message: { content: "ok-from-snapshot" } }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+
+  const out = await withResolvedLlmSnapshot(
+    {
+      provider: "openai",
+      apiKey: "snapshot_test_key",
+      model: "gpt-snapshot",
+      baseURL: "https://snapshot.example/v1",
+      revision: "snapshot-rev-1",
+    },
+    () =>
+      provider.createCodemmCompletion({
+        system: "SYS",
+        user: "USER",
+      })
+  );
+
+  assert.equal(calls.length, 1);
+  assert.equal(out?.content?.[0]?.text, "ok-from-snapshot");
+});
+
+test("llm provider: non-ready Ollama snapshot is rejected before inference", async () => {
+  await assert.rejects(
+    () =>
+      withResolvedLlmSnapshot(
+        {
+          provider: "ollama",
+          model: "qwen2.5-coder:7b",
+          baseURL: "http://127.0.0.1:11434",
+          readiness: "DEGRADED",
+          revision: "snapshot-rev-2",
+        },
+        () => provider.createCodemmCompletion({ system: "SYS", user: "USER" })
+      ),
+    /not READY/i
   );
 });

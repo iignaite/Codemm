@@ -19,7 +19,7 @@ export async function createAnthropicCompletion(
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set in the environment.");
 
   const baseURL = (auth?.baseURL ?? process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com").replace(/\/+$/, "");
-  const model = opts.model ?? process.env.ANTHROPIC_MODEL ?? process.env.CODEX_MODEL ?? DEFAULT_ANTHROPIC_MODEL;
+  const model = opts.model ?? process.env.ANTHROPIC_MODEL ?? DEFAULT_ANTHROPIC_MODEL;
 
   const res = await fetch(`${baseURL}/v1/messages`, {
     method: "POST",

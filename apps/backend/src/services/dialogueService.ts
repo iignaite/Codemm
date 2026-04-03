@@ -22,8 +22,6 @@ export type DialogueTurnOutput = {
   nextQuestion?: { key: string; prompt: string };
 };
 
-const CODEX_MODEL = process.env.CODEX_MODEL;
-
 const ProposedPatchSchema = z
   .object({
     language: ActivityLanguageSchema.optional(),
@@ -176,7 +174,6 @@ Return JSON with this exact shape:
     const completion = await createCodemmCompletion({
       system,
       user,
-      ...(CODEX_MODEL ? { model: CODEX_MODEL } : {}),
       temperature: 0,
       maxTokens: 900,
     });

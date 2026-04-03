@@ -1,5 +1,15 @@
 export type LlmProvider = "openai" | "anthropic" | "gemini" | "ollama";
 
+export type ResolvedLlmSnapshot = {
+  provider: LlmProvider;
+  model?: string;
+  apiKey?: string | null;
+  baseURL?: string | null;
+  leaseId?: string | null;
+  revision?: string | null;
+  readiness?: "READY";
+};
+
 export type CompletionOpts = {
   system: string;
   user: string;
