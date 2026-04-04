@@ -4,9 +4,7 @@ import type { SpecDraft } from "../compiler/specDraft";
 import { ActivityLanguageSchema } from "../contracts/activitySpec";
 import { createCodemmCompletion } from "../infra/llm";
 import { tryParseJson } from "../utils/jsonParser";
-import { analyzeSpecGaps, defaultNextQuestionFromGaps } from "../agent/specAnalysis";
 import { computeConfirmRequired } from "../agent/fieldCommitmentPolicy";
-import { listAgentSelectableLanguages } from "../languages/profiles";
 
 export type DialogueTurnInput = {
   sessionState: string;
@@ -16,10 +14,10 @@ export type DialogueTurnInput = {
 };
 
 export type DialogueTurnOutput = {
-  assistantMessage: string;
   proposedPatch: Partial<ActivitySpec>;
+  confidence: Partial<Record<keyof ActivitySpec, number>>;
   needsConfirmation?: string[];
-  nextQuestion?: { key: string; prompt: string };
+  parseSource: "deterministic" | "llm";
 };
 
 const ProposedPatchSchema = z
@@ -102,41 +100,25 @@ function stripUndefinedValues(obj: Record<string, unknown>): Record<string, unkn
   return out;
 }
 
-function buildNextQuestion(spec: SpecDraft): { key: string; prompt: string } | null {
-  const gaps = analyzeSpecGaps(spec);
-  if (gaps.complete) return null;
-  const prompt = defaultNextQuestionFromGaps(gaps);
-
-  const priority: (keyof ActivitySpec)[] = ["language", "problem_count", "difficulty_plan", "topic_tags"];
-  const next = priority.find((k) => gaps.missing.includes(k)) ?? (gaps.missing[0] as keyof ActivitySpec | undefined);
-  const key = next ? String(next) : "unknown";
-
-  return { key, prompt };
-}
-
-function buildConfirmationPrompt(fields: string[], proposedPatch: Partial<ActivitySpec>): string {
-  const langs = listAgentSelectableLanguages().join(", ") || "java";
-  if (fields.includes("language")) {
-    const suggested = typeof proposedPatch.language === "string" ? proposedPatch.language : null;
-    return `I think you might want to switch the language${suggested ? ` to ${suggested}` : ""}. Confirm the language to use (${langs}).`;
-  }
-  if (fields.includes("problem_count")) return "I might be inferring a different number of problems. Confirm how many problems (1–7).";
-  if (fields.includes("difficulty_plan"))
-    return "I might be inferring a new difficulty split. Confirm the difficulty plan (example: easy:2, medium:2, hard:1).";
-  return "Confirm the change you want to make.";
+function hasMeaningfulPatch(patch: Partial<ActivitySpec>): boolean {
+  return Object.keys(patch).length > 0;
 }
 
 export async function runDialogueTurn(input: DialogueTurnInput): Promise<DialogueTurnOutput> {
-  const history = input.conversationHistory
-    .slice(-10)
-    .map((m) => ({ role: m.role, content: truncate(m.content, 700) }));
+  let parsed: z.infer<typeof DialogueLlmSchema> | null = null;
+  const deterministicPatch = safeExtractPatchFromText(input.latestUserMessage);
+  const usedDeterministic = hasMeaningfulPatch(deterministicPatch);
 
-  const system = `
-You are Codemm's dialogue layer.
+  if (!usedDeterministic) {
+    const history = input.conversationHistory
+      .slice(-10)
+      .map((m) => ({ role: m.role, content: truncate(m.content, 700) }));
+
+    const system = `
+You are Codemm's dialogue parser.
 
 Your job:
 - Read the conversation + latest user message.
-- Produce a conversational assistant message (no form-wizard tone).
 - Propose a PARTIAL spec patch (may be empty). Never require all fields in one turn.
 
 Hard rules:
@@ -150,7 +132,7 @@ Hard rules:
   - topic_tags: string[] (1..12 items, 1..40 chars each)
 `.trim();
 
-  const user = `
+    const user = `
 Session state: ${input.sessionState}
 Current partial spec: ${truncate(JSON.stringify(input.currentSpec), 2000)}
 
@@ -168,34 +150,34 @@ Return JSON with this exact shape:
 }
 `.trim();
 
-  let parsed: z.infer<typeof DialogueLlmSchema> | null = null;
+    try {
+      const completion = await createCodemmCompletion({
+        system,
+        user,
+        role: "dialogue",
+        temperature: 0,
+        maxTokens: 900,
+      });
+      const raw = completion.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
 
-  try {
-    const completion = await createCodemmCompletion({
-      system,
-      user,
-      temperature: 0,
-      maxTokens: 900,
-    });
-    const raw = completion.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
-
-    const attempt1 = tryParseJson(raw);
-    const res1 = DialogueLlmSchema.safeParse(attempt1);
-    if (res1.success) parsed = res1.data;
-    else {
-      // Deterministic repair pass: extract a likely JSON object substring and retry.
-      const extracted = extractLikelyJsonObject(raw);
-      if (extracted) {
-        const attempt2 = tryParseJson(extracted);
-        const res2 = DialogueLlmSchema.safeParse(attempt2);
-        if (res2.success) parsed = res2.data;
+      const attempt1 = tryParseJson(raw);
+      const res1 = DialogueLlmSchema.safeParse(attempt1);
+      if (res1.success) parsed = res1.data;
+      else {
+        // Deterministic repair pass: extract a likely JSON object substring and retry.
+        const extracted = extractLikelyJsonObject(raw);
+        if (extracted) {
+          const attempt2 = tryParseJson(extracted);
+          const res2 = DialogueLlmSchema.safeParse(attempt2);
+          if (res2.success) parsed = res2.data;
+        }
       }
+    } catch {
+      // fall through to deterministic fallback
     }
-  } catch {
-    // fall through to deterministic fallback
   }
 
-  const rawPatch = (parsed?.proposedPatch ?? safeExtractPatchFromText(input.latestUserMessage)) as unknown as Record<
+  const rawPatch = (parsed?.proposedPatch ?? deterministicPatch) as unknown as Record<
     string,
     unknown
   >;
@@ -209,26 +191,15 @@ Return JSON with this exact shape:
     inferredPatch: proposedPatch as any,
   });
   const needsConfirmation = confirm.required ? confirm.fields.map(String) : undefined;
-
-  // For question selection we tentatively apply the proposed patch in-memory (no persistence here).
-  const nextSpec: SpecDraft = { ...input.currentSpec, ...(proposedPatch as any) };
-  const nextQuestion = needsConfirmation?.length
-    ? { key: `confirm:${needsConfirmation.slice().sort().join(",")}`, prompt: buildConfirmationPrompt(needsConfirmation, proposedPatch) }
-    : buildNextQuestion(nextSpec);
-
-  const acknowledgement =
-    parsed?.acknowledgement?.trim() ||
-    (input.latestUserMessage.trim()
-      ? `Got it — ${truncate(input.latestUserMessage.trim(), 120)}`
-      : "Got it.");
-  const inferred = parsed?.inferred_intent?.trim() || "I’ll translate that into an activity spec.";
-
-  const assistantMessage = [acknowledgement, inferred].filter(Boolean).join("\n\n");
+  const confidence: Partial<Record<keyof ActivitySpec, number>> = {};
+  for (const key of Object.keys(proposedPatch) as Array<keyof ActivitySpec>) {
+    confidence[key] = usedDeterministic ? 1 : 0.7;
+  }
 
   return {
-    assistantMessage,
     proposedPatch,
+    confidence,
     ...(needsConfirmation?.length ? { needsConfirmation } : {}),
-    ...(nextQuestion ? { nextQuestion } : {}),
+    parseSource: usedDeterministic ? "deterministic" : "llm",
   };
 }

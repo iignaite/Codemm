@@ -1,10 +1,68 @@
 import type { Difficulty } from "./activitySpec";
 import type { AttemptDiagnostic, RepairStrategy } from "./generationDiagnostics";
 import type { GenerationFailureKind } from "../generation/errors";
+import type { LlmRole } from "../infra/llm/types";
 
 export type GenerationProgressEvent =
   // Phase 2B: richer structured events for per-slot progress UI.
   | { type: "generation_started"; totalSlots: number; totalProblems?: number; run?: number }
+  | {
+      type: "route_selected";
+      slotIndex: number;
+      routeRole: LlmRole;
+      provider?: string;
+      model?: string;
+      capability?: string;
+      promptTemplateId?: string;
+    }
+  | {
+      type: "slot_stage_started";
+      slotIndex: number;
+      stage: "skeleton" | "tests" | "reference" | "validate" | "repair";
+      attempt: number;
+      routeRole?: LlmRole;
+      provider?: string;
+      model?: string;
+      promptTemplateId?: string;
+      startedAt?: string;
+    }
+  | {
+      type: "slot_stage_finished";
+      slotIndex: number;
+      stage: "skeleton" | "tests" | "reference" | "validate" | "repair";
+      attempt: number;
+      status: "success" | "failed";
+      routeRole?: LlmRole;
+      provider?: string;
+      model?: string;
+      promptTemplateId?: string;
+      startedAt?: string;
+      endedAt?: string;
+      durationMs?: number;
+      artifactHash?: string;
+      failureKind?: GenerationFailureKind;
+      message?: string;
+      exitCode?: number;
+      timedOut?: boolean;
+    }
+  | {
+      type: "slot_escalated";
+      slotIndex: number;
+      stage: "tests" | "reference" | "repair";
+      routeRole: LlmRole;
+      fromModel?: string;
+      toModel?: string;
+      reason: string;
+    }
+  | {
+      type: "slot_failed_terminal";
+      slotIndex: number;
+      stage: "skeleton" | "tests" | "reference" | "validate" | "repair";
+      routeRole?: LlmRole;
+      failureKind: GenerationFailureKind;
+      terminationReason: string;
+      message: string;
+    }
   | {
       type: "slot_started";
       slotIndex: number;

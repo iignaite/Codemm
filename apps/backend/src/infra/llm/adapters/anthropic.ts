@@ -72,6 +72,7 @@ export async function createAnthropicCompletion(
     meta: {
       provider: "anthropic",
       model: typeof parsed?.model === "string" ? parsed.model : model,
+      ...(opts.role ? { role: opts.role } : {}),
       ...(typeof parsed?.stop_reason === "string" ? { finishReason: parsed.stop_reason } : {}),
       ...(parsed?.stop_reason === "max_tokens" ? { truncated: true } : {}),
       ...(Object.keys(usage).length > 0 ? { usage } : {}),

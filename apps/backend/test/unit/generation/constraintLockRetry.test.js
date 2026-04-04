@@ -6,29 +6,16 @@ const assert = require("node:assert/strict");
 const { generateProblemsFromPlan } = require("../../../src/generation");
 
 function installPythonGeneratorStub(t, drafts) {
-  const codex = require("../../../src/infra/llm/codemmProvider");
-  const originalCreateCodemm = codex.createCodemmCompletion;
-  const originalCreateCodex = codex.createCodexCompletion;
   let n = 0;
 
-  const stub = async ({ system }) => {
-    if (String(system).includes("Python problem generator")) {
+  return {
+    generateSingleProblem: async () => {
       const payload = drafts[Math.min(n, drafts.length - 1)];
       n++;
-      return { content: [{ type: "text", text: JSON.stringify(payload) }] };
-    }
-    throw new Error(`Unexpected LLM call in test (system=${String(system).slice(0, 80)})`);
+      return { draft: payload, meta: { llmOutputHash: `stub-${n}` } };
+    },
+    getCalls: () => n,
   };
-
-  codex.createCodemmCompletion = stub;
-  codex.createCodexCompletion = stub;
-
-  t.after(() => {
-    codex.createCodemmCompletion = originalCreateCodemm;
-    codex.createCodexCompletion = originalCreateCodex;
-  });
-
-  return { getCalls: () => n };
 }
 
 test("generation: constraint mismatch triggers retry and can recover", async (t) => {
@@ -36,6 +23,7 @@ test("generation: constraint mismatch triggers retry and can recover", async (t)
     "Python 3.11, pytest, standard library only, no filesystem access, no networking, time limit enforced.";
 
   const bad = {
+    language: "python",
     id: "py-bad-1",
     title: "Echo",
     description: "Return the input number.",
@@ -62,7 +50,7 @@ def test_case_8(): assert solve(8) == 8
 
   const good = { ...bad, id: "py-good-1", constraints: slotConstraints };
 
-  const { getCalls } = installPythonGeneratorStub(t, [bad, good]);
+  const { generateSingleProblem, getCalls } = installPythonGeneratorStub(t, [bad, good]);
 
   const plan = [
     {
@@ -78,6 +66,7 @@ def test_case_8(): assert solve(8) == 8
 
   const result = await generateProblemsFromPlan(plan, {
     deps: {
+      generateSingleProblem,
       validateReferenceSolution: async () => {},
       runTestStrengthGate: async () => {},
     },
@@ -86,4 +75,3 @@ def test_case_8(): assert solve(8) == 8
   assert.equal(result.problems.length, 1);
   assert.equal(getCalls(), 2);
 });
-

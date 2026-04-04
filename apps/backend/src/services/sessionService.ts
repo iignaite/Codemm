@@ -492,11 +492,41 @@ export async function processSessionMessage(
     return { key: next ? String(next) : "unknown", prompt };
   };
 
+  const buildConfirmationPrompt = (fields: string[], proposedPatch: Record<string, unknown>): string => {
+    if (fields.includes("language")) {
+      const suggested = typeof proposedPatch.language === "string" ? proposedPatch.language : null;
+      return `Confirm the language${suggested ? ` (${suggested})` : ""} you want to use.`;
+    }
+    if (fields.includes("problem_count")) return "Confirm how many problems you want (1-7).";
+    if (fields.includes("difficulty_plan")) return "Confirm the difficulty split you want to use (for example: easy:2, medium:2, hard:1).";
+    if (fields.includes("topic_tags")) return "Confirm the topics you want to focus on.";
+    return "Confirm the change you want to make.";
+  };
+
+  const buildAssistantSummary = (args: {
+    proposedPatch: Record<string, unknown>;
+    appliedOps?: JsonPatchOp[];
+    parseSource: "deterministic" | "llm";
+  }): string => {
+    const changedKeys = Array.isArray(args.appliedOps)
+      ? args.appliedOps.map((op) => (op.path.startsWith("/") ? op.path.slice(1) : op.path)).filter(Boolean)
+      : Object.keys(args.proposedPatch ?? {});
+    if (changedKeys.length === 0) {
+      return args.parseSource === "deterministic"
+        ? "I did not see a safe spec update in that message."
+        : "I could not safely infer a spec update from that message.";
+    }
+    return `Captured updates for: ${Array.from(new Set(changedKeys)).join(", ")}.`;
+  };
+
 		  if (needsConfirmationFields.length > 0) {
 		    const fields = needsConfirmationFields.slice().sort();
-		    const nextKey = dialogue.nextQuestion?.key ?? `confirm:${fields.join(",")}`;
-		    const prompt = dialogue.nextQuestion?.prompt ?? "Confirm the change you want to make.";
-		    const assistantText = [dialogue.assistantMessage, prompt].filter(Boolean).join("\n\n");
+		    const nextKey = `confirm:${fields.join(",")}`;
+		    const prompt = buildConfirmationPrompt(fields, mergedProposed);
+		    const assistantText = [buildAssistantSummary({
+          proposedPatch: mergedProposed,
+          parseSource: dialogue.parseSource,
+        }), prompt].filter(Boolean).join("\n\n");
 		
 		    const pendingConfirm: PendingConfirmation = {
 		      kind: "pending_confirmation",
@@ -608,7 +638,11 @@ export async function processSessionMessage(
   const nq = done ? null : buildNextQuestion(nextSpec as SpecDraft);
   const nextKey = done ? "ready" : nq?.key ?? null;
 
-  const assistantText = [dialogue.assistantMessage, done ? "Spec looks complete. You can generate the activity." : nq?.prompt]
+  const assistantText = [buildAssistantSummary({
+    proposedPatch: mergedProposed,
+    appliedOps: appliedUserOps,
+    parseSource: dialogue.parseSource,
+  }), done ? "Spec looks complete. You can generate the activity." : nq?.prompt]
     .filter(Boolean)
     .join("\n\n");
 
@@ -759,9 +793,14 @@ export async function generateFromSession(
     let usedFallback = false;
     let appliedFallbackReason: string | null = null;
 
+    const derivePlanForSpec = (currentSpec: ActivitySpec) => {
+      const pedagogyPolicy =
+        learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec: currentSpec, learnerProfile: null }) : undefined;
+      return { pedagogyPolicy, plan: deriveProblemPlan(currentSpec, pedagogyPolicy) };
+    };
+
     // Derive initial ProblemPlan (always from current spec)
-    const pedagogyPolicy = learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec, learnerProfile: null }) : undefined;
-    let plan = deriveProblemPlan(spec, pedagogyPolicy);
+    let { pedagogyPolicy, plan } = derivePlanForSpec(spec);
     threadDb.setPlanJson(sessionId, JSON.stringify(plan));
     publishGenerationProgress(sessionId, {
       type: "generation_started",
@@ -863,7 +902,7 @@ export async function generateFromSession(
               threadDb.updateSpecJson(sessionId, JSON.stringify(spec));
 
               // Update plan for remaining slots (we keep already generated problems as a checkpoint).
-              plan = deriveProblemPlan(spec, pedagogyPolicy);
+              ({ pedagogyPolicy, plan } = derivePlanForSpec(spec));
               threadDb.setPlanJson(sessionId, JSON.stringify(plan));
               continue;
             }

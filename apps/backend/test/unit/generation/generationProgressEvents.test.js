@@ -25,7 +25,7 @@ test("generation progress: emits per-slot event ordering", async () => {
     id: "p1",
     title: "Example",
     description: "Example description.",
-    constraints: "Example constraints.",
+    constraints: plan[0].constraints,
     sample_inputs: [],
     sample_outputs: [],
     difficulty: "easy",

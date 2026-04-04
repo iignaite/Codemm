@@ -71,6 +71,7 @@ export async function createOpenAiCompletion(
     meta: {
       provider: "openai",
       model: completion.model ?? (opts.model ?? DEFAULT_OPENAI_MODEL),
+      ...(opts.role ? { role: opts.role } : {}),
       ...(typeof finishReason === "string" ? { finishReason } : {}),
       ...(finishReason === "length" ? { truncated: true } : {}),
       ...(Object.keys(usage).length > 0 ? { usage } : {}),
