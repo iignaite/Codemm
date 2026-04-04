@@ -198,26 +198,41 @@ function loadSecrets({ userDataDir }) {
   const apiKeyEncB64 = typeof llm.apiKeyEncB64 === "string" ? llm.apiKeyEncB64 : null;
   const model = typeof llm.model === "string" ? llm.model : null;
   const baseURL = typeof llm.baseURL === "string" ? llm.baseURL : null;
+  const routingProfile =
+    llm.routingProfile === "fast_local" ||
+    llm.routingProfile === "balanced_local" ||
+    llm.routingProfile === "strong_local" ||
+    llm.routingProfile === "custom"
+      ? llm.routingProfile
+      : "auto";
+  const roleModels =
+    llm.roleModels && typeof llm.roleModels === "object" && !Array.isArray(llm.roleModels) ? llm.roleModels : null;
   const updatedAt = typeof llm.updatedAt === "string" ? llm.updatedAt : null;
   if (!provider) return { secretsPath, llm: null };
 
   try {
     if (!apiKeyEncB64) {
-      return { secretsPath, llm: { provider, apiKey: null, model, baseURL, updatedAt } };
+      return { secretsPath, llm: { provider, apiKey: null, model, baseURL, routingProfile, roleModels, updatedAt } };
     }
     const buf = Buffer.from(apiKeyEncB64, "base64");
     const apiKey = safeStorage.decryptString(buf);
-    return { secretsPath, llm: { provider, apiKey, model, baseURL, updatedAt } };
+    return { secretsPath, llm: { provider, apiKey, model, baseURL, routingProfile, roleModels, updatedAt } };
   } catch {
     return { secretsPath, llm: null };
   }
 }
 
-function saveSecrets({ userDataDir, provider, apiKey, model, baseURL }) {
+function saveSecrets({ userDataDir, provider, apiKey, model, baseURL, routingProfile, roleModels }) {
   const secretsPath = resolveSecretsStorePath({ userDataDir });
   const nextModel = typeof model === "string" && model.trim() ? model.trim() : null;
   const nextApiKey = typeof apiKey === "string" && apiKey.trim() ? apiKey.trim() : null;
   const nextBaseURL = typeof baseURL === "string" && baseURL.trim() ? baseURL.trim() : null;
+  const nextRoutingProfile =
+    routingProfile === "fast_local" || routingProfile === "balanced_local" || routingProfile === "strong_local" || routingProfile === "custom"
+      ? routingProfile
+      : "auto";
+  const nextRoleModels =
+    roleModels && typeof roleModels === "object" && !Array.isArray(roleModels) ? roleModels : null;
   const apiKeyEncB64 = (() => {
     if (!nextApiKey) return null;
     if (!safeStorage.isEncryptionAvailable()) {
@@ -226,7 +241,18 @@ function saveSecrets({ userDataDir, provider, apiKey, model, baseURL }) {
     return safeStorage.encryptString(nextApiKey).toString("base64");
   })();
   const updatedAt = new Date().toISOString();
-  writeJsonFile(secretsPath, { v: 1, llm: { provider, apiKeyEncB64, model: nextModel, baseURL: nextBaseURL, updatedAt } });
+  writeJsonFile(secretsPath, {
+    v: 1,
+    llm: {
+      provider,
+      apiKeyEncB64,
+      model: nextModel,
+      baseURL: nextBaseURL,
+      routingProfile: nextRoutingProfile,
+      roleModels: nextRoleModels,
+      updatedAt,
+    },
+  });
   return { secretsPath, updatedAt };
 }
 
@@ -864,6 +890,8 @@ async function createWindowAndBoot() {
         provider: llm ? llm.provider : null,
         model: llm ? llm.model ?? null : null,
         baseURL: llm ? llm.baseURL ?? null : null,
+        routingProfile: llm ? llm.routingProfile ?? "auto" : "auto",
+        roleModels: llm ? llm.roleModels ?? null : null,
         updatedAt: llm ? llm.updatedAt ?? null : null,
       };
     });
@@ -875,6 +903,8 @@ async function createWindowAndBoot() {
           apiKey: z.string().min(10).max(500).optional(),
           model: z.string().min(1).max(128).optional().nullable(),
           baseURL: z.string().min(1).max(512).optional().nullable(),
+          routingProfile: z.enum(["auto", "fast_local", "balanced_local", "strong_local", "custom"]).optional().nullable(),
+          roleModels: z.record(z.string().min(1).max(128)).optional().nullable(),
         }),
         args
       );
@@ -882,6 +912,15 @@ async function createWindowAndBoot() {
       const apiKey = typeof parsed.apiKey === "string" ? parsed.apiKey.trim() : "";
       const model = typeof parsed.model === "string" ? parsed.model.trim() : "";
       const baseURL = typeof parsed.baseURL === "string" ? parsed.baseURL.trim() : "";
+      const routingProfile = typeof parsed.routingProfile === "string" ? parsed.routingProfile : "auto";
+      const roleModels =
+        parsed.roleModels && typeof parsed.roleModels === "object" && !Array.isArray(parsed.roleModels)
+          ? Object.fromEntries(
+              Object.entries(parsed.roleModels)
+                .filter(([k, v]) => ROUTE_ROLES.includes(k) && typeof v === "string" && v.trim())
+                .map(([k, v]) => [k, v.trim()])
+            )
+          : null;
       if (!(provider === "openai" || provider === "anthropic" || provider === "gemini" || provider === "ollama")) {
         throw new Error("Invalid provider.");
       }
@@ -893,8 +932,8 @@ async function createWindowAndBoot() {
         userDataDir: storage.userDataDir,
         provider,
         ...(provider === "ollama"
-          ? { apiKey: null, model: model || null, baseURL: baseURL || OLLAMA_DEFAULT_URL }
-          : { apiKey, model: model || null, baseURL: baseURL || null }),
+          ? { apiKey: null, model: model || null, baseURL: baseURL || OLLAMA_DEFAULT_URL, routingProfile, roleModels }
+          : { apiKey, model: model || null, baseURL: baseURL || null, routingProfile, roleModels }),
       });
       dialog.showMessageBox({
         type: "info",
@@ -920,21 +959,99 @@ async function createWindowAndBoot() {
       return s;
     };
     const llmStatusSubs = new Map();
-
-    const buildRemoteSnapshot = (llm) => {
+    const ROUTE_ROLES = ["dialogue", "skeleton", "tests", "reference", "repair", "edit"];
+    const LOCAL_PROFILE_MODELS = {
+      fast_local: "qwen2.5-coder:1.5b",
+      balanced_local: "qwen2.5-coder:7b",
+      strong_local: "qwen2.5-coder:14b",
+    };
+    const normalizeRoutingProfile = (raw) => {
+      const value = typeof raw === "string" ? raw.trim() : "";
+      if (value === "fast_local" || value === "balanced_local" || value === "strong_local" || value === "custom") {
+        return value;
+      }
+      return "auto";
+    };
+    const inferCapability = (provider, model) => {
+      const normalized = typeof model === "string" ? model.trim().toLowerCase() : "";
+      if (!normalized) return provider === "ollama" ? "weak" : "strong";
+      if (provider !== "ollama") return "strong";
+      const billionMatch = /(\d+(?:\.\d+)?)b\b/.exec(normalized);
+      const size = billionMatch?.[1] ? Number(billionMatch[1]) : Number.NaN;
+      if (Number.isFinite(size)) {
+        if (size <= 3) return "weak";
+        if (size < 12) return "balanced";
+        return "strong";
+      }
+      return "balanced";
+    };
+    const sanitizeRoleModels = (raw) => {
+      const out = {};
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+      for (const role of ROUTE_ROLES) {
+        const value = typeof raw[role] === "string" ? raw[role].trim() : "";
+        if (value) out[role] = value;
+      }
+      return out;
+    };
+    const buildRemoteRoutePlan = (llm) => {
       if (!llm || !llm.provider) return null;
       const provider = String(llm.provider).trim().toLowerCase();
       if (provider !== "openai" && provider !== "anthropic" && provider !== "gemini") return null;
       if (!(llm.apiKey && String(llm.apiKey).trim())) {
         throw new Error(`Missing API key for ${provider}.`);
       }
+      const normalizedProfile = normalizeRoutingProfile(llm.routingProfile);
+      const roleModels = sanitizeRoleModels(llm.roleModels);
+      const defaultModel = typeof llm.model === "string" && llm.model.trim() ? llm.model.trim() : null;
+      const modelsByRole = {};
+      for (const role of ROUTE_ROLES) {
+        const model = normalizedProfile === "custom" ? roleModels[role] || defaultModel : defaultModel;
+        if (!model) continue;
+        modelsByRole[role] = {
+          model,
+          capability: inferCapability(provider, model),
+        };
+      }
       return {
         provider,
         apiKey: llm.apiKey,
-        ...(llm.model ? { model: llm.model } : {}),
+        ...(defaultModel ? { defaultModel } : {}),
         ...(llm.baseURL ? { baseURL: llm.baseURL } : {}),
         revision: `remote-${provider}`,
+        routingProfile: normalizedProfile,
+        modelsByRole,
       };
+    };
+    const buildLocalRoutePlan = (llm) => {
+      const normalizedProfile = normalizeRoutingProfile(llm?.routingProfile);
+      const storedModel = typeof llm?.model === "string" && llm.model.trim() ? llm.model.trim() : null;
+      const roleModels = sanitizeRoleModels(llm?.roleModels);
+      const profileModel = normalizedProfile === "auto" ? storedModel : LOCAL_PROFILE_MODELS[normalizedProfile] || storedModel;
+      const defaultModel = profileModel || storedModel || requireLocalLlmOrchestrator().getStatus()?.runtime?.activeModel || "qwen2.5-coder:1.5b";
+      const modelsByRole = {};
+      for (const role of ROUTE_ROLES) {
+        const model = normalizedProfile === "custom" ? roleModels[role] || defaultModel : defaultModel;
+        modelsByRole[role] = {
+          model,
+          capability: inferCapability("ollama", model),
+        };
+      }
+      return {
+        provider: "ollama",
+        baseURL: llm?.baseURL || OLLAMA_DEFAULT_URL,
+        revision: `local-${normalizedProfile}`,
+        readiness: "READY",
+        defaultModel,
+        routingProfile: normalizedProfile,
+        modelsByRole,
+      };
+    };
+    const buildRoutePlan = (llm) => {
+      if (!llm || !llm.provider) return null;
+      const provider = String(llm.provider).trim().toLowerCase();
+      if (provider === "ollama") return buildLocalRoutePlan(llm);
+      return buildRemoteRoutePlan(llm);
     };
 
     const broadcastLlmStatus = (status) => {
@@ -949,7 +1066,7 @@ async function createWindowAndBoot() {
       broadcastLlmStatus(status);
     });
 
-    const resolveLlmSnapshotForMethod = async (method, opts = {}) => {
+    const resolveLlmRoutePlanForMethod = async (method, opts = {}) => {
       const llm = loadSecrets({ userDataDir: storage.userDataDir }).llm;
       if (!llm || !llm.provider) {
         throw new Error("No LLM configured.");
@@ -957,28 +1074,52 @@ async function createWindowAndBoot() {
 
       const provider = String(llm.provider).trim().toLowerCase();
       if (provider === "ollama") {
-        const snapshot = await requireLocalLlmOrchestrator().acquireLease({
-          reason: method,
-          useCase: opts.useCase || "general",
-          ...(typeof llm.model === "string" && llm.model.trim() ? { forcedModel: llm.model.trim() } : {}),
-        });
-        return { snapshot, release: async () => requireLocalLlmOrchestrator().releaseLease(snapshot.leaseId) };
+        const routePlan = buildLocalRoutePlan(llm);
+        const uniqueModels = Array.from(
+          new Set(
+            Object.values(routePlan.modelsByRole || {})
+              .map((route) => (route && typeof route.model === "string" ? route.model.trim() : ""))
+              .filter(Boolean)
+          )
+        );
+        const leases = [];
+        for (const model of uniqueModels) {
+          const lease = await requireLocalLlmOrchestrator().acquireLease({
+            reason: `${method}:${model}`,
+            useCase: opts.useCase || "general",
+            forcedModel: model,
+          });
+          leases.push(lease);
+        }
+        const firstLease = leases[0] || null;
+        return {
+          routePlan: {
+            ...routePlan,
+            ...(firstLease?.baseURL ? { baseURL: firstLease.baseURL } : {}),
+            ...(firstLease?.revision ? { revision: firstLease.revision } : {}),
+          },
+          release: async () => {
+            for (const lease of leases) {
+              await requireLocalLlmOrchestrator().releaseLease(lease.leaseId);
+            }
+          },
+        };
       }
 
-      const snapshot = buildRemoteSnapshot(llm);
-      if (!snapshot) {
+      const routePlan = buildRemoteRoutePlan(llm);
+      if (!routePlan) {
         throw new Error(`Unsupported provider "${provider}".`);
       }
-      return { snapshot, release: async () => {} };
+      return { routePlan, release: async () => {} };
     };
 
     const engineCall = async (method, params, opts = {}) => {
       if (!opts.llm) return requireEngine().call(method, params);
-      const { snapshot, release } = await resolveLlmSnapshotForMethod(method, opts);
+      const { routePlan, release } = await resolveLlmRoutePlanForMethod(method, opts);
       try {
-        return await requireEngine().call(method, params, { llmSnapshot: snapshot });
+        return await requireEngine().call(method, params, { llmRoutePlan: routePlan });
       } catch (err) {
-        if (snapshot?.provider === "ollama") {
+        if (routePlan?.provider === "ollama") {
           try {
             requireLocalLlmOrchestrator().markDegraded(err);
           } catch {
@@ -998,6 +1139,11 @@ async function createWindowAndBoot() {
         configured: Boolean(llm && (llm.apiKey || String(llm.provider || "").toLowerCase() === "ollama")),
         local: requireLocalLlmOrchestrator().getStatus(),
       };
+    });
+
+    ipcMain.handle("codemm:llm:getRoutePlan", async () => {
+      const llm = loadSecrets({ userDataDir: storage.userDataDir }).llm;
+      return buildRoutePlan(llm);
     });
 
     ipcMain.handle("codemm:llm:ensureReady", async (_evt, args) => {

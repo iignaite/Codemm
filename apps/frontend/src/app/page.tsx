@@ -39,6 +39,70 @@ type GenerationProgressState = {
   lastHeartbeatTs: string | null;
 };
 
+type GenerationDiagnosticsState = {
+  threadId: string;
+  runId: string | null;
+  run: {
+    id: string;
+    status: string;
+    createdAt: string;
+    finishedAt: string | null;
+    meta?: {
+      routePlan?: {
+        provider?: string;
+        defaultModel?: string;
+        routingProfile?: string;
+        modelsByRole?: Record<string, { model?: string; capability?: string }>;
+      } | null;
+    } | null;
+  } | null;
+  summary: {
+    totalAttempts: number;
+    failedAttempts: number;
+    successfulAttempts: number;
+    finalFailureKind?: string;
+    llmMs?: number;
+    dockerMs?: number;
+    totalStageMs?: number;
+  };
+  latestFailure: {
+    slotIndex: number;
+    attempt: number;
+    kind: string;
+    message: string;
+    remediation: string[];
+    final: boolean;
+    stage?: string;
+    terminationReason?: string;
+  } | null;
+  stageTimeline: Array<{
+    ts: string;
+    slotIndex: number;
+    stage: string;
+    attempt: number;
+    status: "started" | "success" | "failed" | "escalated" | "terminal";
+    routeRole?: string;
+    provider?: string;
+    model?: string;
+    durationMs?: number;
+    message?: string;
+    failureKind?: string;
+    terminationReason?: string;
+    fromModel?: string;
+    toModel?: string;
+    reason?: string;
+  }>;
+  routeSelections: Array<{
+    ts: string;
+    slotIndex: number;
+    routeRole: string;
+    provider?: string;
+    model?: string;
+    capability?: string;
+  }>;
+  errors: Array<{ seq: number; message: string; createdAt: string }>;
+};
+
 type LearningMode = "practice" | "guided";
 
 type ThreadSummary = {
@@ -83,6 +147,7 @@ export default function Home() {
   const [progress, setProgress] = useState<GenerationProgressState | null>(null);
   const [progressHint, setProgressHint] = useState<string | null>(null);
   const [generationRunId, setGenerationRunId] = useState<string | null>(null);
+  const [generationDiagnostics, setGenerationDiagnostics] = useState<GenerationDiagnosticsState | null>(null);
   const progressRef = useRef<null | { unsubscribe: () => Promise<void> }>(null);
 
   const [instructionsOpen, setInstructionsOpen] = useState(false);
@@ -154,6 +219,7 @@ export default function Home() {
       setProgress(null);
       setProgressHint(null);
       setGenerationRunId(null);
+      setGenerationDiagnostics(null);
       setGenerationLocked(false);
       generationLoadingRef.current = false;
       setMessages([]);
@@ -197,6 +263,7 @@ export default function Home() {
       setProgress(null);
       setProgressHint(null);
       setGenerationRunId(null);
+      setGenerationDiagnostics(null);
       setGenerationLocked(false);
       generationLoadingRef.current = false;
       setMessages([]);
@@ -343,6 +410,21 @@ export default function Home() {
     return 0;
   }
 
+  async function refreshGenerationDiagnostics(runId?: string | null) {
+    if (!threadId) return null;
+    const threadsApi = requireThreadsApi() as any;
+    if (typeof threadsApi.getGenerationDiagnostics !== "function") return null;
+    const diagnostics = (await threadsApi.getGenerationDiagnostics({
+      threadId,
+      ...(runId ? { runId } : {}),
+    })) as GenerationDiagnosticsState;
+    setGenerationDiagnostics(diagnostics);
+    if (typeof diagnostics?.runId === "string" && diagnostics.runId) {
+      setGenerationRunId(diagnostics.runId);
+    }
+    return diagnostics;
+  }
+
   async function handleChatSend() {
     if (!threadId || specReadyRef.current || chatLoadingRef.current) return;
 
@@ -451,6 +533,7 @@ export default function Home() {
       setProgress(null);
       setProgressHint(null);
       setGenerationRunId(null);
+      setGenerationDiagnostics(null);
 
       const hintTimer = window.setTimeout(
         () => setProgressHint("Preparing generation... local models can take longer to emit the first update."),
@@ -504,7 +587,60 @@ export default function Home() {
               return next;
             }
 
+            if (typed.type === "route_selected") {
+              if (typed.model) {
+                setProgressHint(`Slot ${typed.slotIndex + 1}: using ${typed.routeRole} model ${typed.model}.`);
+              }
+              return next;
+            }
+
             const getSlot = (slotIndex: number) => next.slots[slotIndex];
+
+            if (typed.type === "slot_stage_started") {
+              const p = getSlot(typed.slotIndex);
+              if (p) {
+                p.attempt = typed.attempt;
+                p.stage = typed.stage === "validate" ? "docker" : "llm";
+                p.lastFailure = null;
+              }
+              return next;
+            }
+
+            if (typed.type === "slot_stage_finished") {
+              const p = getSlot(typed.slotIndex);
+              if (p) {
+                p.attempt = typed.attempt;
+                if (typed.status === "failed") {
+                  p.stage = typed.stage === "validate" ? "docker" : "contract";
+                  p.lastFailure = {
+                    stage: typed.stage === "validate" ? "docker" : "contract",
+                    message: typed.message || `${typed.stage} failed.`,
+                  };
+                } else if (typed.stage === "validate") {
+                  p.stage = "docker";
+                  p.stageDone = { llm: true, contract: true, docker: true };
+                } else {
+                  p.stage = "llm";
+                }
+              }
+              return next;
+            }
+
+            if (typed.type === "slot_escalated") {
+              const target = typed.toModel ? ` to ${typed.toModel}` : "";
+              setProgressHint(`Slot ${typed.slotIndex + 1}: escalating ${typed.stage}${target}.`);
+              return next;
+            }
+
+            if (typed.type === "slot_failed_terminal") {
+              const p = getSlot(typed.slotIndex);
+              if (p) {
+                p.stage = "failed";
+                p.lastFailure = { stage: typed.stage === "validate" ? "docker" : "contract", message: typed.message };
+              }
+              setProgressHint(`Slot ${typed.slotIndex + 1}: ${typed.terminationReason}.`);
+              return next;
+            }
 
             if (typed.type === "slot_started") {
               const p = getSlot(typed.slotIndex);
@@ -727,6 +863,7 @@ export default function Home() {
       if (typeof data?.runId === "string") {
         runIdForDiagnostics = data.runId;
         setGenerationRunId(data.runId);
+        await refreshGenerationDiagnostics(data.runId).catch(() => {});
       }
 
       if (typeof data.activityId === "string") {
@@ -751,19 +888,13 @@ export default function Home() {
       console.error(e);
       let diagnosticMessage: string | null = null;
       try {
-        const threadsApi = requireThreadsApi() as any;
-        if (typeof threadsApi.getGenerationDiagnostics === "function") {
-          const diag = await threadsApi.getGenerationDiagnostics({
-            threadId,
-            ...((runIdForDiagnostics ?? generationRunId) ? { runId: runIdForDiagnostics ?? generationRunId } : {}),
-          });
-          const latest = diag?.latestFailure;
-          if (latest && typeof latest.message === "string") {
-            const actions = Array.isArray(latest.remediation) ? latest.remediation.slice(0, 2).join(" | ") : "";
-            diagnosticMessage = actions
-              ? `Latest failure: ${latest.message} Next actions: ${actions}.`
-              : `Latest failure: ${latest.message}`;
-          }
+        const diag = await refreshGenerationDiagnostics(runIdForDiagnostics ?? generationRunId);
+        const latest = diag?.latestFailure;
+        if (latest && typeof latest.message === "string") {
+          const actions = Array.isArray(latest.remediation) ? latest.remediation.slice(0, 2).join(" | ") : "";
+          diagnosticMessage = actions
+            ? `Latest failure: ${latest.message} Next actions: ${actions}.`
+            : `Latest failure: ${latest.message}`;
         }
       } catch {
         // ignore diagnostics fetch errors
@@ -1039,7 +1170,7 @@ export default function Home() {
                           )}
                         </div>
                       )}
-                      {loading &&
+                      {(loading || Boolean(generationDiagnostics)) &&
                         m.role === "assistant" &&
                         m.tone === "info" &&
                         m.content.trim() === "Generating activity... please wait." && (
@@ -1127,6 +1258,82 @@ export default function Home() {
                                     );
                                   })}
                                 </div>
+
+                                {generationDiagnostics ? (
+                                  <div
+                                    className={`space-y-3 rounded-xl border p-3 text-[11px] ${
+                                      darkMode ? "border-slate-800 bg-slate-950/60 text-slate-200" : "border-slate-200 bg-white text-slate-700"
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-3">
+                                      <div className="font-semibold">Run Details</div>
+                                      <button
+                                        className={`rounded-md px-2 py-1 ${
+                                          darkMode ? "bg-slate-800 hover:bg-slate-700" : "bg-slate-100 hover:bg-slate-200"
+                                        }`}
+                                        onClick={() => refreshGenerationDiagnostics(generationRunId).catch(() => {})}
+                                        type="button"
+                                      >
+                                        Refresh
+                                      </button>
+                                    </div>
+
+                                    <div className="grid gap-1 opacity-80">
+                                      <div>Attempts: {generationDiagnostics.summary.totalAttempts}</div>
+                                      <div>
+                                        Timings: LLM {Math.round((generationDiagnostics.summary.llmMs ?? 0) / 1000)}s | Docker{" "}
+                                        {Math.round((generationDiagnostics.summary.dockerMs ?? 0) / 1000)}s
+                                      </div>
+                                      {generationDiagnostics.run?.meta?.routePlan?.modelsByRole ? (
+                                        <div>
+                                          Route plan:{" "}
+                                          {Object.entries(generationDiagnostics.run.meta.routePlan.modelsByRole)
+                                            .map(([role, route]) => `${role}:${route?.model || "auto"}${route?.capability ? ` (${route.capability})` : ""}`)
+                                            .join(" | ")}
+                                        </div>
+                                      ) : null}
+                                    </div>
+
+                                    {generationDiagnostics.latestFailure ? (
+                                      <div
+                                        className={`rounded-lg px-3 py-2 ${
+                                          darkMode ? "bg-rose-950/50 text-rose-200" : "bg-rose-50 text-rose-800"
+                                        }`}
+                                      >
+                                        <div className="font-medium">Latest failure</div>
+                                        <div className="mt-1">{generationDiagnostics.latestFailure.message}</div>
+                                        {generationDiagnostics.latestFailure.terminationReason ? (
+                                          <div className="mt-1 opacity-80">{generationDiagnostics.latestFailure.terminationReason}</div>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+
+                                    {generationDiagnostics.stageTimeline.length > 0 ? (
+                                      <div className="space-y-1">
+                                        <div className="font-medium">Recent stages</div>
+                                        {generationDiagnostics.stageTimeline.slice(-6).reverse().map((entry, index) => (
+                                          <div
+                                            key={`${entry.slotIndex}:${entry.stage}:${entry.attempt}:${entry.status}:${index}`}
+                                            className={`rounded-lg px-3 py-2 ${
+                                              darkMode ? "bg-slate-900/80" : "bg-slate-50"
+                                            }`}
+                                          >
+                                            <div className="font-medium">
+                                              Slot {entry.slotIndex + 1} {entry.stage} {entry.status}
+                                            </div>
+                                            <div className="mt-1 opacity-80">
+                                              attempt {entry.attempt}
+                                              {entry.model ? ` • ${entry.model}` : ""}
+                                              {typeof entry.durationMs === "number" ? ` • ${entry.durationMs} ms` : ""}
+                                            </div>
+                                            {entry.message ? <div className="mt-1 opacity-90">{entry.message}</div> : null}
+                                            {entry.reason ? <div className="mt-1 opacity-80">{entry.reason}</div> : null}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                               </>
                             ) : (
                               <div className="text-[11px] opacity-70">Waiting for progress events.</div>

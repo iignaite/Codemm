@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld("codemm", {
   },
   llm: {
     getStatus: () => ipcRenderer.invoke("codemm:llm:getStatus"),
+    getRoutePlan: () => ipcRenderer.invoke("codemm:llm:getRoutePlan"),
     ensureReady: (args) => ipcRenderer.invoke("codemm:llm:ensureReady", args),
     acquireLease: (args) => ipcRenderer.invoke("codemm:llm:acquireLease", args),
     releaseLease: (args) => ipcRenderer.invoke("codemm:llm:releaseLease", args),

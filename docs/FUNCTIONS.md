@@ -10,13 +10,15 @@ This document describes what the desktop wrapper does (and does not do).
 - Builds judge Docker images if missing (from `apps/backend/Dockerfile.*-judge`).
 - Starts the local engine (`apps/backend`) as a child process via Node IPC (`spawn` with `ELECTRON_RUN_AS_NODE=1` → `apps/backend/ipc-server.js`).
 - Verifies engine connectivity via an IPC ping (no HTTP ports/health checks).
-- Resolves a run-scoped LLM snapshot for every LLM-backed engine call (keys are not passed via environment variables).
+- Resolves a run-scoped LLM route plan for every LLM-backed engine call (keys are not passed via environment variables).
+  - routes models per role (`dialogue`, `skeleton`, `tests`, `reference`, `repair`, `edit`)
+  - keeps routing IPC-only between renderer -> preload -> Electron main -> engine
 - Owns the local Ollama runtime control plane:
   - detect/install runtime
   - start server
   - select/pull model
   - probe readiness
-  - lease local provider snapshots
+  - lease local provider route plans / model selections
 - Starts `apps/frontend` as a child process:
   - dev: `next dev` via npm workspaces
   - standalone: `apps/frontend/.next/standalone/server.js`
@@ -77,6 +79,14 @@ The desktop bridge exposes generation APIs under `window.codemm.threads`:
 - `regenerateSlot({ threadId, slotIndex, strategy? })`: truncates checkpoint state at `slotIndex` and regenerates from that slot onward.
 - `getGenerationDiagnostics({ threadId, runId?, limit? })`: returns persisted attempt diagnostics from `runs` + `run_events`.
 
+Persisted diagnostics now include:
+
+- per-stage timing (`skeleton`, `tests`, `reference`, `validate`, `repair`)
+- selected provider/model by route role
+- escalation events
+- terminal failure reason
+- sanitized artifact hashes and Docker validation metadata
+
 All generation methods remain IPC-only (renderer -> preload -> Electron main -> engine IPC). No engine HTTP surface is added.
 
 ## Local LLM IPC Surfaces
@@ -84,6 +94,7 @@ All generation methods remain IPC-only (renderer -> preload -> Electron main -> 
 The desktop bridge exposes local-runtime control under `window.codemm.llm`:
 
 - `getStatus()`
+- `getRoutePlan()`
 - `ensureReady({ activateOnSuccess?, useCase? })`
 - `acquireLease({ reason, forcedModel?, useCase? })`
 - `releaseLease({ leaseId })`
