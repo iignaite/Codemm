@@ -452,7 +452,7 @@ export function useActivity() {
         problemId: selectedProblem.id,
         kind: "run",
         atIso: new Date().toISOString(),
-        result: { stdout: "", stderr: 'SQL activities are graded via "Check Code".' },
+        result: { stdout: "", stderr: 'SQL activities are graded via "Check Code".', runId: "" },
       });
       return;
     }
@@ -465,6 +465,7 @@ export function useActivity() {
         result: {
           stdout: "",
           stderr: `No ${mainSignature} detected in ${entryFile}.\n\nUse "Check Code" to run tests, or add a main() entrypoint.`,
+          runId: "",
         },
       });
       return;
@@ -479,18 +480,12 @@ export function useActivity() {
         ...(typeof stdin === "string" ? { stdin } : {}),
         language: selectedLanguage,
       });
-      if (!data || typeof data !== "object") {
-        setFeedback({
-          problemId: selectedProblem.id,
-          kind: "run",
-          atIso: new Date().toISOString(),
-          result: { stdout: "", stderr: "Failed to run code (invalid response)." },
-        });
-        return;
-      }
       const runResult: RunResult = {
-        stdout: typeof data.stdout === "string" ? data.stdout : "",
-        stderr: typeof data.stderr === "string" ? data.stderr : typeof data.error === "string" ? data.error : "",
+        stdout: data.stdout,
+        stderr: data.stderr,
+        formattedStdout: data.formattedStdout,
+        formattedStderr: data.formattedStderr,
+        runId: data.runId,
       };
       setFeedback({ problemId: selectedProblem.id, kind: "run", atIso: new Date().toISOString(), result: runResult });
       setProblemStatusById((prev) => {
@@ -504,7 +499,7 @@ export function useActivity() {
         problemId: selectedProblem.id,
         kind: "run",
         atIso: new Date().toISOString(),
-        result: { stdout: "", stderr: "Failed to run code. Please try again." },
+        result: { stdout: "", stderr: "Failed to run code. Please try again.", runId: "" },
       });
     } finally {
       setRunning(false);
@@ -531,15 +526,18 @@ export function useActivity() {
         language: selectedLanguage,
       });
       const safeResult: JudgeResult = {
-        success: Boolean(data.success),
-        passedTests: Array.isArray(data.passedTests) ? data.passedTests : [],
-        failedTests: Array.isArray(data.failedTests) ? data.failedTests : [],
-        stdout: typeof data.stdout === "string" ? data.stdout : "",
-        stderr: typeof data.stderr === "string" ? data.stderr : typeof data.error === "string" ? data.error : "",
-        executionTimeMs: typeof data.executionTimeMs === "number" ? data.executionTimeMs : 0,
-        exitCode: typeof data.exitCode === "number" ? data.exitCode : undefined,
-        timedOut: typeof data.timedOut === "boolean" ? data.timedOut : undefined,
-        testCaseDetails: Array.isArray(data.testCaseDetails) ? data.testCaseDetails : undefined,
+        success: data.success,
+        passedTests: data.passedTests,
+        failedTests: data.failedTests,
+        stdout: data.stdout,
+        stderr: data.stderr,
+        formattedStdout: data.formattedStdout,
+        formattedStderr: data.formattedStderr,
+        executionTimeMs: data.executionTimeMs,
+        exitCode: data.exitCode,
+        timedOut: data.timedOut,
+        testCaseDetails: data.testCaseDetails,
+        runId: data.runId,
       };
       setFeedback({ problemId: selectedProblem.id, kind: "tests", atIso: new Date().toISOString(), result: safeResult });
       setProblemStatusById((prev) => ({

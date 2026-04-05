@@ -1,10 +1,43 @@
 export type {
+  ActivityDetailDto,
+  ActivityFileRoleDto,
+  ActivityLanguageDto,
+  ActivityListResponseDto,
+  ActivityProblemDto,
+  ActivityResponseDto,
+  ActivityStatusDto,
+  ActivitySummaryDto,
+  ActivityWorkspaceDto,
+  PublishActivityResponseDto,
+  UpdateActivityResponseDto,
+} from "./activity";
+export type {
+  AttemptDiagnosticDto,
+  CompletionMetaDto,
+  CompletionUsageDto,
   Difficulty,
+  GenerationArtifactSetDto,
+  GenerationDiagnosticsDto,
+  GenerationDiagnosticsSummaryDto,
   GenerationFailureKind,
   GenerationLanguage,
   GenerationProgressEvent,
+  GenerationRouteSelectionDto,
+  GenerationRoutePlanSummaryDto,
+  GenerationRunMetaDto,
+  GenerationStageTimelineEntryDto,
+  GenerationFailureDiagnosticDto,
   RepairStrategy,
+  SlotIntentDto,
 } from "./generation";
+export type {
+  JudgeRunRequestDto,
+  JudgeRunResultDto,
+  JudgeSubmitRequestDto,
+  JudgeSubmitResultDto,
+  JudgeTestCaseDetailDto,
+  RunResultDto,
+} from "./judge";
 export type {
   LlmCapability,
   LlmControlStatus,
@@ -18,3 +51,19 @@ export type {
   ResolvedLlmSnapshot,
   RoutingProfile,
 } from "./llm";
+export type {
+  CreateThreadResponseDto,
+  GenerateThreadResponseDto,
+  GenerationOutcomeDto,
+  PostThreadMessageResponseDto,
+  ThreadCollectorDto,
+  ThreadCommitmentDto,
+  ThreadDetailDto,
+  ThreadGenerationSubscriptionDto,
+  ThreadLearningMode,
+  ThreadListResponseDto,
+  ThreadMessageDto,
+  ThreadState,
+  ThreadSummaryDto,
+  UpdateThreadInstructionsResponseDto,
+} from "./thread";

@@ -2,10 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSpecBuilderUX } from "@/lib/specBuilderUx";
+import { useSpecBuilderUX, type BackendSpecResponse } from "@/lib/specBuilderUx";
 import { threadsClient, type GenerationDiagnosticsState, type ThreadSummary } from "@/lib/bridge/threadsClient";
 import type { LearningMode } from "@/lib/bridge/codemmBridge";
-import type { GenerationProgressEvent } from "@codemm/shared-contracts";
+import type {
+  CreateThreadResponseDto,
+  GenerateThreadResponseDto,
+  GenerationProgressEvent,
+  PostThreadMessageResponseDto,
+  ThreadDetailDto,
+} from "@codemm/shared-contracts";
 import { reduceGenerationProgress, type GenerationProgressState } from "@/lib/threads/progressReducer";
 
 export type ChatMessage = {
@@ -79,7 +85,7 @@ export function useThread() {
       setInstructionsDraft("");
       setInstructionsError(null);
 
-      const data = await threadsClient.create({ learning_mode: mode });
+      const data: CreateThreadResponseDto = await threadsClient.create({ learning_mode: mode });
 
       if (typeof data?.threadId === "string") {
         setThreadId(data.threadId);
@@ -123,7 +129,7 @@ export function useThread() {
       setInstructionsDraft("");
       setInstructionsError(null);
 
-      const data = await threadsClient.get({ threadId: existingSessionId });
+      const data: ThreadDetailDto = await threadsClient.get({ threadId: existingSessionId });
 
       const mode: LearningMode = data?.learning_mode === "guided" ? "guided" : "practice";
       setLearningMode(mode);
@@ -131,17 +137,17 @@ export function useThread() {
       localStorage.setItem("codemm-last-thread-id", existingSessionId);
       localStorage.setItem("codem-last-learning-mode", mode);
 
-      const state = String(data?.state ?? "");
+      const state = String(data.state ?? "");
       const ready = state === "READY" || state === "GENERATING" || state === "SAVED";
       setSpecReady(ready);
       specReadyRef.current = ready;
       setGenerationLocked(state === "GENERATING");
 
-      const instr = typeof data?.instructions_md === "string" ? data.instructions_md : "";
+      const instr = typeof data.instructions_md === "string" ? data.instructions_md : "";
       setInstructionsSaved(instr);
       setInstructionsDraft(instr);
 
-      if (Array.isArray(data?.messages)) {
+      if (Array.isArray(data.messages)) {
         const loaded: ChatMessage[] = data.messages
           .map((message) => {
             const record = typeof message === "object" && message !== null ? (message as Record<string, unknown>) : null;
@@ -184,7 +190,7 @@ export function useThread() {
     setHistoryError(null);
     try {
       const data = await threadsClient.list({ limit });
-      setThreadHistory(Array.isArray(data?.threads) ? data.threads : []);
+      setThreadHistory(Array.isArray(data.threads) ? data.threads : []);
     } catch (error) {
       setHistoryError(error instanceof Error ? error.message : "Failed to load chat history");
     } finally {
@@ -241,7 +247,10 @@ export function useThread() {
     chatLoadingRef.current = true;
 
     try {
-      const data = await threadsClient.postMessage({ threadId, message: normalized.value });
+      const data: PostThreadMessageResponseDto & BackendSpecResponse = await threadsClient.postMessage({
+        threadId,
+        message: normalized.value,
+      });
 
       interpretResponse(data);
 
@@ -356,9 +365,9 @@ export function useThread() {
       });
       progressRef.current = { unsubscribe: sub.unsubscribe };
 
-      const data = await threadsClient.generateLatest({ threadId });
+      const data: GenerateThreadResponseDto = await threadsClient.generateLatest({ threadId });
       window.clearTimeout(hintTimer);
-      if (typeof data?.runId === "string") {
+      if (typeof data.runId === "string") {
         runIdForDiagnostics = data.runId;
         setGenerationRunId(data.runId);
         await refreshGenerationDiagnostics(data.runId).catch(() => {});
@@ -372,15 +381,6 @@ export function useThread() {
           // ignore
         }
         router.push(`/activity/${data.activityId}/review`);
-      } else if (data?.error) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            tone: "hint",
-            content: `Failed to generate activity: ${data.error} ${data.detail ?? ""}`,
-          },
-        ]);
       }
     } catch (e) {
       console.error(e);

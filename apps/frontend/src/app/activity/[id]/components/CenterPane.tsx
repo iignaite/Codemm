@@ -4,7 +4,6 @@ import { useRef, useEffect, useState } from "react";
 import Editor from "@monaco-editor/react";
 import type { FileRole, LanguageId } from "@/lib/languages";
 import type { CodeFiles, RunResult, FeedbackState } from "../types";
-import { stripAnsi, normalizeDiagnostics } from "../utils";
 
 type Props = {
   files: CodeFiles;
@@ -90,10 +89,10 @@ export default function CenterPane({
 
   // Terminal output from the last run/check
   const terminalStdout = feedback?.result
-    ? stripAnsi((feedback.result as any).stdout ?? "")
+    ? String((feedback.result as any).formattedStdout ?? (feedback.result as any).stdout ?? "")
     : "";
   const terminalStderr = feedback?.result
-    ? normalizeDiagnostics((feedback.result as any).stderr ?? "")
+    ? String((feedback.result as any).formattedStderr ?? (feedback.result as any).stderr ?? "")
     : "";
   const hasTerminalOutput = Boolean(terminalStdout || terminalStderr);
 

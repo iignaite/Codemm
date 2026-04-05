@@ -3,20 +3,12 @@ import { GeneratedProblemDraftSchema, GeneratedProblemSchema } from "../contract
 import { getLanguageProfile } from "../languages/profiles";
 import { createCodemmCompletion } from "../infra/llm";
 import { tryParseJson } from "../utils/jsonParser";
-import { validateReferenceSolution } from "../generation/referenceSolutionValidator";
+import { discardReferenceArtifacts } from "../generation/services/normalizationService";
+import { validateDraftArtifacts } from "../generation/services/validationService";
 import { traceText } from "../utils/trace";
 
 const MAX_TOKENS = 5000;
 const TEMPERATURE = 0.25;
-
-function discardReferenceArtifacts(draft: GeneratedProblemDraft): GeneratedProblem {
-  if ("reference_solution" in draft) {
-    const { reference_solution, ...rest } = draft;
-    return rest;
-  }
-  const { reference_workspace, ...rest } = draft;
-  return rest;
-}
 
 function isJavaWorkspaceProblem(problem: GeneratedProblem): boolean {
   return problem.language === "java" && "workspace" in problem;
@@ -222,7 +214,7 @@ export async function editDraftProblemWithAi(args: {
   instruction: string;
   deps?: {
     createCompletion?: typeof createCodemmCompletion;
-    validateReferenceSolution?: typeof validateReferenceSolution;
+    validateReferenceSolution?: typeof validateDraftArtifacts;
   };
 }): Promise<GeneratedProblem> {
   const parsedExisting = GeneratedProblemSchema.safeParse(args.existing);
@@ -239,7 +231,7 @@ export async function editDraftProblemWithAi(args: {
   const system = profile.generator.systemPrompt;
   const user = buildEditPrompt({ existing, instruction: args.instruction });
   const createCompletion = args.deps?.createCompletion ?? createCodemmCompletion;
-  const validateFn = args.deps?.validateReferenceSolution ?? validateReferenceSolution;
+  const validateFn = args.deps?.validateReferenceSolution ?? validateDraftArtifacts;
 
   let lastErr: unknown = null;
   for (let attempt = 1; attempt <= 2; attempt++) {

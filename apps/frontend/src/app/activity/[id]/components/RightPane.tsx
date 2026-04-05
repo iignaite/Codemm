@@ -4,19 +4,7 @@ import { useState } from "react";
 import type { LanguageId } from "@/lib/languages";
 import { countTests } from "@/lib/languages";
 import type { Activity, Problem, ProblemStatus, FeedbackState, JudgeResult } from "../types";
-import {
-  isJudgeResult,
-  stripAnsi,
-  normalizeDiagnostics,
-  parseJUnitTree,
-  parseJUnitFailures,
-  parseExpectedActual,
-  tryParseSqlSuite,
-  formatSqlExpected,
-  parseSqlMismatchBlocks,
-  sortTestCaseNames,
-  getProblemLanguage,
-} from "../utils";
+import { isJudgeResult, sortTestCaseNames, getProblemLanguage } from "../utils";
 
 type RightPaneTab = "testcases" | "results";
 
@@ -224,17 +212,8 @@ function TestcasesTab({
 }) {
   const feedbackResult = feedback?.result ?? null;
   const testCount = countTests(selectedLanguage, testSuite);
-
-  const junitTree = isJudgeResult(feedbackResult)
-    ? parseJUnitTree(feedbackResult.stdout ?? "")
-    : { passed: [], failed: [] };
-
-  const passedTests = isJudgeResult(feedbackResult) && feedbackResult.passedTests.length > 0
-    ? feedbackResult.passedTests
-    : junitTree.passed;
-  const failedTests = isJudgeResult(feedbackResult) && feedbackResult.failedTests.length > 0
-    ? feedbackResult.failedTests
-    : junitTree.failed;
+  const passedTests = isJudgeResult(feedbackResult) ? feedbackResult.passedTests : [];
+  const failedTests = isJudgeResult(feedbackResult) ? feedbackResult.failedTests : [];
 
   const allTests = sortTestCaseNames([...passedTests, ...failedTests]);
   const hasResults = feedback?.kind === "tests" && isJudgeResult(feedbackResult);
@@ -326,18 +305,8 @@ function ResultsTab({
     );
   }
 
-  const junitTree = isJudgeResult(feedbackResult)
-    ? parseJUnitTree(feedbackResult.stdout ?? "")
-    : { passed: [], failed: [] };
-  const junitFailures = isJudgeResult(feedbackResult)
-    ? parseJUnitFailures(feedbackResult.stdout ?? "")
-    : {};
-  const passedTests = isJudgeResult(feedbackResult) && feedbackResult.passedTests.length > 0
-    ? feedbackResult.passedTests
-    : junitTree.passed;
-  const failedTests = isJudgeResult(feedbackResult) && feedbackResult.failedTests.length > 0
-    ? feedbackResult.failedTests
-    : junitTree.failed;
+  const passedTests = isJudgeResult(feedbackResult) ? feedbackResult.passedTests : [];
+  const failedTests = isJudgeResult(feedbackResult) ? feedbackResult.failedTests : [];
   const judgeTimedOut = Boolean(isJudgeResult(feedbackResult) && feedbackResult.timedOut);
   const judgeExitCode =
     isJudgeResult(feedbackResult) && typeof feedbackResult.exitCode === "number"
@@ -350,32 +319,10 @@ function ResultsTab({
 
   const allPassed = isJudgeResult(feedbackResult) && feedbackResult.success && !judgeTimedOut;
 
-  // SQL test support
-  const suite = selectedLanguage === "sql" ? tryParseSqlSuite(testSuite) : null;
-  const sqlByName = new Map<string, { input: string; expected: string }>();
-  if (suite) {
-    for (const c of suite.cases) {
-      sqlByName.set(c.name, {
-        input: [`-- schema_sql`, suite.schema_sql.trim(), `\n-- seed_sql`, c.seed_sql.trim()]
-          .filter(Boolean)
-          .join("\n"),
-        expected: formatSqlExpected(c.expected.columns, c.expected.rows),
-      });
-    }
-  }
-  const sqlMismatchBlocks =
-    selectedLanguage === "sql" && isJudgeResult(feedbackResult)
-      ? parseSqlMismatchBlocks(feedbackResult.stderr || "")
-      : [];
-  const sqlFailNames = sortTestCaseNames(failedTests);
-  const sqlExtraByFailName = new Map<string, { actual?: string; message?: string }>();
-  if (selectedLanguage === "sql" && sqlMismatchBlocks.length > 0) {
-    for (let i = 0; i < Math.min(sqlFailNames.length, sqlMismatchBlocks.length); i++) {
-      const name = sqlFailNames[i]!;
-      const b = sqlMismatchBlocks[i]!;
-      sqlExtraByFailName.set(name, { actual: b.actual, message: b.message });
-    }
-  }
+  const testCaseDetails = isJudgeResult(feedbackResult) && Array.isArray(feedbackResult.testCaseDetails)
+    ? feedbackResult.testCaseDetails
+    : [];
+  const detailByName = new Map(testCaseDetails.map((detail) => [detail.name, detail]));
 
   return (
     <div className="space-y-3">
@@ -450,22 +397,11 @@ function ResultsTab({
         <div className="space-y-1.5">
           {sortTestCaseNames([...passedTests, ...failedTests]).map((t) => {
             const passed = passedTests.includes(t);
-            const junitInfo = junitFailures[t];
-            const junitParsed = junitInfo?.message ? parseExpectedActual(junitInfo.message) : null;
-            const suiteInfo = sqlByName.get(t);
-            const sqlExtra = sqlExtraByFailName.get(t);
-            const fromStructured = feedbackResult.testCaseDetails?.find((x) => x.name === t);
-
-            const input = suiteInfo?.input ?? fromStructured?.input;
-            const expectedOutput =
-              suiteInfo?.expected ??
-              (junitParsed ? junitParsed.expected : undefined) ??
-              fromStructured?.expectedOutput;
-            const actualOutput =
-              sqlExtra?.actual ??
-              (junitParsed ? junitParsed.actual : undefined) ??
-              fromStructured?.actualOutput;
-            const message = junitInfo?.message ?? sqlExtra?.message ?? fromStructured?.message;
+            const detail = detailByName.get(t);
+            const input = detail?.input;
+            const expectedOutput = detail?.expectedOutput;
+            const actualOutput = detail?.actualOutput;
+            const message = detail?.message;
 
             return (
               <details
@@ -512,9 +448,9 @@ function ResultsTab({
                       <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-slate-50 p-2 font-mono text-[11px] text-slate-800">
                         {message}
                       </pre>
-                      {junitInfo?.location && (
+                      {detail?.location && (
                         <div className="mt-1 text-[10px] text-slate-500">
-                          Location: <span className="font-mono">{junitInfo.location}</span>
+                          Location: <span className="font-mono">{detail.location}</span>
                         </div>
                       )}
                     </div>
@@ -532,14 +468,14 @@ function ResultsTab({
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
             <div className="text-[11px] font-semibold text-slate-700">Program Output</div>
             <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[11px] text-slate-800">
-              {stripAnsi(feedbackResult.stdout || "") || "(empty)"}
+              {feedbackResult.formattedStdout || feedbackResult.stdout || "(empty)"}
             </pre>
           </div>
           {feedbackResult.stderr && (
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
               <div className="text-[11px] font-semibold text-rose-700">Errors</div>
               <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[11px] text-rose-800">
-                {normalizeDiagnostics(feedbackResult.stderr)}
+                {feedbackResult.formattedStderr || feedbackResult.stderr}
               </pre>
             </div>
           )}
@@ -567,7 +503,7 @@ function ResultsTab({
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
               <div className="text-[11px] font-semibold text-slate-700 mb-1">Test runner output</div>
               <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[11px] text-slate-800">
-                {stripAnsi(feedbackResult.stdout || "") || "(empty)"}
+                {feedbackResult.formattedStdout || feedbackResult.stdout || "(empty)"}
               </pre>
             </div>
           )}
@@ -581,7 +517,7 @@ function ResultsTab({
                 </div>
               )}
               <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-white p-2 font-mono text-[11px] text-rose-800">
-                {normalizeDiagnostics(feedbackResult.stderr || "") || "(empty)"}
+                {feedbackResult.formattedStderr || feedbackResult.stderr || "(empty)"}
               </pre>
             </div>
           )}

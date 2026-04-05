@@ -1,65 +1,18 @@
-import type { FileRole, LanguageId } from "@/lib/languages";
+import type {
+  ActivityDetailDto,
+  ActivityFileRoleDto,
+  ActivityLanguageDto,
+  ActivityProblemDto,
+  JudgeRunResultDto,
+  JudgeSubmitResultDto,
+} from "@codemm/shared-contracts";
 
-export type Problem = {
-  language?: LanguageId;
-  id: string;
-  title: string;
-  description: string;
-  starter_code?: string;
-  classSkeleton?: string;
-  test_suite?: string;
-  testSuite?: string;
-  workspace?: {
-    files: { path: string; role: FileRole; content: string }[];
-    entrypoint?: string;
-  };
-  constraints: string;
-  sample_inputs?: string[];
-  sampleInputs?: string[];
-  sample_outputs?: string[];
-  sampleOutputs?: string[];
-  difficulty?: string;
-  topic_tag?: string;
-  pedagogy?: {
-    scaffold_level?: number;
-    learning_goal?: string;
-    hints_enabled?: boolean;
-  };
-};
-
-export type Activity = {
-  id: string;
-  title: string;
-  prompt: string;
-  problems: Problem[];
-  createdAt: string;
-  status?: "DRAFT" | "PUBLISHED";
-  timeLimitSeconds?: number | null;
-};
-
-export type JudgeResult = {
-  success: boolean;
-  passedTests: string[];
-  failedTests: string[];
-  stdout: string;
-  stderr: string;
-  executionTimeMs?: number;
-  exitCode?: number;
-  timedOut?: boolean;
-  testCaseDetails?: Array<{
-    name: string;
-    passed: boolean;
-    input?: string;
-    expectedOutput?: string;
-    actualOutput?: string;
-    message?: string;
-  }>;
-};
-
-export type RunResult = {
-  stdout: string;
-  stderr: string;
-};
+export type Activity = ActivityDetailDto;
+export type FileRole = ActivityFileRoleDto;
+export type LanguageId = ActivityLanguageDto;
+export type Problem = ActivityProblemDto;
+export type RunResult = JudgeRunResultDto;
+export type JudgeResult = JudgeSubmitResultDto;
 
 export type CodeFiles = Record<string, string>;
 
