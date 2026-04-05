@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@codemm/shared-contracts": ["../../packages/shared-contracts/dist/index.d.ts"]
     }
   },
   "include": [

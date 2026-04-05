@@ -5,18 +5,6 @@ export function clampNumber(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
-export function requireActivitiesApi() {
-  const api = (window as any)?.codemm?.activities;
-  if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
-  return api;
-}
-
-export function requireJudgeApi() {
-  const api = (window as any)?.codemm?.judge;
-  if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
-  return api;
-}
-
 export function getProblemLanguage(p: Problem | null | undefined): LanguageId {
   if (p?.language === "python") return "python";
   if (p?.language === "cpp") return "cpp";

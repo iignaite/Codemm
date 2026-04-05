@@ -1,34 +1,20 @@
-# Error Handling (Renderer)
+# Deprecated
 
-This document defines how the renderer should interpret engine/judge errors and recover predictably.
+This document is deprecated and should not be used as implementation guidance.
 
-Codemm-Desktop is local-only and uses an Electron preload bridge (`window.codemm.*`). There is no internal HTTP API and no SSE.
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-## IPC call errors
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-Recommended behavior:
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-- treat invalid input errors as user-correctable (show message; keep user input; allow retry).
-- treat engine lifecycle errors (“Engine unavailable”, “Engine exited”) as terminal and prompt the user to relaunch.
-- avoid infinite retry loops; prefer a “Retry” button with a clear error message.
-
-## Generation stream errors
-
-Progress events are delivered via IPC subscription and may stop if:
-
-- the engine exits
-- the thread unsubscribes / renderer navigates away
-
-Recommended behavior:
-
-- treat “no progress events yet” as recoverable for a short grace period
-- if generation fails, show the terminal `generation_failed` error and keep the thread state
-
-## Judge errors
-
-Judge failures may include compilation errors, test failures, or timeouts.
-
-Recommended behavior:
-
-- render stdout/stderr verbatim (strip ANSI if needed)
-- keep the student’s code intact and allow re-run/re-submit
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

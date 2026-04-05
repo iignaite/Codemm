@@ -1,47 +1,20 @@
-# State and Models (Frontend)
+# Deprecated
 
-This document summarizes the key data the frontend renders and the contracts it should rely on.
+This document is deprecated and should not be used as implementation guidance.
 
-## Session models
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-The frontend receives (and renders):
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-- `nextQuestion` (assistant prompt for the next user turn)
-- `questionKey` (server-selected “what the UI should ask/confirm next” key)
-- `spec` (spec snapshot)
-- `done` (readiness flag for generation)
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-The frontend should treat these as backend-authored values.
-
-## Generation progress events
-
-The frontend consumes structured SSE events from:
-
-- `GET /sessions/:id/generate/stream`
-
-Event types include:
-
-- generation started/completed/failed
-- slot started/completed
-- per-attempt and Docker validation events
-
-The event schema is designed to evolve additively; the frontend should ignore unknown types.
-
-## Activity and problem models
-
-Activities are fetched from:
-
-- `GET /activities/:id`
-
-The backend persists only learner-facing problem fields. The frontend should not expect reference solutions/workspaces to exist.
-
-## Submission models
-
-Judge endpoints return:
-
-- pass/fail status
-- test outcomes
-- stdout/stderr and timing
-
-The frontend should render these as output, not as a stable typed “domain model”, unless a backend contract is introduced.
-
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

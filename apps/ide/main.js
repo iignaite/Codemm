@@ -10,6 +10,11 @@ const path = require("path");
 const { z } = require("zod");
 const { LocalLlmOrchestrator } = require("./localLlm/orchestrator");
 const { OLLAMA_DEFAULT_URL } = require("./localLlm/ollamaRuntimeDriver");
+const { registerWorkspaceIpc } = require("./ipc/workspace");
+const { registerLlmIpc } = require("./ipc/llm");
+const { registerThreadsIpc } = require("./ipc/threads");
+const { registerActivitiesIpc } = require("./ipc/activities");
+const { registerJudgeIpc } = require("./ipc/judge");
 
 const DEFAULT_FRONTEND_PORT = Number.parseInt(process.env.CODEMM_FRONTEND_PORT || "3000", 10);
 
@@ -862,103 +867,11 @@ async function createWindowAndBoot() {
   if (!ipcWired) {
     ipcWired = true;
 
-    ipcMain.handle("codemm:workspace:get", () => {
-      if (!currentWorkspace) return null;
-      return { workspaceDir: currentWorkspace.workspaceDir, workspaceDataDir: currentWorkspace.workspaceDataDir };
-    });
-
-    ipcMain.handle("codemm:workspace:choose", async () => {
-      const r = await resolveWorkspace({ userDataDir: storage.userDataDir });
-      if (!r.workspaceDir) return { ok: false, error: "Workspace selection canceled." };
-      const nextWorkspaceDir = r.workspaceDir;
-      const nextWorkspaceDataDir = resolveWorkspaceDataDir({ userDataDir: storage.userDataDir, workspaceDir: nextWorkspaceDir });
-      const nextBackendDbPath = path.join(nextWorkspaceDataDir, "codemm.db");
-      currentWorkspace = { workspaceDir: nextWorkspaceDir, workspaceDataDir: nextWorkspaceDataDir, backendDbPath: nextBackendDbPath, userDataDir: storage.userDataDir };
-      dialog.showMessageBox({
-        type: "info",
-        message: "Workspace changed",
-        detail: "Restart Codemm-Desktop to apply the new workspace.",
-      }).catch(() => {});
-      return { ok: true, workspaceDir: nextWorkspaceDir, workspaceDataDir: nextWorkspaceDataDir };
-    });
-
-    ipcMain.handle("codemm:secrets:getLlmSettings", () => {
-      const { llm } = loadSecrets({ userDataDir: storage.userDataDir });
-      const isOllama = llm && String(llm.provider || "").toLowerCase() === "ollama";
-      return {
-        configured: Boolean(llm && (llm.apiKey || isOllama)),
-        provider: llm ? llm.provider : null,
-        model: llm ? llm.model ?? null : null,
-        baseURL: llm ? llm.baseURL ?? null : null,
-        routingProfile: llm ? llm.routingProfile ?? "auto" : "auto",
-        roleModels: llm ? llm.roleModels ?? null : null,
-        updatedAt: llm ? llm.updatedAt ?? null : null,
-      };
-    });
-
-    ipcMain.handle("codemm:secrets:setLlmSettings", async (_evt, args) => {
-      const parsed = validate(
-        z.object({
-          provider: z.enum(["openai", "anthropic", "gemini", "ollama"]),
-          apiKey: z.string().min(10).max(500).optional(),
-          model: z.string().min(1).max(128).optional().nullable(),
-          baseURL: z.string().min(1).max(512).optional().nullable(),
-          routingProfile: z.enum(["auto", "fast_local", "balanced_local", "strong_local", "custom"]).optional().nullable(),
-          roleModels: z.record(z.string().min(1).max(128)).optional().nullable(),
-        }),
-        args
-      );
-      const provider = parsed.provider.trim().toLowerCase();
-      const apiKey = typeof parsed.apiKey === "string" ? parsed.apiKey.trim() : "";
-      const model = typeof parsed.model === "string" ? parsed.model.trim() : "";
-      const baseURL = typeof parsed.baseURL === "string" ? parsed.baseURL.trim() : "";
-      const routingProfile = typeof parsed.routingProfile === "string" ? parsed.routingProfile : "auto";
-      const roleModels =
-        parsed.roleModels && typeof parsed.roleModels === "object" && !Array.isArray(parsed.roleModels)
-          ? Object.fromEntries(
-              Object.entries(parsed.roleModels)
-                .filter(([k, v]) => ROUTE_ROLES.includes(k) && typeof v === "string" && v.trim())
-                .map(([k, v]) => [k, v.trim()])
-            )
-          : null;
-      if (!(provider === "openai" || provider === "anthropic" || provider === "gemini" || provider === "ollama")) {
-        throw new Error("Invalid provider.");
-      }
-      if (provider !== "ollama") {
-        if (!apiKey || apiKey.length < 10) throw new Error("API key is required.");
-      }
-
-      const { updatedAt } = saveSecrets({
-        userDataDir: storage.userDataDir,
-        provider,
-        ...(provider === "ollama"
-          ? { apiKey: null, model: model || null, baseURL: baseURL || OLLAMA_DEFAULT_URL, routingProfile, roleModels }
-          : { apiKey, model: model || null, baseURL: baseURL || null, routingProfile, roleModels }),
-      });
-      dialog.showMessageBox({
-        type: "info",
-        message: "LLM settings saved",
-        detail: provider === "ollama" ? "Local model preference saved." : "Cloud provider settings saved.",
-      }).catch(() => {});
-      return { ok: true, updatedAt };
-    });
-
-    ipcMain.handle("codemm:secrets:clearLlmSettings", async () => {
-      clearSecrets({ userDataDir: storage.userDataDir });
-      dialog.showMessageBox({
-        type: "info",
-        message: "LLM settings cleared",
-        detail: "Provider preference cleared.",
-      }).catch(() => {});
-      return { ok: true };
-    });
-
     const reqString = (v, name) => {
       const s = typeof v === "string" ? v.trim() : "";
       if (!s) throw new Error(`${name} is required.`);
       return s;
     };
-    const llmStatusSubs = new Map();
     const ROUTE_ROLES = ["dialogue", "skeleton", "tests", "reference", "repair", "edit"];
     const LOCAL_PROFILE_MODELS = {
       fast_local: "qwen2.5-coder:1.5b",
@@ -1054,18 +967,6 @@ async function createWindowAndBoot() {
       return buildRemoteRoutePlan(llm);
     };
 
-    const broadcastLlmStatus = (status) => {
-      for (const subId of llmStatusSubs.keys()) {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("codemm:llm:statusEvent", { subId, status });
-        }
-      }
-    };
-
-    requireLocalLlmOrchestrator().subscribe((status) => {
-      broadcastLlmStatus(status);
-    });
-
     const resolveLlmRoutePlanForMethod = async (method, opts = {}) => {
       const llm = loadSecrets({ userDataDir: storage.userDataDir }).llm;
       if (!llm || !llm.provider) {
@@ -1132,304 +1033,51 @@ async function createWindowAndBoot() {
       }
     };
 
-    ipcMain.handle("codemm:llm:getStatus", async () => {
-      const llm = loadSecrets({ userDataDir: storage.userDataDir }).llm;
-      return {
-        activeProvider: llm?.provider ?? null,
-        configured: Boolean(llm && (llm.apiKey || String(llm.provider || "").toLowerCase() === "ollama")),
-        local: requireLocalLlmOrchestrator().getStatus(),
-      };
+    registerWorkspaceIpc({
+      tryRegisterIpcHandler,
+      storage,
+      getCurrentWorkspace: () => currentWorkspace,
+      setCurrentWorkspace: (nextWorkspace) => {
+        currentWorkspace = nextWorkspace;
+      },
+      resolveWorkspace,
+      resolveWorkspaceDataDir,
+      dialog,
     });
 
-    ipcMain.handle("codemm:llm:getRoutePlan", async () => {
-      const llm = loadSecrets({ userDataDir: storage.userDataDir }).llm;
-      return buildRoutePlan(llm);
+    registerLlmIpc({
+      tryRegisterIpcHandler,
+      validate,
+      storage,
+      loadSecrets,
+      saveSecrets,
+      clearSecrets,
+      dialog,
+      buildRoutePlan,
+      requireLocalLlmOrchestrator,
+      sanitizeRoleModels,
+      OLLAMA_DEFAULT_URL,
+      getMainWindow: () => mainWindow,
     });
 
-    ipcMain.handle("codemm:llm:ensureReady", async (_evt, args) => {
-      const parsed = validate(
-        z
-          .object({
-            activateOnSuccess: z.boolean().optional(),
-            forcedModel: z.string().min(1).max(128).optional().nullable(),
-            useCase: z.enum(["general", "dialogue", "generation", "edit"]).optional(),
-          })
-          .optional(),
-        args
-      );
-      const ready = await requireLocalLlmOrchestrator().ensureReady({
-        activateOnSuccess: parsed?.activateOnSuccess === true,
-        forcedModel: typeof parsed?.forcedModel === "string" ? parsed.forcedModel : null,
-        useCase: parsed?.useCase ?? "general",
-      });
-      return { ok: true, ready, status: requireLocalLlmOrchestrator().getStatus() };
+    registerThreadsIpc({
+      tryRegisterIpcHandler,
+      validate,
+      reqString,
+      engineCall,
     });
 
-    ipcMain.handle("codemm:llm:acquireLease", async (_evt, args) => {
-      const parsed = validate(
-        z
-          .object({
-            reason: z.string().min(1).max(256),
-            forcedModel: z.string().min(1).max(128).optional().nullable(),
-            useCase: z.enum(["general", "dialogue", "generation", "edit"]).optional(),
-          })
-          .passthrough(),
-        args
-      );
-      const snapshot = await requireLocalLlmOrchestrator().acquireLease({
-        reason: parsed.reason,
-        forcedModel: typeof parsed.forcedModel === "string" ? parsed.forcedModel : null,
-        useCase: parsed.useCase ?? "general",
-      });
-      return { ok: true, snapshot };
+    registerActivitiesIpc({
+      tryRegisterIpcHandler,
+      validate,
+      reqString,
+      engineCall,
     });
 
-    ipcMain.handle("codemm:llm:releaseLease", async (_evt, args) => {
-      const parsed = validate(z.object({ leaseId: z.string().min(1).max(128) }), args);
-      await requireLocalLlmOrchestrator().releaseLease(parsed.leaseId);
-      return { ok: true };
-    });
-
-    ipcMain.handle("codemm:llm:subscribeStatus", async () => {
-      const subId = crypto.randomUUID();
-      llmStatusSubs.set(subId, true);
-      return { subId, buffered: [requireLocalLlmOrchestrator().getStatus()] };
-    });
-
-    ipcMain.handle("codemm:llm:unsubscribeStatus", async (_evt, args) => {
-      const parsed = validate(z.object({ subId: z.string().min(1).max(128) }), args);
-      llmStatusSubs.delete(parsed.subId);
-      return { ok: true };
-    });
-
-    // Threads (local-only; no HTTP boundary).
-    ipcMain.handle("codemm:threads:create", async (_evt, args) => {
-      const parsed = validate(
-        z
-          .object({
-            learning_mode: z.enum(["practice", "guided"]).optional(),
-          })
-          .optional(),
-        args
-      );
-      const learning_mode = parsed?.learning_mode ?? null;
-      return engineCall("threads.create", { ...(learning_mode ? { learning_mode } : {}) });
-    });
-
-    ipcMain.handle("codemm:threads:list", async (_evt, args) => {
-      const parsed = validate(
-        z
-          .object({
-            limit: z.number().int().min(1).max(200).optional(),
-          })
-          .optional(),
-        args
-      );
-      const limit = typeof parsed?.limit === "number" ? parsed.limit : 30;
-      return engineCall("threads.list", { limit });
-    });
-
-    ipcMain.handle("codemm:threads:get", async (_evt, args) => {
-      const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
-      const threadId = reqString(parsed.threadId, "threadId");
-      return engineCall("threads.get", { threadId });
-    });
-
-    ipcMain.handle("codemm:threads:setInstructions", async (_evt, args) => {
-      const parsed = validate(
-        z.object({
-          threadId: z.string().min(1).max(128),
-          instructions_md: z.string().max(8000).nullable(),
-        }),
-        args
-      );
-      const threadId = reqString(parsed.threadId, "threadId");
-      return engineCall("threads.setInstructions", { threadId, instructions_md: parsed.instructions_md });
-    });
-
-    ipcMain.handle("codemm:threads:postMessage", async (_evt, args) => {
-      const parsed = validate(
-        z.object({
-          threadId: z.string().min(1).max(128),
-          message: z.string().min(1).max(50_000),
-        }),
-        args
-      );
-      const threadId = reqString(parsed.threadId, "threadId");
-      const message = reqString(parsed.message, "message");
-      if (message.length > 50_000) throw new Error("message is too large.");
-      try {
-        return await engineCall("threads.postMessage", { threadId, message }, { llm: true, useCase: "dialogue" });
-      } catch (error) {
-        const text = error instanceof Error ? error.message : String(error ?? "");
-        if (/session state is READY/i.test(text)) {
-          return {
-            accepted: true,
-            done: true,
-            state: "READY",
-            next_action: "ready",
-          };
-        }
-        throw error;
-      }
-    });
-
-    ipcMain.handle("codemm:threads:generate", async (_evt, args) => {
-      const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
-      const threadId = reqString(parsed.threadId, "threadId");
-      return engineCall("threads.generate", { threadId }, { llm: true, useCase: "generation" });
-    });
-
-    ipcMain.handle("codemm:threads:generateV2", async (_evt, args) => {
-      const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
-      const threadId = reqString(parsed.threadId, "threadId");
-      return engineCall("threads.generateV2", { threadId }, { llm: true, useCase: "generation" });
-    });
-
-    ipcMain.handle("codemm:threads:regenerateSlot", async (_evt, args) => {
-      const parsed = validate(
-        z.object({
-          threadId: z.string().min(1).max(128),
-          slotIndex: z.number().int().min(0).max(256),
-          strategy: z
-            .enum([
-              "retry_full_slot",
-              "repair_reference_solution",
-              "repair_test_suite",
-              "downgrade_difficulty",
-              "narrow_topics",
-            ])
-            .optional(),
-        }),
-        args
-      );
-      const threadId = reqString(parsed.threadId, "threadId");
-      return engineCall("threads.regenerateSlot", {
-        threadId,
-        slotIndex: parsed.slotIndex,
-        ...(typeof parsed.strategy === "string" ? { strategy: parsed.strategy } : {}),
-      }, { llm: true, useCase: "generation" });
-    });
-
-    ipcMain.handle("codemm:threads:getGenerationDiagnostics", async (_evt, args) => {
-      const parsed = validate(
-        z.object({
-          threadId: z.string().min(1).max(128),
-          runId: z.string().min(1).max(128).optional(),
-          limit: z.number().int().min(1).max(5000).optional(),
-        }),
-        args
-      );
-      const threadId = reqString(parsed.threadId, "threadId");
-      return engineCall("threads.getGenerationDiagnostics", {
-        threadId,
-        ...(typeof parsed.runId === "string" ? { runId: parsed.runId } : {}),
-        ...(typeof parsed.limit === "number" ? { limit: parsed.limit } : {}),
-      });
-    });
-
-    ipcMain.handle("codemm:threads:subscribeGeneration", async (_evt, args) => {
-      const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
-      const threadId = reqString(parsed.threadId, "threadId");
-      return engineCall("threads.subscribeGeneration", { threadId });
-    });
-
-    ipcMain.handle("codemm:threads:unsubscribeGeneration", async (_evt, args) => {
-      const parsed = validate(z.object({ subId: z.string().min(1).max(128) }), args);
-      const subId = reqString(parsed.subId, "subId");
-      return engineCall("threads.unsubscribeGeneration", { subId });
-    });
-
-    // Activities
-    ipcMain.handle("codemm:activities:list", async (_evt, args) => {
-      const parsed = validate(
-        z
-          .object({
-            limit: z.number().int().min(1).max(200).optional(),
-          })
-          .optional(),
-        args
-      );
-      const limit = typeof parsed?.limit === "number" ? parsed.limit : 30;
-      return engineCall("activities.list", { limit });
-    });
-
-    ipcMain.handle("codemm:activities:get", async (_evt, args) => {
-      const parsed = validate(z.object({ id: z.string().min(1).max(128) }), args);
-      const id = reqString(parsed.id, "id");
-      return engineCall("activities.get", { id });
-    });
-
-    ipcMain.handle("codemm:activities:patch", async (_evt, args) => {
-      const parsed = validate(
-        z.object({
-          id: z.string().min(1).max(128),
-          title: z.string().max(200).optional(),
-          timeLimitSeconds: z.number().int().min(0).max(8 * 60 * 60).nullable().optional(),
-        }),
-        args
-      );
-      const id = reqString(parsed.id, "id");
-      const title = typeof parsed.title === "string" ? parsed.title : undefined;
-      const timeLimitSeconds = typeof parsed.timeLimitSeconds !== "undefined" ? parsed.timeLimitSeconds : undefined;
-      return engineCall("activities.patch", { id, ...(typeof title !== "undefined" ? { title } : {}), ...(typeof timeLimitSeconds !== "undefined" ? { timeLimitSeconds } : {}) });
-    });
-
-    ipcMain.handle("codemm:activities:publish", async (_evt, args) => {
-      const parsed = validate(z.object({ id: z.string().min(1).max(128) }), args);
-      const id = reqString(parsed.id, "id");
-      return engineCall("activities.publish", { id });
-    });
-
-    ipcMain.handle("codemm:activities:aiEdit", async (_evt, args) => {
-      const parsed = validate(
-        z.object({
-          id: z.string().min(1).max(128),
-          problemId: z.string().min(1).max(128),
-          instruction: z.string().min(1).max(8_000),
-        }),
-        args
-      );
-      const id = reqString(parsed.id, "id");
-      const problemId = reqString(parsed.problemId, "problemId");
-      const instruction = reqString(parsed.instruction, "instruction");
-      if (instruction.length > 8_000) throw new Error("instruction is too large.");
-      return engineCall("activities.aiEdit", { id, problemId, instruction }, { llm: true, useCase: "edit" });
-    });
-
-    // Judge (Docker-backed)
-    ipcMain.handle("codemm:judge:run", async (_evt, args) => {
-      const parsed = validate(
-        z
-          .object({
-            language: z.enum(["java", "python", "cpp", "sql"]),
-            code: z.string().min(1).max(200_000).optional(),
-            files: z.record(z.string(), z.string()).optional(),
-            mainClass: z.string().min(1).max(256).optional(),
-            stdin: z.string().max(50_000).optional(),
-          })
-          .refine((v) => Boolean(v.code) !== Boolean(v.files), { message: 'Provide either "code" or "files".' }),
-        args
-      );
-      // Engine performs deeper validation and Docker sandboxing; main validates shapes + sizes only.
-      return engineCall("judge.run", parsed);
-    });
-
-    ipcMain.handle("codemm:judge:submit", async (_evt, args) => {
-      const parsed = validate(
-        z
-          .object({
-            language: z.enum(["java", "python", "cpp", "sql"]).optional(),
-            testSuite: z.string().min(1).max(200_000),
-            code: z.string().min(1).max(200_000).optional(),
-            files: z.record(z.string(), z.string()).optional(),
-            activityId: z.string().min(1).max(128).optional(),
-            problemId: z.string().min(1).max(128).optional(),
-          })
-          .refine((v) => Boolean(v.code) !== Boolean(v.files), { message: 'Provide either "code" or "files".' }),
-        args
-      );
-      return engineCall("judge.submit", parsed);
+    registerJudgeIpc({
+      tryRegisterIpcHandler,
+      validate,
+      engineCall,
     });
   }
 

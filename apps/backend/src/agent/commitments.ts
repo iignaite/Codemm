@@ -1,5 +1,5 @@
 import type { ActivitySpec } from "../contracts/activitySpec";
-import { REQUIRED_CONFIDENCE } from "./readiness";
+import { REQUIRED_CONFIDENCE } from "./policy";
 
 export type Commitment = {
   field: keyof ActivitySpec;

@@ -1,5 +1,6 @@
 import type { ActivitySpec } from "../contracts/activitySpec";
-import { REQUIRED_CONFIDENCE, type ConfidenceMap } from "./readiness";
+import type { ConfidenceMap } from "./readiness";
+import { REQUIRED_CONFIDENCE } from "./policy";
 
 export enum AmbiguityRisk {
   SAFE = "SAFE",
@@ -31,4 +32,3 @@ export function classifyAmbiguityRisk(field: keyof ActivitySpec, confidence: num
   if (confidence >= blockingThreshold) return AmbiguityRisk.DEFERABLE;
   return AmbiguityRisk.BLOCKING;
 }
-

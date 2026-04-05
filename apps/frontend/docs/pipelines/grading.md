@@ -1,40 +1,20 @@
-# Grading Pipeline (Client View)
+# Deprecated
 
-This document describes how the frontend should interact with the backend judge endpoints.
+This document is deprecated and should not be used as implementation guidance.
 
-## `/run`
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-Use `/run` for:
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-- fast execution loop while solving
-- exploring partial solutions without grading
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-Render:
-
-- `stdout` and `stderr` as plain text
-
-## `/submit`
-
-Use `/submit` for:
-
-- graded evaluation against tests
-
-Render:
-
-- pass/fail status
-- per-test results (as provided)
-- timing
-- any stdout/stderr captured by the judge
-
-## Linking submissions to activities
-
-If the UI is solving a known activity problem, include:
-
-- `activityId`
-- `problemId`
-
-This enables backend persistence and deterministic learner-profile updates (when authenticated and authorized).
-
-## Language/file-mode constraints
-
-File layouts are enforced by the backend. If the UI supports multi-file submissions, ensure the file layout matches backend rules per language (e.g., required filenames and disallowed extra files).
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

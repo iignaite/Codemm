@@ -1,33 +1,20 @@
-# Guardrails and Validation (Client Implications)
+# Deprecated
 
-Codemm’s backend implements most guardrails. The frontend’s responsibility is to **not bypass** those guardrails and to handle guardrail-triggered errors predictably.
+This document is deprecated and should not be used as implementation guidance.
 
-## What the backend validates
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-The backend validates:
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-- spec drafts and invariants (including difficulty plan consistency)
-- generation output contracts and test suite rules
-- Docker verification of reference artifacts
-- execution/judging request size limits and file layout constraints
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-## What the frontend should validate
-
-Frontend validation should be UX-only (fast feedback), not correctness enforcement:
-
-- required fields in forms (login/register)
-- basic message non-emptiness
-- editor inputs presence before running/submitting
-
-Do not enforce “spec completeness” on the client: rely on backend `done` and `questionKey`.
-
-## Error handling philosophy
-
-Client errors should be treated as:
-
-- `4xx`: user-correctable (show message and allow correction)
-- `5xx`: backend problem (show retry and capture context)
-
-SSE errors should not crash the UI: treat disconnects as recoverable and reconnect when appropriate.
-
-See `../error-handling.md`.
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

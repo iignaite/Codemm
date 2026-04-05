@@ -1,29 +1,20 @@
-# Difficulty Planning (Frontend)
+# Deprecated
 
-Difficulty planning is part of the backend `ActivitySpec`. The frontend should treat it as a server-defined contract and render it as metadata rather than attempting to “compute” difficulty locally.
+This document is deprecated and should not be used as implementation guidance.
 
-## What the UI might show
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-Depending on the UX, the UI can:
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-- display the spec snapshot with:
-  - `problem_count`
-  - `difficulty_plan`
-- display per-slot difficulty during generation progress events
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-## What the UI should not do
-
-- Do not enforce that `difficulty_plan` sums to `problem_count` client-side.
-- Do not attempt to parse free-form difficulty text into a plan client-side.
-
-The backend enforces the invariant and may apply deterministic shorthand parsing.
-
-## Why this matters
-
-Difficulty planning influences:
-
-- the number of problems generated (and progress expectations)
-- the distribution of difficulty in the resulting activity
-
-If the client “guesses” the plan and the backend chooses something else, the UI becomes inconsistent.
-
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

@@ -1,30 +1,20 @@
-# Agentic Design (Frontend Perspective)
+# Deprecated
 
-This section explains why Codemm is designed as an agentic system and what that implies for the frontend.
+This document is deprecated and should not be used as implementation guidance.
 
-The backend implements the agent loop and invariants. The frontend implements UX over the backend’s contracts.
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-If you need the authoritative agent design documentation, see the backend repo:
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-- `https://github.com/gael55x/Codem-backend` → `docs/agentic-design/index.md`
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-## What the frontend needs to understand
-
-Even as a thin client, the frontend must correctly reflect agentic system behavior:
-
-- planning vs execution boundaries
-- deterministic logic vs LLM-driven behavior
-- lifecycle/state machine and confirmation gates
-- tool invocation rules and client-visible contracts (SSE events, error codes)
-- memory/state models that affect UX (commitments, pending confirmations)
-- failure modes and recovery paths
-
-## Documents
-
-- Principles (client-relevant invariants): `principles.md`
-- Agents (session UX implications): `agents.md`
-- Planners (how planning surfaces in UX): `planners.md`
-- Tools and actions (SSE, judge, auth): `tools-and-actions.md`
-- Memory and state (what clients should render): `memory-and-state.md`
-- Guardrails and validation (what clients should not assume): `guardrails-and-validation.md`
-- Failure modes (what the UI should handle): `failure-modes.md`
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

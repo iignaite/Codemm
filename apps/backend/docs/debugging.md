@@ -1,63 +1,19 @@
-# Debugging
+# Deprecated
 
-This document describes the supported mechanisms for understanding backend behavior during development and integration.
+This document is deprecated and should not be used as implementation guidance.
 
-## Logs
+It described an older Codemm backend shape based on Express routes, SSE generation streams, auth/profile/community endpoints, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-The backend includes optional dev-only request logging:
+Current backend architecture:
+- renderer access is IPC-only through preload -> Electron main -> backend child process
+- durable state is local-only per workspace
+- backend methods are exposed as `threads.*`, `activities.*`, `judge.*`, and `engine.*`
+- no auth, profile, community, or remote HTTP API surface is active by default
 
-- Set `CODEMM_HTTP_LOG=1` to log method, path, status, and latency.
-- Logs should not include prompts, generated code, or user submissions.
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/backend/docs/api/backend.md`
 
-## Progress stream (SSE)
-
-`GET /sessions/:id/generate/stream` emits structured generation progress events.
-
-Use cases:
-
-- validate that generation is proceeding per-slot
-- correlate retries and validation failures
-- build robust UI progress reporting
-
-Client expectations:
-
-- events may be replayed on connect
-- heartbeats are sent periodically
-- stream ends after a completion/failure terminal event
-
-## Trace stream (SSE, optional)
-
-`GET /sessions/:id/trace` emits sanitized trace events when enabled.
-
-Key properties:
-
-- feature-flagged; disabled servers return 404
-- sanitized: must not include prompts, raw generations, or reference artifacts
-
-Recommended usage:
-
-- debugging contract failures and state transitions
-- diagnosing generation fallbacks and retries
-
-## Common debugging workflows
-
-### Diagnose spec readiness
-
-1. Create a session.
-2. Send messages until `done=true` and `questionKey` indicates readiness.
-3. Use `GET /sessions/:id` to inspect spec/commitments/collector state.
-
-### Diagnose generation failures
-
-1. Start the progress stream.
-2. Trigger generation.
-3. Observe per-slot events:
-   - contract failures vs Docker verification failures vs timeouts
-4. If trace is enabled, correlate with trace events for the same session.
-
-### Diagnose judging behavior
-
-1. Call `/run` with a minimal example for a given language.
-2. Call `/submit` with a known test suite and solution.
-3. If failures occur, verify that request file layouts match backend constraints.
-
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

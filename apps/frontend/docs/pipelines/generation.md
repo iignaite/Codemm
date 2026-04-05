@@ -1,34 +1,20 @@
-# Generation Pipeline (Client View)
+# Deprecated
 
-This document describes how the frontend should drive and render backend generation.
+This document is deprecated and should not be used as implementation guidance.
 
-## Sequence
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-1. Create or continue a session until `done=true`.
-2. Open `EventSource` to `GET /sessions/:id/generate/stream`.
-3. Call `POST /sessions/:id/generate` with auth.
-4. Render progress events until terminal completion/failure.
-5. On completion:
-   - navigate to the new activity (using returned `activityId` or by fetching the persisted activity)
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-## Rendering progress
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-Progress events are structured and may evolve additively.
-
-Recommended UI approach:
-
-- maintain per-slot state keyed by `slotIndex`
-- update state based on event `type`
-- show terminal state on `generation_completed` or `generation_failed`
-
-Avoid:
-
-- assuming a fixed event ordering beyond “terminal events end the stream”
-- assuming `totalSlots` is always present (older clients/events may omit it)
-
-## Common edge cases
-
-- Stream opened after generation starts: backend may replay buffered events; dedupe in UI.
-- Reconnects: treat as recoverable; avoid duplicating slots.
-- Mixed “v1” and “Phase 2B” events: tolerate both.
-
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

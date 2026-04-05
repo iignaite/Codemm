@@ -1,88 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type {
+  LlmControlStatus,
+  LlmProvider,
+  LlmRole,
+  LlmSettingsResponse,
+  ResolvedLlmRoutePlan,
+  RoutingProfile,
+} from "@codemm/shared-contracts";
+import { llmClient } from "@/lib/bridge/llmClient";
 import { useThemeMode } from "@/lib/useThemeMode";
 
-type RemoteProvider = "openai" | "anthropic" | "gemini";
-
-type LlmSettingsResponse = {
-  configured: boolean;
-  provider: string | null;
-  model?: string | null;
-  baseURL?: string | null;
-  routingProfile?: "auto" | "fast_local" | "balanced_local" | "strong_local" | "custom";
-  roleModels?: Record<string, string> | null;
-  updatedAt: string | null;
-};
-
-type RouteRole = "dialogue" | "skeleton" | "tests" | "reference" | "repair" | "edit";
-
-type RoutePlan = {
-  provider: string;
-  baseURL?: string | null;
-  revision?: string | null;
-  defaultModel?: string | null;
-  routingProfile?: string | null;
-  modelsByRole?: Partial<Record<RouteRole, { model?: string | null; capability?: string | null }>>;
-};
-
-type LocalLlmOperation = {
-  id: string;
-  kind: string;
-  message: string;
-  model?: string | null;
-  startedAt: string;
-  downloaded?: number;
-  total?: number;
-};
-
-type LocalLlmStatus = {
-  state: string;
-  operation: LocalLlmOperation | null;
-  runtime: {
-    binaryPath: string | null;
-    version: string | null;
-    baseURL: string | null;
-    activeModel: string | null;
-    revision: string | null;
-    lastReadyAt: string | null;
-    leaseCount: number;
-    lastError: { code: string; message: string; detail?: unknown } | null;
-  };
-  updatedAt: string;
-};
-
-type LlmControlStatus = {
-  activeProvider: string | null;
-  configured: boolean;
-  local: LocalLlmStatus | null;
-};
-
-type CodemmBridge = {
-  secrets?: {
-    getLlmSettings?: () => Promise<LlmSettingsResponse>;
-    setLlmSettings?: (args: {
-      provider: string;
-      apiKey?: string;
-      model?: string | null;
-      baseURL?: string | null;
-      routingProfile?: "auto" | "fast_local" | "balanced_local" | "strong_local" | "custom";
-      roleModels?: Record<string, string>;
-    }) => Promise<unknown>;
-    clearLlmSettings?: () => Promise<unknown>;
-  };
-  llm?: {
-    getStatus?: () => Promise<LlmControlStatus>;
-    getRoutePlan?: () => Promise<RoutePlan | null>;
-    ensureReady?: (args: { activateOnSuccess?: boolean; useCase?: "general" | "dialogue" | "generation" | "edit" }) => Promise<{ ok?: boolean; error?: { message?: string } }>;
-    subscribeStatus?: (args: { onEvent: (status: LocalLlmStatus) => void }) => Promise<{ unsubscribe?: () => Promise<void> }>;
-  };
-};
-
-function getBridge(): CodemmBridge | null {
-  if (typeof window === "undefined") return null;
-  return (window as unknown as { codemm?: CodemmBridge }).codemm ?? null;
-}
+type RemoteProvider = Exclude<LlmProvider, "ollama">;
+type ConfigurableRouteRole = Exclude<LlmRole, "wording">;
+const configurableRoles: ConfigurableRouteRole[] = ["dialogue", "skeleton", "tests", "reference", "repair", "edit"];
 
 function errorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
@@ -153,12 +85,12 @@ export default function LlmSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<LlmSettingsResponse | null>(null);
   const [llmStatus, setLlmStatus] = useState<LlmControlStatus | null>(null);
-  const [routePlan, setRoutePlan] = useState<RoutePlan | null>(null);
+  const [routePlan, setRoutePlan] = useState<ResolvedLlmRoutePlan | null>(null);
 
   const [provider, setProvider] = useState<RemoteProvider>("openai");
   const [apiKey, setApiKey] = useState("");
-  const [routingProfile, setRoutingProfile] = useState<"auto" | "fast_local" | "balanced_local" | "strong_local" | "custom">("auto");
-  const [roleModels, setRoleModels] = useState<Record<RouteRole, string>>({
+  const [routingProfile, setRoutingProfile] = useState<RoutingProfile>("auto");
+  const [roleModels, setRoleModels] = useState<Record<ConfigurableRouteRole, string>>({
     dialogue: "",
     skeleton: "",
     tests: "",
@@ -173,18 +105,10 @@ export default function LlmSettingsPage() {
 
     async function load() {
       try {
-        const bridge = getBridge();
-        const secretsApi = bridge?.secrets;
-        const llmApi = bridge?.llm;
-        if (!secretsApi?.getLlmSettings || !llmApi?.getStatus || !llmApi?.subscribeStatus || !llmApi?.getRoutePlan) {
-          setError("IDE bridge unavailable. Launch this screen inside Codemm-Desktop.");
-          return;
-        }
-
         const [settings, control, nextRoutePlan] = await Promise.all([
-          secretsApi.getLlmSettings() as Promise<LlmSettingsResponse>,
-          llmApi.getStatus() as Promise<LlmControlStatus>,
-          llmApi.getRoutePlan() as Promise<RoutePlan | null>,
+          llmClient.getSettings(),
+          llmClient.getStatus(),
+          llmClient.getRoutePlan(),
         ]);
         if (!active) return;
 
@@ -207,8 +131,8 @@ export default function LlmSettingsPage() {
           setProvider(currentProvider);
         }
 
-        const sub = await llmApi.subscribeStatus({
-          onEvent: (nextStatus: LocalLlmStatus) => {
+        const sub = await llmClient.subscribeStatus({
+          onEvent: (nextStatus) => {
             if (!active) return;
             setLlmStatus((prev) => ({
               activeProvider: prev?.activeProvider ?? settings.provider ?? null,
@@ -218,7 +142,7 @@ export default function LlmSettingsPage() {
           },
         });
 
-        if (active && sub?.unsubscribe) {
+        if (active) {
           unsubscribe = sub.unsubscribe;
         }
       } catch (err: unknown) {
@@ -239,15 +163,10 @@ export default function LlmSettingsPage() {
   }, []);
 
   async function refreshStatus() {
-    const bridge = getBridge();
-    const secretsApi = bridge?.secrets;
-    const llmApi = bridge?.llm;
-    if (!secretsApi?.getLlmSettings || !llmApi?.getStatus || !llmApi?.getRoutePlan) return;
-
     const [settings, control, nextRoutePlan] = await Promise.all([
-      secretsApi.getLlmSettings() as Promise<LlmSettingsResponse>,
-      llmApi.getStatus() as Promise<LlmControlStatus>,
-      llmApi.getRoutePlan() as Promise<RoutePlan | null>,
+      llmClient.getSettings(),
+      llmClient.getStatus(),
+      llmClient.getRoutePlan(),
     ]);
     setStatus(settings);
     setLlmStatus(control);
@@ -255,16 +174,10 @@ export default function LlmSettingsPage() {
   }
 
   async function saveRemoteProvider() {
-    const api = getBridge()?.secrets;
-    if (!api?.setLlmSettings) {
-      setError("IDE bridge unavailable. Launch this screen inside Codemm-Desktop.");
-      return;
-    }
-
     setError(null);
     setSaving(true);
     try {
-      await api.setLlmSettings({
+      await llmClient.saveSettings({
         provider,
         apiKey,
         routingProfile,
@@ -280,16 +193,10 @@ export default function LlmSettingsPage() {
   }
 
   async function clearProvider() {
-    const api = getBridge()?.secrets;
-    if (!api?.clearLlmSettings) {
-      setError("IDE bridge unavailable. Launch this screen inside Codemm-Desktop.");
-      return;
-    }
-
     setError(null);
     setSaving(true);
     try {
-      await api.clearLlmSettings();
+      await llmClient.clearSettings();
       setApiKey("");
       await refreshStatus();
     } catch (err: unknown) {
@@ -300,16 +207,10 @@ export default function LlmSettingsPage() {
   }
 
   async function activateLocalModel() {
-    const api = getBridge()?.llm;
-    if (!api?.ensureReady) {
-      setError("IDE bridge unavailable. Launch this screen inside Codemm-Desktop.");
-      return;
-    }
-
     setError(null);
     setActivatingLocal(true);
     try {
-      const res = await api.ensureReady({ activateOnSuccess: true, useCase: "general" });
+      const res = await llmClient.ensureReady({ activateOnSuccess: true, useCase: "general" });
       if (res?.ok === false) {
         throw new Error(res?.error?.message || "Local model activation failed.");
       }
@@ -436,7 +337,7 @@ export default function LlmSettingsPage() {
                       darkMode ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-300 bg-white text-slate-900"
                     }`}
                     value={routingProfile}
-                    onChange={(e) => setRoutingProfile(e.target.value as "auto" | "fast_local" | "balanced_local" | "strong_local" | "custom")}
+                    onChange={(e) => setRoutingProfile(e.target.value as RoutingProfile)}
                     disabled={saving || activatingLocal}
                   >
                     <option value="auto">Auto (recommended)</option>
@@ -449,7 +350,7 @@ export default function LlmSettingsPage() {
 
                 {routingProfile === "custom" ? (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {(["dialogue", "skeleton", "tests", "reference", "repair", "edit"] as RouteRole[]).map((role) => (
+                    {configurableRoles.map((role) => (
                       <div key={role}>
                         <label className={`block text-xs font-medium uppercase tracking-wide ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{role}</label>
                         <input

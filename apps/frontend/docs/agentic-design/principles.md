@@ -1,36 +1,20 @@
-# Principles (Client-Relevant)
+# Deprecated
 
-Codemm’s agentic behavior is anchored in backend invariants. The frontend must respect these invariants or it will create confusing UX.
+This document is deprecated and should not be used as implementation guidance.
 
-## 1) Backend is the source of truth
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-The frontend must treat backend-returned state as authoritative:
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-- `questionKey` defines what to ask/confirm next.
-- `spec` snapshots represent the current draft as the backend sees it.
-- progress SSE events define generation state.
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-Avoid UI designs that “guess” server state.
-
-## 2) Deterministic logic vs LLM-driven behavior
-
-The frontend should assume:
-
-- LLM output can be inconsistent.
-- Backend outputs are contract-validated.
-
-Therefore:
-
-- do not parse assistant text to infer decisions
-- do not attempt to apply spec patches client-side
-
-## 3) Verified generation is a backend responsibility
-
-The frontend should not present “generated problems” as final until:
-
-- generation completes successfully, and
-- the activity is persisted and retrievable via `GET /activities/:id`.
-
-## 4) Observability is safe by design
-
-Progress events are designed to be safe for user display. The frontend should not demand (or expect) raw prompts or reference solutions.
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

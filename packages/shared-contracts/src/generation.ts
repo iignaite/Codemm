@@ -1,6 +1,18 @@
+import type { LlmProvider, LlmRole } from "./llm";
+
 export type Difficulty = "easy" | "medium" | "hard";
+
 export type GenerationLanguage = "java" | "python" | "cpp" | "sql";
-export type GenerationFailureKind = "compile" | "tests" | "timeout" | "contract" | "quality" | "llm" | "unknown";
+
+export type GenerationFailureKind =
+  | "compile"
+  | "tests"
+  | "timeout"
+  | "contract"
+  | "quality"
+  | "llm"
+  | "unknown";
+
 export type RepairStrategy =
   | "retry_full_slot"
   | "repair_reference_solution"
@@ -9,12 +21,11 @@ export type RepairStrategy =
   | "narrow_topics";
 
 export type GenerationProgressEvent =
-  // Phase 2B: richer structured events for per-slot progress UI.
-  | { type: "generation_started"; totalSlots?: number; totalProblems?: number; run?: number }
+  | { type: "generation_started"; totalSlots: number; totalProblems?: number; run?: number }
   | {
       type: "route_selected";
       slotIndex: number;
-      routeRole: "dialogue" | "skeleton" | "tests" | "reference" | "repair" | "edit" | "wording";
+      routeRole: LlmRole;
       provider?: string;
       model?: string;
       capability?: string;
@@ -25,7 +36,7 @@ export type GenerationProgressEvent =
       slotIndex: number;
       stage: "skeleton" | "tests" | "reference" | "validate" | "repair";
       attempt: number;
-      routeRole?: "dialogue" | "skeleton" | "tests" | "reference" | "repair" | "edit" | "wording";
+      routeRole?: LlmRole;
       provider?: string;
       model?: string;
       promptTemplateId?: string;
@@ -37,7 +48,7 @@ export type GenerationProgressEvent =
       stage: "skeleton" | "tests" | "reference" | "validate" | "repair";
       attempt: number;
       status: "success" | "failed";
-      routeRole?: "dialogue" | "skeleton" | "tests" | "reference" | "repair" | "edit" | "wording";
+      routeRole?: LlmRole;
       provider?: string;
       model?: string;
       promptTemplateId?: string;
@@ -54,7 +65,7 @@ export type GenerationProgressEvent =
       type: "slot_escalated";
       slotIndex: number;
       stage: "tests" | "reference" | "repair";
-      routeRole: "dialogue" | "skeleton" | "tests" | "reference" | "repair" | "edit" | "wording";
+      routeRole: LlmRole;
       fromModel?: string;
       toModel?: string;
       reason: string;
@@ -63,12 +74,18 @@ export type GenerationProgressEvent =
       type: "slot_failed_terminal";
       slotIndex: number;
       stage: "skeleton" | "tests" | "reference" | "validate" | "repair";
-      routeRole?: "dialogue" | "skeleton" | "tests" | "reference" | "repair" | "edit" | "wording";
+      routeRole?: LlmRole;
       failureKind: GenerationFailureKind;
       terminationReason: string;
       message: string;
     }
-  | { type: "slot_started"; slotIndex: number; difficulty: Difficulty; topic: string; language: GenerationLanguage }
+  | {
+      type: "slot_started";
+      slotIndex: number;
+      difficulty: Difficulty;
+      topic: string;
+      language: GenerationLanguage;
+    }
   | { type: "slot_llm_attempt_started"; slotIndex: number; attempt: number }
   | { type: "slot_contract_validated"; slotIndex: number; attempt: number }
   | {
@@ -94,8 +111,9 @@ export type GenerationProgressEvent =
       remediation?: string[];
       llmOutputHash?: string;
       llm?: {
-        provider: "openai" | "anthropic" | "gemini" | "ollama";
+        provider: LlmProvider;
         model?: string;
+        role?: LlmRole;
         finishReason?: string;
         truncated?: boolean;
         usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
@@ -142,7 +160,6 @@ export type GenerationProgressEvent =
   | { type: "generation_failed"; error: string; slotIndex?: number }
   | { type: "generation_soft_fallback_applied"; reason: string; patchPaths: string[] }
   | { type: "heartbeat"; ts: string }
-  // Backwards-compatible v1 events.
   | { type: "problem_started"; index: number; difficulty: Difficulty }
   | { type: "attempt_started"; index: number; attempt: number }
   | { type: "validation_started"; index: number; attempt: number }

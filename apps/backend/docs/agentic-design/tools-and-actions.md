@@ -1,71 +1,19 @@
-# Tools and Actions
+# Deprecated
 
-Codemm Backend orchestrates multiple “tools”. This document defines what those tools are allowed to do, and how their outputs are constrained.
+This document is deprecated and should not be used as implementation guidance.
 
-## Tool: LLM completion
+It described an older Codemm backend shape based on Express routes, SSE generation streams, auth/profile/community endpoints, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-Used in two places:
+Current backend architecture:
+- renderer access is IPC-only through preload -> Electron main -> backend child process
+- durable state is local-only per workspace
+- backend methods are exposed as `threads.*`, `activities.*`, `judge.*`, and `engine.*`
+- no auth, profile, community, or remote HTTP API surface is active by default
 
-1. **Session loop** (spec-building): propose a partial patch and assistant text.
-2. **Generation**: produce a `GeneratedProblemDraft`.
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/backend/docs/api/backend.md`
 
-Contracts:
-
-- LLM output is parsed and then validated against schemas.
-- Invalid fields are rejected deterministically.
-- The LLM cannot directly mutate the database.
-
-Security model:
-
-- Treat LLM output as untrusted user input.
-- Never stream prompts or raw model outputs to clients.
-
-## Tool: Docker judge
-
-Used for:
-
-- verifying generated reference artifacts (generation)
-- running user code (`/run`, `/submit`)
-
-Constraints:
-
-- enforce strict resource limits (timeouts, file restrictions, size caps)
-- enforce language-specific file layouts and rules
-- treat execution output as untrusted text (no HTML rendering assumptions)
-
-Key invariant:
-
-- A generated problem is only considered valid if the reference artifact passes its own test suite in Docker.
-
-## Tool: Database (SQLite)
-
-Used for:
-
-- sessions + message history + collector buffers
-- activities and problems
-- submissions and learner-profile updates
-
-Constraints:
-
-- Durable state must be derived from deterministic code paths.
-- Data models are stored in a normalized format (e.g., JSON blobs for structured fields where appropriate), but all externally visible models must still satisfy their contracts.
-
-## Tool: SSE streams (progress / trace)
-
-Two streams exist:
-
-- **Progress**: `GET /sessions/:id/generate/stream`
-- **Trace** (optional): `GET /sessions/:id/trace` (feature-flagged)
-
-Contracts:
-
-- stream payloads must be safe to display to end users
-- no prompts, no raw generations, no reference artifacts
-- event schemas should evolve additively
-
-Operational behaviors:
-
-- streams should send periodic heartbeats to keep connections alive
-- generation streams may replay buffered events for late subscribers
-
-See `debugging.md` for how to use these streams during development.
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

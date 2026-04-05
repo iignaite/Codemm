@@ -1,24 +1,19 @@
-# Agentic Design
+# Deprecated
 
-This section explains the backend’s agentic behavior in terms of **system invariants** and **deterministic orchestration**, not prompts.
+This document is deprecated and should not be used as implementation guidance.
 
-Codemm is “agentic” because it:
+It described an older Codemm backend shape based on Express routes, SSE generation streams, auth/profile/community endpoints, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-- Maintains state across turns (session drafts, commitments, collector buffers).
-- Plans and executes multi-step workflows (spec building → planning → generation → verification → persistence).
-- Uses tools (LLM calls, Docker judge, DB, SSE) under strict contracts.
+Current backend architecture:
+- renderer access is IPC-only through preload -> Electron main -> backend child process
+- durable state is local-only per workspace
+- backend methods are exposed as `threads.*`, `activities.*`, `judge.*`, and `engine.*`
+- no auth, profile, community, or remote HTTP API surface is active by default
 
-It is “deterministic” because:
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/backend/docs/api/backend.md`
 
-- All durable state transitions and validations are implemented in audited code.
-- The LLM’s output is treated as untrusted input.
-
-## Documents
-
-- Principles and invariants: `principles.md`
-- Agent lifecycle (session loop): `agents.md`
-- Planning vs execution boundaries: `planners.md`
-- Tool invocation rules and contracts: `tools-and-actions.md`
-- Memory and state models: `memory-and-state.md`
-- Guardrails and validation: `guardrails-and-validation.md`
-- Failure modes and mitigations: `failure-modes.md`
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

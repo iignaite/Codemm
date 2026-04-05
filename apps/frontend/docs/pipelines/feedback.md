@@ -1,21 +1,20 @@
-# Feedback Pipeline (Client View)
+# Deprecated
 
-The backend implements deterministic feedback updates from submissions (when authenticated and linked to a known activity problem). The frontend’s role is to supply the linking metadata and render backend-derived outputs.
+This document is deprecated and should not be used as implementation guidance.
 
-## What the frontend should send
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-When submitting code from an activity page, include:
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-- `activityId`
-- `problemId`
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-This allows the backend to:
-
-- persist submissions in the user’s history
-- update deterministic learner-profile signals used for Guided Mode planning
-
-## What the frontend should render
-
-- Profile stats and history as returned by `GET /profile`
-- Any “progress” indicators as derived from backend data, not inferred locally
-
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

@@ -4,6 +4,10 @@
     // File Layout
     "rootDir": "src",
     "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@codemm/shared-contracts": ["../../packages/shared-contracts/dist/index.d.ts"]
+    },
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
@@ -42,6 +46,6 @@
     "skipLibCheck": true,
 
     "esModuleInterop": true,
-    "resolveJsonModule": true,
+    "resolveJsonModule": true
   }
 }
