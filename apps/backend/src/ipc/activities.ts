@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { activityDb } from "../database";
+import { activityRepository } from "../database/repositories/activityRepository";
 import { editDraftProblemWithAi } from "../services/activityProblemEditService";
 import { getString, requireParams } from "./common";
 import type { RpcHandlerDef } from "./types";
@@ -12,7 +12,7 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         const params = requireParams(paramsRaw);
         const id = getString(params.id);
         if (!id) throw new Error("id is required.");
-        const dbActivity = activityDb.findById(id);
+        const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
         return {
           activity: {
@@ -33,7 +33,7 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
       handler: async (paramsRaw) => {
         const params = requireParams(paramsRaw);
         const limit = typeof params.limit === "number" && Number.isFinite(params.limit) ? params.limit : 30;
-        const activities = activityDb.listSummaries(limit);
+        const activities = activityRepository.listSummaries(limit);
         return { activities };
       },
     },
@@ -50,7 +50,7 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         const params = requireParams(paramsRaw);
         const id = getString(params.id);
         if (!id) throw new Error("id is required.");
-        const dbActivity = activityDb.findById(id);
+        const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
         if ((dbActivity.status ?? "DRAFT") !== "DRAFT") throw new Error("This activity has already been published.");
 
@@ -62,7 +62,7 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
               ? null
               : undefined;
 
-        const updated = activityDb.update(id, {
+        const updated = activityRepository.update(id, {
           ...(typeof title === "string" && title ? { title } : {}),
           ...(typeof timeLimitSeconds !== "undefined" ? { time_limit_seconds: timeLimitSeconds } : {}),
         });
@@ -87,10 +87,10 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         const params = requireParams(paramsRaw);
         const id = getString(params.id);
         if (!id) throw new Error("id is required.");
-        const dbActivity = activityDb.findById(id);
+        const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
         if ((dbActivity.status ?? "DRAFT") === "PUBLISHED") return { ok: true };
-        activityDb.update(id, { status: "PUBLISHED" });
+        activityRepository.update(id, { status: "PUBLISHED" });
         return { ok: true };
       },
     },
@@ -112,7 +112,7 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         if (!problemId) throw new Error("problemId is required.");
         if (!instruction) throw new Error("instruction is required.");
 
-        const dbActivity = activityDb.findById(id);
+        const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
         if ((dbActivity.status ?? "DRAFT") !== "DRAFT") throw new Error("This activity has already been published.");
 
@@ -134,7 +134,7 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         const nextProblems = [...problems];
         nextProblems[idx] = updatedProblem;
 
-        const updated = activityDb.update(id, { problems: JSON.stringify(nextProblems) });
+        const updated = activityRepository.update(id, { problems: JSON.stringify(nextProblems) });
         if (!updated) throw new Error("Failed to update activity.");
 
         return {

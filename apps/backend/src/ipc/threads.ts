@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { z } from "zod";
-import { runDb, runEventDb, threadDb, threadMessageDb } from "../database";
+import { runEventRepository, runRepository } from "../database/repositories/runRepository";
+import { threadMessageRepository, threadRepository } from "../database/repositories/threadRepository";
 import type { LearningMode } from "../contracts/learningMode";
 import {
   createSession,
@@ -11,7 +12,7 @@ import {
   setSessionInstructions,
 } from "../services/sessionService";
 import { getResolvedLlmSnapshot } from "../infra/llm/executionContext";
-import { summarizeRoutePlan } from "../infra/llm/routePlanner";
+import { summarizeRoutePlan } from "../infra/llm/runtimeService";
 import type { GenerationProgressEvent } from "../contracts/generationProgress";
 import { getGenerationProgressBuffer, subscribeGenerationProgress } from "../generation/progressBus";
 import { collectAttemptDiagnostics } from "../generation/diagnostics";
@@ -28,7 +29,7 @@ async function runGenerationWithRunTracking(args: {
 }): Promise<{ activityId: string; problemCount: number; runId: string }> {
   const runId = crypto.randomUUID();
   const routePlan = getResolvedLlmSnapshot();
-  runDb.create(runId, "generation", {
+  runRepository.create(runId, "generation", {
     threadId: args.threadId,
     metaJson: safeJsonStringify({
       ...args.meta,
@@ -40,7 +41,7 @@ async function runGenerationWithRunTracking(args: {
   const unsubPersist = subscribeGenerationProgress(args.threadId, (ev: GenerationProgressEvent) => {
     seq += 1;
     try {
-      runEventDb.append(runId, seq, "progress", safeJsonStringify(ev));
+      runEventRepository.append(runId, seq, "progress", safeJsonStringify(ev));
     } catch {
       // ignore persistence failures; stream must still work
     }
@@ -48,12 +49,12 @@ async function runGenerationWithRunTracking(args: {
 
   try {
     const { activityId, problems } = await args.execute();
-    runDb.finish(runId, "succeeded");
+    runRepository.finish(runId, "succeeded");
     return { activityId, problemCount: Array.isArray(problems) ? problems.length : 0, runId };
   } catch (err) {
     try {
       seq += 1;
-      runEventDb.append(
+      runEventRepository.append(
         runId,
         seq,
         "error",
@@ -62,7 +63,7 @@ async function runGenerationWithRunTracking(args: {
     } catch {
       // ignore
     }
-    runDb.finish(runId, "failed");
+    runRepository.finish(runId, "failed");
     throw err;
   } finally {
     try {
@@ -84,7 +85,7 @@ export function createThreadHandlers(deps: {
         const learning_mode = (params.learning_mode ?? null) as LearningMode | null;
         const created = createSession(learning_mode ?? undefined);
         const promptText = defaultAssistantPrompt();
-        threadMessageDb.create(crypto.randomUUID(), created.sessionId, "assistant", promptText);
+        threadMessageRepository.create(crypto.randomUUID(), created.sessionId, "assistant", promptText);
         return {
           threadId: created.sessionId,
           state: created.state,
@@ -102,7 +103,7 @@ export function createThreadHandlers(deps: {
       handler: async (paramsRaw) => {
         const params = requireParams(paramsRaw);
         const limit = getNumber(params.limit) ?? 20;
-        const threads = threadDb.listSummaries(limit);
+        const threads = threadRepository.listSummaries(limit);
         return { threads };
       },
     },
@@ -177,10 +178,10 @@ export function createThreadHandlers(deps: {
         getSession(threadId);
 
         const subId = makeSubId();
-        const latest = runDb.latestByThread(threadId, "generation");
+        const latest = runRepository.latestByThread(threadId, "generation");
         const buffered = (() => {
           if (latest && typeof latest.id === "string" && latest.id) {
-            const rows = runEventDb.listByRun(latest.id, 1500);
+            const rows = runEventRepository.listByRun(latest.id, 1500);
             const events: GenerationProgressEvent[] = [];
             for (const r of rows) {
               if (r.type !== "progress") continue;
@@ -309,7 +310,7 @@ export function createThreadHandlers(deps: {
 
         getSession(threadId);
 
-        const run = runId ? runDb.findById(runId) : runDb.latestByThread(threadId, "generation");
+        const run = runId ? runRepository.findById(runId) : runRepository.latestByThread(threadId, "generation");
         if (!run) {
           return {
             threadId,
@@ -333,7 +334,7 @@ export function createThreadHandlers(deps: {
           throw new Error("runId does not belong to the provided threadId.");
         }
 
-        const rows = runEventDb.listByRun(run.id, limit);
+        const rows = runEventRepository.listByRun(run.id, limit);
         const { diagnostics, latestFailure, routeSelections, stageTimeline, timingSummary } = collectAttemptDiagnostics(rows);
         const failedAttempts = diagnostics.filter((d) => d.status === "failed").length;
         const successfulAttempts = diagnostics.filter((d) => d.status === "success").length;

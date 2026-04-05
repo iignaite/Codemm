@@ -4,7 +4,7 @@ import { createGeminiCompletion, hasGeminiApiKey } from "./adapters/gemini";
 import { createOllamaCompletion, hasOllamaModelConfigured } from "./adapters/ollama";
 import { createOpenAiCompletion, hasOpenAiApiKey, getOpenAiClient } from "./adapters/openai";
 import { getResolvedLlmSnapshot } from "./executionContext";
-import { ensureRoutePlan, getRouteForRole } from "./routePlanner";
+import { ensureRoutePlan, getRouteForRole } from "./runtimeService";
 
 function normalizeProvider(raw: unknown): LlmProvider | null {
   const s = String(raw ?? "").trim().toLowerCase();

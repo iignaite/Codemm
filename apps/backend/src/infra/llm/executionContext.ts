@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "async_hooks";
 import type { ResolvedLlmRoutePlan, ResolvedLlmSnapshot } from "./types";
-import { ensureRoutePlan } from "./routePlanner";
+import { ensureRoutePlan } from "./runtimeService";
 
 const llmSnapshotStorage = new AsyncLocalStorage<ResolvedLlmRoutePlan | null>();
 
