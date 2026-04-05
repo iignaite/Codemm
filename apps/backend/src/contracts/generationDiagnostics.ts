@@ -1,6 +1,7 @@
 import type { Difficulty } from "./activitySpec";
 import type { CompletionMeta } from "../infra/llm/types";
 import type { GenerationFailureKind } from "../generation/errors";
+import type { LlmRole } from "../infra/llm/types";
 
 export type RepairStrategy =
   | "retry_full_slot"
@@ -48,3 +49,36 @@ export type AttemptDiagnostic = {
   repairStrategy?: RepairStrategy;
 };
 
+export type GenerationRouteSelection = {
+  ts: string;
+  slotIndex: number;
+  routeRole: LlmRole;
+  provider?: string;
+  model?: string;
+  capability?: string;
+  promptTemplateId?: string;
+};
+
+export type GenerationStageTimelineEntry = {
+  ts: string;
+  slotIndex: number;
+  stage: "skeleton" | "tests" | "reference" | "validate" | "repair";
+  attempt: number;
+  status: "started" | "success" | "failed" | "escalated" | "terminal";
+  routeRole?: LlmRole;
+  provider?: string;
+  model?: string;
+  promptTemplateId?: string;
+  startedAt?: string;
+  endedAt?: string;
+  durationMs?: number;
+  artifactHash?: string;
+  failureKind?: GenerationFailureKind;
+  message?: string;
+  exitCode?: number;
+  timedOut?: boolean;
+  terminationReason?: string;
+  fromModel?: string;
+  toModel?: string;
+  reason?: string;
+};

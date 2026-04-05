@@ -17,6 +17,8 @@ import { applyGuidedScaffoldingAsync } from "./scaffolding";
 import { runTestStrengthGate, TestStrengthGateError } from "./testStrengthGate";
 import { deriveSlotObligations } from "./obligations";
 import { isValidJUnit5TestSuiteCountRange, pruneJUnitTestMethods } from "../languages/java/rules";
+import { assertJavaStructuralTopicRequirements } from "../languages/java/structuralTopics";
+import { runSlotPipeline, SlotPipelineTerminalError } from "../pipeline/slotStages";
 
 /**
  * Discard reference_solution from GeneratedProblemDraft to produce GeneratedProblem.
@@ -95,6 +97,26 @@ function buildArtifactSet(draft: GeneratedProblemDraft): GenerationArtifactSet {
     hasWorkspace: Boolean((draft as any)?.workspace || (draft as any)?.reference_workspace),
     hashes,
   };
+}
+
+function validateInjectedDraftContract(slot: ProblemPlan[number], draft: GeneratedProblemDraft): void {
+  if (draft.language !== slot.language) {
+    throw new GenerationContractError(`Invalid language for slot ${slot.index}: must match slot.language exactly.`, {
+      slotIndex: slot.index,
+    });
+  }
+  if (draft.constraints !== slot.constraints) {
+    throw new GenerationContractError(`Invalid constraints for slot ${slot.index}: must match slot.constraints exactly.`, {
+      slotIndex: slot.index,
+    });
+  }
+  if (slot.language === "java" && "reference_solution" in draft && typeof draft.reference_solution === "string") {
+    assertJavaStructuralTopicRequirements({
+      topics: slot.topics,
+      referenceSource: draft.reference_solution,
+      testSuite: draft.test_suite,
+    });
+  }
 }
 
 function extractFailedJavaTestNames(output: string): string[] {
@@ -245,6 +267,7 @@ export async function generateProblemsFromPlan(
   const onProgress = opts?.onProgress;
   const onCheckpoint = opts?.onCheckpoint;
   const generateSingleProblemFn = opts?.deps?.generateSingleProblem ?? generateSingleProblem;
+  const useInjectedLegacyGenerator = typeof opts?.deps?.generateSingleProblem === "function";
   const validateReferenceSolutionFn = opts?.deps?.validateReferenceSolution ?? validateReferenceSolution;
   const runTestStrengthGateFn = opts?.deps?.runTestStrengthGate ?? runTestStrengthGate;
   const usedDomains: string[] = [];
@@ -256,6 +279,76 @@ export async function generateProblemsFromPlan(
     const maxLen = 8000;
     return trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}…(truncated)` : trimmed;
   })();
+
+  async function runInjectedLegacySlot(slot: ProblemPlan[number], promptContext: SlotPromptContext, slotIntent: SlotIntent) {
+    let qualityFailureFingerprint: string | undefined;
+    let cachedQualityFailure: unknown;
+    let validatedFingerprint: string | undefined;
+
+    for (let attempt = 1; attempt <= defaultMaxAttempts; attempt++) {
+      onProgress?.({ type: "slot_llm_attempt_started", slotIndex: slot.index, attempt });
+      onProgress?.({ type: "attempt_started", index: slot.index, attempt });
+
+      let generated: Awaited<ReturnType<typeof generateSingleProblemFn>> | undefined;
+      try {
+        generated = await generateSingleProblemFn(slot, { promptContext });
+        validateInjectedDraftContract(slot, generated.draft);
+        onProgress?.({ type: "slot_contract_validated", slotIndex: slot.index, attempt });
+        onProgress?.({
+          type: "slot_evidence",
+          slotIndex: slot.index,
+          attempt,
+          obligations: deriveSlotObligations(slot).map((id) => ({ id, ok: true })),
+        });
+        onProgress?.({ type: "slot_docker_validation_started", slotIndex: slot.index, attempt });
+        onProgress?.({ type: "validation_started", index: slot.index, attempt });
+
+        const fingerprint = computeExpensiveFingerprint(generated.draft);
+        if (validatedFingerprint !== fingerprint) {
+          await validateReferenceSolutionFn(generated.draft);
+          validatedFingerprint = fingerprint;
+        }
+
+        if (qualityFailureFingerprint === fingerprint && cachedQualityFailure) {
+          throw cachedQualityFailure;
+        }
+
+        await runTestStrengthGateFn(generated.draft, slot);
+        return { generated, attempt };
+      } catch (err) {
+        const fingerprint = generated ? computeExpensiveFingerprint(generated.draft) : undefined;
+        if (err instanceof TestStrengthGateError && fingerprint) {
+          qualityFailureFingerprint = fingerprint;
+          cachedQualityFailure = err;
+        }
+        if (err instanceof ReferenceSolutionValidationError) {
+          onProgress?.({ type: "slot_docker_validation_failed", slotIndex: slot.index, attempt, shortError: err.message });
+          onProgress?.({ type: "validation_failed", index: slot.index, attempt });
+        }
+        const emitted = progressSummaryForFailure({
+          slotIndex: slot.index,
+          attempt,
+          maxAttempts: defaultMaxAttempts,
+          err,
+          ...(typeof generated?.meta?.llmOutputHash === "string" ? { llmOutputHash: generated.meta.llmOutputHash } : {}),
+          ...(generated?.meta?.llm ? { llm: generated.meta.llm } : {}),
+          slotIntent,
+          final: attempt >= defaultMaxAttempts,
+        });
+        onProgress?.(emitted.summary);
+        onProgress?.(emitted.failure);
+        onProgress?.({
+          type: "attempt_failed",
+          index: slot.index,
+          attempt,
+          phase: err instanceof ReferenceSolutionValidationError || err instanceof TestStrengthGateError ? "validate" : "generate",
+        });
+        if (attempt >= defaultMaxAttempts) throw err;
+      }
+    }
+
+    throw new Error(`Failed to generate slot ${slot.index}.`);
+  }
 
   const DOMAIN_POOL = [
     "smart home",
@@ -311,9 +404,7 @@ export async function generateProblemsFromPlan(
   }
 
   for (const slot of plan.slice(initialCount)) {
-    const maxAttempts = defaultMaxAttempts;
-  const slotIntent = buildSlotIntent(slot);
-  const repairHistory: NonNullable<RepairContext["history"]> = [];
+    const slotIntent = buildSlotIntent(slot);
     const domainSeed = pickDomain(`${slot.language}:${slot.difficulty}:${slot.topics.join(",")}:${slot.index}`);
     const promptContext: SlotPromptContext = {
       domain: domainSeed,
@@ -340,342 +431,95 @@ export async function generateProblemsFromPlan(
       domain: domainSeed,
     });
 
-    let problem: GeneratedProblem | null = null;
-    let attempts = 0;
-    let lastError: Error | null = null;
-    let lastDraft: GeneratedProblemDraft | null = null;
-    let lastLlmOutputHash: string | undefined;
-    let lastLlmMeta: CompletionMeta | undefined;
-    let lastAttemptExpensiveFingerprint: string | undefined;
-    let lastExpensiveFailure:
-      | { fingerprint: string; error: ReferenceSolutionValidationError | TestStrengthGateError }
-      | null = null;
-    let repair: RepairContext | undefined;
-
-    while (!problem && attempts < maxAttempts) {
-      attempts++;
-      try {
-        trace("generation.attempt.start", { slotIndex: slot.index, attempts });
-        onProgress?.({ type: "slot_llm_attempt_started", slotIndex: slot.index, attempt: attempts });
-        onProgress?.({ type: "attempt_started", index: slot.index, attempt: attempts });
-        // Step 1: Generate single problem via LLM (includes reference_solution)
-        const generated = await generateSingleProblemFn(slot, {
-          ...(repair ? { repair } : {}),
-          promptContext,
-        });
-        const draft: GeneratedProblemDraft = generated.draft;
-        lastDraft = draft;
-        lastLlmOutputHash = generated.meta.llmOutputHash;
-        lastLlmMeta = generated.meta.llm;
-        onProgress?.({ type: "slot_contract_validated", slotIndex: slot.index, attempt: attempts });
+    try {
+      const generatedResult = useInjectedLegacyGenerator
+        ? await runInjectedLegacySlot(slot, promptContext, slotIntent)
+        : {
+            generated: await runSlotPipeline({
+              slot,
+              ...(promptContext ? { promptContext } : {}),
+              ...(onProgress ? { onProgress } : {}),
+            }),
+            attempt: 1,
+          };
+      const { generated, attempt: finalAttempt } = generatedResult;
+      if (useInjectedLegacyGenerator && slot.pedagogy) {
+        generated.draft = { ...(await applyGuidedScaffoldingAsync(generated.draft, slot)), pedagogy: slot.pedagogy };
+      }
+      const problem = discardReferenceArtifacts(generated.draft);
+      onProgress?.({
+        type: "slot_attempt_summary",
+        slotIndex: slot.index,
+        attempt: finalAttempt,
+        maxAttempts: defaultMaxAttempts,
+        phase: "complete",
+        status: "success",
+        ...(typeof generated.meta.llmOutputHash === "string" ? { llmOutputHash: generated.meta.llmOutputHash } : {}),
+        ...(generated.meta.llm ? { llm: generated.meta.llm } : {}),
+        slotIntent,
+        artifactSet: buildArtifactSet(generated.draft),
+      });
+      if (!useInjectedLegacyGenerator) {
         onProgress?.({
           type: "slot_evidence",
           slotIndex: slot.index,
-          attempt: attempts,
+          attempt: 1,
           obligations: deriveSlotObligations(slot).map((id) => ({ id, ok: true })),
-          ...(Array.isArray((generated.meta as any)?.rewrites) ? { rewrites: (generated.meta as any).rewrites } : {}),
         });
-
-        // Avoid rerunning expensive Docker/quality checks when the reference artifacts + tests are identical.
-        // This prevents "attempt thrash" where retries repeatedly validate the same payload.
-        lastAttemptExpensiveFingerprint = computeExpensiveFingerprint(draft);
-        if (
-          lastExpensiveFailure &&
-          lastExpensiveFailure.fingerprint === lastAttemptExpensiveFingerprint
-        ) {
-          trace("generation.attempt.deduped", {
-            slotIndex: slot.index,
-            attempts,
-            kind: lastExpensiveFailure.error.name,
-          });
-          if (lastExpensiveFailure.error instanceof ReferenceSolutionValidationError) {
-            onProgress?.({
-              type: "slot_docker_validation_started",
-              slotIndex: slot.index,
-              attempt: attempts,
-            });
-            onProgress?.({ type: "validation_started", index: slot.index, attempt: attempts });
-          }
-          throw lastExpensiveFailure.error;
-        }
-
-        // Step 2: Validate reference_solution compiles and passes tests (Docker)
-        onProgress?.({ type: "slot_docker_validation_started", slotIndex: slot.index, attempt: attempts });
-        onProgress?.({ type: "validation_started", index: slot.index, attempt: attempts });
-        await validateReferenceSolutionFn(draft);
-
-        // Step 2B: Deterministic test strength gate (reject trivial baselines)
-        await runTestStrengthGateFn(draft, slot);
-
-        // Step 3: If guided pedagogy is present, derive the student-facing code/workspace
-        // deterministically from the validated reference artifact.
-        const finalizedDraft = slot.pedagogy
-          ? { ...(await applyGuidedScaffoldingAsync(draft, slot)), pedagogy: slot.pedagogy }
-          : draft;
-
-        // Step 4: Discard reference_solution/reference_workspace (CRITICAL: do not persist)
-        problem = discardReferenceArtifacts(finalizedDraft);
-        onProgress?.({
-          type: "slot_attempt_summary",
-          slotIndex: slot.index,
-          attempt: attempts,
-          maxAttempts,
-          phase: "complete",
-          status: "success",
-          ...(typeof generated.meta.llmOutputHash === "string" ? { llmOutputHash: generated.meta.llmOutputHash } : {}),
-          ...(generated.meta.llm ? { llm: generated.meta.llm } : {}),
-          slotIntent,
-          artifactSet: buildArtifactSet(draft),
-        });
-        onProgress?.({ type: "slot_completed", slotIndex: slot.index });
-        onProgress?.({ type: "problem_validated", index: slot.index });
-        trace("generation.attempt.success", { slotIndex: slot.index, attempts, title: draft.title });
-      } catch (err: any) {
-        lastError = err;
-        console.warn(
-          `Slot ${slot.index} generation attempt ${attempts}/${maxAttempts} failed:`,
-          err.message
-        );
-
-        if (err instanceof GenerationContractError) {
-          onProgress?.({
-            type: "slot_contract_failed",
-            slotIndex: slot.index,
-            attempt: attempts,
-            shortError:
-              typeof err.obligationId === "string" && err.obligationId
-                ? `${err.obligationId}: ${String(err.message).slice(0, 220)}`
-                : String(err.message).slice(0, 220) || "Contract validation failed.",
-          });
-          onProgress?.({
-            type: "slot_evidence",
-            slotIndex: slot.index,
-            attempt: attempts,
-            obligations: deriveSlotObligations(slot).map((id) => ({
-              id,
-              ok: id !== err.obligationId,
-              ...(id === err.obligationId ? { message: String(err.message).slice(0, 360) } : {}),
-            })),
-          });
-          onProgress?.({ type: "attempt_failed", index: slot.index, attempt: attempts, phase: "generate" });
-          lastLlmOutputHash = err.llmOutputHash ?? lastLlmOutputHash;
-          lastLlmMeta = err.llm ?? lastLlmMeta;
-          repair = {
-            ...(typeof err.rawSnippet === "string" ? { previousRaw: err.rawSnippet } : {}),
-            ...(typeof err.message === "string" && err.message ? { errorMessage: err.message } : {}),
-            history: [
-              ...repairHistory,
-              {
-                attempt: attempts,
-                phase: "contract",
-                message: String(err.message ?? "").slice(0, 600),
-                strategy: "retry_full_slot",
-                ...(typeof err.obligationId === "string" && err.obligationId ? { obligationId: err.obligationId } : {}),
-              },
-            ],
-          };
-          repairHistory.push({
-            attempt: attempts,
-            phase: "contract",
-            message: String(err.message ?? "").slice(0, 600),
-            strategy: "retry_full_slot",
-            ...(typeof err.obligationId === "string" && err.obligationId ? { obligationId: err.obligationId } : {}),
-          });
-          onProgress?.({
-            type: "slot_repair_applied",
-            slotIndex: slot.index,
-            attempt: attempts,
-            strategy: "retry_full_slot",
-            detail: "Retrying generation with contract diagnostics.",
-          });
-        }
-
-        if (err instanceof TestStrengthGateError) {
-          if (typeof lastAttemptExpensiveFingerprint === "string" && lastAttemptExpensiveFingerprint) {
-            lastExpensiveFailure = { fingerprint: lastAttemptExpensiveFingerprint, error: err };
-          }
-          onProgress?.({
-            type: "slot_contract_failed",
-            slotIndex: slot.index,
-            attempt: attempts,
-            shortError: "Test strength gate failed.",
-          });
-          onProgress?.({ type: "attempt_failed", index: slot.index, attempt: attempts, phase: "generate" });
-          // Treat as a contract-equivalent failure to trigger targeted regeneration.
-          repair = {
-            ...(lastDraft ? { previousRaw: JSON.stringify(lastDraft).slice(0, 2400) } : {}),
-            errorMessage: err.message,
-            history: [
-              ...repairHistory,
-              {
-                attempt: attempts,
-                phase: "quality",
-                message: String(err.message ?? "").slice(0, 600),
-                strategy: "repair_test_suite",
-              },
-            ],
-          };
-          repairHistory.push({
-            attempt: attempts,
-            phase: "quality",
-            message: String(err.message ?? "").slice(0, 600),
-            strategy: "repair_test_suite",
-          });
-          onProgress?.({
-            type: "slot_repair_applied",
-            slotIndex: slot.index,
-            attempt: attempts,
-            strategy: "repair_test_suite",
-            detail: "Retrying with stronger and non-trivial tests.",
-          });
-        }
-
-        if (err instanceof ReferenceSolutionValidationError && lastDraft) {
-          if (slot.language === "java" && err.kind === "tests") {
-            const degraded = maybeDropFailingJavaTests(lastDraft, err);
-            if (degraded) {
-              try {
-                await validateReferenceSolutionFn(degraded.draft);
-                const finalizedDraft = slot.pedagogy
-                  ? { ...(await applyGuidedScaffoldingAsync(degraded.draft, slot)), pedagogy: slot.pedagogy }
-                  : degraded.draft;
-
-                problem = discardReferenceArtifacts(finalizedDraft);
-                lastDraft = degraded.draft;
-
-                onProgress?.({
-                  type: "slot_repair_applied",
-                  slotIndex: slot.index,
-                  attempt: attempts,
-                  strategy: "repair_test_suite",
-                  detail: `Dropped failing JUnit tests: ${degraded.droppedTests.join(", ")}.`,
-                });
-                onProgress?.({
-                  type: "slot_attempt_summary",
-                  slotIndex: slot.index,
-                  attempt: attempts,
-                  maxAttempts,
-                  phase: "complete",
-                  status: "success",
-                  ...(typeof lastLlmOutputHash === "string" ? { llmOutputHash: lastLlmOutputHash } : {}),
-                  ...(lastLlmMeta ? { llm: lastLlmMeta } : {}),
-                  slotIntent,
-                  artifactSet: buildArtifactSet(degraded.draft),
-                });
-                onProgress?.({ type: "slot_completed", slotIndex: slot.index });
-                onProgress?.({ type: "problem_validated", index: slot.index });
-                trace("generation.attempt.success.degraded_tests", {
-                  slotIndex: slot.index,
-                  attempts,
-                  droppedTests: degraded.droppedTests,
-                });
-                continue;
-              } catch {
-                // Fall through to normal repair handling if the reduced suite still fails.
-              }
-            }
-          }
-
-          if (typeof lastAttemptExpensiveFingerprint === "string" && lastAttemptExpensiveFingerprint) {
-            lastExpensiveFailure = { fingerprint: lastAttemptExpensiveFingerprint, error: err };
-          }
-          onProgress?.({
-            type: "slot_docker_validation_failed",
-            slotIndex: slot.index,
-            attempt: attempts,
-            shortError: err.kind === "compile" ? "Compilation failed." : err.kind === "tests" ? "Tests failed." : "Timed out.",
-          });
-          onProgress?.({ type: "validation_failed", index: slot.index, attempt: attempts });
-          onProgress?.({ type: "attempt_failed", index: slot.index, attempt: attempts, phase: "validate" });
-          repair = {
-            previousDraft: lastDraft,
-            judgeStdout: err.judgeStdout,
-            judgeStderr: err.judgeStderr,
-            errorMessage: err.message,
-            history: [
-              ...repairHistory,
-              {
-                attempt: attempts,
-                phase: "validate",
-                message: String(err.message ?? "").slice(0, 600),
-                strategy: slot.language === "java" ? "repair_reference_solution" : "retry_full_slot",
-              },
-            ],
-          };
-          repairHistory.push({
-            attempt: attempts,
-            phase: "validate",
-            message: String(err.message ?? "").slice(0, 600),
-            strategy: slot.language === "java" ? "repair_reference_solution" : "retry_full_slot",
-          });
-          onProgress?.({
-            type: "slot_repair_applied",
-            slotIndex: slot.index,
-            attempt: attempts,
-            strategy: slot.language === "java" ? "repair_reference_solution" : "retry_full_slot",
-            detail:
-              slot.language === "java"
-                ? "Applying targeted reference_solution repair."
-                : "Retrying slot with validator feedback.",
-          });
-          trace("generation.attempt.repair", { slotIndex: slot.index, attempts, exitCode: err.exitCode });
-        } else {
-          if (!(err instanceof GenerationContractError) && !(err instanceof TestStrengthGateError)) {
-            onProgress?.({ type: "attempt_failed", index: slot.index, attempt: attempts, phase: "generate" });
-            repair = undefined;
-          }
-        }
-
-        const finalAttempt = attempts >= maxAttempts;
-        const emitted = progressSummaryForFailure({
-          slotIndex: slot.index,
-          attempt: attempts,
-          maxAttempts,
-          err,
-          ...(typeof lastLlmOutputHash === "string" ? { llmOutputHash: lastLlmOutputHash } : {}),
-          ...(lastLlmMeta ? { llm: lastLlmMeta } : {}),
-          slotIntent,
-          final: finalAttempt,
-        });
-        onProgress?.(emitted.summary);
-        onProgress?.(emitted.failure);
-
-        if (finalAttempt) {
-          onProgress?.({ type: "problem_failed", index: slot.index });
-          const kind: GenerationFailureKind = inferFailureKind(err);
-          const failOutcome: GenerationOutcome = {
-            slotIndex: slot.index,
-            success: false,
-            retries: Math.max(0, maxAttempts - 1),
-          };
-          throw new GenerationSlotFailureError(
-            `Failed to generate slot ${slot.index} after ${maxAttempts} attempts. Last error: ${err.message}`,
-            {
-              slotIndex: slot.index,
-              kind,
-              attempts: maxAttempts,
-              ...(typeof lastDraft?.title === "string" ? { title: lastDraft.title } : {}),
-              ...(typeof lastLlmOutputHash === "string" ? { llmOutputHash: lastLlmOutputHash } : {}),
-              ...(lastLlmMeta ? { llm: lastLlmMeta } : {}),
-              outcomesSoFar: [...outcomes, failOutcome],
-              problemsSoFar: [...problems],
-            }
-          );
-        }
-        // Retry
       }
-    }
-
-    if (!problem) {
-      throw new Error(
-        `Failed to generate slot ${slot.index}. Last error: ${lastError?.message ?? "unknown"}`
+      onProgress?.({ type: "slot_completed", slotIndex: slot.index });
+      onProgress?.({ type: "problem_validated", index: slot.index });
+      problems.push(problem);
+      outcomes.push({ slotIndex: slot.index, success: true, retries: Math.max(0, finalAttempt - 1) });
+      trace("generation.attempt.success", { slotIndex: slot.index, title: generated.draft.title });
+    } catch (err: any) {
+      console.warn(`Slot ${slot.index} staged pipeline failed:`, err?.message ?? err);
+      const finalKind: GenerationFailureKind =
+        err instanceof SlotPipelineTerminalError ? err.kind : inferFailureKind(err);
+      const emitted = progressSummaryForFailure({
+        slotIndex: slot.index,
+        attempt: 1,
+        maxAttempts: defaultMaxAttempts,
+        err,
+        ...(typeof err?.llmOutputHash === "string" ? { llmOutputHash: err.llmOutputHash } : {}),
+        ...(err?.llm ? { llm: err.llm } : {}),
+        slotIntent,
+        final: true,
+      });
+      onProgress?.(emitted.summary);
+      onProgress?.(emitted.failure);
+      onProgress?.({
+        type: "slot_failed_terminal",
+        slotIndex: slot.index,
+        stage: err instanceof SlotPipelineTerminalError ? err.stage : "reference",
+        ...(err?.routeRole ? { routeRole: err.routeRole } : {}),
+        failureKind: finalKind,
+        terminationReason: err instanceof SlotPipelineTerminalError ? err.stage : "slot_pipeline",
+        message: err instanceof Error ? err.message : String(err),
+      });
+      onProgress?.({ type: "problem_failed", index: slot.index });
+      const failOutcome: GenerationOutcome = {
+        slotIndex: slot.index,
+        success: false,
+        retries: 0,
+      };
+      throw new GenerationSlotFailureError(
+        `Failed to generate slot ${slot.index}. Last error: ${err instanceof Error ? err.message : String(err)}`,
+        {
+          slotIndex: slot.index,
+          kind: finalKind,
+          attempts: 1,
+          ...(typeof err?.title === "string" ? { title: err.title } : {}),
+          ...(typeof err?.llmOutputHash === "string" ? { llmOutputHash: err.llmOutputHash } : {}),
+          ...(err?.llm ? { llm: err.llm } : {}),
+          outcomesSoFar: [...outcomes, failOutcome],
+          problemsSoFar: [...problems],
+        }
       );
     }
 
-    problems.push(problem);
-    outcomes.push({ slotIndex: slot.index, success: true, retries: Math.max(0, attempts - 1) });
     usedDomains.push(domainSeed);
-    usedTitles.push(problem.title);
+    usedTitles.push(problems[problems.length - 1]!.title);
     onCheckpoint?.({ problems, outcomes, completedSlotIndex: slot.index });
   }
 

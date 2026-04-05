@@ -184,3 +184,33 @@ Fix:
 - If diagnostics indicate truncation or weak model capability:
   - use a stronger model in **LLM Settings**
   - reduce slot complexity (fewer constraints / narrower topics) and retry
+
+## Generation Stops Immediately With A Weak Local Route Warning
+
+Symptom:
+
+- The UI warns that the selected local route is weak.
+- Hard or multi-topic generation fails before Docker validation starts.
+
+Fix:
+
+- Open **LLM Settings**.
+- Switch the local routing profile from `Fast local` to `Balanced local` or `Strong local`.
+- Or use **Custom per-role** and raise at least the `tests`, `reference`, and `repair` models.
+- If you want the weak profile, reduce the request:
+  - avoid `hard`
+  - use one topic
+  - avoid workspace-heavy prompts
+
+## Run Details Show A Stage Failure
+
+Symptom:
+
+- The home screen `Run Details` panel shows failures in `skeleton`, `tests`, `reference`, `validate`, or `repair`.
+
+Fix:
+
+- `skeleton` / `tests`: the model route is usually too weak or the prompt is too broad.
+- `reference`: switch to a stronger route or retry after narrowing the slot topic.
+- `validate`: inspect the terminal failure message and Docker exit metadata in the diagnostics panel.
+- `repair`: the first reference artifact failed and the one-step repair did not recover; retry the slot or strengthen the `repair` route.

@@ -1,12 +1,13 @@
 import { AsyncLocalStorage } from "async_hooks";
-import type { ResolvedLlmSnapshot } from "./types";
+import type { ResolvedLlmRoutePlan, ResolvedLlmSnapshot } from "./types";
+import { ensureRoutePlan } from "./routePlanner";
 
-const llmSnapshotStorage = new AsyncLocalStorage<ResolvedLlmSnapshot | null>();
+const llmSnapshotStorage = new AsyncLocalStorage<ResolvedLlmRoutePlan | null>();
 
-export function withResolvedLlmSnapshot<T>(snapshot: ResolvedLlmSnapshot | null, fn: () => Promise<T> | T): Promise<T> | T {
-  return llmSnapshotStorage.run(snapshot, fn);
+export function withResolvedLlmSnapshot<T>(snapshot: ResolvedLlmSnapshot | ResolvedLlmRoutePlan | null, fn: () => Promise<T> | T): Promise<T> | T {
+  return llmSnapshotStorage.run(ensureRoutePlan(snapshot), fn);
 }
 
-export function getResolvedLlmSnapshot(): ResolvedLlmSnapshot | null {
+export function getResolvedLlmSnapshot(): ResolvedLlmRoutePlan | null {
   return llmSnapshotStorage.getStore() ?? null;
 }

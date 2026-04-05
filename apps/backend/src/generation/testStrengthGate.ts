@@ -150,13 +150,22 @@ export async function runTestStrengthGate(draft: GeneratedProblemDraft, slot: Pr
   if (!adapter) throw new Error(`No judge adapter configured for "${draft.language}".`);
 
   const baselines = buildBaselines(draft, slot);
-  for (const baseline of baselines) {
-    const result = await judgeWithAdapter(adapter, baseline.request);
-    if (result.success) {
-      throw new TestStrengthGateError(
-        `Test strength gate failed: baseline "${baseline.id}" passed the test suite.`,
-        { baselineId: baseline.id }
-      );
+  const concurrency = 2;
+  for (let index = 0; index < baselines.length; index += concurrency) {
+    const batch = baselines.slice(index, index + concurrency);
+    const results = await Promise.all(
+      batch.map(async (baseline) => ({
+        baseline,
+        result: await judgeWithAdapter(adapter, baseline.request),
+      }))
+    );
+    for (const item of results) {
+      if (item.result.success) {
+        throw new TestStrengthGateError(
+          `Test strength gate failed: baseline "${item.baseline.id}" passed the test suite.`,
+          { baselineId: item.baseline.id }
+        );
+      }
     }
   }
 }
@@ -169,4 +178,3 @@ export const __test__ = {
   buildSqlBaselineQuery,
   buildBaselines,
 };
-

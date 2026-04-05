@@ -9,8 +9,9 @@ import {
   regenerateSlotFromSession,
   setSessionInstructions,
 } from "./services/sessionService";
-import { withResolvedLlmSnapshot } from "./infra/llm/executionContext";
-import type { ResolvedLlmSnapshot } from "./infra/llm/types";
+import { getResolvedLlmSnapshot, withResolvedLlmSnapshot } from "./infra/llm/executionContext";
+import { summarizeRoutePlan } from "./infra/llm/routePlanner";
+import type { ResolvedLlmRoutePlan, ResolvedLlmSnapshot } from "./infra/llm/types";
 import { ActivityLanguageSchema } from "./contracts/activitySpec";
 import {
   getLanguageProfile,
@@ -32,6 +33,7 @@ type RpcRequest = {
   params?: JsonObject;
   context?: {
     llmSnapshot?: ResolvedLlmSnapshot | null;
+    llmRoutePlan?: ResolvedLlmRoutePlan | null;
   };
 };
 
@@ -132,7 +134,14 @@ async function runGenerationWithRunTracking(args: {
   execute: () => Promise<{ activityId: string; problems: unknown[] }>;
 }): Promise<{ activityId: string; problemCount: number; runId: string }> {
   const runId = crypto.randomUUID();
-  runDb.create(runId, "generation", { threadId: args.threadId, metaJson: safeJsonStringify(args.meta) });
+  const routePlan = getResolvedLlmSnapshot();
+  runDb.create(runId, "generation", {
+    threadId: args.threadId,
+    metaJson: safeJsonStringify({
+      ...args.meta,
+      ...(routePlan ? { routePlan: summarizeRoutePlan(routePlan) } : {}),
+    }),
+  });
 
   let seq = 0;
   const unsubPersist = subscribeGenerationProgress(args.threadId, (ev: GenerationProgressEvent) => {
@@ -435,7 +444,7 @@ const rpcHandlers: Record<string, RpcHandlerDef> = {
       }
 
       const rows = runEventDb.listByRun(run.id, limit);
-      const { diagnostics, latestFailure } = collectAttemptDiagnostics(rows);
+      const { diagnostics, latestFailure, routeSelections, stageTimeline, timingSummary } = collectAttemptDiagnostics(rows);
       const failedAttempts = diagnostics.filter((d) => d.status === "failed").length;
       const successfulAttempts = diagnostics.filter((d) => d.status === "success").length;
       const errors = rows
@@ -473,9 +482,14 @@ const rpcHandlers: Record<string, RpcHandlerDef> = {
           totalAttempts: diagnostics.length,
           failedAttempts,
           successfulAttempts,
+          llmMs: timingSummary.llmMs,
+          dockerMs: timingSummary.dockerMs,
+          totalStageMs: timingSummary.totalStageMs,
           ...(latestFailure ? { finalFailureKind: latestFailure.kind } : {}),
         },
         diagnostics,
+        routeSelections,
+        stageTimeline,
         latestFailure,
         errors,
       };
@@ -910,11 +924,13 @@ async function handle(method: string, paramsRaw: unknown, contextRaw?: unknown):
   }
   const validated = def.schema ? validateOrThrow(def.schema, paramsRaw) : paramsRaw;
   const context = isObject(contextRaw) ? contextRaw : {};
-  const llmSnapshot =
-    isObject((context as any).llmSnapshot) && typeof (context as any).llmSnapshot.provider === "string"
-      ? ((context as any).llmSnapshot as ResolvedLlmSnapshot)
-      : null;
-  return withResolvedLlmSnapshot(llmSnapshot, () => def.handler(validated));
+  const llmContext =
+    isObject((context as any).llmRoutePlan) && typeof (context as any).llmRoutePlan.provider === "string"
+      ? ((context as any).llmRoutePlan as ResolvedLlmRoutePlan)
+      : isObject((context as any).llmSnapshot) && typeof (context as any).llmSnapshot.provider === "string"
+        ? ((context as any).llmSnapshot as ResolvedLlmSnapshot)
+        : null;
+  return withResolvedLlmSnapshot(llmContext, () => def.handler(validated));
 }
 
 function onMessage(raw: unknown) {

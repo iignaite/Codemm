@@ -194,6 +194,7 @@ export async function createGeminiCompletion(
         typeof parsed?.modelVersion === "string"
           ? parsed.modelVersion
           : Array.from(tried).slice(-1)[0] ?? firstModel,
+      ...(opts.role ? { role: opts.role } : {}),
       ...(typeof finishReason === "string" ? { finishReason } : {}),
       ...(finishReason === "MAX_TOKENS" ? { truncated: true } : {}),
       ...(Object.keys(usage).length > 0 ? { usage } : {}),

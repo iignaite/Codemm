@@ -10,7 +10,20 @@ type LlmSettingsResponse = {
   provider: string | null;
   model?: string | null;
   baseURL?: string | null;
+  routingProfile?: "auto" | "fast_local" | "balanced_local" | "strong_local" | "custom";
+  roleModels?: Record<string, string> | null;
   updatedAt: string | null;
+};
+
+type RouteRole = "dialogue" | "skeleton" | "tests" | "reference" | "repair" | "edit";
+
+type RoutePlan = {
+  provider: string;
+  baseURL?: string | null;
+  revision?: string | null;
+  defaultModel?: string | null;
+  routingProfile?: string | null;
+  modelsByRole?: Partial<Record<RouteRole, { model?: string | null; capability?: string | null }>>;
 };
 
 type LocalLlmOperation = {
@@ -48,11 +61,19 @@ type LlmControlStatus = {
 type CodemmBridge = {
   secrets?: {
     getLlmSettings?: () => Promise<LlmSettingsResponse>;
-    setLlmSettings?: (args: { provider: string; apiKey?: string }) => Promise<unknown>;
+    setLlmSettings?: (args: {
+      provider: string;
+      apiKey?: string;
+      model?: string | null;
+      baseURL?: string | null;
+      routingProfile?: "auto" | "fast_local" | "balanced_local" | "strong_local" | "custom";
+      roleModels?: Record<string, string>;
+    }) => Promise<unknown>;
     clearLlmSettings?: () => Promise<unknown>;
   };
   llm?: {
     getStatus?: () => Promise<LlmControlStatus>;
+    getRoutePlan?: () => Promise<RoutePlan | null>;
     ensureReady?: (args: { activateOnSuccess?: boolean; useCase?: "general" | "dialogue" | "generation" | "edit" }) => Promise<{ ok?: boolean; error?: { message?: string } }>;
     subscribeStatus?: (args: { onEvent: (status: LocalLlmStatus) => void }) => Promise<{ unsubscribe?: () => Promise<void> }>;
   };
@@ -132,9 +153,19 @@ export default function LlmSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<LlmSettingsResponse | null>(null);
   const [llmStatus, setLlmStatus] = useState<LlmControlStatus | null>(null);
+  const [routePlan, setRoutePlan] = useState<RoutePlan | null>(null);
 
   const [provider, setProvider] = useState<RemoteProvider>("openai");
   const [apiKey, setApiKey] = useState("");
+  const [routingProfile, setRoutingProfile] = useState<"auto" | "fast_local" | "balanced_local" | "strong_local" | "custom">("auto");
+  const [roleModels, setRoleModels] = useState<Record<RouteRole, string>>({
+    dialogue: "",
+    skeleton: "",
+    tests: "",
+    reference: "",
+    repair: "",
+    edit: "",
+  });
 
   useEffect(() => {
     let active = true;
@@ -145,19 +176,31 @@ export default function LlmSettingsPage() {
         const bridge = getBridge();
         const secretsApi = bridge?.secrets;
         const llmApi = bridge?.llm;
-        if (!secretsApi?.getLlmSettings || !llmApi?.getStatus || !llmApi?.subscribeStatus) {
+        if (!secretsApi?.getLlmSettings || !llmApi?.getStatus || !llmApi?.subscribeStatus || !llmApi?.getRoutePlan) {
           setError("IDE bridge unavailable. Launch this screen inside Codemm-Desktop.");
           return;
         }
 
-        const [settings, control] = await Promise.all([
+        const [settings, control, nextRoutePlan] = await Promise.all([
           secretsApi.getLlmSettings() as Promise<LlmSettingsResponse>,
           llmApi.getStatus() as Promise<LlmControlStatus>,
+          llmApi.getRoutePlan() as Promise<RoutePlan | null>,
         ]);
         if (!active) return;
 
         setStatus(settings);
         setLlmStatus(control);
+        setRoutePlan(nextRoutePlan);
+        setRoutingProfile(settings.routingProfile ?? "auto");
+        setRoleModels((prev) => ({
+          ...prev,
+          dialogue: settings.roleModels?.dialogue ?? "",
+          skeleton: settings.roleModels?.skeleton ?? "",
+          tests: settings.roleModels?.tests ?? "",
+          reference: settings.roleModels?.reference ?? "",
+          repair: settings.roleModels?.repair ?? "",
+          edit: settings.roleModels?.edit ?? "",
+        }));
 
         const currentProvider = String(settings.provider || "").toLowerCase();
         if (currentProvider === "openai" || currentProvider === "anthropic" || currentProvider === "gemini") {
@@ -199,14 +242,16 @@ export default function LlmSettingsPage() {
     const bridge = getBridge();
     const secretsApi = bridge?.secrets;
     const llmApi = bridge?.llm;
-    if (!secretsApi?.getLlmSettings || !llmApi?.getStatus) return;
+    if (!secretsApi?.getLlmSettings || !llmApi?.getStatus || !llmApi?.getRoutePlan) return;
 
-    const [settings, control] = await Promise.all([
+    const [settings, control, nextRoutePlan] = await Promise.all([
       secretsApi.getLlmSettings() as Promise<LlmSettingsResponse>,
       llmApi.getStatus() as Promise<LlmControlStatus>,
+      llmApi.getRoutePlan() as Promise<RoutePlan | null>,
     ]);
     setStatus(settings);
     setLlmStatus(control);
+    setRoutePlan(nextRoutePlan);
   }
 
   async function saveRemoteProvider() {
@@ -219,7 +264,12 @@ export default function LlmSettingsPage() {
     setError(null);
     setSaving(true);
     try {
-      await api.setLlmSettings({ provider, apiKey });
+      await api.setLlmSettings({
+        provider,
+        apiKey,
+        routingProfile,
+        roleModels: routingProfile === "custom" ? roleModels : undefined,
+      });
       setApiKey("");
       await refreshStatus();
     } catch (err: unknown) {
@@ -275,6 +325,9 @@ export default function LlmSettingsPage() {
   const local = llmStatus?.local ?? null;
   const isLocalActive = status?.provider === "ollama" && local?.state === "READY";
   const activeModel = local?.runtime.activeModel || status?.model || null;
+  const weakestRoute = routePlan?.modelsByRole
+    ? Object.values(routePlan.modelsByRole).find((route) => route?.capability === "weak")
+    : null;
   const localOperationMeta = useMemo(() => {
     if (!local?.operation) return null;
     const downloaded = formatBytes(local.operation.downloaded);
@@ -375,10 +428,54 @@ export default function LlmSettingsPage() {
                 </button>
               </div>
 
+              <div className="mt-4 grid gap-3">
+                <div>
+                  <label className={`block text-sm font-medium ${darkMode ? "text-slate-200" : "text-slate-700"}`}>Routing profile</label>
+                  <select
+                    className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm ${
+                      darkMode ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-300 bg-white text-slate-900"
+                    }`}
+                    value={routingProfile}
+                    onChange={(e) => setRoutingProfile(e.target.value as "auto" | "fast_local" | "balanced_local" | "strong_local" | "custom")}
+                    disabled={saving || activatingLocal}
+                  >
+                    <option value="auto">Auto (recommended)</option>
+                    <option value="fast_local">Fast local</option>
+                    <option value="balanced_local">Balanced local</option>
+                    <option value="strong_local">Strong local</option>
+                    <option value="custom">Custom per-role</option>
+                  </select>
+                </div>
+
+                {routingProfile === "custom" ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {(["dialogue", "skeleton", "tests", "reference", "repair", "edit"] as RouteRole[]).map((role) => (
+                      <div key={role}>
+                        <label className={`block text-xs font-medium uppercase tracking-wide ${darkMode ? "text-slate-300" : "text-slate-600"}`}>{role}</label>
+                        <input
+                          className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm ${
+                            darkMode ? "border-slate-700 bg-slate-900 text-slate-100" : "border-slate-300 bg-white text-slate-900"
+                          }`}
+                          value={roleModels[role]}
+                          onChange={(e) => setRoleModels((prev) => ({ ...prev, [role]: e.target.value }))}
+                          placeholder={activeModel || "model name"}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
               <div className="mt-4 grid gap-2 text-sm">
                 <div>Current model: {activeModel || "Choosing a model..."}</div>
                 <div>{isLocalActive ? "Inference is currently routed to your local model." : "Codemm will switch to the local model when setup finishes."}</div>
               </div>
+
+              {status?.provider === "ollama" && weakestRoute ? (
+                <div className={`mt-4 rounded-lg px-3 py-3 text-sm ${darkMode ? "bg-amber-950 text-amber-200" : "bg-amber-50 text-amber-800"}`}>
+                  Weak local routes can block hard or multi-topic generation. Switch to a stronger profile if runs fail early.
+                </div>
+              ) : null}
 
               {local?.operation ? (
                 <div className={`mt-4 rounded-lg px-3 py-3 text-sm ${darkMode ? "bg-slate-950 text-slate-200" : "bg-white text-slate-700"}`}>
@@ -404,9 +501,17 @@ export default function LlmSettingsPage() {
                   <div>Version: {local?.runtime.version || "Unknown"}</div>
                   <div>Leases: {typeof local?.runtime.leaseCount === "number" ? local.runtime.leaseCount : 0}</div>
                   <div>Configured provider: {status?.provider || "None"}</div>
+                  <div>Routing profile: {status?.routingProfile || "auto"}</div>
                   <div>Last updated: {status?.updatedAt ? new Date(status.updatedAt).toLocaleString() : "Never"}</div>
                   {local?.runtime.lastReadyAt ? <div>Last ready check: {new Date(local.runtime.lastReadyAt).toLocaleString()}</div> : null}
                   {local?.runtime.lastError ? <div>Error code: {local.runtime.lastError.code}</div> : null}
+                  {routePlan?.modelsByRole ? (
+                    <div>
+                      Route plan: {Object.entries(routePlan.modelsByRole)
+                        .map(([role, route]) => `${role}:${route?.model || "auto"}${route?.capability ? ` (${route.capability})` : ""}`)
+                        .join(" | ")}
+                    </div>
+                  ) : null}
                 </div>
               </details>
             </div>

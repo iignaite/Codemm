@@ -62,7 +62,7 @@ test("test strength gate: fails deterministically when starter_code baseline pas
     }
   );
 
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
 });
 
 test("test strength gate: passes when baselines fail", async () => {
@@ -94,4 +94,3 @@ test("test strength gate: passes when baselines fail", async () => {
   const judgeAdapter = { judge: async () => mkJudgeResult(false) };
   await runTestStrengthGate(draft, slot, { judgeAdapter });
 });
-

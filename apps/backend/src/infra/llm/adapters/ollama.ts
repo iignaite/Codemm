@@ -118,6 +118,7 @@ export async function createOllamaCompletion(
     meta: {
       provider: "ollama",
       model,
+      ...(opts.role ? { role: opts.role } : {}),
       ...(typeof json?.done_reason === "string" ? { finishReason: json.done_reason } : {}),
       ...(json?.done_reason === "length" ? { truncated: true } : {}),
       ...(Object.keys(usage).length > 0 ? { usage } : {}),

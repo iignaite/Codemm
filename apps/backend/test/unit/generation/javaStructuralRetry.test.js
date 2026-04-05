@@ -6,13 +6,10 @@ const assert = require("node:assert/strict");
 const { generateProblemsFromPlan } = require("../../../src/generation");
 
 function installJavaGeneratorStub(t) {
-  const codex = require("../../../src/infra/llm/codemmProvider");
-  const originalCreateCodemm = codex.createCodemmCompletion;
-  const originalCreateCodex = codex.createCodexCompletion;
-
   let n = 0;
 
   const invalidDraft = {
+    language: "java",
     id: "java-bad-1",
     title: "Billing",
     description: "Compute billing cost.",
@@ -64,6 +61,7 @@ public class BillingTest {
   };
 
   const validDraft = {
+    language: "java",
     id: "java-good-1",
     title: "Billing",
     description: "Compute billing cost.",
@@ -139,27 +137,17 @@ public class BillingTest {
     topic_tag: "polymorphism",
   };
 
-  const stub = async ({ system }) => {
-    if (String(system).includes("Java problem generator")) {
+  return {
+    generateSingleProblem: async () => {
       const payload = n++ === 0 ? invalidDraft : validDraft;
-      return { content: [{ type: "text", text: JSON.stringify(payload) }] };
-    }
-    throw new Error(`Unexpected LLM call in test (system=${String(system).slice(0, 80)})`);
+      return { draft: payload, meta: { llmOutputHash: `stub-${n}` } };
+    },
+    getCalls: () => n,
   };
-
-  codex.createCodemmCompletion = stub;
-  codex.createCodexCompletion = stub;
-
-  t.after(() => {
-    codex.createCodemmCompletion = originalCreateCodemm;
-    codex.createCodexCompletion = originalCreateCodex;
-  });
-
-  return { getCalls: () => n };
 }
 
 test("generation: java structural topic violation triggers retry and can recover", async (t) => {
-  const { getCalls } = installJavaGeneratorStub(t);
+  const { generateSingleProblem, getCalls } = installJavaGeneratorStub(t);
 
   const plan = [
     {
@@ -175,6 +163,7 @@ test("generation: java structural topic violation triggers retry and can recover
 
   const result = await generateProblemsFromPlan(plan, {
     deps: {
+      generateSingleProblem,
       validateReferenceSolution: async () => {},
       runTestStrengthGate: async () => {},
     },
