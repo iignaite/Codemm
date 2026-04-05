@@ -1,15 +1,9 @@
 import type { GenerationOutcome } from "../contracts/generationOutcome";
 import type { GeneratedProblem } from "../contracts/problem";
 import type { CompletionMeta } from "../infra/llm/types";
+import type { GenerationFailureKind } from "@codemm/shared-contracts";
 
-export type GenerationFailureKind =
-  | "compile"
-  | "tests"
-  | "timeout"
-  | "contract"
-  | "quality"
-  | "llm"
-  | "unknown";
+export type { GenerationFailureKind } from "@codemm/shared-contracts";
 
 export class GenerationContractError extends Error {
   slotIndex: number;

@@ -1,33 +1,14 @@
-export type LlmProvider = "openai" | "anthropic" | "gemini" | "ollama";
+import type { LlmProvider, LlmRole } from "@codemm/shared-contracts";
 
-export type LlmRole = "dialogue" | "skeleton" | "tests" | "reference" | "repair" | "edit" | "wording";
-
-export type LlmCapability = "weak" | "balanced" | "strong";
-
-export type LlmRoute = {
-  model?: string;
-  capability?: LlmCapability;
-  fallbackChain?: string[];
-  promptTemplateId?: string;
-};
-
-export type ResolvedLlmRoutePlan = {
-  provider: LlmProvider;
-  apiKey?: string | null;
-  baseURL?: string | null;
-  revision?: string | null;
-  readiness?: string;
-  defaultModel?: string;
-  routingProfile?: "auto" | "fast_local" | "balanced_local" | "strong_local" | "custom";
-  modelsByRole?: Partial<Record<LlmRole, LlmRoute>>;
-};
-
-// Backwards-compatible name for older call sites/tests while the route-plan
-// rollout replaces single-model snapshots.
-export type ResolvedLlmSnapshot = ResolvedLlmRoutePlan & {
-  model?: string;
-  leaseId?: string | null;
-};
+export type {
+  LlmCapability,
+  LlmProvider,
+  LlmRole,
+  LlmRoute,
+  ResolvedLlmRoutePlan,
+  ResolvedLlmSnapshot,
+  RoutingProfile,
+} from "@codemm/shared-contracts";
 
 export type CompletionOpts = {
   system: string;

@@ -1,18 +1,10 @@
-import type { Difficulty } from "./activitySpec";
+import type { Difficulty, GenerationFailureKind, GenerationLanguage, RepairStrategy } from "@codemm/shared-contracts";
 import type { CompletionMeta } from "../infra/llm/types";
-import type { GenerationFailureKind } from "../generation/errors";
 import type { LlmRole } from "../infra/llm/types";
-
-export type RepairStrategy =
-  | "retry_full_slot"
-  | "repair_reference_solution"
-  | "repair_test_suite"
-  | "downgrade_difficulty"
-  | "narrow_topics";
 
 export type SlotIntent = {
   slotIndex: number;
-  language: "java" | "python" | "cpp" | "sql";
+  language: GenerationLanguage;
   difficulty: Difficulty;
   topics: string[];
   constraints: string;
@@ -22,7 +14,7 @@ export type SlotIntent = {
 
 export type GenerationArtifactSet = {
   title?: string;
-  language: "java" | "python" | "cpp" | "sql";
+  language: GenerationLanguage;
   hasWorkspace: boolean;
   hashes: {
     testSuite?: string;
