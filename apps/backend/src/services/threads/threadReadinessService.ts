@@ -29,6 +29,8 @@ export function createSession(
   return { sessionId: id, state, learning_mode };
 }
 
+export const createThread = createSession;
+
 export function getSession(id: string): SessionRecord {
   const session = requireSession(id);
   const messages = threadMessageRepository.findByThreadId(id);
@@ -57,9 +59,13 @@ export function getSession(id: string): SessionRecord {
   };
 }
 
+export const getThread = getSession;
+
 export function setSessionInstructions(sessionId: string, instructionsMd: string | null): { ok: true } {
   requireSession(sessionId);
   const next = typeof instructionsMd === "string" && instructionsMd.trim() ? instructionsMd : null;
   threadRepository.setInstructionsMd(sessionId, next);
   return { ok: true };
 }
+
+export const setThreadInstructions = setSessionInstructions;

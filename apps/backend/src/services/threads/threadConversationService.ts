@@ -397,3 +397,5 @@ export async function processSessionMessage(
     };
   });
 }
+
+export const processThreadMessage = processSessionMessage;

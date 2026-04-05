@@ -2,6 +2,10 @@ import { z } from "zod";
 import { ActivitySpecSchema } from "./activitySpec";
 import { LearningModeSchema } from "./learningMode";
 
+// Deprecated as an application-facing contract. Phase 3 uses "thread" as the
+// canonical DTO boundary; "session" remains the persistence/state-machine name
+// until a schema migration is intentionally scheduled.
+
 export const SessionStateSchema = z.enum([
   "DRAFT",
   "CLARIFYING",
