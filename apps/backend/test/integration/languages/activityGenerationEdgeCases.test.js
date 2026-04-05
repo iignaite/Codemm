@@ -1,22 +1,12 @@
 require("../../helpers/setupDb");
+const { installGenerationStub } = require("../../helpers/installGenerationStub");
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const crypto = require("node:crypto");
 
 const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../src/services/sessionService");
 
 function installStubs(t) {
-  const codex = require("../../../src/infra/llm/codemmProvider");
-  const validator = require("../../../src/generation/referenceSolutionValidator");
-  const { LANGUAGE_PROFILES } = require("../../../src/languages/profiles");
-  const originalCreateCodemm = codex.createCodemmCompletion;
-  const originalCreateCodex = codex.createCodexCompletion;
-  const originalValidate = validator.validateReferenceSolution;
-  const originalSqlJudge = LANGUAGE_PROFILES.sql?.judgeAdapter?.judge;
-
-  let generationCall = 0;
-
   function parseRequestedCountAndStyle(msg) {
     const m = String(msg || "");
     const lower = m.toLowerCase();
@@ -70,46 +60,11 @@ function installStubs(t) {
     };
   }
 
-  const stub = async ({ system, user }) => {
-    if (String(system).includes("Codemm's dialogue layer")) {
-      const m = String(user).match(/Latest user message:\n([\s\S]*)\n\nReturn JSON with this exact shape:/);
-      const latest = m?.[1] ?? "";
-      const resp = buildDialogueResponse(latest.trim());
-      return { content: [{ type: "text", text: JSON.stringify(resp) }] };
-    }
-
-    if (String(system).includes("SQL problem generator")) {
-      const draft = sqlDraft(generationCall++);
-      return { content: [{ type: "text", text: JSON.stringify(draft) }] };
-    }
-
-    throw new Error(`Unexpected LLM call in test (system=${String(system).slice(0, 80)})`);
-  };
-  codex.createCodemmCompletion = stub;
-  codex.createCodexCompletion = stub;
-
-  validator.validateReferenceSolution = async () => {};
-  if (LANGUAGE_PROFILES.sql?.judgeAdapter) {
-    // Avoid Docker in deterministic tests; gate should pass when baselines fail.
-    LANGUAGE_PROFILES.sql.judgeAdapter.judge = async () => ({
-      success: false,
-      passedTests: [],
-      failedTests: ["baseline"],
-      stdout: "",
-      stderr: "",
-      executionTimeMs: 1,
-      exitCode: 1,
-      timedOut: false,
-    });
-  }
-
-  t.after(() => {
-    codex.createCodemmCompletion = originalCreateCodemm;
-    codex.createCodexCompletion = originalCreateCodex;
-    validator.validateReferenceSolution = originalValidate;
-    if (LANGUAGE_PROFILES.sql?.judgeAdapter && typeof originalSqlJudge === "function") {
-      LANGUAGE_PROFILES.sql.judgeAdapter.judge = originalSqlJudge;
-    }
+  installGenerationStub(t, {
+    language: "sql",
+    buildDialogueResponse,
+    buildDraft: sqlDraft,
+    judgeResult: { success: false, passedTests: [], failedTests: ["baseline"] },
   });
 }
 
@@ -122,10 +77,10 @@ test("e2e edge: missing difficulty requires confirmation, then 'yes' applies pen
   assert.equal(msg1.accepted, true);
   assert.equal(msg1.done, false);
   assert.equal(msg1.state, "CLARIFYING");
-  assert.equal(msg1.next_action, "confirm");
-  assert.ok(typeof msg1.questionKey === "string" && msg1.questionKey.startsWith("confirm:"));
+  assert.equal(msg1.next_action, "ask");
+  assert.equal(msg1.questionKey, "difficulty_plan");
 
-  const msg2 = await processSessionMessage(sessionId, "yes");
+  const msg2 = await processSessionMessage(sessionId, "easy");
   assert.equal(msg2.accepted, true);
   assert.equal(msg2.done, true);
   assert.equal(msg2.state, "READY");

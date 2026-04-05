@@ -1,26 +1,13 @@
 require("../../../helpers/setupDb");
+const { installGenerationStub } = require("../../../helpers/installGenerationStub");
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const crypto = require("node:crypto");
 
 const { activityDb } = require("../../../../src/database");
 const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../../src/services/sessionService");
 
 function installStubs(t, language) {
-  const codex = require("../../../../src/infra/llm/codemmProvider");
-  const validator = require("../../../../src/generation/referenceSolutionValidator");
-  const { LANGUAGE_PROFILES } = require("../../../../src/languages/profiles");
-  const originalCreateCodemm = codex.createCodemmCompletion;
-  const originalCreateCodex = codex.createCodexCompletion;
-  const originalValidate = validator.validateReferenceSolution;
-  const originalJudge = LANGUAGE_PROFILES[language]?.judgeAdapter?.judge;
-
-  /** @type {{system: string, user: string}[]} */
-  const calls = [];
-
-  let generationCall = 0;
-
   function parseRequestedCountAndTopic(msg) {
     const m = String(msg || "");
     const lower = m.toLowerCase();
@@ -73,51 +60,12 @@ def test_case_8(capsys): solve("x" * 20); captured = capsys.readouterr(); assert
     };
   }
 
-  const stub = async ({ system, user }) => {
-    calls.push({ system, user });
-
-    if (String(system).includes("Codemm's dialogue layer")) {
-      const m = String(user).match(/Latest user message:\n([\s\S]*)\n\nReturn JSON with this exact shape:/);
-      const latest = m?.[1] ?? "";
-      const resp = buildDialogueResponse(latest.trim());
-      return { content: [{ type: "text", text: JSON.stringify(resp) }] };
-    }
-
-    if (String(system).includes("Python problem generator")) {
-      const draft = pythonDraft(generationCall++);
-      return { content: [{ type: "text", text: JSON.stringify(draft) }] };
-    }
-
-    throw new Error(`Unexpected LLM call in test (system=${String(system).slice(0, 80)})`);
-  };
-  codex.createCodemmCompletion = stub;
-  codex.createCodexCompletion = stub;
-
-  validator.validateReferenceSolution = async () => {};
-  if (LANGUAGE_PROFILES[language]?.judgeAdapter) {
-    // Avoid Docker in deterministic tests; gate should pass when baselines fail.
-    LANGUAGE_PROFILES[language].judgeAdapter.judge = async () => ({
-      success: false,
-      passedTests: [],
-      failedTests: ["baseline"],
-      stdout: "",
-      stderr: "",
-      executionTimeMs: 1,
-      exitCode: 1,
-      timedOut: false,
-    });
-  }
-
-  t.after(() => {
-    codex.createCodemmCompletion = originalCreateCodemm;
-    codex.createCodexCompletion = originalCreateCodex;
-    validator.validateReferenceSolution = originalValidate;
-    if (LANGUAGE_PROFILES[language]?.judgeAdapter && typeof originalJudge === "function") {
-      LANGUAGE_PROFILES[language].judgeAdapter.judge = originalJudge;
-    }
+  return installGenerationStub(t, {
+    language,
+    buildDialogueResponse,
+    buildDraft: pythonDraft,
+    judgeResult: { success: false, passedTests: [], failedTests: ["baseline"] },
   });
-
-  return { calls };
 }
 
 test("e2e activity generation (python): 2/4/7 problems (stdout-only)", async (t) => {
