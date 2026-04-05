@@ -1,10 +1,14 @@
-# Deprecated documentation directory
+# Deprecated
 
-Frontend documentation now lives in `../docs/` and is organized as a long-lived technical reference.
+This legacy frontend documentation is deprecated.
 
-Start here:
+It predates the current Codemm desktop architecture and may describe product flows or backend APIs that no longer exist.
 
-- `../docs/index.md`
+Use the current documentation instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-This `documentation/` directory is kept only for backwards compatibility with older links.
-
+Do not use this file as the source of truth for current implementation work.

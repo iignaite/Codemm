@@ -1,7 +1,13 @@
-# Deprecated API doc
+# Deprecated
 
-The API reference has moved to:
+This legacy backend documentation is deprecated.
 
-- `../docs/api/backend.md`
+It predates the current Codemm desktop architecture and may describe HTTP services, old server entrypoints, or product concepts that no longer exist.
 
-This file is kept only for backwards compatibility with older links.
+Use the current documentation instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/backend/docs/api/backend.md`
+
+Do not use this file as the source of truth for current implementation work.

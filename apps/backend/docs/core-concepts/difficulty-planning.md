@@ -1,53 +1,19 @@
-# Difficulty Planning
+# Deprecated
 
-Difficulty planning is a core invariant in Codemm. It is how the user’s intent (“make it mostly easy”) becomes a deterministic, auditable plan that drives generation.
+This document is deprecated and should not be used as implementation guidance.
 
-## Data model
+It described an older Codemm backend shape based on Express routes, SSE generation streams, auth/profile/community endpoints, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-In `ActivitySpec`, difficulty is represented by:
+Current backend architecture:
+- renderer access is IPC-only through preload -> Electron main -> backend child process
+- durable state is local-only per workspace
+- backend methods are exposed as `threads.*`, `activities.*`, `judge.*`, and `engine.*`
+- no auth, profile, community, or remote HTTP API surface is active by default
 
-- `problem_count`: integer (Codemm v1 supports 1–7)
-- `difficulty_plan`: a list of `{ difficulty: "easy"|"medium"|"hard", count: number }`
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/backend/docs/api/backend.md`
 
-Key invariants:
-
-- `difficulty_plan` must contain at least one non-zero entry.
-- difficulty entries must be unique (no duplicates).
-- the sum of all `count` values must equal `problem_count`.
-
-## Why the invariant exists
-
-Codemm’s generation pipeline is slot-based:
-
-- each slot corresponds to one problem
-- slot difficulty is derived from `difficulty_plan`
-
-If `difficulty_plan` does not sum to `problem_count`, the system cannot deterministically allocate slots.
-
-## Deterministic shorthand parsing
-
-Codemm supports parsing common shorthand replies without depending on exact phrasing. Examples:
-
-- `"easy"` / `"all easy"`
-- `"easy:2 medium:2"`
-- `"2 easy, 1 hard"`
-- `"make 4 problems hard"`
-
-Parsing is intentionally conservative:
-
-- if the message does not clearly map to a plan, it is treated as unparsed text and handled by the normal dialogue flow
-- when explicit counts are present, the backend may update `problem_count` to match (because the total is explicit)
-
-This preserves determinism while still allowing casual user inputs.
-
-## Interaction with confirmation and commitments
-
-Difficulty planning often changes alongside other hard fields (problem count, language, style). To reduce churn:
-
-- changes may be gated behind explicit confirmation
-- once a plan is committed, it is treated as stable unless explicitly changed
-
-See:
-
-- Confirmation gating: `../agentic-design/guardrails-and-validation.md`
-- Memory and commitments: `../agentic-design/memory-and-state.md`
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

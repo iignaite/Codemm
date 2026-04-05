@@ -1,12 +1,14 @@
-# Deprecated doc
+# Deprecated
 
-This document has been superseded by the official documentation under `../docs/`.
+This legacy frontend documentation is deprecated.
 
-Start here:
+It predates the current Codemm desktop architecture and may describe product flows or backend APIs that no longer exist.
 
-- `../docs/index.md`
+Use the current documentation instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-Related references:
-
-- Frontend integration data flow: `../docs/data-flow.md`
-- Backend API and persistence (authoritative): https://github.com/gael55x/Codem-backend/tree/main/docs
+Do not use this file as the source of truth for current implementation work.

@@ -1,35 +1,20 @@
-# Agents (Session UX)
+# Deprecated
 
-The “agent” in Codemm is the backend session loop that turns user chat into a validated spec. The frontend’s job is to render that loop without inventing behavior.
+This document is deprecated and should not be used as implementation guidance.
 
-## Agent lifecycle (what the UI sees)
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-Over repeated calls to `POST /sessions/:id/messages`, the backend will:
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-- return assistant text (`nextQuestion`)
-- return a `questionKey` describing what the UI should collect next
-- return an evolving `spec` snapshot
-- eventually return `done=true` when ready for generation
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-The UI should treat this as a state machine, even if the raw assistant text looks conversational.
-
-## Confirmation gating
-
-Some changes require explicit confirmation.
-
-UI implication:
-
-- when `questionKey` indicates confirmation, the UI should present a confirmation affordance (or clearly prompt the user to confirm) rather than continuing as if the change was applied.
-
-Do not implement local heuristics for which fields are “hard” — rely on backend signaling.
-
-## Commitments and churn prevention
-
-The backend may “lock” decisions to prevent flip-flopping across turns.
-
-UI implication:
-
-- if the user tries to change a locked field, the backend may ask for confirmation or may ask clarifying questions
-- reflect that behavior without trying to override it client-side
-
-See `memory-and-state.md` and `failure-modes.md`.
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

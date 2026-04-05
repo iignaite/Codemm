@@ -1,9 +1,13 @@
-# Deprecated documentation directory
+# Deprecated
 
-This repo’s documentation has moved to `../docs/` and is now organized as a scalable, long-lived reference.
+This legacy backend documentation is deprecated.
 
-Start here:
+It predates the current Codemm desktop architecture and may describe HTTP services, old server entrypoints, or product concepts that no longer exist.
 
-- `../docs/index.md`
+Use the current documentation instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/backend/docs/api/backend.md`
 
-This `documentation/` directory is kept only for backwards compatibility with older links.
+Do not use this file as the source of truth for current implementation work.

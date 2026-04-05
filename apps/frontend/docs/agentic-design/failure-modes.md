@@ -1,73 +1,20 @@
-# Failure Modes (Frontend)
+# Deprecated
 
-This document lists common failure modes the frontend should handle gracefully. It focuses on UX behavior and recovery, not backend implementation details.
+This document is deprecated and should not be used as implementation guidance.
 
-## 1) Session message rejected / not applied
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-**Symptom**
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-- user sends a message, UI doesn’t progress as expected
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-**Likely causes**
-
-- missing/invalid session id
-- backend returns `accepted=false` due to a recoverable conflict or validation issue
-
-**Frontend behavior**
-
-- render the backend `error` message if present
-- keep showing the latest backend `spec` snapshot and `nextQuestion`
-- allow the user to retry or answer the requested question
-
-## 2) Generation stream disconnects
-
-**Symptom**
-
-- progress UI stops updating
-
-**Likely causes**
-
-- network / browser event-stream disconnect
-
-**Frontend behavior**
-
-- reconnect to `GET /sessions/:id/generate/stream`
-- tolerate replayed events (dedupe by `slotIndex` + `type`)
-
-## 3) Generation fails
-
-**Symptom**
-
-- backend emits `generation_failed` (or equivalent terminal event)
-
-**Frontend behavior**
-
-- show a clear terminal failure state
-- provide next steps:
-  - retry generation (if backend allows)
-  - continue session to adjust spec
-
-Do not present partially generated problems as final.
-
-## 4) `/run` or `/submit` returns validation errors
-
-**Symptom**
-
-- backend returns `400` for filename/layout constraints or size limits
-
-**Frontend behavior**
-
-- show a user-correctable error message
-- guide the user toward acceptable file structures (especially in multi-file mode)
-
-## 5) Auth errors
-
-**Symptom**
-
-- `401` on an auth-required request (profile, generation)
-
-**Frontend behavior**
-
-- prompt login
-- do not loop retry with the same missing token
-
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

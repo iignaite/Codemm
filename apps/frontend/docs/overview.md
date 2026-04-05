@@ -1,30 +1,20 @@
-# Overview
+# Deprecated
 
-Codemm Frontend is the Next.js renderer UI that runs inside Codemm-Desktop (Electron).
+This document is deprecated and should not be used as implementation guidance.
 
-- create and continue threads (the spec-building loop)
-- generate activities once a thread spec is ready
-- solve activities and run/submit code against the local Docker judge
-- browse locally generated activities (“Your activities”)
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-## What the frontend does (and does not do)
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-The renderer is responsible for UX, not decision-making:
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-- It **does**:
-  - send user messages to the local engine (via `window.codemm.*`)
-  - render `nextQuestion` and `questionKey`
-  - render a view of the current spec snapshot
-  - subscribe to generation progress via IPC event stream
-  - call local judge actions (`judge.run`, `judge.submit`) and render results
-  - provide a local LLM settings screen (keys are not exposed to renderer JS)
-- It **does not**:
-  - infer spec gaps or next questions locally
-  - apply patches to durable state
-  - validate reference artifacts (Docker verification is backend-only)
-
-This split ensures consistency across clients and makes backend behavior auditable.
-
-## Where the “agent” lives
-
-The agentic logic (planning, gating, validation, retries) is implemented in the local engine (`apps/backend`).
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

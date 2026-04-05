@@ -1,42 +1,19 @@
-# Overview
+# Deprecated
 
-Codemm Backend provides three capabilities that the frontend (and other clients) depend on:
+This document is deprecated and should not be used as implementation guidance.
 
-1. **Session-driven spec building**: an interactive loop that turns user chat into a validated `ActivitySpec`.
-2. **Verified generation**: deterministic planning + LLM drafting + contract validation + Docker verification, producing persisted problems.
-3. **Sandboxed execution/judging**: endpoints that run untrusted code in Docker with strict constraints.
+It described an older Codemm backend shape based on Express routes, SSE generation streams, auth/profile/community endpoints, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-The backend is also the system of record for:
+Current backend architecture:
+- renderer access is IPC-only through preload -> Electron main -> backend child process
+- durable state is local-only per workspace
+- backend methods are exposed as `threads.*`, `activities.*`, `judge.*`, and `engine.*`
+- no auth, profile, community, or remote HTTP API surface is active by default
 
-- Session state, commitments, and conversation history
-- Activities and problems
-- Submissions and deterministic learner-profile updates
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/backend/docs/api/backend.md`
 
-## Key Design Goal: Determinism at the Boundary
-
-Codemm is “agentic” because it performs multi-step reasoning and orchestration across user turns and across generation steps.
-
-Codemm is “deterministic” because the LLM is not allowed to directly mutate durable state. The backend enforces this separation:
-
-- **LLM behavior**: propose patches and drafts (best-effort, fallible).
-- **Deterministic behavior**: validate, apply, gate, retry, verify, and persist.
-
-This separation is what makes the system auditable and safe to operate:
-
-- A malformed or adversarial LLM output cannot bypass contracts.
-- A successful generation is backed by Docker verification, not trust.
-- UI streams are safe: prompts, raw generations, and reference solutions are not exposed.
-
-## What “Verified” Means in Codemm
-
-Codemm treats the LLM output as untrusted input. Verification is explicit:
-
-- Generated problem drafts must satisfy strict schemas (e.g., valid test suites).
-- A generated **reference artifact** must compile and pass all tests in Docker.
-- The backend discards reference artifacts before persistence.
-
-See:
-
-- Contracts: `state-and-models.md`
-- Generation pipeline: `pipelines/generation.md`
-- Guardrails: `agentic-design/guardrails-and-validation.md`
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

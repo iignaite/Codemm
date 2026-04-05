@@ -1,41 +1,20 @@
-# Memory and State (Client View)
+# Deprecated
 
-Codemm’s memory model is implemented in the backend, but it has direct UX implications. This document defines what the frontend should render (and what it should not assume).
+This document is deprecated and should not be used as implementation guidance.
 
-## Short-term (turn-local) state
+It described an older Codemm shape based on HTTP endpoints, SSE generation streams, auth/profile/community concepts, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-- Current input message text
-- Local UI state for forms, editors, transient errors
+Current frontend architecture:
+- the renderer talks to the backend through the preload bridge and Electron main only
+- UI state is local to the desktop app and workspace-scoped
+- thread, activity, judge, and LLM flows use the IPC bridge instead of direct HTTP requests
+- there are no active auth, profile, or community flows in the desktop product
 
-This state is not authoritative. It can be cleared without changing backend truth.
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/frontend/docs/architecture.md`
+- `apps/frontend/docs/data-flow.md`
 
-## Session state (backend-authoritative)
-
-The frontend should treat these as canonical:
-
-- session `state` (DRAFT/CLARIFYING/READY/GENERATING/SAVED/FAILED)
-- `spec` snapshot
-- `questionKey` / `nextQuestion`
-- conversation history as returned by the backend (for history views)
-
-UI implication:
-
-- avoid enabling actions that are invalid in the current backend state (e.g., generation before READY).
-
-## Pending confirmation state
-
-The backend can stage a pending change and require confirmation before applying it.
-
-UI implication:
-
-- show explicit confirmation UX
-- avoid “optimistic UI” that assumes the change is applied until confirmed by the backend response
-
-## Long-term user state
-
-Persisted long-term state (activities, submissions, learner profile) is backend-owned.
-
-UI implication:
-
-- treat profile stats and activity lists as backend-derived
-- do not attempt to recompute stats client-side unless explicitly required
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

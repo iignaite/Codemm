@@ -1,48 +1,19 @@
-# Feedback (Deterministic)
+# Deprecated
 
-In Codemm Backend, “feedback” refers to deterministic signals derived from real user behavior that can influence future planning.
+This document is deprecated and should not be used as implementation guidance.
 
-This is explicitly not an LLM-driven “reflection” loop. It is a data model + deterministic update rule.
+It described an older Codemm backend shape based on Express routes, SSE generation streams, auth/profile/community endpoints, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-## Learner profile
+Current backend architecture:
+- renderer access is IPC-only through preload -> Electron main -> backend child process
+- durable state is local-only per workspace
+- backend methods are exposed as `threads.*`, `activities.*`, `judge.*`, and `engine.*`
+- no auth, profile, community, or remote HTTP API surface is active by default
 
-Codemm stores a per-user, per-language learner profile that includes:
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/backend/docs/api/backend.md`
 
-- `concept_mastery`: a map of topic → mastery score (`0..1`)
-- `recent_failures`: a compact history of failed concepts and recency
-- optional `preferred_style`
-
-The profile is:
-
-- updated only via deterministic code paths
-- never used to relax safety/verification rules
-- used (when enabled) to annotate Guided Mode planning with pedagogy metadata
-
-## Update rule (from submissions)
-
-When a user submits a solution:
-
-- if authenticated
-- and the submission references an activity/problem the user owns
-
-the backend can update:
-
-- mastery for the problem’s `topic_tag` (slowly toward `1` on success, toward `0` on failure)
-- recent failures list on failure (bounded and deduplicated)
-
-The update rule is intentionally simple and stable; it is not meant to be a full learner-modeling system.
-
-## How feedback is consumed
-
-The planner can use learner-profile signals to:
-
-- select “focus concepts” (topics with lower mastery)
-- choose a scaffold curve (more scaffolding early, less later)
-- enable/disable optional guided hint injection based on mastery
-
-These influences are additive metadata and must not change the safety semantics of generation or judging.
-
-See:
-
-- Guided pedagogy policy: `../pipelines/feedback.md`
-- Planner boundaries: `../agentic-design/planners.md`
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.

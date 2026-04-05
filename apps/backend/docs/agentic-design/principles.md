@@ -1,71 +1,19 @@
-# Principles
+# Deprecated
 
-This backend is structured around a small set of non-negotiable principles. Most “why” questions reduce to one of these.
+This document is deprecated and should not be used as implementation guidance.
 
-## 1) Deterministic state transitions
+It described an older Codemm backend shape based on Express routes, SSE generation streams, auth/profile/community endpoints, or legacy `/sessions/*` flows. The current repository does not use that architecture.
 
-The backend is the source of truth for session state and for what is persisted. State changes must be explainable without referencing prompt text.
+Current backend architecture:
+- renderer access is IPC-only through preload -> Electron main -> backend child process
+- durable state is local-only per workspace
+- backend methods are exposed as `threads.*`, `activities.*`, `judge.*`, and `engine.*`
+- no auth, profile, community, or remote HTTP API surface is active by default
 
-Examples:
+Use these current documents instead:
+- `docs/ARCHITECTURE.md`
+- `docs/FUNCTIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `apps/backend/docs/api/backend.md`
 
-- Session transitions are defined by an explicit state machine (no hidden transitions).
-- “Hard fields” require explicit confirmation before a change is applied.
-
-See `memory-and-state.md`.
-
-## 2) LLM as an untrusted proposal engine
-
-The LLM can propose:
-
-- partial spec changes (patches)
-- per-slot problem drafts
-- optional user-visible text (assistant message)
-
-The LLM cannot:
-
-- write to the database
-- bypass schema validation
-- bypass Docker verification
-- directly publish un-sanitized content to trace streams
-
-This reduces the blast radius of LLM failures and makes behavior auditable.
-
-## 3) Contracts first
-
-Codemm uses strict schemas for the objects that matter:
-
-- `ActivitySpec` (what to generate)
-- `GeneratedProblemDraft` (draft, includes reference artifact)
-- `GeneratedProblem` (persisted, reference artifact removed)
-- generation progress events (what the UI sees)
-
-Contracts are used as:
-
-- **gates** (invalid objects do not cross boundaries),
-- **documentation** (the model is the spec),
-- **compatibility tools** (additive evolution).
-
-See `state-and-models.md`.
-
-## 4) Verification over trust
-
-Codemm does not trust a generated reference solution. It verifies it:
-
-- compile/execute it in Docker under language-specific constraints
-- require that it passes the generated test suite
-
-Only after successful verification is a problem eligible for persistence.
-
-See `pipelines/generation.md`.
-
-## 5) User-safe observability
-
-Codemm exposes progress and optional trace streams, but with strict redaction:
-
-- no prompts
-- no raw generations
-- no reference artifacts
-
-Streams are designed to be safe for a learner-facing UI.
-
-See `tools-and-actions.md` and `debugging.md`.
+If this topic still needs app-local documentation, replace this stub with a source-first document that matches the current IPC-based desktop implementation.
