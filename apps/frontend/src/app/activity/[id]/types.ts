@@ -43,6 +43,8 @@ export type JudgeResult = {
   failedTests: string[];
   stdout: string;
   stderr: string;
+  formattedStdout?: string;
+  formattedStderr?: string;
   executionTimeMs?: number;
   exitCode?: number;
   timedOut?: boolean;
@@ -53,12 +55,15 @@ export type JudgeResult = {
     expectedOutput?: string;
     actualOutput?: string;
     message?: string;
+    location?: string;
   }>;
 };
 
 export type RunResult = {
   stdout: string;
   stderr: string;
+  formattedStdout?: string;
+  formattedStderr?: string;
 };
 
 export type CodeFiles = Record<string, string>;

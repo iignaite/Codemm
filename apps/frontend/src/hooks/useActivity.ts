@@ -488,9 +488,12 @@ export function useActivity() {
         });
         return;
       }
+      const payload = data as Record<string, unknown>;
       const runResult: RunResult = {
-        stdout: typeof data.stdout === "string" ? data.stdout : "",
-        stderr: typeof data.stderr === "string" ? data.stderr : typeof data.error === "string" ? data.error : "",
+        stdout: typeof payload.stdout === "string" ? payload.stdout : "",
+        stderr: typeof payload.stderr === "string" ? payload.stderr : typeof payload.error === "string" ? payload.error : "",
+        formattedStdout: typeof payload.formattedStdout === "string" ? payload.formattedStdout : undefined,
+        formattedStderr: typeof payload.formattedStderr === "string" ? payload.formattedStderr : undefined,
       };
       setFeedback({ problemId: selectedProblem.id, kind: "run", atIso: new Date().toISOString(), result: runResult });
       setProblemStatusById((prev) => {
@@ -530,16 +533,29 @@ export function useActivity() {
         problemId: selectedProblem.id,
         language: selectedLanguage,
       });
+      const payload = data as Record<string, unknown>;
       const safeResult: JudgeResult = {
-        success: Boolean(data.success),
-        passedTests: Array.isArray(data.passedTests) ? data.passedTests : [],
-        failedTests: Array.isArray(data.failedTests) ? data.failedTests : [],
-        stdout: typeof data.stdout === "string" ? data.stdout : "",
-        stderr: typeof data.stderr === "string" ? data.stderr : typeof data.error === "string" ? data.error : "",
-        executionTimeMs: typeof data.executionTimeMs === "number" ? data.executionTimeMs : 0,
-        exitCode: typeof data.exitCode === "number" ? data.exitCode : undefined,
-        timedOut: typeof data.timedOut === "boolean" ? data.timedOut : undefined,
-        testCaseDetails: Array.isArray(data.testCaseDetails) ? data.testCaseDetails : undefined,
+        success: Boolean(payload.success),
+        passedTests: Array.isArray(payload.passedTests) ? payload.passedTests : [],
+        failedTests: Array.isArray(payload.failedTests) ? payload.failedTests : [],
+        stdout: typeof payload.stdout === "string" ? payload.stdout : "",
+        stderr: typeof payload.stderr === "string" ? payload.stderr : typeof payload.error === "string" ? payload.error : "",
+        formattedStdout: typeof payload.formattedStdout === "string" ? payload.formattedStdout : undefined,
+        formattedStderr: typeof payload.formattedStderr === "string" ? payload.formattedStderr : undefined,
+        executionTimeMs: typeof payload.executionTimeMs === "number" ? payload.executionTimeMs : 0,
+        exitCode: typeof payload.exitCode === "number" ? payload.exitCode : undefined,
+        timedOut: typeof payload.timedOut === "boolean" ? payload.timedOut : undefined,
+        testCaseDetails: Array.isArray(payload.testCaseDetails)
+          ? payload.testCaseDetails.map((detail) => ({
+              name: typeof detail?.name === "string" ? detail.name : "",
+              passed: Boolean(detail?.passed),
+              input: typeof detail?.input === "string" ? detail.input : undefined,
+              expectedOutput: typeof detail?.expectedOutput === "string" ? detail.expectedOutput : undefined,
+              actualOutput: typeof detail?.actualOutput === "string" ? detail.actualOutput : undefined,
+              message: typeof detail?.message === "string" ? detail.message : undefined,
+              location: typeof detail?.location === "string" ? detail.location : undefined,
+            }))
+          : undefined,
       };
       setFeedback({ problemId: selectedProblem.id, kind: "tests", atIso: new Date().toISOString(), result: safeResult });
       setProblemStatusById((prev) => ({

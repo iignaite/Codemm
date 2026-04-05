@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSpecBuilderUX } from "@/lib/specBuilderUx";
+import { useSpecBuilderUX, type BackendSpecResponse } from "@/lib/specBuilderUx";
 import { threadsClient, type GenerationDiagnosticsState, type ThreadSummary } from "@/lib/bridge/threadsClient";
 import type { LearningMode } from "@/lib/bridge/codemmBridge";
 import type { GenerationProgressEvent } from "@codemm/shared-contracts";
@@ -79,7 +79,7 @@ export function useThread() {
       setInstructionsDraft("");
       setInstructionsError(null);
 
-      const data = await threadsClient.create({ learning_mode: mode });
+      const data = (await threadsClient.create({ learning_mode: mode })) as Record<string, unknown>;
 
       if (typeof data?.threadId === "string") {
         setThreadId(data.threadId);
@@ -123,7 +123,7 @@ export function useThread() {
       setInstructionsDraft("");
       setInstructionsError(null);
 
-      const data = await threadsClient.get({ threadId: existingSessionId });
+      const data = (await threadsClient.get({ threadId: existingSessionId })) as Record<string, unknown>;
 
       const mode: LearningMode = data?.learning_mode === "guided" ? "guided" : "practice";
       setLearningMode(mode);
@@ -183,7 +183,7 @@ export function useThread() {
     setHistoryLoading(true);
     setHistoryError(null);
     try {
-      const data = await threadsClient.list({ limit });
+      const data = (await threadsClient.list({ limit })) as Record<string, unknown>;
       setThreadHistory(Array.isArray(data?.threads) ? data.threads : []);
     } catch (error) {
       setHistoryError(error instanceof Error ? error.message : "Failed to load chat history");
@@ -241,7 +241,10 @@ export function useThread() {
     chatLoadingRef.current = true;
 
     try {
-      const data = await threadsClient.postMessage({ threadId, message: normalized.value });
+      const data = (await threadsClient.postMessage({
+        threadId,
+        message: normalized.value,
+      })) as BackendSpecResponse & Record<string, unknown>;
 
       interpretResponse(data);
 
@@ -356,7 +359,7 @@ export function useThread() {
       });
       progressRef.current = { unsubscribe: sub.unsubscribe };
 
-      const data = await threadsClient.generateLatest({ threadId });
+      const data = (await threadsClient.generateLatest({ threadId })) as Record<string, unknown>;
       window.clearTimeout(hintTimer);
       if (typeof data?.runId === "string") {
         runIdForDiagnostics = data.runId;

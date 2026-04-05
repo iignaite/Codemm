@@ -1,12 +1,14 @@
 import crypto from "crypto";
 import { z } from "zod";
-import { activityDb, runDb, runEventDb, submissionDb } from "../database";
+import { activityRepository, submissionRepository } from "../database/repositories/activityRepository";
+import { runEventRepository, runRepository } from "../database/repositories/runRepository";
 import { ActivityLanguageSchema } from "../contracts/activitySpec";
 import {
   getLanguageProfile,
   isLanguageSupportedForExecution,
   isLanguageSupportedForJudge,
 } from "../languages/profiles";
+import { formatJudgeResult, formatRunResult } from "../judge/resultFormatter";
 import { requireParams, safeJsonStringify } from "./common";
 import type { RpcHandlerDef } from "./types";
 
@@ -54,7 +56,7 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         }
 
         const runId = crypto.randomUUID();
-        runDb.create(runId, "judge.run", {
+        runRepository.create(runId, "judge.run", {
           threadId: null,
           metaJson: safeJsonStringify({
             language: lang,
@@ -105,13 +107,14 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
           if (typeof safeStdin === "string") execReq.stdin = safeStdin;
 
           const result = await profile.executionAdapter.run(execReq);
+          const formatted = formatRunResult(result);
           try {
-            runEventDb.append(runId, 1, "result", safeJsonStringify({ stdout: result.stdout, stderr: result.stderr }));
-            runDb.finish(runId, "succeeded");
+            runEventRepository.append(runId, 1, "result", safeJsonStringify({ stdout: result.stdout, stderr: result.stderr }));
+            runRepository.finish(runId, "succeeded");
           } catch {
             // ignore
           }
-          return { stdout: result.stdout, stderr: result.stderr, runId };
+          return { stdout: result.stdout, stderr: result.stderr, runId, ...formatted };
         }
 
         if (typeof code !== "string" || !code.trim()) {
@@ -123,13 +126,14 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         const execReq: { kind: "code"; code: string; stdin?: string } = { kind: "code", code };
         if (typeof safeStdin === "string") execReq.stdin = safeStdin;
         const result = await profile.executionAdapter.run(execReq);
+        const formatted = formatRunResult(result);
         try {
-          runEventDb.append(runId, 1, "result", safeJsonStringify({ stdout: result.stdout, stderr: result.stderr }));
-          runDb.finish(runId, "succeeded");
+          runEventRepository.append(runId, 1, "result", safeJsonStringify({ stdout: result.stdout, stderr: result.stderr }));
+          runRepository.finish(runId, "succeeded");
         } catch {
           // ignore
         }
-        return { stdout: result.stdout, stderr: result.stderr, runId };
+        return { stdout: result.stdout, stderr: result.stderr, runId, ...formatted };
       },
     },
 
@@ -172,7 +176,7 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
                 : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
 
         const runId = crypto.randomUUID();
-        runDb.create(runId, "judge.submit", {
+        runRepository.create(runId, "judge.submit", {
           threadId: null,
           metaJson: safeJsonStringify({
             language: lang,
@@ -248,10 +252,10 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         }
 
         if (typeof activityId === "string" && typeof problemId === "string") {
-          const dbActivity = activityDb.findById(activityId);
+          const dbActivity = activityRepository.findById(activityId);
           if (dbActivity) {
             const totalTests = result.passedTests.length + result.failedTests.length;
-            submissionDb.create(
+            submissionRepository.create(
               activityId,
               problemId,
               codeForPersistence ?? "",
@@ -264,7 +268,7 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         }
 
         try {
-          runEventDb.append(
+          runEventRepository.append(
             runId,
             1,
             "result",
@@ -277,12 +281,13 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
               exitCode: typeof result?.exitCode === "number" ? result.exitCode : null,
             })
           );
-          runDb.finish(runId, "succeeded");
+          runRepository.finish(runId, "succeeded");
         } catch {
           // ignore
         }
 
-        return { ...result, runId };
+        const formatted = formatJudgeResult({ language: lang, testSuite, result });
+        return { ...result, ...formatted, testCaseDetails: formatted.testCaseDetails, runId };
       },
     },
   };
