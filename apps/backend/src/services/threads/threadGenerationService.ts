@@ -1,5 +1,8 @@
 import crypto from "crypto";
 import { ActivitySpecSchema, type ActivitySpec } from "../../contracts/activitySpec";
+import { createExecutionContext } from "../../engine/execution/ExecutionContext";
+import { ExecutionEngine } from "../../engine/execution/ExecutionEngine";
+import type { Step } from "../../engine/execution/Step";
 import { isLanguageSupportedForGeneration } from "../../languages/profiles";
 import { deriveProblemPlan } from "../../planner";
 import { buildGuidedPedagogyPolicy } from "../../planner/pedagogy";
@@ -34,26 +37,15 @@ export type GenerateFromSessionResponse = {
   problems: GeneratedProblem[];
 };
 
-export async function generateFromSession(sessionId: string): Promise<GenerateFromSessionResponse> {
-  return withTraceContext({ sessionId }, async () => {
+export type GenerateFromThreadResponse = GenerateFromSessionResponse;
+
+export async function generateFromThread(sessionId: string): Promise<GenerateFromThreadResponse> {
+  return withTraceContext({ sessionId, threadId: sessionId }, async () => {
     const session = requireSession(sessionId);
     const state = session.state;
     const learning_mode = parseLearningMode(session.learning_mode);
     const instructionsMdRaw = typeof session.instructions_md === "string" ? String(session.instructions_md) : "";
     const instructionsMd = instructionsMdRaw.trim() ? instructionsMdRaw : null;
-
-    if (state !== "READY") {
-      const err = new Error(`Cannot generate when session state is ${state}. Expected READY.`);
-      (err as any).status = 409;
-      throw err;
-    }
-
-    if (typeof session.activity_id === "string" && session.activity_id.trim()) {
-      const err = new Error("Session already produced an activity. Cannot re-generate.");
-      (err as any).status = 409;
-      throw err;
-    }
-
     const existingTrace = parseJsonArray(session.intent_trace_json);
     const existingConfidence = parseJsonObject(session.confidence_json) as Record<string, number>;
     const commitments = parseCommitmentsJson(session.commitments_json);
@@ -77,193 +69,238 @@ export async function generateFromSession(sessionId: string): Promise<GenerateFr
     };
 
     let progressHeartbeat: NodeJS.Timeout | null = null;
+    let spec: ActivitySpec | null = null;
+    let plan: ReturnType<typeof deriveProblemPlan> = [];
+    let resumeProblems: GeneratedProblem[] = [];
+    let resumeOutcomes: GenerationOutcome[] = [];
+    let problems: GeneratedProblem[] | null = null;
+    let outcomes: GenerationOutcome[] | null = null;
+    let usedFallback = false;
+    let appliedFallbackReason: string | null = null;
 
-    try {
-      transitionOrThrow(state, "GENERATING");
-      threadRepository.updateState(sessionId, "GENERATING");
-      progressHeartbeat = setInterval(() => {
-        publishGenerationProgress(sessionId, { type: "heartbeat", ts: new Date().toISOString() });
-      }, 1000);
+    const derivePlanForSpec = (currentSpec: ActivitySpec) => {
+      const pedagogyPolicy =
+        learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec: currentSpec, learnerProfile: null }) : undefined;
+      return { pedagogyPolicy, plan: deriveProblemPlan(currentSpec, pedagogyPolicy) };
+    };
 
-      const specObj = parseSpecJson(session.spec_json);
-      const specResult = ActivitySpecSchema.safeParse(specObj);
-      if (!specResult.success) {
-        throw new Error(`Invalid ActivitySpec: ${specResult.error.issues[0]?.message ?? "validation failed"}`);
-      }
-      let spec: ActivitySpec = specResult.data;
-      if (!isLanguageSupportedForGeneration(spec.language)) {
-        throw new Error(`Language "${spec.language}" is not supported for generation yet.`);
-      }
+    const workflow = createExecutionContext<Record<string, unknown>, { response?: GenerateFromThreadResponse }>({
+      workflowId: `thread-generation:${sessionId}`,
+      threadId: sessionId,
+      publishProgress: (event) => publishGenerationProgress(sessionId, event as GenerationProgressEvent),
+      loggerName: "threads.generation",
+      initialState: {},
+      initialResults: {},
+    });
+    const steps: Step<Record<string, unknown>, { response?: GenerateFromThreadResponse }>[] = [
+      {
+        id: "prepare-thread-generation",
+        run: async () => {
+          if (state !== "READY") {
+            const err = new Error(`Cannot generate when session state is ${state}. Expected READY.`);
+            (err as any).status = 409;
+            throw err;
+          }
+          if (typeof session.activity_id === "string" && session.activity_id.trim()) {
+            const err = new Error("Session already produced an activity. Cannot re-generate.");
+            (err as any).status = 409;
+            throw err;
+          }
 
-      let resumeProblems: GeneratedProblem[] = parseGeneratedProblems(session.problems_json);
-      let resumeOutcomes: GenerationOutcome[] = parseGenerationOutcomes(session.generation_outcomes_json);
-      if (resumeOutcomes.length !== resumeProblems.length) {
-        resumeOutcomes = resumeOutcomes.slice(0, resumeProblems.length);
-      }
+          transitionOrThrow(state, "GENERATING");
+          threadRepository.updateState(sessionId, "GENERATING");
+          progressHeartbeat = setInterval(() => {
+            publishGenerationProgress(sessionId, { type: "heartbeat", ts: new Date().toISOString() });
+          }, 1000);
 
-      let problems: GeneratedProblem[] | null = null;
-      let outcomes: GenerationOutcome[] | null = null;
-      let usedFallback = false;
-      let appliedFallbackReason: string | null = null;
+          const specObj = parseSpecJson(session.spec_json);
+          const specResult = ActivitySpecSchema.safeParse(specObj);
+          if (!specResult.success) {
+            throw new Error(`Invalid ActivitySpec: ${specResult.error.issues[0]?.message ?? "validation failed"}`);
+          }
+          spec = specResult.data;
+          if (!isLanguageSupportedForGeneration(spec.language)) {
+            throw new Error(`Language "${spec.language}" is not supported for generation yet.`);
+          }
 
-      const derivePlanForSpec = (currentSpec: ActivitySpec) => {
-        const pedagogyPolicy =
-          learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec: currentSpec, learnerProfile: null }) : undefined;
-        return { pedagogyPolicy, plan: deriveProblemPlan(currentSpec, pedagogyPolicy) };
-      };
+          resumeProblems = parseGeneratedProblems(session.problems_json);
+          resumeOutcomes = parseGenerationOutcomes(session.generation_outcomes_json);
+          if (resumeOutcomes.length !== resumeProblems.length) {
+            resumeOutcomes = resumeOutcomes.slice(0, resumeProblems.length);
+          }
 
-      let { plan } = derivePlanForSpec(spec);
-      threadRepository.setPlanJson(sessionId, JSON.stringify(plan));
-      publishGenerationProgress(sessionId, {
-        type: "generation_started",
-        totalSlots: plan.length,
-        totalProblems: plan.length,
-        run: 1,
-      });
-
-      if (resumeProblems.length > 0) {
-        for (let i = 0; i < Math.min(resumeProblems.length, plan.length); i++) {
-          publishGenerationProgress(sessionId, { type: "slot_completed", slotIndex: i });
-        }
-      }
-
-      while (!problems) {
-        try {
-          const generated = await generateProblemsFromPlan(plan, {
-            customInstructionsMd: instructionsMd,
-            resume: { problems: resumeProblems, outcomes: resumeOutcomes },
-            onProgress: (event: GenerationProgressEvent) => publishGenerationProgress(sessionId, event),
-            onCheckpoint: ({ problems: checkpointProblems, outcomes: checkpointOutcomes }) => {
-              threadRepository.setProblemsJson(sessionId, JSON.stringify(checkpointProblems));
-              threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(checkpointOutcomes));
-            },
+          ({ plan } = derivePlanForSpec(spec));
+          threadRepository.setPlanJson(sessionId, JSON.stringify(plan));
+          publishGenerationProgress(sessionId, {
+            type: "generation_started",
+            totalSlots: plan.length,
+            totalProblems: plan.length,
+            run: 1,
           });
-          problems = generated.problems;
-          outcomes = generated.outcomes;
-        } catch (err: any) {
-          if (err instanceof GenerationSlotFailureError) {
-            if (Array.isArray(err.problemsSoFar)) {
-              resumeProblems = err.problemsSoFar;
-              threadRepository.setProblemsJson(sessionId, JSON.stringify(resumeProblems));
+
+          if (resumeProblems.length > 0) {
+            for (let i = 0; i < Math.min(resumeProblems.length, plan.length); i++) {
+              publishGenerationProgress(sessionId, { type: "slot_completed", slotIndex: i });
             }
-            if (Array.isArray(err.outcomesSoFar)) {
-              resumeOutcomes = err.outcomesSoFar;
-              threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(resumeOutcomes));
-            }
-
-            persistTraceEvent({
-              ts: new Date().toISOString(),
-              type: "generation_failure",
-              slotIndex: err.slotIndex,
-              kind: err.kind,
-              attempts: err.attempts,
-              title: err.title ?? null,
-              llmOutputHash: err.llmOutputHash ?? null,
-              message: err.message,
-              outcomes: err.outcomesSoFar ?? null,
-            });
-
-            trace("generation.failure.persisted", {
-              sessionId,
-              slotIndex: err.slotIndex,
-              kind: err.kind,
-              llmOutputHash: err.llmOutputHash,
-            });
-
-            if (!usedFallback) {
-              const explicitDifficultyLocked = commitments?.difficulty_plan?.locked === true;
-              const explicitTopicsLocked = commitments?.topic_tags?.locked === true;
-              const decision = proposeGenerationFallbackWithPolicy(spec, {
-                allowDowngradeDifficulty: !explicitDifficultyLocked,
-                allowNarrowTopics: !explicitTopicsLocked,
+          }
+        },
+      },
+      {
+        id: "run-generation-pipeline",
+        run: async () => {
+          while (!problems) {
+            try {
+              const generated = await generateProblemsFromPlan(plan, {
+                customInstructionsMd: instructionsMd,
+                resume: { problems: resumeProblems, outcomes: resumeOutcomes },
+                onProgress: (event: GenerationProgressEvent) => publishGenerationProgress(sessionId, event),
+                onCheckpoint: ({ problems: checkpointProblems, outcomes: checkpointOutcomes }) => {
+                  threadRepository.setProblemsJson(sessionId, JSON.stringify(checkpointProblems));
+                  threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(checkpointOutcomes));
+                },
               });
-              if (decision) {
-                usedFallback = true;
-                appliedFallbackReason = decision.reason;
-
-                publishGenerationProgress(sessionId, {
-                  type: "generation_soft_fallback_applied",
-                  reason: decision.reason,
-                  patchPaths: decision.patch.map((p) => p.path),
-                });
+              problems = generated.problems;
+              outcomes = generated.outcomes;
+            } catch (err: any) {
+              if (err instanceof GenerationSlotFailureError) {
+                if (Array.isArray(err.problemsSoFar)) {
+                  resumeProblems = err.problemsSoFar;
+                  threadRepository.setProblemsJson(sessionId, JSON.stringify(resumeProblems));
+                }
+                if (Array.isArray(err.outcomesSoFar)) {
+                  resumeOutcomes = err.outcomesSoFar;
+                  threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(resumeOutcomes));
+                }
 
                 persistTraceEvent({
                   ts: new Date().toISOString(),
-                  type: "generation_soft_fallback",
-                  reason: decision.reason,
-                  patch: decision.patch,
+                  type: "generation_failure",
+                  slotIndex: err.slotIndex,
+                  kind: err.kind,
+                  attempts: err.attempts,
+                  title: err.title ?? null,
+                  llmOutputHash: err.llmOutputHash ?? null,
+                  message: err.message,
+                  outcomes: err.outcomesSoFar ?? null,
                 });
 
-                persistConfidencePatch(decision.patch);
+                trace("generation.failure.persisted", {
+                  sessionId,
+                  slotIndex: err.slotIndex,
+                  kind: err.kind,
+                  llmOutputHash: err.llmOutputHash,
+                });
 
-                const adjusted = applyJsonPatch(spec as any, decision.patch) as ActivitySpec;
-                const adjustedRes = ActivitySpecSchema.safeParse(adjusted);
-                if (!adjustedRes.success) {
-                  persistTraceEvent({
-                    ts: new Date().toISOString(),
-                    type: "generation_soft_fallback_failed",
-                    reason: "fallback patch produced invalid ActivitySpec",
-                    error: adjustedRes.error.issues[0]?.message ?? "invalid",
+                if (!usedFallback && spec) {
+                  const explicitDifficultyLocked = commitments?.difficulty_plan?.locked === true;
+                  const explicitTopicsLocked = commitments?.topic_tags?.locked === true;
+                  const decision = proposeGenerationFallbackWithPolicy(spec, {
+                    allowDowngradeDifficulty: !explicitDifficultyLocked,
+                    allowNarrowTopics: !explicitTopicsLocked,
                   });
-                  throw err;
-                }
+                  if (decision) {
+                    usedFallback = true;
+                    appliedFallbackReason = decision.reason;
 
-                spec = adjustedRes.data;
-                threadRepository.updateSpecJson(sessionId, JSON.stringify(spec));
-                ({ plan } = derivePlanForSpec(spec));
-                threadRepository.setPlanJson(sessionId, JSON.stringify(plan));
-                continue;
+                    publishGenerationProgress(sessionId, {
+                      type: "generation_soft_fallback_applied",
+                      reason: decision.reason,
+                      patchPaths: decision.patch.map((p) => p.path),
+                    });
+
+                    persistTraceEvent({
+                      ts: new Date().toISOString(),
+                      type: "generation_soft_fallback",
+                      reason: decision.reason,
+                      patch: decision.patch,
+                    });
+
+                    persistConfidencePatch(decision.patch);
+
+                    const adjusted = applyJsonPatch(spec as any, decision.patch) as ActivitySpec;
+                    const adjustedRes = ActivitySpecSchema.safeParse(adjusted);
+                    if (!adjustedRes.success) {
+                      persistTraceEvent({
+                        ts: new Date().toISOString(),
+                        type: "generation_soft_fallback_failed",
+                        reason: "fallback patch produced invalid ActivitySpec",
+                        error: adjustedRes.error.issues[0]?.message ?? "invalid",
+                      });
+                      throw err;
+                    }
+
+                    spec = adjustedRes.data;
+                    threadRepository.updateSpecJson(sessionId, JSON.stringify(spec));
+                    ({ plan } = derivePlanForSpec(spec));
+                    threadRepository.setPlanJson(sessionId, JSON.stringify(plan));
+                    continue;
+                  }
+                }
               }
+
+              throw err;
             }
           }
 
-          throw err;
-        }
-      }
+          if (!problems) {
+            throw new Error("Generation failed: problems were not produced.");
+          }
+        },
+      },
+      {
+        id: "persist-generated-activity",
+        run: async (ctx) => {
+          if (!problems || !spec) {
+            throw new Error("Generation did not produce finalized problems.");
+          }
 
-      if (!problems) {
-        throw new Error("Generation failed: problems were not produced.");
-      }
+          if (outcomes) {
+            const finalOutcomes = appliedFallbackReason
+              ? outcomes.map((outcome) => ({
+                  ...outcome,
+                  appliedFallback: outcome.appliedFallback ?? appliedFallbackReason,
+                }))
+              : outcomes;
+            threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(finalOutcomes));
+            persistTraceEvent({
+              ts: new Date().toISOString(),
+              type: "generation_outcomes",
+              outcomes: finalOutcomes,
+            });
+          }
 
-      if (outcomes) {
-        const finalOutcomes = appliedFallbackReason
-          ? outcomes.map((outcome) => ({
-              ...outcome,
-              appliedFallback: outcome.appliedFallback ?? appliedFallbackReason,
-            }))
-          : outcomes;
-        threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(finalOutcomes));
-        persistTraceEvent({
-          ts: new Date().toISOString(),
-          type: "generation_outcomes",
-          outcomes: finalOutcomes,
-        });
-      }
+          threadRepository.setProblemsJson(sessionId, JSON.stringify(problems));
 
-      threadRepository.setProblemsJson(sessionId, JSON.stringify(problems));
+          const activityId = crypto.randomUUID();
+          const activityTitle = `Activity (${spec.problem_count} problems)`;
+          activityRepository.create(activityId, activityTitle, JSON.stringify(problems), undefined, {
+            status: "DRAFT",
+            timeLimitSeconds: null,
+          });
 
-      const activityId = crypto.randomUUID();
-      const activityTitle = `Activity (${spec.problem_count} problems)`;
+          threadRepository.setActivityId(sessionId, activityId);
+          transitionOrThrow("GENERATING", "SAVED");
+          threadRepository.updateState(sessionId, "SAVED");
+          publishGenerationProgress(sessionId, { type: "generation_completed", activityId });
+          publishGenerationProgress(sessionId, { type: "generation_complete", activityId });
 
-      activityRepository.create(activityId, activityTitle, JSON.stringify(problems), undefined, {
-        status: "DRAFT",
-        timeLimitSeconds: null,
-      });
+          if (usedFallback) {
+            persistTraceEvent({
+              ts: new Date().toISOString(),
+              type: "generation_soft_fallback_succeeded",
+            });
+          }
 
-      threadRepository.setActivityId(sessionId, activityId);
-      transitionOrThrow("GENERATING", "SAVED");
-      threadRepository.updateState(sessionId, "SAVED");
-      publishGenerationProgress(sessionId, { type: "generation_completed", activityId });
-      publishGenerationProgress(sessionId, { type: "generation_complete", activityId });
+          ctx.setResult("response", { activityId, problems });
+        },
+      },
+    ];
 
-      if (usedFallback) {
-        persistTraceEvent({
-          ts: new Date().toISOString(),
-          type: "generation_soft_fallback_succeeded",
-        });
-      }
-
-      return { activityId, problems };
+    try {
+      await new ExecutionEngine(steps).run(workflow);
+      const response = workflow.getResult("response");
+      if (!response) throw new Error("Generation completed without a response payload.");
+      return response;
     } catch (err: any) {
       try {
         transitionOrThrow("GENERATING", "READY");
@@ -285,7 +322,9 @@ export async function generateFromSession(sessionId: string): Promise<GenerateFr
   });
 }
 
-export async function regenerateSlotFromSession(
+export const generateFromSession = generateFromThread;
+
+export async function regenerateSlotFromThread(
   sessionId: string,
   slotIndex: number,
   strategy:
@@ -362,7 +401,9 @@ export async function regenerateSlotFromSession(
       threadRepository.updateState(sessionId, "READY");
     }
 
-    const out = await generateFromSession(sessionId);
+    const out = await generateFromThread(sessionId);
     return { ...out, regeneratedSlotIndex: slotIndex, strategy };
   });
 }
+
+export const regenerateSlotFromSession = regenerateSlotFromThread;

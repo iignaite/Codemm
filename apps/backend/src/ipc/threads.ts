@@ -4,16 +4,24 @@ import { runEventRepository, runRepository } from "../database/repositories/runR
 import { threadMessageRepository, threadRepository } from "../database/repositories/threadRepository";
 import type { LearningMode } from "../contracts/learningMode";
 import {
-  createSession,
-  generateFromSession,
-  getSession,
-  processSessionMessage,
-  regenerateSlotFromSession,
-  setSessionInstructions,
+  createThread,
+  generateFromThread,
+  getThread,
+  processThreadMessage,
+  regenerateSlotFromThread,
+  setThreadInstructions,
 } from "../services/sessionService";
 import { getResolvedLlmSnapshot } from "../infra/llm/executionContext";
 import { summarizeRoutePlan } from "../infra/llm/runtimeService";
 import type { GenerationProgressEvent } from "../contracts/generationProgress";
+import type {
+  CreateThreadResponseDto,
+  GenerateThreadResponseDto,
+  GenerationDiagnosticsDto,
+  ThreadDetailDto,
+  ThreadListResponseDto,
+  UpdateThreadInstructionsResponseDto,
+} from "@codemm/shared-contracts";
 import { getGenerationProgressBuffer, subscribeGenerationProgress } from "../generation/progressBus";
 import { collectAttemptDiagnostics } from "../generation/diagnostics";
 import { defaultAssistantPrompt, getNumber, getString, makeSubId, requireParams, safeJsonStringify } from "./common";
@@ -26,7 +34,7 @@ async function runGenerationWithRunTracking(args: {
   threadId: string;
   meta: Record<string, unknown>;
   execute: () => Promise<{ activityId: string; problems: unknown[] }>;
-}): Promise<{ activityId: string; problemCount: number; runId: string }> {
+}): Promise<GenerateThreadResponseDto> {
   const runId = crypto.randomUUID();
   const routePlan = getResolvedLlmSnapshot();
   runRepository.create(runId, "generation", {
@@ -83,10 +91,10 @@ export function createThreadHandlers(deps: {
       handler: async (paramsRaw) => {
         const params = requireParams(paramsRaw);
         const learning_mode = (params.learning_mode ?? null) as LearningMode | null;
-        const created = createSession(learning_mode ?? undefined);
+        const created = createThread(learning_mode ?? undefined);
         const promptText = defaultAssistantPrompt();
         threadMessageRepository.create(crypto.randomUUID(), created.sessionId, "assistant", promptText);
-        return {
+        const response: CreateThreadResponseDto = {
           threadId: created.sessionId,
           state: created.state,
           learning_mode: created.learning_mode,
@@ -95,6 +103,7 @@ export function createThreadHandlers(deps: {
           done: false,
           next_action: "ask",
         };
+        return response;
       },
     },
 
@@ -104,7 +113,8 @@ export function createThreadHandlers(deps: {
         const params = requireParams(paramsRaw);
         const limit = getNumber(params.limit) ?? 20;
         const threads = threadRepository.listSummaries(limit);
-        return { threads };
+        const response: ThreadListResponseDto = { threads };
+        return response;
       },
     },
 
@@ -114,8 +124,8 @@ export function createThreadHandlers(deps: {
         const params = requireParams(paramsRaw);
         const threadId = getString(params.threadId);
         if (!threadId) throw new Error("threadId is required.");
-        const s = getSession(threadId);
-        return {
+        const s = getThread(threadId);
+        const response: ThreadDetailDto = {
           threadId: s.id,
           state: s.state,
           learning_mode: s.learning_mode,
@@ -128,6 +138,7 @@ export function createThreadHandlers(deps: {
           generationOutcomes: s.generationOutcomes,
           intentTrace: s.intentTrace,
         };
+        return response;
       },
     },
 
@@ -147,7 +158,8 @@ export function createThreadHandlers(deps: {
         if (typeof instructionsMd === "string" && instructionsMd.length > 8000) {
           throw new Error("instructions_md is too large.");
         }
-        return setSessionInstructions(threadId, instructionsMd);
+        const response: UpdateThreadInstructionsResponseDto = setThreadInstructions(threadId, instructionsMd);
+        return response;
       },
     },
 
@@ -164,7 +176,7 @@ export function createThreadHandlers(deps: {
         const message = getString(params.message);
         if (!threadId) throw new Error("threadId is required.");
         if (!message) throw new Error("message is required.");
-        return processSessionMessage(threadId, message);
+        return processThreadMessage(threadId, message);
       },
     },
 
@@ -175,7 +187,7 @@ export function createThreadHandlers(deps: {
         const threadId = getString(params.threadId);
         if (!threadId) throw new Error("threadId is required.");
 
-        getSession(threadId);
+        getThread(threadId);
 
         const subId = makeSubId();
         const latest = runRepository.latestByThread(threadId, "generation");
@@ -232,7 +244,7 @@ export function createThreadHandlers(deps: {
         return runGenerationWithRunTracking({
           threadId,
           meta: { threadId, mode: "v1", operation: "generate" },
-          execute: async () => generateFromSession(threadId),
+          execute: async () => generateFromThread(threadId),
         });
       },
     },
@@ -246,7 +258,7 @@ export function createThreadHandlers(deps: {
         return runGenerationWithRunTracking({
           threadId,
           meta: { threadId, mode: "v2", operation: "generate" },
-          execute: async () => generateFromSession(threadId),
+          execute: async () => generateFromThread(threadId),
         });
       },
     },
@@ -286,7 +298,7 @@ export function createThreadHandlers(deps: {
           threadId,
           meta: { threadId, mode: "v2", operation: "regenerate_slot", slotIndex, strategy },
           execute: async () => {
-            const out = await regenerateSlotFromSession(threadId, slotIndex, strategy);
+            const out = await regenerateSlotFromThread(threadId, slotIndex, strategy);
             return { activityId: out.activityId, problems: out.problems };
           },
         });
@@ -308,11 +320,11 @@ export function createThreadHandlers(deps: {
         const limit = typeof params.limit === "number" && Number.isFinite(params.limit) ? params.limit : 5000;
         if (!threadId) throw new Error("threadId is required.");
 
-        getSession(threadId);
+        getThread(threadId);
 
         const run = runId ? runRepository.findById(runId) : runRepository.latestByThread(threadId, "generation");
         if (!run) {
-          return {
+          const response: GenerationDiagnosticsDto = {
             threadId,
             runId: null,
             run: null,
@@ -322,9 +334,12 @@ export function createThreadHandlers(deps: {
               successfulAttempts: 0,
             },
             diagnostics: [],
+            routeSelections: [],
+            stageTimeline: [],
             latestFailure: null,
             errors: [],
           };
+          return response;
         }
 
         if (run.kind !== "generation") {
@@ -353,7 +368,7 @@ export function createThreadHandlers(deps: {
             }
           });
 
-        return {
+        const response: GenerationDiagnosticsDto = {
           threadId,
           runId: run.id,
           run: {
@@ -384,6 +399,7 @@ export function createThreadHandlers(deps: {
           latestFailure,
           errors,
         };
+        return response;
       },
     },
   };

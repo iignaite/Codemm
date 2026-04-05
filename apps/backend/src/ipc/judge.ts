@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { z } from "zod";
+import type { JudgeRunResultDto, JudgeSubmitResultDto } from "@codemm/shared-contracts";
 import { activityRepository, submissionRepository } from "../database/repositories/activityRepository";
 import { runEventRepository, runRepository } from "../database/repositories/runRepository";
 import { ActivityLanguageSchema } from "../contracts/activitySpec";
@@ -114,7 +115,8 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
           } catch {
             // ignore
           }
-          return { stdout: result.stdout, stderr: result.stderr, runId, ...formatted };
+          const response: JudgeRunResultDto = { stdout: result.stdout, stderr: result.stderr, runId, ...formatted };
+          return response;
         }
 
         if (typeof code !== "string" || !code.trim()) {
@@ -133,7 +135,8 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         } catch {
           // ignore
         }
-        return { stdout: result.stdout, stderr: result.stderr, runId, ...formatted };
+        const response: JudgeRunResultDto = { stdout: result.stdout, stderr: result.stderr, runId, ...formatted };
+        return response;
       },
     },
 
@@ -287,7 +290,8 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         }
 
         const formatted = formatJudgeResult({ language: lang, testSuite, result });
-        return { ...result, ...formatted, testCaseDetails: formatted.testCaseDetails, runId };
+        const response: JudgeSubmitResultDto = { ...result, ...formatted, testCaseDetails: formatted.testCaseDetails, runId };
+        return response;
       },
     },
   };

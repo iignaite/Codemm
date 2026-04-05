@@ -452,7 +452,7 @@ export function useActivity() {
         problemId: selectedProblem.id,
         kind: "run",
         atIso: new Date().toISOString(),
-        result: { stdout: "", stderr: 'SQL activities are graded via "Check Code".' },
+        result: { stdout: "", stderr: 'SQL activities are graded via "Check Code".', runId: "" },
       });
       return;
     }
@@ -465,6 +465,7 @@ export function useActivity() {
         result: {
           stdout: "",
           stderr: `No ${mainSignature} detected in ${entryFile}.\n\nUse "Check Code" to run tests, or add a main() entrypoint.`,
+          runId: "",
         },
       });
       return;
@@ -479,21 +480,12 @@ export function useActivity() {
         ...(typeof stdin === "string" ? { stdin } : {}),
         language: selectedLanguage,
       });
-      if (!data || typeof data !== "object") {
-        setFeedback({
-          problemId: selectedProblem.id,
-          kind: "run",
-          atIso: new Date().toISOString(),
-          result: { stdout: "", stderr: "Failed to run code (invalid response)." },
-        });
-        return;
-      }
-      const payload = data as Record<string, unknown>;
       const runResult: RunResult = {
-        stdout: typeof payload.stdout === "string" ? payload.stdout : "",
-        stderr: typeof payload.stderr === "string" ? payload.stderr : typeof payload.error === "string" ? payload.error : "",
-        formattedStdout: typeof payload.formattedStdout === "string" ? payload.formattedStdout : undefined,
-        formattedStderr: typeof payload.formattedStderr === "string" ? payload.formattedStderr : undefined,
+        stdout: data.stdout,
+        stderr: data.stderr,
+        formattedStdout: data.formattedStdout,
+        formattedStderr: data.formattedStderr,
+        runId: data.runId,
       };
       setFeedback({ problemId: selectedProblem.id, kind: "run", atIso: new Date().toISOString(), result: runResult });
       setProblemStatusById((prev) => {
@@ -507,7 +499,7 @@ export function useActivity() {
         problemId: selectedProblem.id,
         kind: "run",
         atIso: new Date().toISOString(),
-        result: { stdout: "", stderr: "Failed to run code. Please try again." },
+        result: { stdout: "", stderr: "Failed to run code. Please try again.", runId: "" },
       });
     } finally {
       setRunning(false);
@@ -533,29 +525,19 @@ export function useActivity() {
         problemId: selectedProblem.id,
         language: selectedLanguage,
       });
-      const payload = data as Record<string, unknown>;
       const safeResult: JudgeResult = {
-        success: Boolean(payload.success),
-        passedTests: Array.isArray(payload.passedTests) ? payload.passedTests : [],
-        failedTests: Array.isArray(payload.failedTests) ? payload.failedTests : [],
-        stdout: typeof payload.stdout === "string" ? payload.stdout : "",
-        stderr: typeof payload.stderr === "string" ? payload.stderr : typeof payload.error === "string" ? payload.error : "",
-        formattedStdout: typeof payload.formattedStdout === "string" ? payload.formattedStdout : undefined,
-        formattedStderr: typeof payload.formattedStderr === "string" ? payload.formattedStderr : undefined,
-        executionTimeMs: typeof payload.executionTimeMs === "number" ? payload.executionTimeMs : 0,
-        exitCode: typeof payload.exitCode === "number" ? payload.exitCode : undefined,
-        timedOut: typeof payload.timedOut === "boolean" ? payload.timedOut : undefined,
-        testCaseDetails: Array.isArray(payload.testCaseDetails)
-          ? payload.testCaseDetails.map((detail) => ({
-              name: typeof detail?.name === "string" ? detail.name : "",
-              passed: Boolean(detail?.passed),
-              input: typeof detail?.input === "string" ? detail.input : undefined,
-              expectedOutput: typeof detail?.expectedOutput === "string" ? detail.expectedOutput : undefined,
-              actualOutput: typeof detail?.actualOutput === "string" ? detail.actualOutput : undefined,
-              message: typeof detail?.message === "string" ? detail.message : undefined,
-              location: typeof detail?.location === "string" ? detail.location : undefined,
-            }))
-          : undefined,
+        success: data.success,
+        passedTests: data.passedTests,
+        failedTests: data.failedTests,
+        stdout: data.stdout,
+        stderr: data.stderr,
+        formattedStdout: data.formattedStdout,
+        formattedStderr: data.formattedStderr,
+        executionTimeMs: data.executionTimeMs,
+        exitCode: data.exitCode,
+        timedOut: data.timedOut,
+        testCaseDetails: data.testCaseDetails,
+        runId: data.runId,
       };
       setFeedback({ problemId: selectedProblem.id, kind: "tests", atIso: new Date().toISOString(), result: safeResult });
       setProblemStatusById((prev) => ({

@@ -52,6 +52,10 @@ export async function runLegacySlotAdapter(args: {
     runTestStrengthGate?: typeof runTestStrengthGate;
   };
 }): Promise<{ generated: Awaited<ReturnType<typeof generateSingleProblem>>; attempt: number }> {
+  // Remaining legacy-only behavior stays here while the staged pipeline absorbs:
+  // 1. injected test seams around generateSingleProblem/validation
+  // 2. deterministic re-validation caching via expensive draft fingerprints
+  // 3. quality-gate retry handling shared with older integration coverage
   const defaultMaxAttempts = 3;
   const generateSingleProblemFn = args.deps?.generateSingleProblem ?? generateSingleProblem;
   const validateReferenceSolutionFn = args.deps?.validateReferenceSolution ?? validateReferenceSolution;

@@ -5,7 +5,9 @@ const path = require("path");
 const { LocalLlmError, asLocalLlmError } = require("./errors");
 const { probeHostCapabilities } = require("./hostCapabilityProbe");
 const { resolveCandidateProfiles } = require("./modelCatalog");
-const runtimeDriver = require("./ollamaRuntimeDriver");
+const { localRuntimePlugin } = require("./plugins/localRuntime");
+
+const runtimeDriver = localRuntimePlugin.driver;
 
 const READY_TTL_MS = 15_000;
 
@@ -35,7 +37,8 @@ class LocalLlmOrchestrator extends EventEmitter {
   constructor(opts) {
     super();
     this.userDataDir = opts.userDataDir;
-    this.baseURL = opts.baseURL || runtimeDriver.OLLAMA_DEFAULT_URL;
+    this.runtimePlugin = opts.runtimePlugin || localRuntimePlugin;
+    this.baseURL = opts.baseURL || this.runtimePlugin.defaultBaseURL;
     this.preferenceStore = opts.preferenceStore;
     this.statePath = path.join(this.userDataDir, "llm-runtime-state.json");
     this.leases = new Map();

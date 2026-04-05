@@ -1,8 +1,29 @@
 import { z } from "zod";
+import type { ActivityDetailDto, ActivityListResponseDto, ActivityResponseDto, PublishActivityResponseDto } from "@codemm/shared-contracts";
 import { activityRepository } from "../database/repositories/activityRepository";
 import { editDraftProblemWithAi } from "../services/activityProblemEditService";
 import { getString, requireParams } from "./common";
 import type { RpcHandlerDef } from "./types";
+
+function toActivityDetailDto(dbActivity: {
+  id: string;
+  title: string;
+  prompt?: string;
+  problems: string;
+  status?: string;
+  time_limit_seconds?: number | null;
+  created_at: string;
+}): ActivityDetailDto {
+  return {
+    id: dbActivity.id,
+    title: dbActivity.title,
+    prompt: dbActivity.prompt || "",
+    problems: JSON.parse(dbActivity.problems),
+    status: (dbActivity.status as ActivityDetailDto["status"]) ?? "DRAFT",
+    timeLimitSeconds: typeof dbActivity.time_limit_seconds === "number" ? dbActivity.time_limit_seconds : null,
+    createdAt: dbActivity.created_at,
+  };
+}
 
 export function createActivityHandlers(): Record<string, RpcHandlerDef> {
   return {
@@ -14,17 +35,8 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         if (!id) throw new Error("id is required.");
         const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
-        return {
-          activity: {
-            id: dbActivity.id,
-            title: dbActivity.title,
-            prompt: dbActivity.prompt || "",
-            problems: JSON.parse(dbActivity.problems),
-            status: (dbActivity.status as any) ?? "DRAFT",
-            timeLimitSeconds: typeof dbActivity.time_limit_seconds === "number" ? dbActivity.time_limit_seconds : null,
-            createdAt: dbActivity.created_at,
-          },
-        };
+        const response: ActivityResponseDto = { activity: toActivityDetailDto(dbActivity) };
+        return response;
       },
     },
 
@@ -34,7 +46,8 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         const params = requireParams(paramsRaw);
         const limit = typeof params.limit === "number" && Number.isFinite(params.limit) ? params.limit : 30;
         const activities = activityRepository.listSummaries(limit);
-        return { activities };
+        const response: ActivityListResponseDto = { activities };
+        return response;
       },
     },
 
@@ -67,17 +80,8 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
           ...(typeof timeLimitSeconds !== "undefined" ? { time_limit_seconds: timeLimitSeconds } : {}),
         });
         if (!updated) throw new Error("Failed to update activity.");
-        return {
-          activity: {
-            id: updated.id,
-            title: updated.title,
-            prompt: updated.prompt || "",
-            problems: JSON.parse(updated.problems),
-            status: (updated.status as any) ?? "DRAFT",
-            timeLimitSeconds: typeof updated.time_limit_seconds === "number" ? updated.time_limit_seconds : null,
-            createdAt: updated.created_at,
-          },
-        };
+        const response: ActivityResponseDto = { activity: toActivityDetailDto(updated) };
+        return response;
       },
     },
 
@@ -89,9 +93,9 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         if (!id) throw new Error("id is required.");
         const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
-        if ((dbActivity.status ?? "DRAFT") === "PUBLISHED") return { ok: true };
+        if ((dbActivity.status ?? "DRAFT") === "PUBLISHED") return { ok: true } satisfies PublishActivityResponseDto;
         activityRepository.update(id, { status: "PUBLISHED" });
-        return { ok: true };
+        return { ok: true } satisfies PublishActivityResponseDto;
       },
     },
 
@@ -136,18 +140,8 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
 
         const updated = activityRepository.update(id, { problems: JSON.stringify(nextProblems) });
         if (!updated) throw new Error("Failed to update activity.");
-
-        return {
-          activity: {
-            id: updated.id,
-            title: updated.title,
-            prompt: updated.prompt || "",
-            problems: JSON.parse(updated.problems),
-            status: (updated.status as any) ?? "DRAFT",
-            timeLimitSeconds: typeof updated.time_limit_seconds === "number" ? updated.time_limit_seconds : null,
-            createdAt: updated.created_at,
-          },
-        };
+        const response: ActivityResponseDto = { activity: toActivityDetailDto(updated) };
+        return response;
       },
     },
   };

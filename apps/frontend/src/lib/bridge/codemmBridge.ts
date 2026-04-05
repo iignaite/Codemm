@@ -1,9 +1,21 @@
 import type {
+  ActivityListResponseDto,
+  ActivityResponseDto,
+  CreateThreadResponseDto,
+  GenerateThreadResponseDto,
   GenerationProgressEvent,
+  GenerationDiagnosticsDto,
+  JudgeRunRequestDto,
+  JudgeRunResultDto,
+  JudgeSubmitRequestDto,
+  JudgeSubmitResultDto,
   LlmControlStatus,
   LlmSettingsResponse,
   LocalLlmStatus,
+  PostThreadMessageResponseDto,
   ResolvedLlmRoutePlan,
+  ThreadDetailDto,
+  ThreadListResponseDto,
 } from "@codemm/shared-contracts";
 
 export type LearningMode = "practice" | "guided";
@@ -51,43 +63,38 @@ export type CodemmBridge = {
     subscribeStatus?: (args: { onEvent: (status: LocalLlmStatus) => void }) => Promise<LlmStatusSubscription>;
   };
   threads?: {
-    create?: (args: { learning_mode?: LearningMode }) => Promise<unknown>;
-    list?: (args: { limit?: number }) => Promise<unknown>;
-    get?: (args: { threadId: string }) => Promise<unknown>;
-    setInstructions?: (args: { threadId: string; instructions_md: string | null }) => Promise<unknown>;
-    postMessage?: (args: { threadId: string; message: string }) => Promise<unknown>;
-    generate?: (args: { threadId: string }) => Promise<unknown>;
-    generateV2?: (args: { threadId: string }) => Promise<unknown>;
-    regenerateSlot?: (args: { threadId: string; slotIndex: number; strategy?: string }) => Promise<unknown>;
-    getGenerationDiagnostics?: (args: { threadId: string; runId?: string; limit?: number }) => Promise<unknown>;
+    create?: (args: { learning_mode?: LearningMode }) => Promise<CreateThreadResponseDto>;
+    list?: (args: { limit?: number }) => Promise<ThreadListResponseDto>;
+    get?: (args: { threadId: string }) => Promise<ThreadDetailDto>;
+    setInstructions?: (args: { threadId: string; instructions_md: string | null }) => Promise<{ ok: true }>;
+    postMessage?: (args: { threadId: string; message: string }) => Promise<PostThreadMessageResponseDto>;
+    generate?: (args: { threadId: string }) => Promise<GenerateThreadResponseDto>;
+    generateV2?: (args: { threadId: string }) => Promise<GenerateThreadResponseDto>;
+    regenerateSlot?: (args: {
+      threadId: string;
+      slotIndex: number;
+      strategy?: string;
+    }) => Promise<GenerateThreadResponseDto>;
+    getGenerationDiagnostics?: (args: {
+      threadId: string;
+      runId?: string;
+      limit?: number;
+    }) => Promise<GenerationDiagnosticsDto>;
     subscribeGeneration?: (args: {
       threadId: string;
       onEvent: (event: GenerationProgressEvent) => void;
     }) => Promise<GenerationSubscription>;
   };
   activities?: {
-    list?: (args: { limit?: number }) => Promise<unknown>;
-    get?: (args: { id: string }) => Promise<unknown>;
-    patch?: (args: { id: string; title?: string; timeLimitSeconds?: number | null }) => Promise<unknown>;
-    publish?: (args: { id: string }) => Promise<unknown>;
-    aiEdit?: (args: { id: string; problemId: string; instruction: string }) => Promise<unknown>;
+    list?: (args: { limit?: number }) => Promise<ActivityListResponseDto>;
+    get?: (args: { id: string }) => Promise<ActivityResponseDto>;
+    patch?: (args: { id: string; title?: string; timeLimitSeconds?: number | null }) => Promise<ActivityResponseDto>;
+    publish?: (args: { id: string }) => Promise<{ ok: true }>;
+    aiEdit?: (args: { id: string; problemId: string; instruction: string }) => Promise<ActivityResponseDto>;
   };
   judge?: {
-    run?: (args: {
-      language: "java" | "python" | "cpp" | "sql";
-      code?: string;
-      files?: Record<string, string>;
-      mainClass?: string;
-      stdin?: string;
-    }) => Promise<unknown>;
-    submit?: (args: {
-      language?: "java" | "python" | "cpp" | "sql";
-      testSuite: string;
-      code?: string;
-      files?: Record<string, string>;
-      activityId?: string;
-      problemId?: string;
-    }) => Promise<unknown>;
+    run?: (args: JudgeRunRequestDto) => Promise<JudgeRunResultDto>;
+    submit?: (args: JudgeSubmitRequestDto) => Promise<JudgeSubmitResultDto>;
   };
 };
 
