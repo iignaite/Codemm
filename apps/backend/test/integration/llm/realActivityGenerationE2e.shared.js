@@ -1,4 +1,5 @@
 require("../../helpers/setupDb");
+require("../../helpers/loadRealProviderAuth").loadRealProviderAuth();
 
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");

@@ -1,11 +1,8 @@
 require("../../helpers/setupBase");
+require("../../helpers/loadRealProviderAuth").loadRealProviderAuth();
 
 // This integration test intentionally hits real provider APIs (token-costing).
 // It skips automatically when a provider key is not present.
-require("dotenv").config({
-  path: require("node:path").resolve(__dirname, "../../../.env"),
-  quiet: true,
-});
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
