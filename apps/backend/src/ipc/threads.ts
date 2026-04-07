@@ -199,14 +199,15 @@ export function createThreadHandlers(deps: {
         getThread(threadId);
         if (requestedRunId) {
           const run = runRepository.findById(requestedRunId);
-          if (!run) {
-            throw new Error("runId does not reference a generation run.");
-          }
-          if (run.kind !== "generation") {
-            throw new Error("runId does not reference a generation run.");
-          }
-          if (String(run.thread_id ?? "") !== threadId) {
-            throw new Error("runId does not belong to the provided threadId.");
+          // Allow pre-subscribing to a caller-generated future runId before the run row exists.
+          // If the run already exists, it must still be a generation run owned by this thread.
+          if (run) {
+            if (run.kind !== "generation") {
+              throw new Error("runId does not reference a generation run.");
+            }
+            if (String(run.thread_id ?? "") !== threadId) {
+              throw new Error("runId does not belong to the provided threadId.");
+            }
           }
         }
 

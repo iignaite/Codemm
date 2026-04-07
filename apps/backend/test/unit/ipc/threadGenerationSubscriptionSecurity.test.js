@@ -38,3 +38,19 @@ test("threads.subscribeGeneration accepts runIds owned by the requested thread",
 
   await unsubscribe({ subId: result.subId });
 });
+
+test("threads.subscribeGeneration accepts caller-generated future runIds before persistence", async () => {
+  const handlers = createThreadHandlers({ sendEvent: () => {} });
+  const subscribe = handlers["threads.subscribeGeneration"].handler;
+  const unsubscribe = handlers["threads.unsubscribeGeneration"].handler;
+
+  const thread = createThread("practice");
+  const futureRunId = crypto.randomUUID();
+
+  const result = await subscribe({ threadId: thread.sessionId, runId: futureRunId });
+  assert.equal(result.runId, futureRunId);
+  assert.deepEqual(result.buffered, []);
+  assert.ok(typeof result.subId === "string" && result.subId.length > 0);
+
+  await unsubscribe({ subId: result.subId });
+});
