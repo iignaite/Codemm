@@ -15,6 +15,18 @@ import { isValidJUnit5TestSuiteCountRange, pruneJUnitTestMethods } from "../../l
 import { assertJavaStructuralTopicRequirements } from "../../languages/java/structuralTopics";
 
 export function inferFailureKind(err: unknown): GenerationFailureKind {
+  const explicitKind = (err as { kind?: unknown } | null)?.kind;
+  if (
+    explicitKind === "compile" ||
+    explicitKind === "tests" ||
+    explicitKind === "timeout" ||
+    explicitKind === "contract" ||
+    explicitKind === "quality" ||
+    explicitKind === "llm" ||
+    explicitKind === "unknown"
+  ) {
+    return explicitKind;
+  }
   if (err instanceof ReferenceSolutionValidationError) return err.kind;
   if (err instanceof GenerationContractError) return "contract";
   if (err instanceof TestStrengthGateError) return "quality";

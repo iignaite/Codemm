@@ -1,5 +1,13 @@
 type StructuralTopic = "polymorphism" | "inheritance" | "abstraction" | "encapsulation" | "composition";
 
+export const JAVA_STRUCTURAL_TOPICS: readonly StructuralTopic[] = [
+  "polymorphism",
+  "inheritance",
+  "abstraction",
+  "encapsulation",
+  "composition",
+];
+
 function normalizeTopic(raw: string): string {
   return String(raw ?? "")
     .trim()
@@ -10,6 +18,10 @@ function normalizeTopic(raw: string): string {
 function hasStructuralTopic(topics: string[], topic: StructuralTopic): boolean {
   const key = topic.toLowerCase();
   return topics.some((t) => normalizeTopic(t).includes(key));
+}
+
+export function hasJavaStructuralTopics(topics: string[]): boolean {
+  return JAVA_STRUCTURAL_TOPICS.some((topic) => hasStructuralTopic(topics, topic));
 }
 
 type JavaTypeIndex = {

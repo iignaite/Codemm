@@ -168,6 +168,14 @@ Judge containers are launched with:
 
 Java judging now compiles into `/tmp/classes` so `/workspace` can remain read-only.
 
+Before Docker validation, staged generation also performs a fast Java preflight for structural-topic slots:
+
+- reject `stdin`-driven reference solutions for structural OOP topics
+- assert structural-topic requirements (`encapsulation`, `inheritance`, `polymorphism`, etc.) against the generated reference + test suite
+- short-circuit no-op repairs when the repair stage regenerates the same reference artifact hash/source after a validation failure
+
+This prevents a class of doomed validate → repair → validate timeout loops from consuming another full judge cycle.
+
 ## Current Migration Notes
 
 - Existing `runs` and `run_events` remain for diagnostics and replay compatibility.
