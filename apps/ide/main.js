@@ -500,6 +500,56 @@ function resolveNodeBin() {
   return override || "node";
 }
 
+function formatGenerationEventForLog(event) {
+  if (!event || typeof event.type !== "string") return null;
+  const run = typeof event.runId === "string" && event.runId ? ` run=${event.runId}` : "";
+  const slot = typeof event.slotIndex === "number" ? ` slot=${event.slotIndex}` : "";
+  const attempt = typeof event.attempt === "number" ? ` attempt=${event.attempt}` : "";
+  const stage = typeof event.stage === "string" ? ` stage=${event.stage}` : "";
+  const route =
+    event.provider || event.model || event.routeRole
+      ? ` route=${[event.routeRole, event.provider, event.model].filter(Boolean).join("/")}`
+      : "";
+  const duration = typeof event.durationMs === "number" ? ` duration=${event.durationMs}ms` : "";
+  const kind = typeof event.failureKind === "string" ? ` kind=${event.failureKind}` : "";
+  const title =
+    event.artifactSet && typeof event.artifactSet.title === "string" && event.artifactSet.title.trim()
+      ? ` title=${JSON.stringify(event.artifactSet.title)}`
+      : "";
+  const message =
+    typeof event.message === "string" && event.message.trim() ? ` message=${JSON.stringify(event.message)}` : "";
+
+  switch (event.type) {
+    case "generation_started":
+      return `[generation]${run} started totalSlots=${event.totalSlots}${typeof event.totalProblems === "number" ? ` totalProblems=${event.totalProblems}` : ""}`;
+    case "generation_run_status":
+      return `[generation]${run} status=${event.status}${event.activityId ? ` activityId=${event.activityId}` : ""}${event.error ? ` error=${JSON.stringify(event.error)}` : ""}`;
+    case "slot_started":
+      return `[generation]${run}${slot} queued language=${event.language} topic=${JSON.stringify(event.topic)} difficulty=${event.difficulty}`;
+    case "route_selected":
+      return `[generation]${run}${slot} route_selected role=${event.routeRole}${route}`;
+    case "slot_stage_started":
+      return `[generation]${run}${slot}${stage}${attempt} started${route}`;
+    case "slot_stage_finished":
+      return `[generation]${run}${slot}${stage}${attempt} ${event.status}${route}${duration}${kind}${message}`;
+    case "slot_escalated":
+      return `[generation]${run}${slot}${stage} escalated role=${event.routeRole}${event.fromModel ? ` from=${event.fromModel}` : ""}${event.toModel ? ` to=${event.toModel}` : ""} reason=${JSON.stringify(event.reason)}`;
+    case "slot_attempt_summary":
+      return `[generation]${run}${slot}${attempt} summary phase=${event.phase} status=${event.status}${event.kind ? ` kind=${event.kind}` : ""}${title}${message}`;
+    case "slot_completed":
+      return `[generation]${run}${slot} completed`;
+    case "slot_failed_terminal":
+      return `[generation]${run}${slot}${stage} terminal_failure${kind} reason=${JSON.stringify(event.terminationReason)}${message}`;
+    case "generation_failed":
+      return `[generation]${run} failed error=${JSON.stringify(event.error)}`;
+    case "generation_completed":
+    case "generation_complete":
+      return `[generation]${run} completed activityId=${event.activityId}`;
+    default:
+      return null;
+  }
+}
+
 function spawnSystemNode(scriptPath, args, { cwd, env, stdio }) {
   const nodeBin = resolveNodeBin();
   return spawn(nodeBin, [scriptPath, ...(args || [])], {
@@ -1419,6 +1469,9 @@ async function createWindowAndBoot() {
   let frontendProc = null;
 
   const baseEnv = { ...process.env };
+  if (!app.isPackaged && typeof baseEnv.CODEMM_TRACE !== "string") {
+    baseEnv.CODEMM_TRACE = "1";
+  }
   // Improve odds of finding docker from a GUI-launched app (PATH can be minimal on macOS).
   baseEnv.DOCKER_PATH = dockerBin;
   if (dockerBin !== "docker") {
@@ -1498,8 +1551,16 @@ async function createWindowAndBoot() {
     onEvent: (evt) => {
       if (!evt || typeof evt.topic !== "string") return;
       if (evt.topic === "threads.generation") {
+        const payload = evt.payload;
+        const generationEvent = payload && typeof payload === "object" ? payload.event : null;
+        if (baseEnv.CODEMM_DEV_GENERATION_LOGS !== "0") {
+          const line = formatGenerationEventForLog(generationEvent);
+          if (line) {
+            console.log(line);
+          }
+        }
         try {
-          mainWindow?.webContents?.send("codemm:threads:generationEvent", evt.payload);
+          mainWindow?.webContents?.send("codemm:threads:generationEvent", payload);
         } catch {
           // ignore
         }
