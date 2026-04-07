@@ -20,9 +20,8 @@ Codemm backend uses Node's built-in test runner (`node:test`) with CommonJS test
 | Test file | Uses DB | Uses Docker judges | Uses real LLM | What it validates | How to scope it down |
 |---|---:|---:|---:|---|---|
 | `test/integration/languages/activityGenerationEdgeCases.test.js` | ✅ | ❌ | ❌ (stubs) | Dialogue/spec edge-cases + generation plumbing without Docker/LLM flakiness | Run normally; it’s fast |
-| `test/integration/llm/realActivityGenerationE2e.openai.test.js` | ✅ | ✅ | ✅ | Full production flow using OpenAI | Use `CODEMM_E2E_LANGS`, `CODEMM_E2E_STYLES`, `CODEMM_E2E_COUNTS` (comma-separated) |
-| `test/integration/llm/realActivityGenerationE2e.anthropic.test.js` | ✅ | ✅ | ✅ | Full production flow using Anthropic | Use `CODEMM_E2E_LANGS`, `CODEMM_E2E_STYLES`, `CODEMM_E2E_COUNTS` (comma-separated) |
-| `test/integration/llm/realActivityGenerationE2e.gemini.test.js` | ✅ | ✅ | ✅ | Full production flow using Gemini | Use `CODEMM_E2E_LANGS`, `CODEMM_E2E_STYLES`, `CODEMM_E2E_COUNTS` (comma-separated) |
+| `test/integration/languages/activityGenerationMatrix.test.js` | ✅ | ❌ | ❌ (stubs) | Fast language-matrix coverage for java/python/cpp/sql generation plumbing | Run normally; it replaces four duplicated per-language files |
+| `test/integration/llm/realActivityGenerationE2e.test.js` | ✅ | ✅ | ✅ | Full production flow across all configured providers plus auto-provider fallback | Use `CODEMM_E2E_PROVIDERS`, `CODEMM_E2E_LANGS`, `CODEMM_E2E_STYLES`, `CODEMM_E2E_COUNTS` |
 | `test/integration/llm/realProviderIntegrations.test.js` | ❌ | ❌ | ✅ | Tiny smoke tests for the raw provider adapters (token-costing) | Opt-in: `CODEMM_RUN_REAL_PROVIDER_SMOKE=1` |
 
 ## Conventions
@@ -32,14 +31,14 @@ Codemm backend uses Node's built-in test runner (`node:test`) with CommonJS test
 
 ## Real-LLM e2e (required)
 
-- `test/integration/llm/realActivityGenerationE2e.*.test.js` runs the full flow (dialogue + generation + Docker validation) and requires:
+- `test/integration/llm/realActivityGenerationE2e.test.js` runs the full flow (dialogue + generation + Docker validation) and requires:
   - an LLM API key in the environment (one of `CODEX_API_KEY`/`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`)
   - local Docker running + judge images built (`./run-codem-backend.sh`)
 
-Defaults: this test only runs `CODEMM_E2E_COUNTS=2` unless you override it.
+Defaults: this test only runs `CODEMM_E2E_LANGS=java` and `CODEMM_E2E_COUNTS=1` unless you override it.
 
 To run a single “cell” in the matrix:
-- `CODEMM_E2E_LANGS=java CODEMM_E2E_STYLES=stdout CODEMM_E2E_COUNTS=2 npm run test:integration`
+- `CODEMM_RUN_REAL_PROVIDER_SMOKE=1 CODEMM_E2E_PROVIDERS=openai CODEMM_E2E_LANGS=java CODEMM_E2E_STYLES=stdout CODEMM_E2E_COUNTS=1 npm --workspace codem-backend run test:integration -- llm/realActivityGenerationE2e.test.js`
 
 ## Debugging generation failures (the errors in your log)
 

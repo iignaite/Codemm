@@ -38,6 +38,15 @@ function parseCsvEnv(name, fallback) {
     .filter(Boolean);
 }
 
+function parseProviderFilter() {
+  const configured = parseCsvEnv("CODEMM_E2E_PROVIDERS", []);
+  if (configured.length === 0) return null;
+  const normalized = configured
+    .map((provider) => String(provider).trim().toLowerCase())
+    .filter((provider) => PROVIDER_ORDER.includes(provider));
+  return normalized.length > 0 ? Array.from(new Set(normalized)) : null;
+}
+
 function withPatchedEnv(patch, fn) {
   const keys = Object.keys(patch);
   const prev = {};
@@ -349,7 +358,9 @@ function registerRealActivityGenerationE2e({ provider, defaultLanguages, default
 }
 
 function registerRealActivityGenerationAllProvidersE2e(options = {}) {
-  for (const provider of PROVIDER_ORDER) {
+  const providerFilter = parseProviderFilter();
+  const providers = providerFilter ?? PROVIDER_ORDER;
+  for (const provider of providers) {
     registerRealActivityGenerationE2e({
       provider,
       defaultLanguages: options.defaultLanguages,
@@ -361,6 +372,7 @@ function registerRealActivityGenerationAllProvidersE2e(options = {}) {
 
 function registerRealActivityGenerationAutoFallbackE2e(options = {}) {
   const test = require("node:test");
+  const providerFilter = parseProviderFilter();
   const matrix = buildProviderTestMatrix({
     defaultLanguages: options.defaultLanguages ?? ["java"],
     defaultCounts: options.defaultCounts ?? ["1"],
@@ -373,6 +385,11 @@ function registerRealActivityGenerationAutoFallbackE2e(options = {}) {
     async (t) => {
       if (!RUN_SMOKE) {
         t.skip("Set CODEMM_RUN_REAL_PROVIDER_SMOKE=1 to run real provider E2E tests.");
+        return;
+      }
+
+      if (providerFilter && providerFilter.length <= 1) {
+        t.skip("Auto-provider fallback coverage is skipped when CODEMM_E2E_PROVIDERS narrows execution to one provider.");
         return;
       }
 

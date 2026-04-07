@@ -89,7 +89,8 @@ test("e2e edge: missing difficulty requires confirmation, then 'yes' applies pen
   assert.equal(gen.problems.length, 4);
 
   const s = getSession(sessionId);
-  assert.equal(s.state, "SAVED");
+  assert.equal(s.state, "COMPLETED");
+  assert.equal(s.latestGenerationRunStatus, "COMPLETED");
 });
 
 test("e2e edge: problem_count > 7 (without difficulty) does not complete the spec", async (t) => {
@@ -119,5 +120,6 @@ test("e2e edge: problem_count > 7 with difficulty shorthand clamps to 7", async 
   assert.equal(gen.problems.length, 7);
 
   const s = getSession(sessionId);
-  assert.equal(s.state, "SAVED");
+  assert.equal(s.state, "COMPLETED");
+  assert.equal(s.latestGenerationRunStatus, "COMPLETED");
 });

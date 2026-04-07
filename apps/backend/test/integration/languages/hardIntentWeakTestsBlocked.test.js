@@ -86,7 +86,7 @@ public class BillingTest {
   });
 }
 
-test("e2e: hard intent + weak tests (baseline passes) must not reach SAVED or silently downgrade", async (t) => {
+test("e2e: hard intent + weak tests (baseline passes) must not reach successful completion or silently downgrade", async (t) => {
   installStubs(t);
 
   const { sessionId } = createSession("practice");
@@ -99,7 +99,8 @@ test("e2e: hard intent + weak tests (baseline passes) must not reach SAVED or si
   await assert.rejects(() => generateFromSession(sessionId));
 
   const s = getSession(sessionId);
-  assert.equal(s.state, "READY");
+  assert.equal(s.state, "RETRYABLE_FAILURE");
+  assert.equal(s.latestGenerationRunStatus, "RETRYABLE_FAILURE");
   assert.equal(s.spec.problem_style, "stdout");
   assert.ok(Array.isArray(s.spec.difficulty_plan));
   assert.ok(s.spec.difficulty_plan.some((x) => x && x.difficulty === "hard"));
