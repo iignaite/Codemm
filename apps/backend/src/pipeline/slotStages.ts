@@ -712,4 +712,7 @@ export const __test__ = {
   inferFailureKind,
   preflightValidateDraft,
   isNoOpReferenceRepair,
+  stripCppComments,
+  extractCppSolveSignature,
+  deriveCppStarter,
 };

@@ -42,10 +42,10 @@ To run a single “cell” in the matrix:
 
 ## Debugging generation failures (the errors in your log)
 
-The real-LLM e2e test ultimately calls `generateFromSession()`, which calls `generateProblemsFromPlan()` (per-slot retries).
+The real-LLM e2e test ultimately calls `generateFromSession()`, which calls `generateProblemsFromPlan()` and the staged slot pipeline.
 
-When a slot fails after retries, you’ll see a `GenerationSlotFailureError` like:
-- `kind="contract"`: LLM output didn’t match the schema/format rules (most commonly `test_suite` shape).
+When a slot fails terminally, you’ll see a slot failure classified like:
+- `kind="contract"`: staged generation or deterministic preflight rejected the draft before Docker (schema mismatch, structural-topic violation, etc.).
 - `kind="tests"` / `kind="compile"` / `kind="timeout"`: Docker judge ran the reference solution and it failed.
 
 To see the raw per-slot LLM output + judge stdout/stderr in your terminal:
@@ -53,7 +53,7 @@ To see the raw per-slot LLM output + judge stdout/stderr in your terminal:
 
 | Failure kind | Where it comes from | What it usually means | What to inspect next |
 |---|---|---|---|
-| `contract` | `src/generation/perSlotGenerator.ts` schema/style checks | Bad JSON / missing fields / wrong `test_suite` format | The “Last error:” message + the generated draft’s `test_suite` format rules for that language |
+| `contract` | `src/pipeline/slotStages.ts` preflight + staged artifact validation | Bad JSON / missing fields / wrong `test_suite` format / structural-topic rule violation | The slot-stage failure message + the generated artifact shape rules for that language |
 | `tests` | `src/generation/referenceSolutionValidator.ts` (Docker) | Reference solution and tests disagree (or tests are too strict/brittle) | Judge output showing the first failing test (e.g. JUnit `expected … but was …`) |
 | `compile` | `src/generation/referenceSolutionValidator.ts` (Docker) | Reference solution didn’t compile | Judge stderr/compile output |
 | `timeout` | `src/generation/referenceSolutionValidator.ts` (Docker) | Judge timed out (infinite loop / very slow solution/tests) | Judge stdout/stderr + consider tightening generator prompts |

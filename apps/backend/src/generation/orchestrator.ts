@@ -9,7 +9,6 @@ import { trace } from "../utils/trace";
 import { deriveSlotObligations } from "./obligations";
 import { runSlotPipeline, SlotPipelineTerminalError } from "../pipeline/slotStages";
 import { applyGuidedScaffoldingAsync } from "./services/scaffoldingService";
-import { runLegacySlotAdapter } from "./legacyAdapter";
 import {
   buildArtifactSet,
   buildSlotIntent,
@@ -81,11 +80,8 @@ async function runSlotGenerationStep(args: {
     completedSlotIndex: number;
   }) => void;
   customInstructionsMd?: string;
-  useLegacyAdapter: boolean;
   deps?: {
-    generateSingleProblem?: (...args: any[]) => Promise<any>;
-    validateReferenceSolution?: (...args: any[]) => Promise<any>;
-    runTestStrengthGate?: (...args: any[]) => Promise<any>;
+    runSlotPipeline?: typeof runSlotPipeline;
   };
 }): Promise<SlotExecutionResult> {
   const { slot } = args;
@@ -120,25 +116,18 @@ async function runSlotGenerationStep(args: {
   });
 
   try {
-    const generatedResult = args.useLegacyAdapter
-      ? await runLegacySlotAdapter({
-          slot,
-          promptContext,
-          slotIntent,
-          ...(args.onProgress ? { onProgress: args.onProgress } : {}),
-          ...(args.deps ? { deps: args.deps } : {}),
-        })
-      : {
-          generated: await runSlotPipeline({
-            slot,
-            promptContext,
-            ...(args.onProgress ? { onProgress: args.onProgress } : {}),
-          }),
-          attempt: 1,
-        };
+    const pipelineRunner = args.deps?.runSlotPipeline ?? runSlotPipeline;
+    const generatedResult = {
+      generated: await pipelineRunner({
+        slot,
+        promptContext,
+        ...(args.onProgress ? { onProgress: args.onProgress } : {}),
+      }),
+      attempt: 1,
+    };
 
     const { generated, attempt: finalAttempt } = generatedResult;
-    if (args.useLegacyAdapter && slot.pedagogy) {
+    if (slot.pedagogy && !generated.draft.pedagogy) {
       generated.draft = {
         ...(await applyGuidedScaffoldingAsync(generated.draft, slot)),
         pedagogy: slot.pedagogy,
@@ -157,14 +146,12 @@ async function runSlotGenerationStep(args: {
       slotIntent,
       artifactSet: buildArtifactSet(generated.draft),
     });
-    if (!args.useLegacyAdapter) {
-      args.onProgress?.({
-        type: "slot_evidence",
-        slotIndex: slot.index,
-        attempt: 1,
-        obligations: deriveSlotObligations(slot).map((id) => ({ id, ok: true })),
-      });
-    }
+    args.onProgress?.({
+      type: "slot_evidence",
+      slotIndex: slot.index,
+      attempt: 1,
+      obligations: deriveSlotObligations(slot).map((id) => ({ id, ok: true })),
+    });
     args.onProgress?.({ type: "slot_completed", slotIndex: slot.index });
     args.onProgress?.({ type: "problem_validated", index: slot.index });
     const outcome: GenerationOutcome = {
@@ -270,9 +257,7 @@ export async function generateProblemsFromPlan(
       completedSlotIndex: number;
     }) => void;
     deps?: {
-      generateSingleProblem?: (...args: any[]) => Promise<any>;
-      validateReferenceSolution?: (...args: any[]) => Promise<any>;
-      runTestStrengthGate?: (...args: any[]) => Promise<any>;
+      runSlotPipeline?: typeof runSlotPipeline;
     };
   }
 ): Promise<{ problems: GeneratedProblem[]; outcomes: GenerationOutcome[]; slotResults: SlotExecutionResult[] }> {
@@ -287,7 +272,6 @@ export async function generateProblemsFromPlan(
   const outcomes: GenerationOutcome[] = initialCount ? [...resumeOutcomes.slice(0, initialCount)] : [];
   const onProgress = opts?.onProgress;
   const onCheckpoint = opts?.onCheckpoint;
-  const useLegacyAdapter = typeof opts?.deps?.generateSingleProblem === "function";
   const usedDomains: string[] = [];
   const usedTitles: string[] = [];
   const customInstructionsMd = (() => {
@@ -321,7 +305,6 @@ export async function generateProblemsFromPlan(
         ...(onProgress ? { onProgress } : {}),
         ...(onCheckpoint ? { onCheckpoint } : {}),
         ...(customInstructionsMd ? { customInstructionsMd } : {}),
-        useLegacyAdapter,
         ...(opts?.deps ? { deps: opts.deps } : {}),
       });
     },

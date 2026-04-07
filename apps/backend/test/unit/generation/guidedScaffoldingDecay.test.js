@@ -77,9 +77,11 @@ public class GraphAlgo {
   let n = 0;
   const { problems } = await generateProblemsFromPlan(plan, {
     deps: {
-      generateSingleProblem: async () => ({ draft: { ...baseDraft, id: `p${n++}` }, meta: { llmOutputHash: "x" } }),
-      validateReferenceSolution: async () => {},
-      runTestStrengthGate: async () => {},
+      runSlotPipeline: async () => ({
+        envelope: {},
+        draft: { ...baseDraft, id: `p${n++}` },
+        meta: { llmOutputHash: "x", promptTemplateId: "test", routePlan: null },
+      }),
     },
   });
 
