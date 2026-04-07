@@ -57,7 +57,7 @@ export async function validateReferenceSolution(draft: GeneratedProblemDraft): P
   const stderrLower = (result.stderr || "").toLowerCase();
   const combinedLower = `${stdoutLower}\n${stderrLower}`;
 
-  if (result.timedOut) {
+  if (result.failureCategory === "EXEC_TIMEOUT" || result.timedOut) {
     throw new ReferenceSolutionValidationError(
       `Reference solution timed out for "${draft.title}".`,
       {
@@ -65,6 +65,30 @@ export async function validateReferenceSolution(draft: GeneratedProblemDraft): P
         stderr: result.stderr,
         ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
         kind: "timeout",
+      }
+    );
+  }
+
+  if (result.failureCategory === "OUTPUT_LIMIT") {
+    throw new ReferenceSolutionValidationError(
+      `Reference solution exceeded output limits for "${draft.title}".`,
+      {
+        stdout: result.stdout,
+        stderr: result.stderr,
+        ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
+        kind: "infra",
+      }
+    );
+  }
+
+  if (result.failureCategory === "INFRA_ERROR") {
+    throw new ReferenceSolutionValidationError(
+      `Reference solution validation hit judge infrastructure failure for "${draft.title}".`,
+      {
+        stdout: result.stdout,
+        stderr: result.stderr,
+        ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
+        kind: "infra",
       }
     );
   }
@@ -82,7 +106,7 @@ export async function validateReferenceSolution(draft: GeneratedProblemDraft): P
       ? /\b(operationalerror|syntax error|no such table|no such column)\b/.test(combinedLower)
       : false;
 
-  if (hasCompileError || hasSqlError) {
+  if (result.failureCategory === "COMPILE_ERROR" || hasCompileError || hasSqlError) {
     const snippet = `${result.stderr || result.stdout || ""}`.slice(0, 1200);
     const fallback = snippet || `No compiler output captured (exitCode=${result.exitCode ?? "unknown"}).`;
     throw new ReferenceSolutionValidationError(
@@ -97,7 +121,7 @@ export async function validateReferenceSolution(draft: GeneratedProblemDraft): P
   }
 
   // Check that tests pass
-  if (!result.success) {
+  if (result.failureCategory === "TEST_FAILURE" || !result.success) {
     const stdout = result.stdout || "";
     const stderr = result.stderr || "";
     const likelyJUnitFailure =

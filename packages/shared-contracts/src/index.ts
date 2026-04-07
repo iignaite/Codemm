@@ -29,6 +29,12 @@ export type {
   GenerationFailureDiagnosticDto,
   RepairStrategy,
   SlotIntentDto,
+  GenerationRunStatus,
+  GenerationSlotStage,
+  GenerationSlotTerminalStatus,
+  GenerationRunSummaryDto,
+  GenerationSlotRunDto,
+  JudgeFailureCategoryDto,
 } from "./generation";
 export type {
   JudgeRunRequestDto,

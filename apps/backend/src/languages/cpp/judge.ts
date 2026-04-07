@@ -2,9 +2,10 @@ import { rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { JudgeResult } from "../../types";
 import { trace } from "../../utils/trace";
-import { getJudgeTimeoutMs, runDocker, stripAnsi } from "../../judge/docker";
+import { getJudgeCompileTimeoutMs, getJudgeExecutionTimeoutMs, getJudgeTimeoutMs, runDocker, stripAnsi } from "../../judge/docker";
 import { writeUserFiles } from "../../judge/files";
 import { mkCodemTmpDir } from "../../judge/tmp";
+import { buildJudgeResult, COMPILE_TIMEOUT_MARKER, EXEC_TIMEOUT_MARKER } from "../../judge/outcome";
 
 function parseCppRunner(stdout: string): { passed: string[]; failed: string[] } {
   const clean = stripAnsi(stdout);
@@ -23,6 +24,10 @@ function parseCppRunner(stdout: string): { passed: string[]; failed: string[] } 
 }
 
 export type CppFiles = Record<string, string>;
+
+function secondsFromMs(ms: number): number {
+  return Math.max(1, Math.ceil(ms / 1000));
+}
 
 export async function runCppJudge(userCode: string, testSuite: string): Promise<JudgeResult> {
   return runCppJudgeFiles({ "solution.cpp": userCode }, testSuite);
@@ -51,8 +56,9 @@ export async function runCppJudgeFiles(userFiles: CppFiles, testSuite: string): 
     writeFileSync(join(tmp, testFilename), testSuite, "utf8");
 
     const compileCmd =
-      "g++ -std=c++20 -O2 -pipe -Wall -Wextra -Wno-unused-parameter -o /tmp/test /workspace/test.cpp";
-    const runCmd = "/tmp/test";
+      `timeout -k 1s ${secondsFromMs(getJudgeCompileTimeoutMs())}s sh -lc 'g++ -std=c++20 -O2 -pipe -Wall -Wextra -Wno-unused-parameter -o /tmp/test /workspace/test.cpp' || { status=$?; if [ "$status" -eq 124 ]; then echo '${COMPILE_TIMEOUT_MARKER}' >&2; exit 124; fi; exit "$status"; }`;
+    const runCmd =
+      `timeout -k 1s ${secondsFromMs(getJudgeExecutionTimeoutMs())}s sh -lc '/tmp/test' || { status=$?; if [ "$status" -eq 124 ]; then echo '${EXEC_TIMEOUT_MARKER}' >&2; exit 124; fi; exit "$status"; }`;
 
     const args = [
       "run",
@@ -60,6 +66,16 @@ export async function runCppJudgeFiles(userFiles: CppFiles, testSuite: string): 
       "--network",
       "none",
       "--read-only",
+      "--cap-drop",
+      "ALL",
+      "--security-opt",
+      "no-new-privileges",
+      "--pids-limit",
+      "256",
+      "--memory",
+      "512m",
+      "--cpus",
+      "1.0",
       "--tmpfs",
       "/tmp:rw,exec",
       "-v",
@@ -73,21 +89,24 @@ export async function runCppJudgeFiles(userFiles: CppFiles, testSuite: string): 
       `${compileCmd} && ${runCmd}`,
     ];
 
-    const { stdout, stderr, exitCode, timedOut } = await runDocker({ args, cwd: tmp, timeoutMs: getJudgeTimeoutMs() });
-    trace("judge.result", { exitCode, timedOut, stdoutLen: stdout.length, stderrLen: stderr.length });
+    const capture = await runDocker({ args, cwd: tmp, timeoutMs: getJudgeTimeoutMs() });
+    trace("judge.result", {
+      exitCode: capture.exitCode,
+      timedOut: capture.timedOut,
+      outputLimitExceeded: capture.outputLimitExceeded,
+      stdoutLen: capture.stdout.length,
+      stderrLen: capture.stderr.length,
+    });
 
     const executionTimeMs = Date.now() - start;
-    const { passed, failed } = parseCppRunner(stdout);
-    return {
-      success: exitCode === 0,
+    const { passed, failed } = parseCppRunner(capture.stdout);
+    return buildJudgeResult({
+      success: capture.exitCode === 0 && !capture.timedOut && !capture.outputLimitExceeded,
       passedTests: passed,
       failedTests: failed,
-      stdout,
-      stderr,
       executionTimeMs,
-      exitCode,
-      timedOut,
-    };
+      capture,
+    });
   } catch (e: any) {
     const executionTimeMs = Date.now() - start;
     return {

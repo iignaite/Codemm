@@ -10,9 +10,12 @@ export const SessionStateSchema = z.enum([
   "DRAFT",
   "CLARIFYING",
   "READY",
+  "GENERATE_PENDING",
   "GENERATING",
-  "SAVED",
-  "FAILED",
+  "COMPLETED",
+  "PARTIAL_SUCCESS",
+  "RETRYABLE_FAILURE",
+  "HARD_FAILURE",
 ]);
 export type SessionState = z.infer<typeof SessionStateSchema>;
 
@@ -61,10 +64,13 @@ export type Session = z.infer<typeof SessionSchema>;
 const ALLOWED_TRANSITIONS: Record<SessionState, SessionState[]> = {
   DRAFT: ["CLARIFYING"],
   CLARIFYING: ["CLARIFYING", "READY"],
-  READY: ["GENERATING"],
-  GENERATING: ["SAVED", "FAILED", "READY"],
-  SAVED: [],
-  FAILED: ["READY"],
+  READY: ["GENERATE_PENDING"],
+  GENERATE_PENDING: ["GENERATING", "RETRYABLE_FAILURE", "HARD_FAILURE"],
+  GENERATING: ["COMPLETED", "PARTIAL_SUCCESS", "RETRYABLE_FAILURE", "HARD_FAILURE"],
+  COMPLETED: ["GENERATE_PENDING"],
+  PARTIAL_SUCCESS: ["GENERATE_PENDING"],
+  RETRYABLE_FAILURE: ["GENERATE_PENDING", "READY"],
+  HARD_FAILURE: ["GENERATE_PENDING", "READY"],
 };
 
 export function canTransition(from: SessionState, to: SessionState): boolean {

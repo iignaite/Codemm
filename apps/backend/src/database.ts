@@ -11,6 +11,16 @@ export {
   submissionRepository as submissionDb,
 } from "./database/repositories/activityRepository";
 export type {
+  DBGenerationRun,
+  DBGenerationSlotRun,
+  DBGenerationSlotTransition,
+} from "./database/repositories/generationRunRepository";
+export {
+  generationRunRepository as generationRunDb,
+  generationSlotRunRepository as generationSlotRunDb,
+  generationSlotTransitionRepository as generationSlotTransitionDb,
+} from "./database/repositories/generationRunRepository";
+export type {
   DBSession,
   DBSessionCollector,
   DBSessionMessage,

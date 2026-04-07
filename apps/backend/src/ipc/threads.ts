@@ -27,15 +27,16 @@ import { collectAttemptDiagnostics } from "../generation/diagnostics";
 import { defaultAssistantPrompt, getNumber, getString, makeSubId, requireParams, safeJsonStringify } from "./common";
 import type { RpcHandlerDef } from "./types";
 
-type Subscription = { threadId: string; unsubscribe: () => void };
+type Subscription = { threadId: string; runId: string; unsubscribe: () => void };
 const generationSubs = new Map<string, Subscription>();
 
 async function runGenerationWithRunTracking(args: {
   threadId: string;
+  runId?: string;
   meta: Record<string, unknown>;
-  execute: () => Promise<{ activityId: string; problems: unknown[] }>;
+  execute: (runId: string) => Promise<{ activityId: string; problems: unknown[] }>;
 }): Promise<GenerateThreadResponseDto> {
-  const runId = crypto.randomUUID();
+  const runId = typeof args.runId === "string" && args.runId.trim() ? args.runId : crypto.randomUUID();
   const routePlan = getResolvedLlmSnapshot();
   runRepository.create(runId, "generation", {
     threadId: args.threadId,
@@ -46,7 +47,7 @@ async function runGenerationWithRunTracking(args: {
   });
 
   let seq = 0;
-  const unsubPersist = subscribeGenerationProgress(args.threadId, (ev: GenerationProgressEvent) => {
+  const unsubPersist = subscribeGenerationProgress(runId, (ev: GenerationProgressEvent) => {
     seq += 1;
     try {
       runEventRepository.append(runId, seq, "progress", safeJsonStringify(ev));
@@ -56,7 +57,7 @@ async function runGenerationWithRunTracking(args: {
   });
 
   try {
-    const { activityId, problems } = await args.execute();
+    const { activityId, problems } = await args.execute(runId);
     runRepository.finish(runId, "succeeded");
     return { activityId, problemCount: Array.isArray(problems) ? problems.length : 0, runId };
   } catch (err) {
@@ -137,6 +138,8 @@ export function createThreadHandlers(deps: {
           commitments: s.commitments,
           generationOutcomes: s.generationOutcomes,
           intentTrace: s.intentTrace,
+          latestGenerationRunId: s.latestGenerationRunId ?? null,
+          latestGenerationRunStatus: s.latestGenerationRunStatus ?? null,
         };
         return response;
       },
@@ -181,19 +184,26 @@ export function createThreadHandlers(deps: {
     },
 
     "threads.subscribeGeneration": {
-      schema: z.object({ threadId: z.string().min(1).max(128) }).passthrough(),
+      schema: z
+        .object({
+          threadId: z.string().min(1).max(128),
+          runId: z.string().min(1).max(128).optional(),
+        })
+        .passthrough(),
       handler: async (paramsRaw) => {
         const params = requireParams(paramsRaw);
         const threadId = getString(params.threadId);
+        const requestedRunId = getString(params.runId);
         if (!threadId) throw new Error("threadId is required.");
 
         getThread(threadId);
 
         const subId = makeSubId();
         const latest = runRepository.latestByThread(threadId, "generation");
+        const effectiveRunId = requestedRunId ?? (latest && typeof latest.id === "string" ? latest.id : null);
         const buffered = (() => {
-          if (latest && typeof latest.id === "string" && latest.id) {
-            const rows = runEventRepository.listByRun(latest.id, 1500);
+          if (effectiveRunId) {
+            const rows = runEventRepository.listByRun(effectiveRunId, 1500);
             const events: GenerationProgressEvent[] = [];
             for (const r of rows) {
               if (r.type !== "progress") continue;
@@ -206,14 +216,18 @@ export function createThreadHandlers(deps: {
             }
             if (events.length > 0) return events;
           }
-          return getGenerationProgressBuffer(threadId);
+          return effectiveRunId ? getGenerationProgressBuffer(effectiveRunId) : [];
         })();
-        const unsubscribe = subscribeGenerationProgress(threadId, (ev: GenerationProgressEvent) => {
+        const subscribeRunId = effectiveRunId ?? requestedRunId;
+        if (!subscribeRunId) {
+          throw new Error("runId is required to subscribe before a generation run has been persisted.");
+        }
+        const unsubscribe = subscribeGenerationProgress(subscribeRunId, (ev: GenerationProgressEvent) => {
           deps.sendEvent("threads.generation", { subId, event: ev });
         });
-        generationSubs.set(subId, { threadId, unsubscribe });
+        generationSubs.set(subId, { threadId, runId: subscribeRunId, unsubscribe });
 
-        return { subId, buffered, ...(latest && typeof latest.id === "string" ? { runId: latest.id } : {}) };
+        return { subId, buffered, runId: subscribeRunId };
       },
     },
 
@@ -236,29 +250,43 @@ export function createThreadHandlers(deps: {
     },
 
     "threads.generate": {
-      schema: z.object({ threadId: z.string().min(1).max(128) }).passthrough(),
+      schema: z
+        .object({
+          threadId: z.string().min(1).max(128),
+          runId: z.string().min(1).max(128).optional(),
+        })
+        .passthrough(),
       handler: async (paramsRaw) => {
         const params = requireParams(paramsRaw);
         const threadId = getString(params.threadId);
+        const runId = getString(params.runId);
         if (!threadId) throw new Error("threadId is required.");
         return runGenerationWithRunTracking({
           threadId,
+          ...(runId ? { runId } : {}),
           meta: { threadId, mode: "v1", operation: "generate" },
-          execute: async () => generateFromThread(threadId),
+          execute: async (effectiveRunId) => generateFromThread(threadId, { runId: effectiveRunId }),
         });
       },
     },
 
     "threads.generateV2": {
-      schema: z.object({ threadId: z.string().min(1).max(128) }).passthrough(),
+      schema: z
+        .object({
+          threadId: z.string().min(1).max(128),
+          runId: z.string().min(1).max(128).optional(),
+        })
+        .passthrough(),
       handler: async (paramsRaw) => {
         const params = requireParams(paramsRaw);
         const threadId = getString(params.threadId);
+        const runId = getString(params.runId);
         if (!threadId) throw new Error("threadId is required.");
         return runGenerationWithRunTracking({
           threadId,
+          ...(runId ? { runId } : {}),
           meta: { threadId, mode: "v2", operation: "generate" },
-          execute: async () => generateFromThread(threadId),
+          execute: async (effectiveRunId) => generateFromThread(threadId, { runId: effectiveRunId }),
         });
       },
     },

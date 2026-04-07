@@ -82,9 +82,12 @@ contextBridge.exposeInMainWorld("codemm", {
     generateV2: (args) => ipcRenderer.invoke("codemm:threads:generateV2", args),
     regenerateSlot: (args) => ipcRenderer.invoke("codemm:threads:regenerateSlot", args),
     getGenerationDiagnostics: (args) => ipcRenderer.invoke("codemm:threads:getGenerationDiagnostics", args),
-    subscribeGeneration: async ({ threadId, onEvent }) => {
+    subscribeGeneration: async ({ threadId, runId, onEvent }) => {
       if (typeof onEvent !== "function") throw new Error("onEvent must be a function.");
-      const res = await ipcRenderer.invoke("codemm:threads:subscribeGeneration", { threadId });
+      const res = await ipcRenderer.invoke("codemm:threads:subscribeGeneration", {
+        threadId,
+        ...(typeof runId === "string" ? { runId } : {}),
+      });
       const subId = res && typeof res.subId === "string" ? res.subId : null;
       if (!subId) throw new Error("Failed to subscribe to generation progress.");
 
@@ -100,6 +103,7 @@ contextBridge.exposeInMainWorld("codemm", {
 
       return {
         subId,
+        ...(res && typeof res.runId === "string" ? { runId: res.runId } : {}),
         unsubscribe: async () => {
           generationListeners.delete(subId);
           try {

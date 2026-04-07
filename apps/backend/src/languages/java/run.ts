@@ -71,7 +71,7 @@ export async function runJavaFiles(opts: {
       writeFileSync(join(tmp, "stdin.txt"), opts.stdin ?? "", "utf8");
     }
 
-    const runCmd = hasStdin ? `java ${mainClass} < stdin.txt` : `java ${mainClass}`;
+    const runCmd = hasStdin ? `java -cp /tmp/classes ${mainClass} < /workspace/stdin.txt` : `java -cp /tmp/classes ${mainClass}`;
 
     // Reuse the existing judge image, but override ENTRYPOINT so it doesn't run JUnit.
     const args = [
@@ -80,17 +80,25 @@ export async function runJavaFiles(opts: {
       "--network",
       "none",
       "--read-only",
+      "--cap-drop",
+      "ALL",
+      "--security-opt",
+      "no-new-privileges",
+      "--pids-limit",
+      "256",
+      "--memory",
+      "512m",
+      "--cpus",
+      "1.0",
       "--tmpfs",
-      "/tmp:rw",
+      "/tmp:rw,exec,size=256m",
       "-v",
-      `${tmp}:/workspace`,
-      "--workdir",
-      "/workspace",
+      `${tmp}:/workspace:ro`,
       "--entrypoint",
       "/bin/bash",
       "codem-java-judge",
       "-lc",
-      `javac *.java && ${runCmd}`,
+      `mkdir -p /tmp/classes && javac -d /tmp/classes /workspace/*.java && ${runCmd}`,
     ];
 
     const { stdout, stderr } = await runDocker({ args, cwd: tmp, timeoutMs: getRunTimeoutMs() });

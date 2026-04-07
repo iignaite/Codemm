@@ -9,28 +9,28 @@ type Channel = {
   cleanupTimer: NodeJS.Timeout | null;
 };
 
-const channelsBySessionId = new Map<string, Channel>();
+const channelsByRunId = new Map<string, Channel>();
 
-function getOrCreateChannel(sessionId: string): Channel {
-  const existing = channelsBySessionId.get(sessionId);
+function getOrCreateChannel(runId: string): Channel {
+  const existing = channelsByRunId.get(runId);
   if (existing) return existing;
   const next: Channel = { listeners: new Set(), buffer: [], terminal: false, cleanupTimer: null };
-  channelsBySessionId.set(sessionId, next);
+  channelsByRunId.set(runId, next);
   return next;
 }
 
-function scheduleCleanup(sessionId: string, channel: Channel): void {
+function scheduleCleanup(runId: string, channel: Channel): void {
   if (channel.cleanupTimer) return;
   channel.cleanupTimer = setTimeout(() => {
-    channelsBySessionId.delete(sessionId);
+    channelsByRunId.delete(runId);
   }, 5 * 60 * 1000);
   // Allow the process to exit naturally (important for tests/CLI).
   channel.cleanupTimer.unref?.();
 }
 
-export function publishGenerationProgress(sessionId: string, event: GenerationProgressEvent): void {
-  if (!sessionId) return;
-  const channel = getOrCreateChannel(sessionId);
+export function publishGenerationProgress(runId: string, event: GenerationProgressEvent): void {
+  if (!runId) return;
+  const channel = getOrCreateChannel(runId);
 
   // Don't buffer heartbeats; they are only to keep UI responsive.
   if (event.type !== "heartbeat") {
@@ -46,7 +46,7 @@ export function publishGenerationProgress(sessionId: string, event: GenerationPr
     event.type === "generation_failed"
   ) {
     channel.terminal = true;
-    scheduleCleanup(sessionId, channel);
+    scheduleCleanup(runId, channel);
   }
 
   if (channel.listeners.size === 0) return;
@@ -59,21 +59,21 @@ export function publishGenerationProgress(sessionId: string, event: GenerationPr
   }
 }
 
-export function getGenerationProgressBuffer(sessionId: string): GenerationProgressEvent[] {
-  const channel = channelsBySessionId.get(sessionId);
+export function getGenerationProgressBuffer(runId: string): GenerationProgressEvent[] {
+  const channel = channelsByRunId.get(runId);
   return channel ? [...channel.buffer] : [];
 }
 
-export function subscribeGenerationProgress(sessionId: string, listener: Listener): () => void {
-  const channel = getOrCreateChannel(sessionId);
+export function subscribeGenerationProgress(runId: string, listener: Listener): () => void {
+  const channel = getOrCreateChannel(runId);
   channel.listeners.add(listener);
 
   return () => {
-    const c = channelsBySessionId.get(sessionId);
+    const c = channelsByRunId.get(runId);
     if (!c) return;
     c.listeners.delete(listener);
     if (c.listeners.size === 0 && c.terminal) {
-      scheduleCleanup(sessionId, c);
+      scheduleCleanup(runId, c);
     }
   };
 }

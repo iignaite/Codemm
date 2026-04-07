@@ -155,6 +155,13 @@ export const threadRepository = {
     `);
     return stmt.all(safeLimit) as DBSessionSummary[];
   },
+
+  listByStates: (states: string[]) => {
+    if (!Array.isArray(states) || states.length === 0) return [] as DBSession[];
+    const placeholders = states.map(() => "?").join(", ");
+    const stmt = db.prepare(`SELECT * FROM threads WHERE state IN (${placeholders}) ORDER BY updated_at DESC`);
+    return stmt.all(...states) as DBSession[];
+  },
 };
 
 export const threadCollectorRepository = {

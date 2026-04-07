@@ -22,6 +22,7 @@ export type LearningMode = "practice" | "guided";
 
 export type GenerationSubscription = {
   subId?: string;
+  runId?: string;
   unsubscribe: () => Promise<void>;
 };
 
@@ -68,8 +69,8 @@ export type CodemmBridge = {
     get?: (args: { threadId: string }) => Promise<ThreadDetailDto>;
     setInstructions?: (args: { threadId: string; instructions_md: string | null }) => Promise<{ ok: true }>;
     postMessage?: (args: { threadId: string; message: string }) => Promise<PostThreadMessageResponseDto>;
-    generate?: (args: { threadId: string }) => Promise<GenerateThreadResponseDto>;
-    generateV2?: (args: { threadId: string }) => Promise<GenerateThreadResponseDto>;
+    generate?: (args: { threadId: string; runId?: string }) => Promise<GenerateThreadResponseDto>;
+    generateV2?: (args: { threadId: string; runId?: string }) => Promise<GenerateThreadResponseDto>;
     regenerateSlot?: (args: {
       threadId: string;
       slotIndex: number;
@@ -82,6 +83,7 @@ export type CodemmBridge = {
     }) => Promise<GenerationDiagnosticsDto>;
     subscribeGeneration?: (args: {
       threadId: string;
+      runId?: string;
       onEvent: (event: GenerationProgressEvent) => void;
     }) => Promise<GenerationSubscription>;
   };

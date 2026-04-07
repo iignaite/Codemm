@@ -1,6 +1,15 @@
 export type ThreadLearningMode = "practice" | "guided";
 
-export type ThreadState = "DRAFT" | "CLARIFYING" | "READY" | "GENERATING" | "SAVED" | "FAILED";
+export type ThreadState =
+  | "DRAFT"
+  | "CLARIFYING"
+  | "READY"
+  | "GENERATE_PENDING"
+  | "GENERATING"
+  | "COMPLETED"
+  | "PARTIAL_SUCCESS"
+  | "RETRYABLE_FAILURE"
+  | "HARD_FAILURE";
 
 export type ThreadMessageDto = {
   id: string;
@@ -24,7 +33,11 @@ export type ThreadCommitmentDto = {
 export type GenerationOutcomeDto = {
   slotIndex: number;
   success: boolean;
+  status: "SUCCEEDED" | "RETRYABLE_FAILURE" | "HARD_FAILURE" | "SKIPPED";
   retries: number;
+  failureKind?: string;
+  failureCode?: string;
+  message?: string;
   appliedFallback?: string;
 };
 
@@ -52,6 +65,8 @@ export type ThreadDetailDto = {
   commitments: ThreadCommitmentDto[];
   generationOutcomes: GenerationOutcomeDto[];
   intentTrace: unknown[];
+  latestGenerationRunId?: string | null;
+  latestGenerationRunStatus?: string | null;
 };
 
 export type CreateThreadResponseDto = {

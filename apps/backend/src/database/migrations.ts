@@ -159,12 +159,78 @@ export function initializeDatabase() {
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS generation_runs (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      activity_id TEXT,
+      total_slots INTEGER NOT NULL DEFAULT 0,
+      completed_slots INTEGER NOT NULL DEFAULT 0,
+      successful_slots INTEGER NOT NULL DEFAULT 0,
+      failed_slots INTEGER NOT NULL DEFAULT 0,
+      last_failure_kind TEXT,
+      last_failure_code TEXT,
+      last_failure_message TEXT,
+      meta_json TEXT,
+      started_at TEXT,
+      finished_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE,
+      FOREIGN KEY (activity_id) REFERENCES activities(id) ON DELETE SET NULL
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS generation_slot_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      slot_index INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      current_stage TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      title TEXT,
+      topic TEXT,
+      language TEXT,
+      started_at TEXT,
+      ended_at TEXT,
+      last_failure_kind TEXT,
+      last_failure_code TEXT,
+      last_failure_message TEXT,
+      last_artifact_hash TEXT,
+      result_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(run_id, slot_index),
+      FOREIGN KEY (run_id) REFERENCES generation_runs(id) ON DELETE CASCADE
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS generation_slot_transitions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      slot_index INTEGER NOT NULL,
+      attempt INTEGER,
+      stage TEXT,
+      status TEXT NOT NULL,
+      payload_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (run_id) REFERENCES generation_runs(id) ON DELETE CASCADE
+    )
+  `);
+
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_threads_state ON threads(state);
     CREATE INDEX IF NOT EXISTS idx_thread_messages_thread_id ON thread_messages(thread_id);
     CREATE INDEX IF NOT EXISTS idx_thread_collectors_thread_id ON thread_collectors(thread_id);
     CREATE INDEX IF NOT EXISTS idx_submissions_activity_id ON submissions(activity_id);
     CREATE INDEX IF NOT EXISTS idx_runs_thread_id ON runs(thread_id);
     CREATE INDEX IF NOT EXISTS idx_run_events_run_id ON run_events(run_id);
+    CREATE INDEX IF NOT EXISTS idx_generation_runs_thread_id ON generation_runs(thread_id);
+    CREATE INDEX IF NOT EXISTS idx_generation_runs_status ON generation_runs(status);
+    CREATE INDEX IF NOT EXISTS idx_generation_slot_runs_run_id ON generation_slot_runs(run_id);
+    CREATE INDEX IF NOT EXISTS idx_generation_slot_transitions_run_id ON generation_slot_transitions(run_id);
   `);
 
   console.log("Database initialized successfully");

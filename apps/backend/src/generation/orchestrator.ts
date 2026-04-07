@@ -6,7 +6,6 @@ import { createExecutionContext } from "../engine/execution/ExecutionContext";
 import { ExecutionEngine } from "../engine/execution/ExecutionEngine";
 import type { Step } from "../engine/execution/Step";
 import { trace } from "../utils/trace";
-import { GenerationSlotFailureError } from "./errors";
 import { deriveSlotObligations } from "./obligations";
 import { runSlotPipeline, SlotPipelineTerminalError } from "../pipeline/slotStages";
 import { applyGuidedScaffoldingAsync } from "./services/scaffoldingService";
@@ -21,6 +20,7 @@ import {
   progressSummaryForFailure,
 } from "./services/validationService";
 import type { SlotPromptContext } from "../languages/types";
+import type { SlotExecutionFailure, SlotExecutionResult } from "../services/threads/generationState";
 
 const DOMAIN_POOL = [
   "smart home",
@@ -66,6 +66,7 @@ function pickDomain(seed: string, usedDomains: string[]): string {
 type OrchestratorState = {
   problems: GeneratedProblem[];
   outcomes: GenerationOutcome[];
+  slotResults: SlotExecutionResult[];
   usedDomains: string[];
   usedTitles: string[];
 };
@@ -86,7 +87,7 @@ async function runSlotGenerationStep(args: {
     validateReferenceSolution?: (...args: any[]) => Promise<any>;
     runTestStrengthGate?: (...args: any[]) => Promise<any>;
   };
-}) {
+}): Promise<SlotExecutionResult> {
   const { slot } = args;
   const slotIntent = buildSlotIntent(slot);
   const domainSeed = pickDomain(
@@ -166,12 +167,28 @@ async function runSlotGenerationStep(args: {
     }
     args.onProgress?.({ type: "slot_completed", slotIndex: slot.index });
     args.onProgress?.({ type: "problem_validated", index: slot.index });
+    const outcome: GenerationOutcome = {
+      slotIndex: slot.index,
+      success: true,
+      status: "SUCCEEDED",
+      retries: Math.max(0, finalAttempt - 1),
+    };
+    const result: SlotExecutionResult = {
+      slotIndex: slot.index,
+      terminalStatus: "SUCCEEDED",
+      retries: outcome.retries,
+      problem,
+      outcome,
+      title: problem.title,
+    };
     args.state.problems.push(problem);
-    args.state.outcomes.push({ slotIndex: slot.index, success: true, retries: Math.max(0, finalAttempt - 1) });
+    args.state.outcomes.push(outcome);
+    args.state.slotResults.push(result);
     args.state.usedDomains.push(domainSeed);
     args.state.usedTitles.push(problem.title);
     args.onCheckpoint?.({ problems: args.state.problems, outcomes: args.state.outcomes, completedSlotIndex: slot.index });
     trace("generation.attempt.success", { slotIndex: slot.index, title: generated.draft.title });
+    return result;
   } catch (err: any) {
     console.warn(`Slot ${slot.index} staged pipeline failed:`, err?.message ?? err);
     const finalKind = err instanceof SlotPipelineTerminalError ? err.kind : inferFailureKind(err);
@@ -201,20 +218,43 @@ async function runSlotGenerationStep(args: {
       slotIndex: slot.index,
       success: false,
       retries: 0,
+      status: finalKind === "infra" ? "HARD_FAILURE" : "RETRYABLE_FAILURE",
+      failureKind: finalKind,
+      failureCode: err instanceof SlotPipelineTerminalError ? `STAGE_${err.stage.toUpperCase()}` : "SLOT_PIPELINE_FAILED",
+      message: err instanceof Error ? err.message : String(err),
     };
-    throw new GenerationSlotFailureError(
-      `Failed to generate slot ${slot.index}. Last error: ${err instanceof Error ? err.message : String(err)}`,
-      {
-        slotIndex: slot.index,
-        kind: finalKind,
-        attempts: 1,
-        ...(typeof err?.title === "string" ? { title: err.title } : {}),
-        ...(typeof err?.llmOutputHash === "string" ? { llmOutputHash: err.llmOutputHash } : {}),
-        ...(err?.llm ? { llm: err.llm } : {}),
-        outcomesSoFar: [...args.state.outcomes, failOutcome],
-        problemsSoFar: [...args.state.problems],
-      }
-    );
+    const failure: SlotExecutionFailure = {
+      kind: finalKind,
+      code: err instanceof SlotPipelineTerminalError ? `STAGE_${err.stage.toUpperCase()}` : "SLOT_PIPELINE_FAILED",
+      message: err instanceof Error ? err.message : String(err),
+      stage:
+        err instanceof SlotPipelineTerminalError
+          ? err.stage === "validate"
+            ? "VALIDATING_REFERENCE"
+            : err.stage === "repair"
+              ? "REPAIRING_REFERENCE"
+              : err.stage === "reference"
+                ? "REFERENCE_RUNNING"
+                : err.stage === "tests"
+                  ? "TESTS_RUNNING"
+                  : "SKELETON_RUNNING"
+          : "HARD_FAILURE",
+      ...(typeof err?.title === "string" ? { title: err.title } : {}),
+      ...(typeof err?.llmOutputHash === "string" ? { llmOutputHash: err.llmOutputHash } : {}),
+    };
+    const terminalStatus = failOutcome.status === "HARD_FAILURE" ? "HARD_FAILURE" : "RETRYABLE_FAILURE";
+    const result: SlotExecutionResult = {
+      slotIndex: slot.index,
+      terminalStatus,
+      retries: 0,
+      outcome: failOutcome,
+      failure,
+      ...(typeof err?.title === "string" ? { title: err.title } : {}),
+    };
+    args.state.outcomes.push(failOutcome);
+    args.state.slotResults.push(result);
+    args.onCheckpoint?.({ problems: args.state.problems, outcomes: args.state.outcomes, completedSlotIndex: slot.index });
+    return result;
   }
 }
 
@@ -235,7 +275,7 @@ export async function generateProblemsFromPlan(
       runTestStrengthGate?: (...args: any[]) => Promise<any>;
     };
   }
-): Promise<{ problems: GeneratedProblem[]; outcomes: GenerationOutcome[] }> {
+): Promise<{ problems: GeneratedProblem[]; outcomes: GenerationOutcome[]; slotResults: SlotExecutionResult[] }> {
   const resumeProblems = Array.isArray(opts?.resume?.problems) ? opts!.resume!.problems : [];
   const resumeOutcomes = Array.isArray(opts?.resume?.outcomes) ? opts!.resume!.outcomes : [];
   const initialCount =
@@ -270,7 +310,7 @@ export async function generateProblemsFromPlan(
   const context = createExecutionContext<OrchestratorState, Record<string, never>>({
     workflowId: `generation-plan:${plan.length}:${initialCount}`,
     loggerName: "generation.orchestrator",
-    initialState: { problems, outcomes, usedDomains, usedTitles },
+    initialState: { problems, outcomes, slotResults: [], usedDomains, usedTitles },
   });
   const steps: Step<OrchestratorState, Record<string, never>>[] = plan.slice(initialCount).map((slot) => ({
     id: `slot:${slot.index}`,
@@ -288,5 +328,5 @@ export async function generateProblemsFromPlan(
   }));
 
   await new ExecutionEngine(steps).run(context);
-  return { problems: context.state.problems, outcomes: context.state.outcomes };
+  return { problems: context.state.problems, outcomes: context.state.outcomes, slotResults: context.state.slotResults };
 }

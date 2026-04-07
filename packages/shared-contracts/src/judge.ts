@@ -1,4 +1,5 @@
 import type { ActivityLanguageDto } from "./activity";
+import type { JudgeFailureCategoryDto } from "./generation";
 
 export type JudgeTestCaseDetailDto = {
   name: string;
@@ -16,6 +17,9 @@ export type RunResultDto = {
   formattedStdout?: string;
   formattedStderr?: string;
   runId: string;
+  failureCategory?: JudgeFailureCategoryDto;
+  timeoutStage?: "compile" | "execute" | "overall";
+  outputLimitExceeded?: boolean;
 };
 
 export type JudgeRunResultDto = RunResultDto;
@@ -31,6 +35,9 @@ export type JudgeSubmitResultDto = {
   executionTimeMs?: number;
   exitCode?: number;
   timedOut?: boolean;
+  failureCategory?: JudgeFailureCategoryDto;
+  timeoutStage?: "compile" | "execute" | "overall";
+  outputLimitExceeded?: boolean;
   testCaseDetails?: JudgeTestCaseDetailDto[];
   runId: string;
 };
