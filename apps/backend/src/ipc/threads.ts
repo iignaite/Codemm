@@ -197,6 +197,18 @@ export function createThreadHandlers(deps: {
         if (!threadId) throw new Error("threadId is required.");
 
         getThread(threadId);
+        if (requestedRunId) {
+          const run = runRepository.findById(requestedRunId);
+          if (!run) {
+            throw new Error("runId does not reference a generation run.");
+          }
+          if (run.kind !== "generation") {
+            throw new Error("runId does not reference a generation run.");
+          }
+          if (String(run.thread_id ?? "") !== threadId) {
+            throw new Error("runId does not belong to the provided threadId.");
+          }
+        }
 
         const subId = makeSubId();
         const latest = runRepository.latestByThread(threadId, "generation");

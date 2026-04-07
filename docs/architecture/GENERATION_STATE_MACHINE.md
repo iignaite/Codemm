@@ -161,6 +161,7 @@ Judge containers are launched with:
 
 - networking disabled
 - read-only filesystem
+- unprivileged container user
 - bounded tmpfs
 - CPU / memory / PID limits
 - explicit container cleanup on forced termination

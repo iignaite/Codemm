@@ -8,6 +8,8 @@ const { execSync } = require("node:child_process");
 const { activityDb } = require("../../../src/database");
 const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../src/services/sessionService");
 
+const RUN_SMOKE = String(process.env.CODEMM_RUN_REAL_PROVIDER_SMOKE || "").trim() === "1";
+
 /**
  * Real-LLM + Docker matrix runner.
  *
@@ -109,6 +111,11 @@ function registerRealActivityGenerationE2e({ provider }) {
     // Keep a generous timeout to avoid parent cancellation cascading into many subtest failures.
     { timeout: 6 * 60 * 60 * 1000 },
     async (t) => {
+      if (!RUN_SMOKE) {
+        t.skip("Set CODEMM_RUN_REAL_PROVIDER_SMOKE=1 to run real provider E2E tests.");
+        return;
+      }
+
       if (!["openai", "anthropic", "gemini"].includes(provider)) {
         t.skip(`Unknown provider "${provider}"`);
         return;
