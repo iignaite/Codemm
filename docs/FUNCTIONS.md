@@ -74,9 +74,10 @@ IPC is implemented via a strict preload bridge with allowlisted channels only (`
 
 The desktop bridge exposes generation APIs under `window.codemm.threads`:
 
-- `generate({ threadId })`: existing generation path.
-- `generateV2({ threadId })`: generation with structured per-attempt diagnostics and metadata.
-- `regenerateSlot({ threadId, slotIndex, strategy? })`: truncates checkpoint state at `slotIndex` and regenerates from that slot onward.
+- `generate({ threadId, runId? })`: starts a generation run. If `runId` is supplied, progress streaming is correlated to that run.
+- `generateV2({ threadId, runId? })`: generation with structured per-attempt diagnostics and metadata.
+- `subscribeGeneration({ threadId, runId?, onEvent })`: subscribes to a single generation run. If `runId` is omitted, the latest persisted generation run for the thread is replayed.
+- `regenerateSlot({ threadId, slotIndex, strategy? })`: currently supports only `retry_full_slot`; older targeted strategy names are explicitly rejected until stage-targeted slot resume exists.
 - `getGenerationDiagnostics({ threadId, runId?, limit? })`: returns persisted attempt diagnostics from `runs` + `run_events`.
 
 Persisted diagnostics now include:
@@ -86,6 +87,14 @@ Persisted diagnostics now include:
 - escalation events
 - terminal failure reason
 - sanitized artifact hashes and Docker validation metadata
+
+Persistent generation state is also stored in:
+
+- `generation_runs`
+- `generation_slot_runs`
+- `generation_slot_transitions`
+
+These tables are the source of truth for run state, slot stage state, crash recovery, and partial-success derivation.
 
 All generation methods remain IPC-only (renderer -> preload -> Electron main -> engine IPC). No engine HTTP surface is added.
 
