@@ -43,6 +43,10 @@ export async function runPythonJudge(userCode: string, testSuite: string): Promi
 export async function runPythonJudgeFiles(userFiles: PythonFiles, testSuite: string): Promise<JudgeResult> {
   const start = Date.now();
   const tmp = mkCodemTmpDir("codem-py-judge-");
+  const budgetProfile = {
+    overallTimeoutMs: getJudgeTimeoutMs(),
+    executeTimeoutMs: getJudgeExecutionTimeoutMs(),
+  };
 
   try {
     writeUserFiles(tmp, userFiles);
@@ -119,6 +123,7 @@ export async function runPythonJudgeFiles(userFiles: PythonFiles, testSuite: str
         failedTests: [],
         executionTimeMs,
         capture,
+        budgetProfile,
       });
     }
 
@@ -132,6 +137,7 @@ export async function runPythonJudgeFiles(userFiles: PythonFiles, testSuite: str
       failedTests: failing,
       executionTimeMs,
       capture,
+      budgetProfile,
     });
   } catch (e: any) {
     const executionTimeMs = Date.now() - start;

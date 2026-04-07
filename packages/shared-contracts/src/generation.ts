@@ -5,6 +5,18 @@ export type Difficulty = "easy" | "medium" | "hard";
 export type GenerationLanguage = "java" | "python" | "cpp" | "sql";
 
 export type GenerationFailureKind =
+  | "spec_error"
+  | "generation_schema_error"
+  | "static_rule_violation"
+  | "api_shape_mismatch"
+  | "complexity_risk_exceeded"
+  | "compile_failure"
+  | "test_failure"
+  | "time_budget_exceeded"
+  | "output_limit_exceeded"
+  | "judge_infra_failure"
+  | "repair_no_progress"
+  | "run_policy_failure"
   | "compile"
   | "tests"
   | "timeout"
@@ -18,6 +30,7 @@ export type GenerationRunStatus =
   | "PENDING"
   | "RUNNING"
   | "COMPLETED"
+  | "INCOMPLETE"
   | "PARTIAL_SUCCESS"
   | "RETRYABLE_FAILURE"
   | "HARD_FAILURE"
@@ -25,6 +38,22 @@ export type GenerationRunStatus =
 
 export type GenerationSlotStage =
   | "QUEUED"
+  | "SKELETON_GENERATING"
+  | "TESTS_GENERATING"
+  | "REFERENCE_GENERATING"
+  | "GENERATION_CONTRACT_VALIDATING"
+  | "STATIC_ANALYSIS"
+  | "API_SHAPE_VALIDATION"
+  | "COMPLEXITY_RISK_ESTIMATION"
+  | "EXECUTION_BUNDLE_READY"
+  | "COMPILE_RUNNING"
+  | "TEST_EXEC_RUNNING"
+  | "QUALITY_GATE_RUNNING"
+  | "FAILURE_DIAGNOSED"
+  | "REPAIR_STRATEGY_SELECTED"
+  | "REPAIR_GENERATING"
+  | "REPAIR_SANITIZING"
+  | "REPAIR_EXECUTING"
   | "SKELETON_RUNNING"
   | "TESTS_RUNNING"
   | "REFERENCE_RUNNING"
@@ -32,13 +61,28 @@ export type GenerationSlotStage =
   | "REPAIRING_REFERENCE"
   | "VALIDATING_REPAIR"
   | "SUCCEEDED"
+  | "RECOVERABLE_FAILED"
+  | "FATAL_FAILED"
+  | "QUARANTINED"
   | "RETRYABLE_FAILURE"
   | "HARD_FAILURE"
   | "SKIPPED";
 
-export type GenerationSlotTerminalStatus = "SUCCEEDED" | "RETRYABLE_FAILURE" | "HARD_FAILURE" | "SKIPPED";
+export type GenerationSlotTerminalStatus =
+  | "SUCCEEDED"
+  | "RECOVERABLE_FAILED"
+  | "FATAL_FAILED"
+  | "QUARANTINED"
+  | "RETRYABLE_FAILURE"
+  | "HARD_FAILURE"
+  | "SKIPPED";
 
 export type JudgeFailureCategoryDto =
+  | "COMPILE_FAILURE"
+  | "TEST_FAILURE"
+  | "TIME_BUDGET_EXCEEDED"
+  | "OUTPUT_LIMIT_EXCEEDED"
+  | "JUDGE_INFRA_FAILURE"
   | "COMPILE_ERROR"
   | "TEST_FAILURE"
   | "EXEC_TIMEOUT"
@@ -46,11 +90,63 @@ export type JudgeFailureCategoryDto =
   | "INFRA_ERROR";
 
 export type RepairStrategy =
+  | "regenerate_reference_logic"
+  | "regenerate_reference_shape"
+  | "regenerate_tests_shape"
+  | "tighten_constraints"
+  | "inject_guardrails"
+  | "quarantine_slot"
   | "retry_full_slot"
   | "repair_reference_solution"
   | "repair_test_suite"
   | "downgrade_difficulty"
   | "narrow_topics";
+
+export type GenerationExecutionPhaseDto = "compile" | "test_exec" | "quality_gate";
+
+export type GenerationSlotDiagnosisDto = {
+  runId: string;
+  slotIndex: number;
+  attempt: number;
+  diagnosisClass: string;
+  recoverability: "recoverable" | "fatal" | "quarantine";
+  normalizedSymptom: string;
+  recommendedRepairStrategy?: RepairStrategy | null;
+  sourceExecutionAttemptId?: number | null;
+};
+
+export type GenerationExecutionAttemptDto = {
+  id: number;
+  runId: string;
+  slotIndex: number;
+  attempt: number;
+  executionPhase: GenerationExecutionPhaseDto;
+  bundleHash: string;
+  strategy?: RepairStrategy | null;
+  budgetProfile?: Record<string, unknown> | null;
+  startedAt: string;
+  finishedAt?: string | null;
+  exitCode?: number | null;
+  timeoutStage?: "compile" | "execute" | "overall" | null;
+  watchdogSource?: "inner" | "outer" | "unknown" | null;
+  failureCategory?: JudgeFailureCategoryDto | GenerationFailureKind | null;
+  stdoutHash?: string | null;
+  stderrHash?: string | null;
+  stdoutSnippet?: string | null;
+  stderrSnippet?: string | null;
+  parsedFailures?: Record<string, unknown> | null;
+  trace?: Record<string, unknown> | null;
+};
+
+export type GenerationRunFailureCacheEntryDto = {
+  runId: string;
+  language: GenerationLanguage;
+  topicSignature: string;
+  failureClass: string;
+  normalizedSymptom: string;
+  guardrailPatch?: Record<string, unknown> | null;
+  createdAt: string;
+};
 
 export type CompletionUsageDto = {
   inputTokens?: number;
@@ -220,6 +316,20 @@ export type GenerationSlotRunDto = {
   title?: string | null;
   topic?: string | null;
   language?: GenerationLanguage | null;
+};
+
+export type ValidatedExecutionBundleSummaryDto = {
+  language: GenerationLanguage;
+  bundleHash: string;
+  artifactHashes: {
+    starter?: string;
+    reference?: string;
+    tests?: string;
+    description?: string;
+  };
+  staticFindings: Array<{ code: string; severity: "info" | "warn" | "error"; message: string }>;
+  riskScore: number;
+  budgetProfile: Record<string, unknown>;
 };
 
 export type GenerationProgressEvent =

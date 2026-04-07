@@ -103,6 +103,17 @@ export function parseGenerationOutcomes(json: string | null | undefined): Genera
     if (typeof success !== "boolean") continue;
     if (typeof retries !== "number" || !Number.isFinite(retries)) continue;
     const normalizedFailureKind =
+      failureKind === "generation_schema_error" ||
+      failureKind === "static_rule_violation" ||
+      failureKind === "api_shape_mismatch" ||
+      failureKind === "complexity_risk_exceeded" ||
+      failureKind === "compile_failure" ||
+      failureKind === "test_failure" ||
+      failureKind === "time_budget_exceeded" ||
+      failureKind === "output_limit_exceeded" ||
+      failureKind === "judge_infra_failure" ||
+      failureKind === "repair_no_progress" ||
+      failureKind === "run_policy_failure" ||
       failureKind === "compile" ||
       failureKind === "tests" ||
       failureKind === "timeout" ||
@@ -117,7 +128,13 @@ export function parseGenerationOutcomes(json: string | null | undefined): Genera
       slotIndex,
       success,
       status:
-        status === "SUCCEEDED" || status === "RETRYABLE_FAILURE" || status === "HARD_FAILURE" || status === "SKIPPED"
+        status === "SUCCEEDED" ||
+        status === "RECOVERABLE_FAILED" ||
+        status === "FATAL_FAILED" ||
+        status === "QUARANTINED" ||
+        status === "RETRYABLE_FAILURE" ||
+        status === "HARD_FAILURE" ||
+        status === "SKIPPED"
           ? status
           : success
             ? "SUCCEEDED"

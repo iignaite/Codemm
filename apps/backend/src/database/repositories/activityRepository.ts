@@ -36,7 +36,7 @@ export const activityRepository = {
     title: string,
     problems: string,
     prompt?: string,
-    opts?: { status?: "DRAFT" | "PUBLISHED"; timeLimitSeconds?: number | null }
+    opts?: { status?: "DRAFT" | "INCOMPLETE" | "PUBLISHED"; timeLimitSeconds?: number | null }
   ) => {
     const stmt = db.prepare(
       `INSERT INTO activities (id, title, prompt, problems, status, time_limit_seconds, created_at)
@@ -78,7 +78,7 @@ export const activityRepository = {
       prompt?: string;
       problems?: string;
       time_limit_seconds?: number | null;
-      status?: "DRAFT" | "PUBLISHED";
+      status?: "DRAFT" | "INCOMPLETE" | "PUBLISHED";
     }
   ): DBActivity | undefined => {
     const sets: string[] = [];

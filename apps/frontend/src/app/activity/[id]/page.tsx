@@ -86,6 +86,34 @@ export default function ActivityPage() {
     );
   }
 
+  if (activity.status === "INCOMPLETE") {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50 text-slate-900">
+        <div className="w-full max-w-xl rounded-2xl border border-amber-200 bg-white p-5 shadow">
+          <div className="text-sm font-semibold text-slate-900">This activity is incomplete</div>
+          <div className="mt-2 text-sm text-slate-600">
+            Generation only partially succeeded. Open review mode to inspect the surviving problems and repair or
+            discard the incomplete result before using it as a learner activity.
+          </div>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={goHome}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Home
+            </button>
+            <button
+              onClick={goToReview}
+              className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
+            >
+              Open Review
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-full overflow-hidden bg-slate-50 text-slate-900">
       <style jsx global>{`
@@ -111,12 +139,16 @@ export default function ActivityPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {activity.status === "DRAFT" && (
+            {(activity.status === "DRAFT" || activity.status === "INCOMPLETE") && (
               <button
                 onClick={goToReview}
-                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                  activity.status === "INCOMPLETE"
+                    ? "border border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100"
+                    : "border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                }`}
               >
-                Draft
+                {activity.status === "INCOMPLETE" ? "Incomplete" : "Draft"}
               </button>
             )}
             <div className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700">

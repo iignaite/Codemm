@@ -36,6 +36,11 @@ export async function runCppJudge(userCode: string, testSuite: string): Promise<
 export async function runCppJudgeFiles(userFiles: CppFiles, testSuite: string): Promise<JudgeResult> {
   const start = Date.now();
   const tmp = mkCodemTmpDir("codem-cpp-judge-");
+  const budgetProfile = {
+    overallTimeoutMs: getJudgeTimeoutMs(),
+    compileTimeoutMs: getJudgeCompileTimeoutMs(),
+    executeTimeoutMs: getJudgeExecutionTimeoutMs(),
+  };
 
   try {
     writeUserFiles(tmp, userFiles);
@@ -108,6 +113,7 @@ export async function runCppJudgeFiles(userFiles: CppFiles, testSuite: string): 
       failedTests: failed,
       executionTimeMs,
       capture,
+      budgetProfile,
     });
   } catch (e: any) {
     const executionTimeMs = Date.now() - start;

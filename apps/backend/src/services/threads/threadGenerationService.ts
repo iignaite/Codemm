@@ -60,6 +60,7 @@ function translateEventStage(stage: "skeleton" | "tests" | "reference" | "valida
 function isTerminalRunStatus(status: GenerationRunStatus): boolean {
   return (
     status === "COMPLETED" ||
+    status === "INCOMPLETE" ||
     status === "PARTIAL_SUCCESS" ||
     status === "RETRYABLE_FAILURE" ||
     status === "HARD_FAILURE" ||
@@ -79,6 +80,26 @@ function getLastFailure(results: SlotExecutionResult[]): {
     code: lastFailure.failure.code,
     message: lastFailure.failure.message,
   };
+}
+
+function failureKindToFailureCode(kind: GenerationFailureKind | null | undefined, stage: string): string | null {
+  if (!kind) return null;
+  if (kind === "timeout" || kind === "time_budget_exceeded") return "TIME_BUDGET_EXCEEDED";
+  if (kind === "compile" || kind === "compile_failure") return "COMPILE_FAILURE";
+  if (kind === "tests" || kind === "test_failure") return "TEST_FAILURE";
+  if (kind === "infra" || kind === "judge_infra_failure") return "JUDGE_INFRA_FAILURE";
+  if (kind === "output_limit_exceeded") return "OUTPUT_LIMIT_EXCEEDED";
+  if (kind === "generation_schema_error") return "GENERATION_SCHEMA_ERROR";
+  if (kind === "static_rule_violation") return "STATIC_RULE_VIOLATION";
+  if (kind === "api_shape_mismatch") return "API_SHAPE_MISMATCH";
+  if (kind === "complexity_risk_exceeded") return "COMPLEXITY_RISK_EXCEEDED";
+  if (kind === "repair_no_progress") return "REPAIR_NO_PROGRESS";
+  if (kind === "run_policy_failure") return "RUN_POLICY_FAILURE";
+  if (kind === "spec_error") return "SPEC_ERROR";
+  if (kind === "contract") return `STAGE_${stage.toUpperCase()}_CONTRACT`;
+  if (kind === "quality") return "QUALITY_GATE_FAILED";
+  if (kind === "llm") return "LLM_GENERATION_FAILED";
+  return `STAGE_${stage.toUpperCase()}`;
 }
 
 export async function generateFromThread(
@@ -172,15 +193,7 @@ export async function generateFromThread(
           lastFailureKind: runScopedEvent.status === "failed" ? runScopedEvent.failureKind ?? null : null,
           lastFailureCode:
             runScopedEvent.status === "failed"
-              ? runScopedEvent.timedOut
-                ? "EXEC_TIMEOUT"
-                : runScopedEvent.failureKind === "compile"
-                  ? "COMPILE_ERROR"
-                  : runScopedEvent.failureKind === "tests"
-                    ? "TEST_FAILURE"
-                    : runScopedEvent.failureKind === "infra"
-                      ? "INFRA_ERROR"
-                      : null
+              ? failureKindToFailureCode(runScopedEvent.failureKind, runScopedEvent.stage)
               : null,
           lastFailureMessage: runScopedEvent.status === "failed" ? runScopedEvent.message ?? null : null,
           lastArtifactHash: runScopedEvent.artifactHash ?? null,
@@ -212,11 +225,16 @@ export async function generateFromThread(
         generationSlotRunRepository.markTerminal({
           runId,
           slotIndex: runScopedEvent.slotIndex,
-          status: runScopedEvent.failureKind === "infra" ? "HARD_FAILURE" : "RETRYABLE_FAILURE",
+          status:
+            runScopedEvent.failureKind === "repair_no_progress"
+              ? "QUARANTINED"
+              : runScopedEvent.failureKind === "infra" || runScopedEvent.failureKind === "judge_infra_failure"
+                ? "HARD_FAILURE"
+                : "RETRYABLE_FAILURE",
           attemptCount: slot?.attempt_count ?? 1,
           lastFailureKind: runScopedEvent.failureKind,
           lastFailureCode:
-            runScopedEvent.failureKind === "timeout" ? "EXEC_TIMEOUT" : `STAGE_${runScopedEvent.stage.toUpperCase()}`,
+            failureKindToFailureCode(runScopedEvent.failureKind, runScopedEvent.stage),
           lastFailureMessage: runScopedEvent.message,
         });
         generationSlotRunRepository.appendTransition({
@@ -412,7 +430,7 @@ export async function generateFromThread(
             activityId = crypto.randomUUID();
             const activityTitle = `Activity (${problems.length} of ${spec.problem_count} problems)`;
             activityRepository.create(activityId, activityTitle, JSON.stringify(problems), undefined, {
-              status: "DRAFT",
+              status: runStatus === "INCOMPLETE" || runStatus === "PARTIAL_SUCCESS" ? "INCOMPLETE" : "DRAFT",
               timeLimitSeconds: null,
             });
             threadRepository.setActivityId(sessionId, activityId);
@@ -436,7 +454,12 @@ export async function generateFromThread(
           currentThreadState = terminalThreadState;
           threadRepository.setLastError(
             sessionId,
-            runStatus === "COMPLETED" ? null : lastFailureMessage ?? (runStatus === "PARTIAL_SUCCESS" ? "Generation completed with slot failures." : "Generation failed.")
+            runStatus === "COMPLETED"
+              ? null
+              : lastFailureMessage ??
+                  (runStatus === "INCOMPLETE" || runStatus === "PARTIAL_SUCCESS"
+                    ? "Generation completed incompletely. Some slots failed."
+                    : "Generation failed.")
           );
           persistRunProgress({
             type: "generation_run_status",

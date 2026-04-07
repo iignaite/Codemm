@@ -58,7 +58,7 @@ test("reconcileInterruptedGenerationState finalizes stale generation runs and re
   assert.ok(result.updatedThreadIds.includes(threadId));
 
   const recoveredRun = generationRunRepository.findById(runId);
-  assert.equal(recoveredRun.status, "PARTIAL_SUCCESS");
+  assert.equal(recoveredRun.status, "INCOMPLETE");
   assert.equal(recoveredRun.successful_slots, 1);
   assert.equal(recoveredRun.failed_slots, 1);
   assert.equal(recoveredRun.last_failure_code, "ENGINE_RESTART");
@@ -68,6 +68,6 @@ test("reconcileInterruptedGenerationState finalizes stale generation runs and re
   assert.equal(slots[1].status, "RETRYABLE_FAILURE");
 
   const thread = threadRepository.findById(threadId);
-  assert.equal(thread.state, "PARTIAL_SUCCESS");
+  assert.equal(thread.state, "INCOMPLETE");
   assert.match(String(thread.last_error ?? ""), /interrupted before completion/i);
 });

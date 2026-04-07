@@ -29,6 +29,10 @@ function secondsFromMs(ms: number): number {
 export async function runSqlJudge(userSql: string, testSuiteJson: string): Promise<JudgeResult> {
   const start = Date.now();
   const tmp = mkCodemTmpDir("codem-sql-judge-");
+  const budgetProfile = {
+    overallTimeoutMs: getJudgeTimeoutMs(),
+    executeTimeoutMs: getJudgeExecutionTimeoutMs(),
+  };
 
   try {
     writeFileSync(join(tmp, "solution.sql"), userSql, "utf8");
@@ -82,6 +86,7 @@ export async function runSqlJudge(userSql: string, testSuiteJson: string): Promi
       failedTests: failed,
       executionTimeMs,
       capture,
+      budgetProfile,
     });
   } catch (e: any) {
     const executionTimeMs = Date.now() - start;

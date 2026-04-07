@@ -29,6 +29,11 @@ import { generateSkeleton, SKELETON_PROMPT_TEMPLATE_ID } from "./stages/skeleton
 import { generateTests, TESTS_PROMPT_TEMPLATE_ID } from "./stages/tests";
 import type { GenerationFailureKind } from "../generation/errors";
 import { assertJavaStructuralTopicRequirements, hasJavaStructuralTopics } from "../languages/java/structuralTopics";
+import {
+  persistExecutionAttempt,
+  persistFailureDiagnosis,
+  prepareValidatedExecutionBundle,
+} from "../generation/services/validationService";
 
 export class SlotPipelineTerminalError extends Error {
   stage: Exclude<SlotStageName, "complete">;
@@ -438,6 +443,8 @@ async function validateDraftWithTelemetry(args: {
   ctx: StageContext;
   draft: GeneratedProblemDraft;
   attempt: number;
+  repairStrategy?: "regenerate_reference_logic" | null;
+  llmOutputHash?: string | null;
 }): Promise<void> {
   const startedAt = new Date().toISOString();
   args.ctx.onProgress?.({
@@ -450,8 +457,58 @@ async function validateDraftWithTelemetry(args: {
     startedAt,
   });
   try {
-    await validateReferenceSolution(args.draft);
-    await runTestStrengthGate(args.draft, args.ctx.slot);
+    const bundle = prepareValidatedExecutionBundle({
+      slot: args.ctx.slot,
+      draft: args.draft,
+      repairStrategy: args.repairStrategy ?? null,
+      llmOutputHash: args.llmOutputHash ?? null,
+    });
+
+    const execStartedAt = new Date().toISOString();
+    const judgeResult = await validateReferenceSolution(bundle.draft);
+    persistExecutionAttempt({
+      slotIndex: args.ctx.slot.index,
+      attempt: args.attempt,
+      executionPhase:
+        judgeResult.timeoutStage === "compile" || judgeResult.failureCategory === "COMPILE_FAILURE" || judgeResult.failureCategory === "COMPILE_ERROR"
+          ? "compile"
+          : "test_exec",
+      bundle,
+      strategy: args.repairStrategy ?? null,
+      result: {
+        startedAt: execStartedAt,
+        finishedAt: new Date().toISOString(),
+        exitCode: judgeResult.exitCode ?? null,
+        timeoutStage: judgeResult.timeoutStage ?? null,
+        watchdogSource: judgeResult.watchdogSource ?? null,
+        failureCategory: judgeResult.failureCategory ?? null,
+        stdout: judgeResult.stdout,
+        stderr: judgeResult.stderr,
+        parsedFailures: judgeResult.parsedFailures,
+        trace: {
+          passedTests: judgeResult.passedTests,
+          failedTests: judgeResult.failedTests,
+          executionTimeMs: judgeResult.executionTimeMs,
+        },
+      },
+    });
+
+    const qualityStartedAt = new Date().toISOString();
+    await runTestStrengthGate(bundle.draft, args.ctx.slot);
+    persistExecutionAttempt({
+      slotIndex: args.ctx.slot.index,
+      attempt: args.attempt,
+      executionPhase: "quality_gate",
+      bundle,
+      strategy: args.repairStrategy ?? null,
+      result: {
+        startedAt: qualityStartedAt,
+        finishedAt: new Date().toISOString(),
+        trace: {
+          qualityGate: "passed",
+        },
+      },
+    });
     const endedAt = new Date().toISOString();
     args.ctx.onProgress?.({
       type: "slot_stage_finished",
@@ -468,6 +525,88 @@ async function validateDraftWithTelemetry(args: {
   } catch (error) {
     const endedAt = new Date().toISOString();
     const kind = inferFailureKind(error);
+    const bundle =
+      (() => {
+        try {
+          return prepareValidatedExecutionBundle({
+            slot: args.ctx.slot,
+            draft: args.draft,
+            repairStrategy: args.repairStrategy ?? null,
+            llmOutputHash: args.llmOutputHash ?? null,
+          });
+        } catch {
+          return null;
+        }
+      })();
+
+    if (bundle && error instanceof ReferenceSolutionValidationError) {
+      const executionAttemptId = persistExecutionAttempt({
+        slotIndex: args.ctx.slot.index,
+        attempt: args.attempt,
+        executionPhase:
+          error.timeoutStage === "compile" || error.failureCategory === "COMPILE_FAILURE" || error.failureCategory === "COMPILE_ERROR"
+            ? "compile"
+            : "test_exec",
+        bundle,
+        strategy: args.repairStrategy ?? null,
+        result: {
+          startedAt,
+          finishedAt: endedAt,
+          exitCode: error.exitCode ?? null,
+          timeoutStage: error.timeoutStage ?? null,
+          watchdogSource: error.watchdogSource ?? null,
+          failureCategory: error.failureCategory ?? null,
+          stdout: error.judgeStdout,
+          stderr: error.judgeStderr,
+          parsedFailures: error.parsedFailures,
+          trace: {
+            budgetProfile: error.budgetProfile ?? null,
+          },
+        },
+      });
+      persistFailureDiagnosis({
+        slot: args.ctx.slot,
+        attempt: args.attempt,
+        kind,
+        err: error,
+        sourceExecutionAttemptId: executionAttemptId,
+      });
+    } else if (bundle && error instanceof TestStrengthGateError) {
+      const executionAttemptId = persistExecutionAttempt({
+        slotIndex: args.ctx.slot.index,
+        attempt: args.attempt,
+        executionPhase: "quality_gate",
+        bundle,
+        strategy: args.repairStrategy ?? null,
+        result: {
+          startedAt,
+          finishedAt: endedAt,
+          failureCategory: "TEST_FAILURE",
+          parsedFailures: {
+            baselineId: error.baselineId,
+          },
+          trace: {
+            qualityGate: "failed",
+            baselineId: error.baselineId,
+          },
+        },
+      });
+      persistFailureDiagnosis({
+        slot: args.ctx.slot,
+        attempt: args.attempt,
+        kind,
+        err: error,
+        sourceExecutionAttemptId: executionAttemptId,
+      });
+    } else {
+      persistFailureDiagnosis({
+        slot: args.ctx.slot,
+        attempt: args.attempt,
+        kind,
+        err: error,
+      });
+    }
+
     args.ctx.onProgress?.({
       type: "slot_stage_finished",
       slotIndex: args.ctx.slot.index,
@@ -584,7 +723,12 @@ export async function runSlotPipeline(args: {
   });
 
   try {
-    await validateDraftWithTelemetry({ ctx, draft, attempt: 1 });
+    await validateDraftWithTelemetry({
+      ctx,
+      draft,
+      attempt: 1,
+      llmOutputHash: reference.llmOutputHash ?? null,
+    });
   } catch (error) {
     if (!(error instanceof ReferenceSolutionValidationError)) {
       throw new SlotPipelineTerminalError(error instanceof Error ? error.message : String(error), {
@@ -631,7 +775,7 @@ export async function runSlotPipeline(args: {
         "Repair regenerated the same reference artifact after a validation failure.",
         {
           stage: "repair",
-          kind: inferFailureKind(error),
+          kind: "repair_no_progress",
           ...(repair.llm ? { llm: repair.llm } : {}),
           ...(repair.llmOutputHash ? { llmOutputHash: repair.llmOutputHash } : {}),
           routeRole: "repair",
@@ -668,7 +812,13 @@ export async function runSlotPipeline(args: {
       ...(repair.llmOutputHash ? { llmOutputHash: repair.llmOutputHash } : {}),
     });
     try {
-      await validateDraftWithTelemetry({ ctx, draft, attempt: 2 });
+      await validateDraftWithTelemetry({
+        ctx,
+        draft,
+        attempt: 2,
+        repairStrategy: "regenerate_reference_logic",
+        llmOutputHash: repair.llmOutputHash ?? null,
+      });
     } catch (repairError) {
       throw new SlotPipelineTerminalError(repairError instanceof Error ? repairError.message : String(repairError), {
         stage: "repair",

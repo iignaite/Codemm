@@ -15,7 +15,7 @@ const {
   EXEC_TIMEOUT_MARKER,
 } = require("../../../src/judge/outcome");
 
-test("deriveRunStatus maps mixed slot outcomes to partial success", () => {
+test("deriveRunStatus maps mixed slot outcomes to incomplete", () => {
   const status = deriveRunStatus([
     {
       slotIndex: 0,
@@ -34,20 +34,20 @@ test("deriveRunStatus maps mixed slot outcomes to partial success", () => {
         status: "RETRYABLE_FAILURE",
         retries: 1,
         failureKind: "timeout",
-        failureCode: "EXEC_TIMEOUT",
+        failureCode: "TIME_BUDGET_EXCEEDED",
         message: "Reference execution timed out.",
       },
       failure: {
         kind: "timeout",
-        code: "EXEC_TIMEOUT",
+        code: "TIME_BUDGET_EXCEEDED",
         message: "Reference execution timed out.",
         stage: "VALIDATING_REFERENCE",
       },
     },
   ]);
 
-  assert.equal(status, "PARTIAL_SUCCESS");
-  assert.equal(mapRunStatusToThreadState(status), "PARTIAL_SUCCESS");
+  assert.equal(status, "INCOMPLETE");
+  assert.equal(mapRunStatusToThreadState(status), "INCOMPLETE");
 });
 
 test("progress bus isolates buffered and live events by runId", () => {
@@ -84,8 +84,9 @@ test("judge outcome preserves timeout stage and strips internal timeout markers"
     },
   });
 
-  assert.equal(compileTimeout.failureCategory, "EXEC_TIMEOUT");
+  assert.equal(compileTimeout.failureCategory, "TIME_BUDGET_EXCEEDED");
   assert.equal(compileTimeout.timeoutStage, "compile");
+  assert.equal(compileTimeout.watchdogSource, "inner");
   assert.ok(!compileTimeout.stderr.includes(COMPILE_TIMEOUT_MARKER));
 
   const execTimeout = buildJudgeResult({
@@ -102,7 +103,8 @@ test("judge outcome preserves timeout stage and strips internal timeout markers"
     },
   });
 
-  assert.equal(execTimeout.failureCategory, "EXEC_TIMEOUT");
+  assert.equal(execTimeout.failureCategory, "TIME_BUDGET_EXCEEDED");
   assert.equal(execTimeout.timeoutStage, "execute");
+  assert.equal(execTimeout.watchdogSource, "inner");
   assert.ok(!execTimeout.stderr.includes(EXEC_TIMEOUT_MARKER));
 });

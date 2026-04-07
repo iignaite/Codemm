@@ -36,7 +36,7 @@ export type SlotExecutionResult =
 
 export function mapRunStatusToThreadState(status: GenerationRunStatus): ThreadState {
   if (status === "COMPLETED") return "COMPLETED";
-  if (status === "PARTIAL_SUCCESS") return "PARTIAL_SUCCESS";
+  if (status === "INCOMPLETE" || status === "PARTIAL_SUCCESS") return "INCOMPLETE";
   if (status === "HARD_FAILURE") return "HARD_FAILURE";
   if (status === "RETRYABLE_FAILURE" || status === "ABORTED") return "RETRYABLE_FAILURE";
   if (status === "RUNNING") return "GENERATING";
@@ -46,11 +46,13 @@ export function mapRunStatusToThreadState(status: GenerationRunStatus): ThreadSt
 export function deriveRunStatus(results: SlotExecutionResult[]): GenerationRunStatus {
   const succeeded = results.filter((result) => result.terminalStatus === "SUCCEEDED").length;
   const hardFailures = results.filter((result) => result.terminalStatus === "HARD_FAILURE").length;
-  const retryableFailures = results.filter((result) => result.terminalStatus === "RETRYABLE_FAILURE").length;
+  const retryableFailures = results.filter(
+    (result) => result.terminalStatus === "RETRYABLE_FAILURE" || result.terminalStatus === "RECOVERABLE_FAILED" || result.terminalStatus === "QUARANTINED"
+  ).length;
   const skipped = results.filter((result) => result.terminalStatus === "SKIPPED").length;
 
   if (results.length > 0 && succeeded === results.length) return "COMPLETED";
-  if (succeeded > 0 && succeeded + hardFailures + retryableFailures + skipped === results.length) return "PARTIAL_SUCCESS";
+  if (succeeded > 0 && succeeded + hardFailures + retryableFailures + skipped === results.length) return "INCOMPLETE";
   if (hardFailures > 0 && succeeded === 0 && retryableFailures === 0) return "HARD_FAILURE";
   if (retryableFailures > 0 || skipped === results.length) return "RETRYABLE_FAILURE";
   return "HARD_FAILURE";

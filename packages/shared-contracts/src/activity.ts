@@ -37,7 +37,7 @@ export type ActivityProblemDto = {
   };
 };
 
-export type ActivityStatusDto = "DRAFT" | "PUBLISHED";
+export type ActivityStatusDto = "DRAFT" | "INCOMPLETE" | "PUBLISHED";
 
 export type ActivityDetailDto = {
   id: string;

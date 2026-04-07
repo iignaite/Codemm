@@ -40,6 +40,11 @@ function secondsFromMs(ms: number): number {
 export async function runJavaJudge(userCode: string, testSuite: string): Promise<JudgeResult> {
   const start = Date.now();
   const tmp = mkCodemTmpDir("codem-judge-");
+  const budgetProfile = {
+    overallTimeoutMs: getJudgeTimeoutMs(),
+    compileTimeoutMs: getJudgeCompileTimeoutMs(),
+    executeTimeoutMs: getJudgeExecutionTimeoutMs(),
+  };
 
   try {
     const userClassName = inferClassName(userCode, "Solution");
@@ -98,6 +103,7 @@ export async function runJavaJudge(userCode: string, testSuite: string): Promise
       failedTests: failed,
       executionTimeMs,
       capture,
+      budgetProfile,
     });
   } catch (e: any) {
     const executionTimeMs = Date.now() - start;
@@ -117,6 +123,11 @@ export async function runJavaJudge(userCode: string, testSuite: string): Promise
 export async function runJavaJudgeFiles(userFiles: JavaFiles, testSuite: string): Promise<JudgeResult> {
   const start = Date.now();
   const tmp = mkCodemTmpDir("codem-judge-");
+  const budgetProfile = {
+    overallTimeoutMs: getJudgeTimeoutMs(),
+    compileTimeoutMs: getJudgeCompileTimeoutMs(),
+    executeTimeoutMs: getJudgeExecutionTimeoutMs(),
+  };
 
   try {
     writeUserFiles(tmp, userFiles);
@@ -187,6 +198,7 @@ export async function runJavaJudgeFiles(userFiles: JavaFiles, testSuite: string)
       failedTests: failed,
       executionTimeMs,
       capture,
+      budgetProfile,
     });
   } catch (e: any) {
     const executionTimeMs = Date.now() - start;

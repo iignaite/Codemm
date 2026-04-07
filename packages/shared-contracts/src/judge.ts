@@ -19,7 +19,10 @@ export type RunResultDto = {
   runId: string;
   failureCategory?: JudgeFailureCategoryDto;
   timeoutStage?: "compile" | "execute" | "overall";
+  watchdogSource?: "inner" | "outer" | "unknown";
   outputLimitExceeded?: boolean;
+  parsedFailures?: Record<string, unknown>;
+  budgetProfile?: Record<string, unknown>;
 };
 
 export type JudgeRunResultDto = RunResultDto;
@@ -37,8 +40,11 @@ export type JudgeSubmitResultDto = {
   timedOut?: boolean;
   failureCategory?: JudgeFailureCategoryDto;
   timeoutStage?: "compile" | "execute" | "overall";
+  watchdogSource?: "inner" | "outer" | "unknown";
   outputLimitExceeded?: boolean;
   testCaseDetails?: JudgeTestCaseDetailDto[];
+  parsedFailures?: Record<string, unknown>;
+  budgetProfile?: Record<string, unknown>;
   runId: string;
 };
 

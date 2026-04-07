@@ -15,7 +15,10 @@ export interface JudgeResult {
   timedOut?: boolean;
   failureCategory?: JudgeFailureCategoryDto;
   timeoutStage?: "compile" | "execute" | "overall";
+  watchdogSource?: "inner" | "outer" | "unknown";
   outputLimitExceeded?: boolean;
+  parsedFailures?: Record<string, unknown>;
+  budgetProfile?: Record<string, unknown>;
 }
 
 /**

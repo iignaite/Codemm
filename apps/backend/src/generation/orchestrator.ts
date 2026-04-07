@@ -70,6 +70,10 @@ type OrchestratorState = {
   usedTitles: string[];
 };
 
+function isHardFailureKind(kind: string): boolean {
+  return kind === "infra" || kind === "judge_infra_failure" || kind === "spec_error" || kind === "run_policy_failure";
+}
+
 async function runSlotGenerationStep(args: {
   slot: ProblemPlan[number];
   state: OrchestratorState;
@@ -205,7 +209,7 @@ async function runSlotGenerationStep(args: {
       slotIndex: slot.index,
       success: false,
       retries: 0,
-      status: finalKind === "infra" ? "HARD_FAILURE" : "RETRYABLE_FAILURE",
+      status: finalKind === "repair_no_progress" ? "QUARANTINED" : isHardFailureKind(finalKind) ? "HARD_FAILURE" : "RETRYABLE_FAILURE",
       failureKind: finalKind,
       failureCode: err instanceof SlotPipelineTerminalError ? `STAGE_${err.stage.toUpperCase()}` : "SLOT_PIPELINE_FAILED",
       message: err instanceof Error ? err.message : String(err),
@@ -229,7 +233,12 @@ async function runSlotGenerationStep(args: {
       ...(typeof err?.title === "string" ? { title: err.title } : {}),
       ...(typeof err?.llmOutputHash === "string" ? { llmOutputHash: err.llmOutputHash } : {}),
     };
-    const terminalStatus = failOutcome.status === "HARD_FAILURE" ? "HARD_FAILURE" : "RETRYABLE_FAILURE";
+    const terminalStatus =
+      failOutcome.status === "HARD_FAILURE"
+        ? "HARD_FAILURE"
+        : failOutcome.status === "QUARANTINED"
+          ? "QUARANTINED"
+          : "RETRYABLE_FAILURE";
     const result: SlotExecutionResult = {
       slotIndex: slot.index,
       terminalStatus,

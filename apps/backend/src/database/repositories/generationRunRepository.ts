@@ -57,6 +57,54 @@ export type DBGenerationSlotTransition = {
   created_at: string;
 };
 
+export type DBGenerationExecutionAttempt = {
+  id: number;
+  run_id: string;
+  slot_index: number;
+  attempt: number;
+  execution_phase: "compile" | "test_exec" | "quality_gate" | string;
+  bundle_hash: string;
+  strategy: string | null;
+  budget_profile_json: string | null;
+  started_at: string;
+  finished_at: string | null;
+  exit_code: number | null;
+  timeout_stage: "compile" | "execute" | "overall" | string | null;
+  watchdog_source: "inner" | "outer" | "unknown" | string | null;
+  failure_category: string | null;
+  stdout_hash: string | null;
+  stderr_hash: string | null;
+  stdout_snippet: string | null;
+  stderr_snippet: string | null;
+  parsed_failures_json: string | null;
+  trace_json: string | null;
+  created_at: string;
+};
+
+export type DBGenerationSlotDiagnosis = {
+  id: number;
+  run_id: string;
+  slot_index: number;
+  attempt: number;
+  diagnosis_class: string;
+  recoverability: "recoverable" | "fatal" | "quarantine" | string;
+  normalized_symptom: string;
+  recommended_repair_strategy: string | null;
+  source_execution_attempt_id: number | null;
+  created_at: string;
+};
+
+export type DBGenerationRunFailureCacheEntry = {
+  id: number;
+  run_id: string;
+  language: string;
+  topic_signature: string;
+  failure_class: string;
+  normalized_symptom: string;
+  guardrail_patch_json: string | null;
+  created_at: string;
+};
+
 function safeJsonStringify(value: unknown): string {
   try {
     return JSON.stringify(value ?? null);
@@ -317,5 +365,141 @@ export const generationSlotTransitionRepository = {
   listByRun(runId: string) {
     const stmt = db.prepare(`SELECT * FROM generation_slot_transitions WHERE run_id = ? ORDER BY id ASC`);
     return stmt.all(runId) as DBGenerationSlotTransition[];
+  },
+};
+
+export const generationExecutionAttemptRepository = {
+  create(args: {
+    runId: string;
+    slotIndex: number;
+    attempt: number;
+    executionPhase: "compile" | "test_exec" | "quality_gate";
+    bundleHash: string;
+    strategy?: string | null;
+    budgetProfile?: unknown;
+    startedAt: string;
+    finishedAt?: string | null;
+    exitCode?: number | null;
+    timeoutStage?: "compile" | "execute" | "overall" | null;
+    watchdogSource?: "inner" | "outer" | "unknown" | null;
+    failureCategory?: string | null;
+    stdoutHash?: string | null;
+    stderrHash?: string | null;
+    stdoutSnippet?: string | null;
+    stderrSnippet?: string | null;
+    parsedFailures?: unknown;
+    trace?: unknown;
+  }) {
+    const stmt = db.prepare(
+      `INSERT INTO generation_execution_attempts (
+         run_id, slot_index, attempt, execution_phase, bundle_hash, strategy, budget_profile_json,
+         started_at, finished_at, exit_code, timeout_stage, watchdog_source, failure_category,
+         stdout_hash, stderr_hash, stdout_snippet, stderr_snippet, parsed_failures_json, trace_json
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const result = stmt.run(
+      args.runId,
+      args.slotIndex,
+      args.attempt,
+      args.executionPhase,
+      args.bundleHash,
+      args.strategy ?? null,
+      typeof args.budgetProfile === "undefined" ? null : safeJsonStringify(args.budgetProfile),
+      args.startedAt,
+      args.finishedAt ?? null,
+      typeof args.exitCode === "number" ? args.exitCode : null,
+      args.timeoutStage ?? null,
+      args.watchdogSource ?? null,
+      args.failureCategory ?? null,
+      args.stdoutHash ?? null,
+      args.stderrHash ?? null,
+      args.stdoutSnippet ?? null,
+      args.stderrSnippet ?? null,
+      typeof args.parsedFailures === "undefined" ? null : safeJsonStringify(args.parsedFailures),
+      typeof args.trace === "undefined" ? null : safeJsonStringify(args.trace)
+    );
+    return Number(result.lastInsertRowid);
+  },
+
+  listByRun(runId: string, slotIndex?: number) {
+    if (typeof slotIndex === "number") {
+      const stmt = db.prepare(
+        `SELECT * FROM generation_execution_attempts WHERE run_id = ? AND slot_index = ? ORDER BY id ASC`
+      );
+      return stmt.all(runId, slotIndex) as DBGenerationExecutionAttempt[];
+    }
+    const stmt = db.prepare(`SELECT * FROM generation_execution_attempts WHERE run_id = ? ORDER BY id ASC`);
+    return stmt.all(runId) as DBGenerationExecutionAttempt[];
+  },
+};
+
+export const generationSlotDiagnosisRepository = {
+  create(args: {
+    runId: string;
+    slotIndex: number;
+    attempt: number;
+    diagnosisClass: string;
+    recoverability: "recoverable" | "fatal" | "quarantine";
+    normalizedSymptom: string;
+    recommendedRepairStrategy?: string | null;
+    sourceExecutionAttemptId?: number | null;
+  }) {
+    const stmt = db.prepare(
+      `INSERT INTO generation_slot_diagnoses (
+         run_id, slot_index, attempt, diagnosis_class, recoverability, normalized_symptom,
+         recommended_repair_strategy, source_execution_attempt_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const result = stmt.run(
+      args.runId,
+      args.slotIndex,
+      args.attempt,
+      args.diagnosisClass,
+      args.recoverability,
+      args.normalizedSymptom,
+      args.recommendedRepairStrategy ?? null,
+      args.sourceExecutionAttemptId ?? null
+    );
+    return Number(result.lastInsertRowid);
+  },
+
+  listByRun(runId: string, slotIndex?: number) {
+    if (typeof slotIndex === "number") {
+      const stmt = db.prepare(`SELECT * FROM generation_slot_diagnoses WHERE run_id = ? AND slot_index = ? ORDER BY id ASC`);
+      return stmt.all(runId, slotIndex) as DBGenerationSlotDiagnosis[];
+    }
+    const stmt = db.prepare(`SELECT * FROM generation_slot_diagnoses WHERE run_id = ? ORDER BY id ASC`);
+    return stmt.all(runId) as DBGenerationSlotDiagnosis[];
+  },
+};
+
+export const generationRunFailureCacheRepository = {
+  create(args: {
+    runId: string;
+    language: string;
+    topicSignature: string;
+    failureClass: string;
+    normalizedSymptom: string;
+    guardrailPatch?: unknown;
+  }) {
+    const stmt = db.prepare(
+      `INSERT INTO generation_run_failure_cache (
+         run_id, language, topic_signature, failure_class, normalized_symptom, guardrail_patch_json
+       ) VALUES (?, ?, ?, ?, ?, ?)`
+    );
+    const result = stmt.run(
+      args.runId,
+      args.language,
+      args.topicSignature,
+      args.failureClass,
+      args.normalizedSymptom,
+      typeof args.guardrailPatch === "undefined" ? null : safeJsonStringify(args.guardrailPatch)
+    );
+    return Number(result.lastInsertRowid);
+  },
+
+  listByRun(runId: string) {
+    const stmt = db.prepare(`SELECT * FROM generation_run_failure_cache WHERE run_id = ? ORDER BY id ASC`);
+    return stmt.all(runId) as DBGenerationRunFailureCacheEntry[];
   },
 };

@@ -9,7 +9,7 @@ function deriveRecoveredRunStatus(args: {
   completedSlots: number;
   totalSlots: number;
 }): GenerationRunStatus {
-  if (args.successfulSlots > 0 && args.failedSlots > 0) return "PARTIAL_SUCCESS";
+  if (args.successfulSlots > 0 && args.failedSlots > 0) return "INCOMPLETE";
   if (args.successfulSlots > 0 && args.completedSlots >= args.totalSlots) return "COMPLETED";
   return "RETRYABLE_FAILURE";
 }
@@ -25,9 +25,23 @@ export function reconcileInterruptedGenerationState(): {
     generationSlotRunRepository.reconcileIncomplete(run.id);
     const slots = generationSlotRunRepository.listByRun(run.id);
     const successfulSlots = slots.filter((slot) => slot.status === "SUCCEEDED").length;
-    const failedSlots = slots.filter((slot) => slot.status === "RETRYABLE_FAILURE" || slot.status === "HARD_FAILURE").length;
+    const failedSlots = slots.filter(
+      (slot) =>
+        slot.status === "RETRYABLE_FAILURE" ||
+        slot.status === "RECOVERABLE_FAILED" ||
+        slot.status === "QUARANTINED" ||
+        slot.status === "HARD_FAILURE" ||
+        slot.status === "FATAL_FAILED"
+    ).length;
     const completedSlots = slots.filter(
-      (slot) => slot.status === "SUCCEEDED" || slot.status === "RETRYABLE_FAILURE" || slot.status === "HARD_FAILURE" || slot.status === "SKIPPED"
+      (slot) =>
+        slot.status === "SUCCEEDED" ||
+        slot.status === "RETRYABLE_FAILURE" ||
+        slot.status === "RECOVERABLE_FAILED" ||
+        slot.status === "QUARANTINED" ||
+        slot.status === "HARD_FAILURE" ||
+        slot.status === "FATAL_FAILED" ||
+        slot.status === "SKIPPED"
     ).length;
     const recoveredStatus = deriveRecoveredRunStatus({
       successfulSlots,
@@ -44,7 +58,7 @@ export function reconcileInterruptedGenerationState(): {
       successfulSlots,
       failedSlots,
       lastFailureCode: run.last_failure_code ?? "ENGINE_RESTART",
-      lastFailureKind: (run.last_failure_kind as any) ?? (recoveredStatus === "PARTIAL_SUCCESS" ? "infra" : "infra"),
+      lastFailureKind: (run.last_failure_kind as any) ?? "infra",
       lastFailureMessage: run.last_failure_message ?? "Generation was interrupted before completion.",
     });
     threadRepository.updateState(run.thread_id, mapRunStatusToThreadState(recoveredStatus));

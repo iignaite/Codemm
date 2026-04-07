@@ -22,15 +22,21 @@ function inferFailureCategory(args: {
   passedTests: string[];
   failedTests: string[];
 }): JudgeFailureCategoryDto | undefined {
-  if (args.outputLimitExceeded) return "OUTPUT_LIMIT";
-  if (args.timedOut || args.timeoutStage) return "EXEC_TIMEOUT";
+  if (args.outputLimitExceeded) return "OUTPUT_LIMIT_EXCEEDED";
+  if (args.timedOut || args.timeoutStage) return "TIME_BUDGET_EXCEEDED";
 
   const combined = `${args.stdout}\n${args.stderr}`.toLowerCase();
   if (/cannot connect to the docker daemon|docker[^a-z]+not found|permission denied|no such image|pull access denied/.test(combined)) {
-    return "INFRA_ERROR";
+    return "JUDGE_INFRA_FAILURE";
   }
-  if (args.failedTests.length > 0 || args.passedTests.length > 0) return "TEST_FAILURE";
-  return "COMPILE_ERROR";
+
+  const hasStructuredTestFailure =
+    args.failedTests.length > 0 ||
+    args.passedTests.length > 0 ||
+    /assertionfailederror|failures\s*\(\d+\):|\[x\]|===+\s*failures?\s*===+|failed\s+.*::test_/i.test(combined);
+  if (hasStructuredTestFailure) return "TEST_FAILURE";
+
+  return "COMPILE_FAILURE";
 }
 
 export function buildJudgeResult(args: {
@@ -39,6 +45,7 @@ export function buildJudgeResult(args: {
   failedTests: string[];
   executionTimeMs: number;
   capture: SpawnCaptureResult;
+  budgetProfile?: Record<string, unknown>;
 }): JudgeResult {
   const timeoutStage =
     args.capture.stderr.includes(COMPILE_TIMEOUT_MARKER)
@@ -48,6 +55,8 @@ export function buildJudgeResult(args: {
         : args.capture.timedOut
           ? "overall"
           : undefined;
+  const watchdogSource =
+    timeoutStage === "overall" ? "outer" : timeoutStage === "compile" || timeoutStage === "execute" ? "inner" : undefined;
 
   const stdout = stripMarkers(args.capture.stdout);
   const stderr = stripMarkers(args.capture.stderr);
@@ -74,6 +83,16 @@ export function buildJudgeResult(args: {
     ...(args.capture.timedOut ? { timedOut: true } : {}),
     ...(failureCategory ? { failureCategory } : {}),
     ...(timeoutStage ? { timeoutStage } : {}),
+    ...(watchdogSource ? { watchdogSource } : {}),
     ...(args.capture.outputLimitExceeded ? { outputLimitExceeded: true } : {}),
+    ...(!args.success
+      ? {
+          parsedFailures: {
+            passedTests: args.passedTests,
+            failedTests: args.failedTests,
+          },
+        }
+      : {}),
+    ...(args.budgetProfile ? { budgetProfile: args.budgetProfile } : {}),
   };
 }

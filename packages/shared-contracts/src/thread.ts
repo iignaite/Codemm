@@ -7,6 +7,7 @@ export type ThreadState =
   | "GENERATE_PENDING"
   | "GENERATING"
   | "COMPLETED"
+  | "INCOMPLETE"
   | "PARTIAL_SUCCESS"
   | "RETRYABLE_FAILURE"
   | "HARD_FAILURE";
@@ -33,7 +34,14 @@ export type ThreadCommitmentDto = {
 export type GenerationOutcomeDto = {
   slotIndex: number;
   success: boolean;
-  status: "SUCCEEDED" | "RETRYABLE_FAILURE" | "HARD_FAILURE" | "SKIPPED";
+  status:
+    | "SUCCEEDED"
+    | "RECOVERABLE_FAILED"
+    | "FATAL_FAILED"
+    | "QUARANTINED"
+    | "RETRYABLE_FAILURE"
+    | "HARD_FAILURE"
+    | "SKIPPED";
   retries: number;
   failureKind?: string;
   failureCode?: string;

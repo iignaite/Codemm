@@ -184,6 +184,20 @@ export async function processSessionMessage(
       return ops;
     };
 
+    const sanitizeTopicTags = (base: SpecDraft, candidate: SpecDraft): SpecDraft => {
+      const raw = Array.isArray((candidate as any).topic_tags) ? ((candidate as any).topic_tags as unknown[]) : [];
+      const difficultyLike = new Set(["easy", "medium", "hard", "beginner", "intermediate", "advanced"]);
+      const sanitized = raw
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean)
+        .filter((value) => !difficultyLike.has(value.toLowerCase()));
+      if (sanitized.length === raw.length) return candidate;
+      if (sanitized.length > 0) return { ...candidate, topic_tags: sanitized };
+      return Array.isArray((base as any).topic_tags) && (base as any).topic_tags.length > 0
+        ? { ...candidate, topic_tags: (base as any).topic_tags }
+        : candidate;
+    };
+
     const buildNextQuestion = (spec: SpecDraft): { key: string; prompt: string } | null => {
       const gaps = analyzeSpecGaps(spec);
       if (gaps.complete) return null;
@@ -277,7 +291,8 @@ export async function processSessionMessage(
     const applyWithDraftValidation = (ops: JsonPatchOp[]) => {
       const merged = ops.length > 0 ? (applyJsonPatch(specWithFixed as any, ops) as SpecDraft) : (specWithFixed as SpecDraft);
       const fixedAfter = ensureFixedFields(merged);
-      const final = fixedAfter.length > 0 ? (applyJsonPatch(merged as any, fixedAfter) as SpecDraft) : merged;
+      const fixedMerged = fixedAfter.length > 0 ? (applyJsonPatch(merged as any, fixedAfter) as SpecDraft) : merged;
+      const final = sanitizeTopicTags(specWithFixed as SpecDraft, fixedMerged);
       return { final };
     };
 

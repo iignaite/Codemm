@@ -230,7 +230,7 @@ Symptom:
 Fix:
 
 - Restart the desktop app fully. The backend now reconciles stale `generation_runs` on startup and rewrites orphaned thread state from persisted run/slot records.
-- If the latest run was interrupted mid-slot, the recovered run is marked `RETRYABLE_FAILURE` or `PARTIAL_SUCCESS` instead of remaining permanently `RUNNING`.
+- If the latest run was interrupted mid-slot, the recovered run is marked `RETRYABLE_FAILURE` or `INCOMPLETE` instead of remaining permanently `RUNNING`.
 
 ## Reference Solution Times Out During Validation
 
@@ -241,11 +241,11 @@ Symptom:
 Fix:
 
 - Inspect the latest generation diagnostics and note whether the judge classified the failure as:
-  - `EXEC_TIMEOUT`
-  - `OUTPUT_LIMIT`
-  - `COMPILE_ERROR`
+  - `TIME_BUDGET_EXCEEDED`
+  - `OUTPUT_LIMIT_EXCEEDED`
+  - `COMPILE_FAILURE`
   - `TEST_FAILURE`
-  - `INFRA_ERROR`
-- If the failure is `EXEC_TIMEOUT`, reduce slot complexity or strengthen the `reference` / `repair` model route.
-- If the failure is `OUTPUT_LIMIT`, inspect the generated reference or tests for runaway logging.
-- If the failure is `INFRA_ERROR`, verify Docker Desktop is healthy and the judge image is present.
+  - `JUDGE_INFRA_FAILURE`
+- If the failure is `TIME_BUDGET_EXCEEDED`, reduce slot complexity or strengthen the `reference` / `repair` model route.
+- If the failure is `OUTPUT_LIMIT_EXCEEDED`, inspect the generated reference or tests for runaway logging.
+- If the failure is `JUDGE_INFRA_FAILURE`, verify Docker Desktop is healthy and the judge image is present.

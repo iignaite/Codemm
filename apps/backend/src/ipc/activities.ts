@@ -65,7 +65,9 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         if (!id) throw new Error("id is required.");
         const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
-        if ((dbActivity.status ?? "DRAFT") !== "DRAFT") throw new Error("This activity has already been published.");
+        if (!["DRAFT", "INCOMPLETE"].includes(dbActivity.status ?? "DRAFT")) {
+          throw new Error("This activity has already been published.");
+        }
 
         const title = typeof params.title === "string" ? params.title.trim() : undefined;
         const timeLimitSeconds =
@@ -94,6 +96,9 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
         if ((dbActivity.status ?? "DRAFT") === "PUBLISHED") return { ok: true } satisfies PublishActivityResponseDto;
+        if ((dbActivity.status ?? "DRAFT") === "INCOMPLETE") {
+          throw new Error("Incomplete activities cannot be published until all failed slots are repaired.");
+        }
         activityRepository.update(id, { status: "PUBLISHED" });
         return { ok: true } satisfies PublishActivityResponseDto;
       },
@@ -118,7 +123,9 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
 
         const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
-        if ((dbActivity.status ?? "DRAFT") !== "DRAFT") throw new Error("This activity has already been published.");
+        if (!["DRAFT", "INCOMPLETE"].includes(dbActivity.status ?? "DRAFT")) {
+          throw new Error("This activity has already been published.");
+        }
 
         let problems: any[] = [];
         try {
