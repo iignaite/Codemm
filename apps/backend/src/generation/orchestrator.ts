@@ -2,9 +2,6 @@ import type { ProblemPlan } from "../planner/types";
 import type { GeneratedProblem } from "../contracts/problem";
 import type { GenerationOutcome } from "../contracts/generationOutcome";
 import type { GenerationProgressEvent } from "../contracts/generationProgress";
-import { createExecutionContext } from "../engine/execution/ExecutionContext";
-import { ExecutionEngine } from "../engine/execution/ExecutionEngine";
-import type { Step } from "../engine/execution/Step";
 import { trace } from "../utils/trace";
 import { deriveSlotObligations } from "./obligations";
 import { runSlotPipeline, SlotPipelineTerminalError } from "../pipeline/slotStages";
@@ -62,44 +59,101 @@ function pickDomain(seed: string, usedDomains: string[]): string {
   return DOMAIN_POOL[start]!;
 }
 
-type OrchestratorState = {
-  problems: GeneratedProblem[];
-  outcomes: GenerationOutcome[];
-  slotResults: SlotExecutionResult[];
-  usedDomains: string[];
-  usedTitles: string[];
-};
-
 function isHardFailureKind(kind: string): boolean {
   return kind === "infra" || kind === "judge_infra_failure" || kind === "spec_error" || kind === "run_policy_failure";
 }
 
+function resolveSlotConcurrency(explicit?: number | null): number {
+  const raw =
+    typeof explicit === "number" && Number.isFinite(explicit)
+      ? explicit
+      : Number.parseInt(process.env.CODEMM_GENERATION_SLOT_CONCURRENCY ?? "", 10);
+  if (!Number.isFinite(raw)) return 2;
+  return Math.max(1, Math.min(4, Math.trunc(raw)));
+}
+
+function buildProblemMapFromResume(
+  problems: GeneratedProblem[],
+  outcomes: GenerationOutcome[],
+): Map<number, GeneratedProblem> {
+  const bySlot = new Map<number, GeneratedProblem>();
+  let problemCursor = 0;
+  for (const outcome of outcomes) {
+    if (!outcome?.success) continue;
+    const problem = problems[problemCursor];
+    if (problem) {
+      bySlot.set(outcome.slotIndex, problem);
+      problemCursor += 1;
+    }
+  }
+  return bySlot;
+}
+
+function synthesizeFailureStage(status: GenerationOutcome["status"]): SlotExecutionFailure["stage"] {
+  if (status === "QUARANTINED") return "FAILURE_DIAGNOSED";
+  if (status === "HARD_FAILURE" || status === "FATAL_FAILED") return "QUALITY_GATE_RUNNING";
+  if (status === "SKIPPED") return "EXECUTION_BUNDLE_READY";
+  return "VALIDATING_REFERENCE";
+}
+
+function synthesizeResultFromOutcome(
+  outcome: GenerationOutcome,
+  problem: GeneratedProblem | undefined,
+): SlotExecutionResult {
+  if (outcome.success && problem) {
+    return {
+      slotIndex: outcome.slotIndex,
+      terminalStatus: "SUCCEEDED",
+      retries: outcome.retries,
+      problem,
+      outcome,
+      title: problem.title,
+    };
+  }
+
+  const terminalStatus =
+    outcome.status === "QUARANTINED" || outcome.status === "SKIPPED"
+      ? outcome.status
+      : outcome.status === "HARD_FAILURE" || outcome.status === "FATAL_FAILED"
+        ? "HARD_FAILURE"
+        : "RETRYABLE_FAILURE";
+
+  return {
+    slotIndex: outcome.slotIndex,
+    terminalStatus,
+    retries: outcome.retries,
+    outcome,
+    failure: {
+      kind: outcome.failureKind ?? "unknown",
+      code: outcome.failureCode ?? "RESUMED_SLOT_FAILURE",
+      message: outcome.message ?? "Slot did not complete successfully.",
+      stage: synthesizeFailureStage(outcome.status),
+    },
+  };
+}
+
 async function runSlotGenerationStep(args: {
   slot: ProblemPlan[number];
-  state: OrchestratorState;
   onProgress?: (event: GenerationProgressEvent) => void;
-  onCheckpoint?: (state: {
-    problems: GeneratedProblem[];
-    outcomes: GenerationOutcome[];
-    completedSlotIndex: number;
-  }) => void;
   customInstructionsMd?: string;
+  promptContext?: SlotPromptContext;
   deps?: {
     runSlotPipeline?: typeof runSlotPipeline;
   };
 }): Promise<SlotExecutionResult> {
   const { slot } = args;
   const slotIntent = buildSlotIntent(slot);
-  const domainSeed = pickDomain(
-    `${slot.language}:${slot.difficulty}:${slot.topics.join(",")}:${slot.index}`,
-    args.state.usedDomains
-  );
-  const promptContext: SlotPromptContext = {
-    domain: domainSeed,
-    avoidDomains: args.state.usedDomains.slice(-4),
-    avoidTitles: args.state.usedTitles.slice(-4),
-    ...(args.customInstructionsMd ? { customInstructionsMd: args.customInstructionsMd } : {}),
-  };
+  const domainSeed =
+    args.promptContext?.domain ??
+    pickDomain(`${slot.language}:${slot.difficulty}:${slot.topics.join(",")}:${slot.index}`, []);
+  const promptContext: SlotPromptContext =
+    args.promptContext ??
+    ({
+      domain: domainSeed,
+      avoidDomains: [],
+      avoidTitles: [],
+      ...(args.customInstructionsMd ? { customInstructionsMd: args.customInstructionsMd } : {}),
+    } satisfies SlotPromptContext);
 
   const topic = slot.topics[0] ?? "topic";
   args.onProgress?.({
@@ -172,12 +226,6 @@ async function runSlotGenerationStep(args: {
       outcome,
       title: problem.title,
     };
-    args.state.problems.push(problem);
-    args.state.outcomes.push(outcome);
-    args.state.slotResults.push(result);
-    args.state.usedDomains.push(domainSeed);
-    args.state.usedTitles.push(problem.title);
-    args.onCheckpoint?.({ problems: args.state.problems, outcomes: args.state.outcomes, completedSlotIndex: slot.index });
     trace("generation.attempt.success", { slotIndex: slot.index, title: generated.draft.title });
     return result;
   } catch (err: any) {
@@ -247,11 +295,46 @@ async function runSlotGenerationStep(args: {
       failure,
       ...(typeof err?.title === "string" ? { title: err.title } : {}),
     };
-    args.state.outcomes.push(failOutcome);
-    args.state.slotResults.push(result);
-    args.onCheckpoint?.({ problems: args.state.problems, outcomes: args.state.outcomes, completedSlotIndex: slot.index });
     return result;
   }
+}
+
+function buildPromptContextForSlot(args: {
+  slot: ProblemPlan[number];
+  assignedDomains: Map<number, string>;
+  priorSuccessfulTitles: string[];
+  customInstructionsMd?: string;
+}): SlotPromptContext {
+  const priorDomains = [...args.assignedDomains.entries()]
+    .filter(([slotIndex]) => slotIndex < args.slot.index)
+    .sort((a, b) => a[0] - b[0])
+    .map(([, domain]) => domain);
+
+  return {
+    domain: args.assignedDomains.get(args.slot.index) ?? pickDomain(
+      `${args.slot.language}:${args.slot.difficulty}:${args.slot.topics.join(",")}:${args.slot.index}`,
+      priorDomains
+    ),
+    avoidDomains: priorDomains.slice(-4),
+    avoidTitles: args.priorSuccessfulTitles.slice(-4),
+    ...(args.customInstructionsMd ? { customInstructionsMd: args.customInstructionsMd } : {}),
+  };
+}
+
+function buildOrderedSnapshot(args: {
+  plan: ProblemPlan;
+  resultBySlot: Map<number, SlotExecutionResult>;
+}): { problems: GeneratedProblem[]; outcomes: GenerationOutcome[]; slotResults: SlotExecutionResult[] } {
+  const ordered = args.plan
+    .map((slot) => args.resultBySlot.get(slot.index))
+    .filter((result): result is SlotExecutionResult => Boolean(result));
+
+  const outcomes = ordered.map((result) => result.outcome);
+  const problems = ordered
+    .filter((result): result is Extract<SlotExecutionResult, { terminalStatus: "SUCCEEDED" }> => result.terminalStatus === "SUCCEEDED")
+    .map((result) => result.problem);
+
+  return { problems, outcomes, slotResults: ordered };
 }
 
 export async function generateProblemsFromPlan(
@@ -260,6 +343,8 @@ export async function generateProblemsFromPlan(
     onProgress?: (event: GenerationProgressEvent) => void;
     customInstructionsMd?: string | null;
     resume?: { problems: GeneratedProblem[]; outcomes: GenerationOutcome[] };
+    targetSlotIndexes?: number[];
+    concurrency?: number;
     onCheckpoint?: (state: {
       problems: GeneratedProblem[];
       outcomes: GenerationOutcome[];
@@ -270,19 +355,14 @@ export async function generateProblemsFromPlan(
     };
   }
 ): Promise<{ problems: GeneratedProblem[]; outcomes: GenerationOutcome[]; slotResults: SlotExecutionResult[] }> {
-  const resumeProblems = Array.isArray(opts?.resume?.problems) ? opts!.resume!.problems : [];
-  const resumeOutcomes = Array.isArray(opts?.resume?.outcomes) ? opts!.resume!.outcomes : [];
+  const resumeProblems = Array.isArray(opts?.resume?.problems) ? opts.resume!.problems : [];
+  const resumeOutcomes = Array.isArray(opts?.resume?.outcomes) ? opts.resume!.outcomes : [];
   const initialCount =
     resumeProblems.length === resumeOutcomes.length && resumeProblems.length <= plan.length
       ? resumeProblems.length
       : 0;
-
-  const problems: GeneratedProblem[] = initialCount ? [...resumeProblems.slice(0, initialCount)] : [];
-  const outcomes: GenerationOutcome[] = initialCount ? [...resumeOutcomes.slice(0, initialCount)] : [];
   const onProgress = opts?.onProgress;
   const onCheckpoint = opts?.onCheckpoint;
-  const usedDomains: string[] = [];
-  const usedTitles: string[] = [];
   const customInstructionsMd = (() => {
     const raw = typeof opts?.customInstructionsMd === "string" ? opts.customInstructionsMd : "";
     const trimmed = raw.trim();
@@ -290,35 +370,82 @@ export async function generateProblemsFromPlan(
     const maxLen = 8000;
     return trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}…(truncated)` : trimmed;
   })();
+  const resultBySlot = new Map<number, SlotExecutionResult>();
+  const resumeProblemBySlot = buildProblemMapFromResume(resumeProblems, resumeOutcomes);
+  const targetSlotIndexes = (() => {
+    const explicit = Array.isArray(opts?.targetSlotIndexes)
+      ? [...new Set(opts!.targetSlotIndexes.filter((value) => Number.isInteger(value) && value >= 0 && value < plan.length))].sort((a, b) => a - b)
+      : null;
+    if (explicit && explicit.length > 0) return explicit;
+    if (initialCount > 0) return plan.slice(initialCount).map((slot) => slot.index);
+    return plan.map((slot) => slot.index);
+  })();
+  const targetSlotIndexSet = new Set(targetSlotIndexes);
 
-  for (let i = 0; i < initialCount; i++) {
-    const slot = plan[i];
-    if (!slot) continue;
-    const domainSeed = pickDomain(`${slot.language}:${slot.difficulty}:${slot.topics.join(",")}:${slot.index}`, usedDomains);
-    usedDomains.push(domainSeed);
-    const title = problems[i]?.title;
-    if (typeof title === "string" && title.trim()) usedTitles.push(title);
+  for (const outcome of resumeOutcomes) {
+    if (targetSlotIndexSet.has(outcome.slotIndex)) continue;
+    const synthesized = synthesizeResultFromOutcome(outcome, resumeProblemBySlot.get(outcome.slotIndex));
+    resultBySlot.set(outcome.slotIndex, synthesized);
   }
 
-  const context = createExecutionContext<OrchestratorState, Record<string, never>>({
-    workflowId: `generation-plan:${plan.length}:${initialCount}`,
-    loggerName: "generation.orchestrator",
-    initialState: { problems, outcomes, slotResults: [], usedDomains, usedTitles },
+  const assignedDomains = new Map<number, string>();
+  for (const slot of plan) {
+    const priorDomains = [...assignedDomains.values()];
+    assignedDomains.set(
+      slot.index,
+      pickDomain(`${slot.language}:${slot.difficulty}:${slot.topics.join(",")}:${slot.index}`, priorDomains),
+    );
+  }
+
+  const priorSuccessfulTitles = plan
+    .map((slot) => resumeProblemBySlot.get(slot.index))
+    .filter((problem): problem is GeneratedProblem => Boolean(problem))
+    .map((problem) => problem.title)
+    .filter((title): title is string => typeof title === "string" && title.trim().length > 0);
+
+  const slotsToRun = plan.filter((slot) => targetSlotIndexSet.has(slot.index));
+  const concurrency = Math.min(resolveSlotConcurrency(opts?.concurrency ?? null), Math.max(1, slotsToRun.length || 1));
+  trace("generation.orchestrator.schedule", {
+    totalSlots: plan.length,
+    targetSlotIndexes,
+    concurrency,
   });
-  const steps: Step<OrchestratorState, Record<string, never>>[] = plan.slice(initialCount).map((slot) => ({
-    id: `slot:${slot.index}`,
-    run: async () => {
-      await runSlotGenerationStep({
-        slot,
-        state: context.state,
+
+  let cursor = 0;
+  async function worker() {
+    while (cursor < slotsToRun.length) {
+      const next = slotsToRun[cursor];
+      cursor += 1;
+      if (!next) continue;
+
+      const result = await runSlotGenerationStep({
+        slot: next,
         ...(onProgress ? { onProgress } : {}),
-        ...(onCheckpoint ? { onCheckpoint } : {}),
         ...(customInstructionsMd ? { customInstructionsMd } : {}),
+        promptContext: buildPromptContextForSlot({
+          slot: next,
+          assignedDomains,
+          priorSuccessfulTitles,
+          ...(customInstructionsMd ? { customInstructionsMd } : {}),
+        }),
         ...(opts?.deps ? { deps: opts.deps } : {}),
       });
-    },
-  }));
+      resultBySlot.set(next.index, result);
 
-  await new ExecutionEngine(steps).run(context);
-  return { problems: context.state.problems, outcomes: context.state.outcomes, slotResults: context.state.slotResults };
+      if (onCheckpoint) {
+        const snapshot = buildOrderedSnapshot({ plan, resultBySlot });
+        onCheckpoint({
+          problems: snapshot.problems,
+          outcomes: snapshot.outcomes,
+          completedSlotIndex: next.index,
+        });
+      }
+    }
+  }
+
+  if (slotsToRun.length > 0) {
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  }
+
+  return buildOrderedSnapshot({ plan, resultBySlot });
 }

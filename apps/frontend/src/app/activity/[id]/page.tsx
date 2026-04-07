@@ -139,16 +139,12 @@ export default function ActivityPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {(activity.status === "DRAFT" || activity.status === "INCOMPLETE") && (
+            {activity.status === "DRAFT" && (
               <button
                 onClick={goToReview}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
-                  activity.status === "INCOMPLETE"
-                    ? "border border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100"
-                    : "border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
-                }`}
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
               >
-                {activity.status === "INCOMPLETE" ? "Incomplete" : "Draft"}
+                Draft
               </button>
             )}
             <div className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700">

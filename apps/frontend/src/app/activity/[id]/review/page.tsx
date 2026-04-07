@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
+import { threadsClient } from "@/lib/bridge/threadsClient";
 
 type Problem = {
   id: string;
@@ -21,6 +22,9 @@ type Activity = {
   createdAt: string;
   status?: "DRAFT" | "INCOMPLETE" | "PUBLISHED";
   timeLimitSeconds?: number | null;
+  threadId?: string | null;
+  failedSlotIndexes?: number[];
+  failedSlotCount?: number;
 };
 
 function requireActivitiesApi() {
@@ -59,6 +63,7 @@ export default function ActivityReviewPage() {
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [repairing, setRepairing] = useState(false);
 
   const [tourOpen, setTourOpen] = useState(false);
 
@@ -207,6 +212,40 @@ export default function ActivityReviewPage() {
     }
   }
 
+  async function repairFailedSlots() {
+    if (!activity?.threadId) {
+      setError("This activity is not linked to a repairable generation thread.");
+      return;
+    }
+
+    setRepairing(true);
+    setError(null);
+    setToast(null);
+    try {
+      const data = await threadsClient.repairFailedSlots({ threadId: activity.threadId });
+      const nextActivityId = typeof data?.activityId === "string" && data.activityId ? data.activityId : activityId;
+      const refreshed = await requireActivitiesApi().get({ id: nextActivityId });
+      const nextActivity = refreshed?.activity as Activity | undefined;
+      if (nextActivity) {
+        setActivity(nextActivity);
+        setTitle(nextActivity.title ?? "");
+        setTimeLimitMinutes(
+          typeof nextActivity.timeLimitSeconds === "number" && nextActivity.timeLimitSeconds > 0
+            ? String(Math.max(1, Math.round(nextActivity.timeLimitSeconds / 60)))
+            : "0",
+        );
+      }
+      setToast("Failed slots repaired. Review the refreshed activity before publishing.");
+      if (nextActivityId !== activityId) {
+        router.replace(`/activity/${nextActivityId}/review`);
+      }
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to repair incomplete activity."));
+    } finally {
+      setRepairing(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-900">
@@ -279,6 +318,11 @@ export default function ActivityReviewPage() {
                 ? "Generation only partially succeeded. Review the surviving problems here; standard learner flow stays blocked."
                 : "Preview and edit before publishing. Timer applies per problem."}
             </p>
+            {activity.status === "INCOMPLETE" && typeof activity.failedSlotCount === "number" ? (
+              <p className="mt-1 text-xs text-rose-600">
+                Failed slots remaining: {activity.failedSlotCount}
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -287,6 +331,15 @@ export default function ActivityReviewPage() {
             >
               Home
             </button>
+            {activity.status === "INCOMPLETE" && activity.threadId ? (
+              <button
+                onClick={() => void repairFailedSlots()}
+                disabled={repairing}
+                className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-60"
+              >
+                {repairing ? "Repairing…" : "Repair failed slots"}
+              </button>
+            ) : null}
             <button
               onClick={() => router.push(`/activity/${activityId}`)}
               className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -347,6 +400,7 @@ export default function ActivityReviewPage() {
             {activity.status === "INCOMPLETE" && (
               <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
                 Publishing is disabled for incomplete activities until the failed generation slots are repaired.
+                {activity.threadId ? " Use the repair action above to rerun only the failed or interrupted slots." : ""}
               </div>
             )}
 

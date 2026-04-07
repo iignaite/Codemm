@@ -47,6 +47,9 @@ export type ActivityDetailDto = {
   createdAt: string;
   status?: ActivityStatusDto;
   timeLimitSeconds?: number | null;
+  threadId?: string | null;
+  failedSlotIndexes?: number[];
+  failedSlotCount?: number;
 };
 
 export type ActivitySummaryDto = {

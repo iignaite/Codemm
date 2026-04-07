@@ -45,6 +45,22 @@ export type GenerateFromSessionResponse = {
 
 export type GenerateFromThreadResponse = GenerateFromSessionResponse;
 
+type GenerationResumeRequest = {
+  problems: GeneratedProblem[];
+  outcomes: GenerationOutcome[];
+  targetSlotIndexes: number[];
+  existingActivityId?: string | null;
+  mode: "repair_failed_slots" | "resume_interrupted";
+};
+
+type ResumePlanState = {
+  problems: GeneratedProblem[];
+  outcomes: GenerationOutcome[];
+  targetSlotIndexes: number[];
+  keptSuccessfulSlotIndexes: number[];
+  existingActivityId: string | null;
+};
+
 function currentIso() {
   return new Date().toISOString();
 }
@@ -102,9 +118,54 @@ function failureKindToFailureCode(kind: GenerationFailureKind | null | undefined
   return `STAGE_${stage.toUpperCase()}`;
 }
 
+function buildProblemMapFromResume(problems: GeneratedProblem[], outcomes: GenerationOutcome[]): Map<number, GeneratedProblem> {
+  const bySlot = new Map<number, GeneratedProblem>();
+  let cursor = 0;
+  for (const outcome of outcomes) {
+    if (!outcome.success) continue;
+    const problem = problems[cursor];
+    if (problem) {
+      bySlot.set(outcome.slotIndex, problem);
+      cursor += 1;
+    }
+  }
+  return bySlot;
+}
+
+function deriveResumePlanState(args: {
+  plan: ReturnType<typeof deriveProblemPlan>;
+  resume?: GenerationResumeRequest;
+}): ResumePlanState | null {
+  if (!args.resume) return null;
+  const targetSlotIndexSet = new Set(
+    args.resume.targetSlotIndexes.filter((value) => Number.isInteger(value) && value >= 0 && value < args.plan.length),
+  );
+  const problemBySlot = buildProblemMapFromResume(args.resume.problems, args.resume.outcomes);
+  const keptSuccessfulSlotIndexes: number[] = [];
+  for (const slot of args.plan) {
+    if (targetSlotIndexSet.has(slot.index)) continue;
+    const outcome = args.resume.outcomes.find((candidate) => candidate.slotIndex === slot.index);
+    if (outcome?.success && problemBySlot.has(slot.index)) keptSuccessfulSlotIndexes.push(slot.index);
+  }
+  return {
+    problems: args.resume.problems,
+    outcomes: args.resume.outcomes,
+    targetSlotIndexes: [...targetSlotIndexSet].sort((a, b) => a - b),
+    keptSuccessfulSlotIndexes,
+    existingActivityId:
+      typeof args.resume.existingActivityId === "string" && args.resume.existingActivityId.trim()
+        ? args.resume.existingActivityId
+        : null,
+  };
+}
+
+function activityStatusForRunStatus(status: GenerationRunStatus): "DRAFT" | "INCOMPLETE" {
+  return status === "INCOMPLETE" || status === "PARTIAL_SUCCESS" ? "INCOMPLETE" : "DRAFT";
+}
+
 export async function generateFromThread(
   sessionId: string,
-  opts?: { runId?: string }
+  opts?: { runId?: string; resume?: GenerationResumeRequest }
 ): Promise<GenerateFromThreadResponse> {
   const runId = typeof opts?.runId === "string" && opts.runId.trim() ? opts.runId : crypto.randomUUID();
   return withTraceContext({ sessionId, threadId: sessionId, runId }, async () => {
@@ -145,6 +206,9 @@ export async function generateFromThread(
     let appliedFallbackReason: string | null = null;
     let runStatus: GenerationRunStatus = "PENDING";
     let currentThreadState: SessionState = state;
+    let resumeState: ResumePlanState | null = null;
+    const existingActivityId =
+      typeof session.activity_id === "string" && session.activity_id.trim() ? session.activity_id : null;
 
     const derivePlanForSpec = (currentSpec: ActivitySpec) => {
       const pedagogyPolicy =
@@ -261,17 +325,25 @@ export async function generateFromThread(
       {
         id: "prepare-thread-generation",
         run: async () => {
-          if (!["READY", "RETRYABLE_FAILURE", "HARD_FAILURE"].includes(state)) {
+          if (!["READY", "INCOMPLETE", "RETRYABLE_FAILURE", "HARD_FAILURE"].includes(state)) {
             const err = new Error(
-              `Cannot generate when session state is ${state}. Expected READY, RETRYABLE_FAILURE, or HARD_FAILURE.`
+              `Cannot generate when session state is ${state}. Expected READY, INCOMPLETE, RETRYABLE_FAILURE, or HARD_FAILURE.`
             );
             (err as any).status = 409;
             throw err;
           }
-          if (typeof session.activity_id === "string" && session.activity_id.trim()) {
+          if (existingActivityId && opts?.resume?.existingActivityId !== existingActivityId) {
             const err = new Error("Session already produced an activity. Cannot re-generate.");
             (err as any).status = 409;
             throw err;
+          }
+          if (existingActivityId && opts?.resume?.existingActivityId === existingActivityId) {
+            const dbActivity = activityRepository.findById(existingActivityId);
+            if (!dbActivity || (dbActivity.status ?? "DRAFT") !== "INCOMPLETE") {
+              const err = new Error("Only incomplete activities can be repaired in place.");
+              (err as any).status = 409;
+              throw err;
+            }
           }
 
           transitionOrThrow(state as any, "GENERATE_PENDING");
@@ -293,11 +365,25 @@ export async function generateFromThread(
           }
 
           ({ plan } = derivePlanForSpec(spec));
+          resumeState = deriveResumePlanState({
+            plan,
+            ...(opts?.resume ? { resume: opts.resume } : {}),
+          });
           generationRunRepository.create({
             id: runId,
             threadId: sessionId,
             totalSlots: plan.length,
-            metaJson: JSON.stringify({ threadId: sessionId, usedFallback: false }),
+            metaJson: JSON.stringify({
+              threadId: sessionId,
+              usedFallback: false,
+              ...(resumeState
+                ? {
+                    resumeMode: opts?.resume?.mode ?? "resume_interrupted",
+                    targetSlotIndexes: resumeState.targetSlotIndexes,
+                    existingActivityId: resumeState.existingActivityId,
+                  }
+                : {}),
+            }),
           });
           generationSlotRunRepository.seed(
             runId,
@@ -307,6 +393,24 @@ export async function generateFromThread(
               language: slot.language,
             }))
           );
+          if (resumeState?.keptSuccessfulSlotIndexes.length) {
+            const resumeProblemBySlot = buildProblemMapFromResume(resumeState.problems, resumeState.outcomes);
+            for (const slotIndex of resumeState.keptSuccessfulSlotIndexes) {
+              generationSlotRunRepository.markTerminal({
+                runId,
+                slotIndex,
+                status: "SUCCEEDED",
+                attemptCount: 0,
+                title: resumeProblemBySlot.get(slotIndex)?.title ?? null,
+              });
+              generationSlotRunRepository.appendTransition({
+                runId,
+                slotIndex,
+                status: "slot_resumed",
+                payload: { runId, slotIndex, status: "SUCCEEDED" },
+              });
+            }
+          }
           generationRunRepository.markRunning(runId);
           transitionOrThrow("GENERATE_PENDING", "GENERATING");
           threadRepository.updateState(sessionId, "GENERATING");
@@ -327,6 +431,12 @@ export async function generateFromThread(
           while (!problems) {
             const generated = await generateProblemsFromPlan(plan, {
               customInstructionsMd: instructionsMd,
+              ...(resumeState
+                ? {
+                    resume: { problems: resumeState.problems, outcomes: resumeState.outcomes },
+                    targetSlotIndexes: resumeState.targetSlotIndexes,
+                  }
+                : {}),
               onProgress: (event: GenerationProgressEvent) => persistRunProgress(event),
               onCheckpoint: ({ problems: checkpointProblems, outcomes: checkpointOutcomes }) => {
                 threadRepository.setProblemsJson(sessionId, JSON.stringify(checkpointProblems));
@@ -427,13 +537,24 @@ export async function generateFromThread(
 
           let activityId: string | null = null;
           if (problems.length > 0) {
-            activityId = crypto.randomUUID();
-            const activityTitle = `Activity (${problems.length} of ${spec.problem_count} problems)`;
-            activityRepository.create(activityId, activityTitle, JSON.stringify(problems), undefined, {
-              status: runStatus === "INCOMPLETE" || runStatus === "PARTIAL_SUCCESS" ? "INCOMPLETE" : "DRAFT",
-              timeLimitSeconds: null,
-            });
-            threadRepository.setActivityId(sessionId, activityId);
+            if (resumeState?.existingActivityId) {
+              const updated = activityRepository.update(resumeState.existingActivityId, {
+                problems: JSON.stringify(problems),
+                status: activityStatusForRunStatus(runStatus),
+              });
+              if (!updated) {
+                throw new Error("Failed to update incomplete activity during repair.");
+              }
+              activityId = resumeState.existingActivityId;
+            } else {
+              activityId = crypto.randomUUID();
+              const activityTitle = `Activity (${problems.length} of ${spec.problem_count} problems)`;
+              activityRepository.create(activityId, activityTitle, JSON.stringify(problems), undefined, {
+                status: activityStatusForRunStatus(runStatus),
+                timeLimitSeconds: null,
+              });
+              threadRepository.setActivityId(sessionId, activityId);
+            }
           }
 
           generationRunRepository.finish({
@@ -546,6 +667,80 @@ export async function generateFromThread(
 }
 
 export const generateFromSession = generateFromThread;
+
+export async function repairFailedSlotsFromThread(
+  sessionId: string,
+  opts?: { runId?: string },
+): Promise<GenerateFromThreadResponse & { repairedSlotIndexes: number[] }> {
+  const session = requireSession(sessionId);
+  const state = session.state as SessionState;
+  if (state === "GENERATING" || state === "GENERATE_PENDING") {
+    const err = new Error("Cannot repair failed slots while generation is in progress.");
+    (err as any).status = 409;
+    throw err;
+  }
+
+  if (!["INCOMPLETE", "RETRYABLE_FAILURE", "HARD_FAILURE"].includes(state)) {
+    const err = new Error(
+      `Cannot repair failed slots when session state is ${state}. Expected INCOMPLETE, RETRYABLE_FAILURE, or HARD_FAILURE.`,
+    );
+    (err as any).status = 409;
+    throw err;
+  }
+
+  const specObj = parseSpecJson(session.spec_json);
+  const specResult = ActivitySpecSchema.safeParse(specObj);
+  if (!specResult.success) {
+    throw new Error(`Invalid ActivitySpec: ${specResult.error.issues[0]?.message ?? "validation failed"}`);
+  }
+  const spec = specResult.data;
+  if (!isLanguageSupportedForGeneration(spec.language)) {
+    throw new Error(`Language "${spec.language}" is not supported for generation yet.`);
+  }
+
+  const pedagogyPolicy =
+    parseLearningMode(session.learning_mode) === "guided"
+      ? buildGuidedPedagogyPolicy({ spec, learnerProfile: null })
+      : undefined;
+  const plan = deriveProblemPlan(spec, pedagogyPolicy);
+  const existingProblems = parseGeneratedProblems(session.problems_json);
+  const existingOutcomes = parseGenerationOutcomes(session.generation_outcomes_json);
+  const problemBySlot = buildProblemMapFromResume(existingProblems, existingOutcomes);
+
+  const targetSlotIndexes = plan
+    .filter((slot) => {
+      const outcome = existingOutcomes.find((candidate) => candidate.slotIndex === slot.index);
+      return !(outcome?.success && problemBySlot.has(slot.index));
+    })
+    .map((slot) => slot.index);
+
+  if (targetSlotIndexes.length === 0) {
+    const err = new Error("There are no failed or interrupted slots left to repair.");
+    (err as any).status = 409;
+    throw err;
+  }
+
+  const existingTrace = parseJsonArray(session.intent_trace_json);
+  const nextTrace = appendIntentTrace(existingTrace, {
+    ts: currentIso(),
+    type: "repair_failed_slots_requested",
+    targetSlotIndexes,
+    existingActivityId: session.activity_id ?? null,
+  });
+  threadRepository.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
+
+  const out = await generateFromThread(sessionId, {
+    ...(typeof opts?.runId === "string" && opts.runId.trim() ? { runId: opts.runId } : {}),
+    resume: {
+      problems: existingProblems,
+      outcomes: existingOutcomes,
+      targetSlotIndexes,
+      existingActivityId: session.activity_id ?? null,
+      mode: "repair_failed_slots",
+    },
+  });
+  return { ...out, repairedSlotIndexes: targetSlotIndexes };
+}
 
 export async function regenerateSlotFromThread(
   sessionId: string,

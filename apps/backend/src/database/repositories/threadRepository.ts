@@ -65,6 +65,11 @@ export const threadRepository = {
     return stmt.get(id) as DBSession | undefined;
   },
 
+  findByActivityId: (activityId: string): DBSession | undefined => {
+    const stmt = db.prepare(`SELECT * FROM threads WHERE activity_id = ? ORDER BY updated_at DESC LIMIT 1`);
+    return stmt.get(activityId) as DBSession | undefined;
+  },
+
   updateState: (id: string, state: string) => {
     const stmt = db.prepare(`UPDATE threads SET state = ?, updated_at = datetime('now') WHERE id = ?`);
     stmt.run(state, id);

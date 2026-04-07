@@ -1,7 +1,9 @@
 import { z } from "zod";
 import type { ActivityDetailDto, ActivityListResponseDto, ActivityResponseDto, PublishActivityResponseDto } from "@codemm/shared-contracts";
 import { activityRepository } from "../database/repositories/activityRepository";
+import { threadRepository } from "../database/repositories/threadRepository";
 import { editDraftProblemWithAi } from "../services/activityProblemEditService";
+import { parseGenerationOutcomes } from "../services/threads/shared";
 import { getString, requireParams } from "./common";
 import type { RpcHandlerDef } from "./types";
 
@@ -14,6 +16,9 @@ function toActivityDetailDto(dbActivity: {
   time_limit_seconds?: number | null;
   created_at: string;
 }): ActivityDetailDto {
+  const thread = threadRepository.findByActivityId(dbActivity.id);
+  const generationOutcomes = thread ? parseGenerationOutcomes(thread.generation_outcomes_json) : [];
+  const failedSlotIndexes = generationOutcomes.filter((outcome) => !outcome.success).map((outcome) => outcome.slotIndex);
   return {
     id: dbActivity.id,
     title: dbActivity.title,
@@ -22,6 +27,9 @@ function toActivityDetailDto(dbActivity: {
     status: (dbActivity.status as ActivityDetailDto["status"]) ?? "DRAFT",
     timeLimitSeconds: typeof dbActivity.time_limit_seconds === "number" ? dbActivity.time_limit_seconds : null,
     createdAt: dbActivity.created_at,
+    threadId: thread?.id ?? null,
+    failedSlotIndexes,
+    failedSlotCount: failedSlotIndexes.length,
   };
 }
 

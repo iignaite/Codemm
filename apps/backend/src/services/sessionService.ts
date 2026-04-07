@@ -6,6 +6,7 @@ export {
 export {
   generateFromThread,
   generateFromSession,
+  repairFailedSlotsFromThread,
   regenerateSlotFromThread,
   regenerateSlotFromSession,
   type GenerateFromSessionResponse,

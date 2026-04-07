@@ -8,6 +8,7 @@ import {
   generateFromThread,
   getThread,
   processThreadMessage,
+  repairFailedSlotsFromThread,
   regenerateSlotFromThread,
   setThreadInstructions,
 } from "../services/sessionService";
@@ -342,6 +343,28 @@ export function createThreadHandlers(deps: {
             const out = await regenerateSlotFromThread(threadId, slotIndex, strategy);
             return { activityId: out.activityId, problems: out.problems };
           },
+        });
+      },
+    },
+
+    "threads.repairFailedSlots": {
+      schema: z
+        .object({
+          threadId: z.string().min(1).max(128),
+          runId: z.string().min(1).max(128).optional(),
+        })
+        .passthrough(),
+      handler: async (paramsRaw) => {
+        const params = requireParams(paramsRaw);
+        const threadId = getString(params.threadId);
+        const runId = getString(params.runId);
+        if (!threadId) throw new Error("threadId is required.");
+
+        return runGenerationWithRunTracking({
+          threadId,
+          ...(runId ? { runId } : {}),
+          meta: { threadId, mode: "v2", operation: "repair_failed_slots" },
+          execute: async (effectiveRunId) => repairFailedSlotsFromThread(threadId, { runId: effectiveRunId }),
         });
       },
     },

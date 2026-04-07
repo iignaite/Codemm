@@ -148,6 +148,7 @@ Important fields:
 - The orchestrator records slot terminal state and continues remaining slots.
 - Thread outcome is derived after all slot results are known.
 - Partial output is persisted as an activity with status `INCOMPLETE`, not as a normal completed learner activity.
+- Slots may execute with bounded parallelism; final persisted outcomes and problem ordering are still rebuilt deterministically by `slot_index`.
 
 ## Run-Scoped Progress
 
@@ -214,6 +215,13 @@ Execution diagnostics are persisted separately from slot-stage transitions:
 - `generation_execution_attempts` stores compile / test / quality-gate attempts plus timeout-stage metadata and bounded stdout/stderr evidence
 - `generation_slot_diagnoses` stores structured diagnoses and recommended repair strategies
 - `generation_run_failure_cache` stores run-scoped normalized failure patterns and injected guardrails for later slots
+
+Incomplete activities can now be repaired in place:
+
+- the backend keeps successful slot outputs
+- failed or interrupted slot indexes are rerun against the same thread
+- the existing incomplete activity is updated instead of creating a second learner-visible activity
+- once all slots succeed, the activity returns to editable `DRAFT` status
 
 ## Current Migration Notes
 

@@ -76,6 +76,7 @@ export type CodemmBridge = {
       slotIndex: number;
       strategy?: string;
     }) => Promise<GenerateThreadResponseDto>;
+    repairFailedSlots?: (args: { threadId: string; runId?: string }) => Promise<GenerateThreadResponseDto>;
     getGenerationDiagnostics?: (args: {
       threadId: string;
       runId?: string;

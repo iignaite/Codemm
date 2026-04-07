@@ -69,6 +69,11 @@ export const threadsClient = {
     if (!api?.regenerateSlot) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
     return api.regenerateSlot(args) as Promise<GenerateThreadResponseDto>;
   },
+  repairFailedSlots(args: { threadId: string; runId?: string }) {
+    const api = getCodemmBridge().threads;
+    if (!api?.repairFailedSlots) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
+    return api.repairFailedSlots(args) as Promise<GenerateThreadResponseDto>;
+  },
   getGenerationDiagnostics(args: { threadId: string; runId?: string | null; limit?: number }) {
     const api = getCodemmBridge().threads;
     if (!api?.getGenerationDiagnostics) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");

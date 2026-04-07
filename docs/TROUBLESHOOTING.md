@@ -249,3 +249,16 @@ Fix:
 - If the failure is `TIME_BUDGET_EXCEEDED`, reduce slot complexity or strengthen the `reference` / `repair` model route.
 - If the failure is `OUTPUT_LIMIT_EXCEEDED`, inspect the generated reference or tests for runaway logging.
 - If the failure is `JUDGE_INFRA_FAILURE`, verify Docker Desktop is healthy and the judge image is present.
+
+## Activity Is Marked `INCOMPLETE`
+
+Symptom:
+
+- Generation produced only some of the requested problems.
+- Review mode shows an `INCOMPLETE` badge and publishing is disabled.
+
+Fix:
+
+- Open the activity review screen and use `Repair failed slots`.
+- Codemm now reruns only the failed or interrupted slot indexes and preserves the successful problems already attached to the activity.
+- If the repair succeeds for every remaining slot, the activity returns to editable `DRAFT` status and can be published normally.

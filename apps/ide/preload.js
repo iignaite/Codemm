@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld("codemm", {
     generate: (args) => ipcRenderer.invoke("codemm:threads:generate", args),
     generateV2: (args) => ipcRenderer.invoke("codemm:threads:generateV2", args),
     regenerateSlot: (args) => ipcRenderer.invoke("codemm:threads:regenerateSlot", args),
+    repairFailedSlots: (args) => ipcRenderer.invoke("codemm:threads:repairFailedSlots", args),
     getGenerationDiagnostics: (args) => ipcRenderer.invoke("codemm:threads:getGenerationDiagnostics", args),
     subscribeGeneration: async ({ threadId, runId, onEvent }) => {
       if (typeof onEvent !== "function") throw new Error("onEvent must be a function.");
