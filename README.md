@@ -35,7 +35,17 @@ There is no internal HTTP API for engine calls. UI → engine is IPC only.
 ## Local State & Persistence
 
 - Per-workspace DB: `<workspaceDataDir>/codemm.db` (preferred: `<workspace>/.codemm/codemm.db`)
-- Key tables (IDE-first): `threads`, `thread_messages`, `activities`, `runs`, `run_events`
+- Key tables (IDE-first): `threads`, `thread_messages`, `activities`, `runs`, `run_events`, `generation_runs`, `generation_slot_runs`, `generation_slot_transitions`
+
+## Generation State Machine
+
+Generation is now persisted as three explicit aggregates:
+
+- `threads`: user-facing lifecycle (`DRAFT` -> `CLARIFYING` -> `READY` -> `GENERATE_PENDING` -> `GENERATING` -> terminal outcome)
+- `generation_runs`: one durable activity-generation run per request, correlated by `runId`
+- `generation_slot_runs`: one durable slot record per run, with stage transitions and terminal status per slot
+
+Thread state is derived from persisted run outcomes. Slot failures no longer abort the full thread on first exception, and stale `RUNNING` generation state is reconciled on engine startup.
 
 ## Security Model (Practical)
 
@@ -99,6 +109,7 @@ Builds are typically produced on the target OS (mac builds on macOS, win builds 
 
 - IDE-first mental model + topology: `docs/architecture/IDE_FIRST.md`
 - Local runtime orchestration: `docs/architecture/LOCAL_LLM_ORCHESTRATION.md`
+- Generation state machine: `docs/architecture/GENERATION_STATE_MACHINE.md`
 - Migration phases: `docs/architecture/MIGRATION.md`
 - Wrapper behavior: `docs/FUNCTIONS.md`
 - Security notes: `docs/SECURITY.md`

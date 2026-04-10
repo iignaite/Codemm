@@ -1,7 +1,9 @@
 import { z } from "zod";
 import type { ActivityDetailDto, ActivityListResponseDto, ActivityResponseDto, PublishActivityResponseDto } from "@codemm/shared-contracts";
 import { activityRepository } from "../database/repositories/activityRepository";
+import { threadRepository } from "../database/repositories/threadRepository";
 import { editDraftProblemWithAi } from "../services/activityProblemEditService";
+import { parseGenerationOutcomes } from "../services/threads/shared";
 import { getString, requireParams } from "./common";
 import type { RpcHandlerDef } from "./types";
 
@@ -14,6 +16,9 @@ function toActivityDetailDto(dbActivity: {
   time_limit_seconds?: number | null;
   created_at: string;
 }): ActivityDetailDto {
+  const thread = threadRepository.findByActivityId(dbActivity.id);
+  const generationOutcomes = thread ? parseGenerationOutcomes(thread.generation_outcomes_json) : [];
+  const failedSlotIndexes = generationOutcomes.filter((outcome) => !outcome.success).map((outcome) => outcome.slotIndex);
   return {
     id: dbActivity.id,
     title: dbActivity.title,
@@ -22,6 +27,9 @@ function toActivityDetailDto(dbActivity: {
     status: (dbActivity.status as ActivityDetailDto["status"]) ?? "DRAFT",
     timeLimitSeconds: typeof dbActivity.time_limit_seconds === "number" ? dbActivity.time_limit_seconds : null,
     createdAt: dbActivity.created_at,
+    threadId: thread?.id ?? null,
+    failedSlotIndexes,
+    failedSlotCount: failedSlotIndexes.length,
   };
 }
 
@@ -65,7 +73,9 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         if (!id) throw new Error("id is required.");
         const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
-        if ((dbActivity.status ?? "DRAFT") !== "DRAFT") throw new Error("This activity has already been published.");
+        if (!["DRAFT", "INCOMPLETE"].includes(dbActivity.status ?? "DRAFT")) {
+          throw new Error("This activity has already been published.");
+        }
 
         const title = typeof params.title === "string" ? params.title.trim() : undefined;
         const timeLimitSeconds =
@@ -94,6 +104,9 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
         const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
         if ((dbActivity.status ?? "DRAFT") === "PUBLISHED") return { ok: true } satisfies PublishActivityResponseDto;
+        if ((dbActivity.status ?? "DRAFT") === "INCOMPLETE") {
+          throw new Error("Incomplete activities cannot be published until all failed slots are repaired.");
+        }
         activityRepository.update(id, { status: "PUBLISHED" });
         return { ok: true } satisfies PublishActivityResponseDto;
       },
@@ -118,7 +131,9 @@ export function createActivityHandlers(): Record<string, RpcHandlerDef> {
 
         const dbActivity = activityRepository.findById(id);
         if (!dbActivity) throw new Error("Activity not found.");
-        if ((dbActivity.status ?? "DRAFT") !== "DRAFT") throw new Error("This activity has already been published.");
+        if (!["DRAFT", "INCOMPLETE"].includes(dbActivity.status ?? "DRAFT")) {
+          throw new Error("This activity has already been published.");
+        }
 
         let problems: any[] = [];
         try {

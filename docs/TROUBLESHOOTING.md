@@ -178,12 +178,17 @@ Symptom:
 Fix:
 
 - Retry only the failing slot (V2 flow) instead of regenerating the entire thread:
-  - `threads.regenerateSlot({ threadId, slotIndex, strategy })`
+  - `threads.regenerateSlot({ threadId, slotIndex, strategy: "retry_full_slot" })`
 - Inspect persisted diagnostics for the latest run:
   - `threads.getGenerationDiagnostics({ threadId })`
 - If diagnostics indicate truncation or weak model capability:
   - use a stronger model in **LLM Settings**
   - reduce slot complexity (fewer constraints / narrower topics) and retry
+
+Notes:
+
+- Generation no longer treats the first failed slot as a thread-wide hard stop. Partial success is persisted when at least one slot succeeds.
+- Older regeneration strategies such as `repair_reference_solution` are intentionally rejected until stage-targeted slot resume is implemented in the persistent state machine.
 
 ## Generation Stops Immediately With A Weak Local Route Warning
 
@@ -214,3 +219,46 @@ Fix:
 - `reference`: switch to a stronger route or retry after narrowing the slot topic.
 - `validate`: inspect the terminal failure message and Docker exit metadata in the diagnostics panel.
 - `repair`: the first reference artifact failed and the one-step repair did not recover; retry the slot or strengthen the `repair` route.
+
+## Thread Appears Stuck In `GENERATING` After A Crash
+
+Symptom:
+
+- The app closes during generation.
+- On restart, the thread still appears to be `GENERATING` or `GENERATE_PENDING`.
+
+Fix:
+
+- Restart the desktop app fully. The backend now reconciles stale `generation_runs` on startup and rewrites orphaned thread state from persisted run/slot records.
+- If the latest run was interrupted mid-slot, the recovered run is marked `RETRYABLE_FAILURE` or `INCOMPLETE` instead of remaining permanently `RUNNING`.
+
+## Reference Solution Times Out During Validation
+
+Symptom:
+
+- Diagnostics show `validate` failure or `Reference solution timed out`.
+
+Fix:
+
+- Inspect the latest generation diagnostics and note whether the judge classified the failure as:
+  - `TIME_BUDGET_EXCEEDED`
+  - `OUTPUT_LIMIT_EXCEEDED`
+  - `COMPILE_FAILURE`
+  - `TEST_FAILURE`
+  - `JUDGE_INFRA_FAILURE`
+- If the failure is `TIME_BUDGET_EXCEEDED`, reduce slot complexity or strengthen the `reference` / `repair` model route.
+- If the failure is `OUTPUT_LIMIT_EXCEEDED`, inspect the generated reference or tests for runaway logging.
+- If the failure is `JUDGE_INFRA_FAILURE`, verify Docker Desktop is healthy and the judge image is present.
+
+## Activity Is Marked `INCOMPLETE`
+
+Symptom:
+
+- Generation produced only some of the requested problems.
+- Review mode shows an `INCOMPLETE` badge and publishing is disabled.
+
+Fix:
+
+- Open the activity review screen and use `Repair failed slots`.
+- Codemm now reruns only the failed or interrupted slot indexes and preserves the successful problems already attached to the activity.
+- If the repair succeeds for every remaining slot, the activity returns to editable `DRAFT` status and can be published normally.

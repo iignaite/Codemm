@@ -11,6 +11,22 @@ export {
   submissionRepository as submissionDb,
 } from "./database/repositories/activityRepository";
 export type {
+  DBGenerationExecutionAttempt,
+  DBGenerationRunFailureCacheEntry,
+  DBGenerationRun,
+  DBGenerationSlotRun,
+  DBGenerationSlotDiagnosis,
+  DBGenerationSlotTransition,
+} from "./database/repositories/generationRunRepository";
+export {
+  generationExecutionAttemptRepository as generationExecutionAttemptDb,
+  generationRunFailureCacheRepository as generationRunFailureCacheDb,
+  generationRunRepository as generationRunDb,
+  generationSlotRunRepository as generationSlotRunDb,
+  generationSlotDiagnosisRepository as generationSlotDiagnosisDb,
+  generationSlotTransitionRepository as generationSlotTransitionDb,
+} from "./database/repositories/generationRunRepository";
+export type {
   DBSession,
   DBSessionCollector,
   DBSessionMessage,

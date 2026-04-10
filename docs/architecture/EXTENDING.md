@@ -31,8 +31,7 @@ Preferred order:
 
 1. Add reusable behavior under `apps/backend/src/generation/services`
 2. Extend staged generation under `apps/backend/src/pipeline`
-3. Keep `legacyAdapter.ts` compatibility-only
-4. Do not add new production call sites that depend directly on `perSlotGenerator.ts`
+3. Add test seams at the staged-pipeline boundary rather than reintroducing alternate generation paths
 
 If a generation change affects the public diagnostics or progress stream, update shared DTOs first.
 

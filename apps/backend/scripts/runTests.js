@@ -54,6 +54,13 @@ function main(argv) {
     return 1;
   }
 
+  const contractsBuild = spawnSync("npm", ["--workspace", "@codemm/shared-contracts", "run", "build"], {
+    stdio: "inherit",
+  });
+  if ((contractsBuild.status ?? 1) !== 0) {
+    return contractsBuild.status ?? 1;
+  }
+
   // ts-node compilation dominates cost when Node runs each file in an isolated worker.
   // Running with no isolation keeps a single module cache and is significantly faster.
   // Note: Node's test runner flags vary across Node versions. Prefer broad compatibility.

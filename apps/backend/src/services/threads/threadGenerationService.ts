@@ -10,7 +10,6 @@ import { generateProblemsFromPlan } from "../../generation";
 import type { GeneratedProblem } from "../../contracts/problem";
 import type { GenerationOutcome } from "../../contracts/generationOutcome";
 import type { GenerationProgressEvent } from "../../contracts/generationProgress";
-import { GenerationSlotFailureError } from "../../generation/errors";
 import { publishGenerationProgress } from "../../generation/progressBus";
 import { applyJsonPatch } from "../../compiler/jsonPatch";
 import { proposeGenerationFallbackWithPolicy } from "../../agent/generationFallback";
@@ -18,6 +17,10 @@ import { trace } from "../../utils/trace";
 import { withTraceContext } from "../../utils/traceContext";
 import { activityRepository } from "../../database/repositories/activityRepository";
 import { threadRepository } from "../../database/repositories/threadRepository";
+import {
+  generationRunRepository,
+  generationSlotRunRepository,
+} from "../../database/repositories/generationRunRepository";
 import {
   appendIntentTrace,
   mergeConfidence,
@@ -31,6 +34,9 @@ import {
   transitionOrThrow,
 } from "./shared";
 import { parseCommitmentsJson } from "../../agent/commitments";
+import { deriveRunStatus, mapRunStatusToThreadState, type SlotExecutionResult } from "./generationState";
+import type { GenerationFailureKind, GenerationRunStatus, GenerationSlotStage } from "@codemm/shared-contracts";
+import type { SessionState } from "../../contracts/session";
 
 export type GenerateFromSessionResponse = {
   activityId: string;
@@ -39,10 +45,132 @@ export type GenerateFromSessionResponse = {
 
 export type GenerateFromThreadResponse = GenerateFromSessionResponse;
 
-export async function generateFromThread(sessionId: string): Promise<GenerateFromThreadResponse> {
-  return withTraceContext({ sessionId, threadId: sessionId }, async () => {
+type GenerationResumeRequest = {
+  problems: GeneratedProblem[];
+  outcomes: GenerationOutcome[];
+  targetSlotIndexes: number[];
+  existingActivityId?: string | null;
+  mode: "repair_failed_slots" | "resume_interrupted";
+};
+
+type ResumePlanState = {
+  problems: GeneratedProblem[];
+  outcomes: GenerationOutcome[];
+  targetSlotIndexes: number[];
+  keptSuccessfulSlotIndexes: number[];
+  existingActivityId: string | null;
+};
+
+function currentIso() {
+  return new Date().toISOString();
+}
+
+function translateEventStage(stage: "skeleton" | "tests" | "reference" | "validate" | "repair"): GenerationSlotStage {
+  if (stage === "skeleton") return "SKELETON_RUNNING";
+  if (stage === "tests") return "TESTS_RUNNING";
+  if (stage === "reference") return "REFERENCE_RUNNING";
+  if (stage === "repair") return "REPAIRING_REFERENCE";
+  return "VALIDATING_REFERENCE";
+}
+
+function isTerminalRunStatus(status: GenerationRunStatus): boolean {
+  return (
+    status === "COMPLETED" ||
+    status === "INCOMPLETE" ||
+    status === "PARTIAL_SUCCESS" ||
+    status === "RETRYABLE_FAILURE" ||
+    status === "HARD_FAILURE" ||
+    status === "ABORTED"
+  );
+}
+
+function getLastFailure(results: SlotExecutionResult[]): {
+  kind?: GenerationFailureKind | null;
+  code?: string | null;
+  message?: string | null;
+} {
+  const lastFailure = [...results].reverse().find((result) => result.terminalStatus !== "SUCCEEDED");
+  if (!lastFailure || !("failure" in lastFailure)) return {};
+  return {
+    kind: lastFailure.failure.kind,
+    code: lastFailure.failure.code,
+    message: lastFailure.failure.message,
+  };
+}
+
+function failureKindToFailureCode(kind: GenerationFailureKind | null | undefined, stage: string): string | null {
+  if (!kind) return null;
+  if (kind === "timeout" || kind === "time_budget_exceeded") return "TIME_BUDGET_EXCEEDED";
+  if (kind === "compile" || kind === "compile_failure") return "COMPILE_FAILURE";
+  if (kind === "tests" || kind === "test_failure") return "TEST_FAILURE";
+  if (kind === "infra" || kind === "judge_infra_failure") return "JUDGE_INFRA_FAILURE";
+  if (kind === "output_limit_exceeded") return "OUTPUT_LIMIT_EXCEEDED";
+  if (kind === "generation_schema_error") return "GENERATION_SCHEMA_ERROR";
+  if (kind === "static_rule_violation") return "STATIC_RULE_VIOLATION";
+  if (kind === "api_shape_mismatch") return "API_SHAPE_MISMATCH";
+  if (kind === "complexity_risk_exceeded") return "COMPLEXITY_RISK_EXCEEDED";
+  if (kind === "repair_no_progress") return "REPAIR_NO_PROGRESS";
+  if (kind === "run_policy_failure") return "RUN_POLICY_FAILURE";
+  if (kind === "spec_error") return "SPEC_ERROR";
+  if (kind === "contract") return `STAGE_${stage.toUpperCase()}_CONTRACT`;
+  if (kind === "quality") return "QUALITY_GATE_FAILED";
+  if (kind === "llm") return "LLM_GENERATION_FAILED";
+  return `STAGE_${stage.toUpperCase()}`;
+}
+
+function buildProblemMapFromResume(problems: GeneratedProblem[], outcomes: GenerationOutcome[]): Map<number, GeneratedProblem> {
+  const bySlot = new Map<number, GeneratedProblem>();
+  let cursor = 0;
+  for (const outcome of outcomes) {
+    if (!outcome.success) continue;
+    const problem = problems[cursor];
+    if (problem) {
+      bySlot.set(outcome.slotIndex, problem);
+      cursor += 1;
+    }
+  }
+  return bySlot;
+}
+
+function deriveResumePlanState(args: {
+  plan: ReturnType<typeof deriveProblemPlan>;
+  resume?: GenerationResumeRequest;
+}): ResumePlanState | null {
+  if (!args.resume) return null;
+  const targetSlotIndexSet = new Set(
+    args.resume.targetSlotIndexes.filter((value) => Number.isInteger(value) && value >= 0 && value < args.plan.length),
+  );
+  const problemBySlot = buildProblemMapFromResume(args.resume.problems, args.resume.outcomes);
+  const keptSuccessfulSlotIndexes: number[] = [];
+  for (const slot of args.plan) {
+    if (targetSlotIndexSet.has(slot.index)) continue;
+    const outcome = args.resume.outcomes.find((candidate) => candidate.slotIndex === slot.index);
+    if (outcome?.success && problemBySlot.has(slot.index)) keptSuccessfulSlotIndexes.push(slot.index);
+  }
+  return {
+    problems: args.resume.problems,
+    outcomes: args.resume.outcomes,
+    targetSlotIndexes: [...targetSlotIndexSet].sort((a, b) => a - b),
+    keptSuccessfulSlotIndexes,
+    existingActivityId:
+      typeof args.resume.existingActivityId === "string" && args.resume.existingActivityId.trim()
+        ? args.resume.existingActivityId
+        : null,
+  };
+}
+
+function activityStatusForRunStatus(status: GenerationRunStatus): "DRAFT" | "INCOMPLETE" {
+  return status === "INCOMPLETE" || status === "PARTIAL_SUCCESS" ? "INCOMPLETE" : "DRAFT";
+}
+
+export async function generateFromThread(
+  sessionId: string,
+  opts?: { runId?: string; resume?: GenerationResumeRequest }
+): Promise<GenerateFromThreadResponse> {
+  const runId = typeof opts?.runId === "string" && opts.runId.trim() ? opts.runId : crypto.randomUUID();
+  return withTraceContext({ sessionId, threadId: sessionId, runId }, async () => {
     const session = requireSession(sessionId);
-    const state = session.state;
+    const state = session.state as SessionState;
     const learning_mode = parseLearningMode(session.learning_mode);
     const instructionsMdRaw = typeof session.instructions_md === "string" ? String(session.instructions_md) : "";
     const instructionsMd = instructionsMdRaw.trim() ? instructionsMdRaw : null;
@@ -71,12 +199,16 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
     let progressHeartbeat: NodeJS.Timeout | null = null;
     let spec: ActivitySpec | null = null;
     let plan: ReturnType<typeof deriveProblemPlan> = [];
-    let resumeProblems: GeneratedProblem[] = [];
-    let resumeOutcomes: GenerationOutcome[] = [];
     let problems: GeneratedProblem[] | null = null;
     let outcomes: GenerationOutcome[] | null = null;
+    let slotResults: SlotExecutionResult[] = [];
     let usedFallback = false;
     let appliedFallbackReason: string | null = null;
+    let runStatus: GenerationRunStatus = "PENDING";
+    let currentThreadState: SessionState = state;
+    let resumeState: ResumePlanState | null = null;
+    const existingActivityId =
+      typeof session.activity_id === "string" && session.activity_id.trim() ? session.activity_id : null;
 
     const derivePlanForSpec = (currentSpec: ActivitySpec) => {
       const pedagogyPolicy =
@@ -84,10 +216,107 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
       return { pedagogyPolicy, plan: deriveProblemPlan(currentSpec, pedagogyPolicy) };
     };
 
+    const persistRunProgress = (event: GenerationProgressEvent) => {
+      const runScopedEvent = event.runId ? event : ({ ...event, runId } as GenerationProgressEvent);
+      if (runScopedEvent.type === "slot_started") {
+        generationSlotRunRepository.beginSlot({
+          runId,
+          slotIndex: runScopedEvent.slotIndex,
+          topic: runScopedEvent.topic,
+          language: runScopedEvent.language,
+        });
+        generationSlotRunRepository.appendTransition({
+          runId,
+          slotIndex: runScopedEvent.slotIndex,
+          status: "slot_started",
+          payload: runScopedEvent,
+        });
+      } else if (runScopedEvent.type === "slot_stage_started") {
+        generationSlotRunRepository.updateStage({
+          runId,
+          slotIndex: runScopedEvent.slotIndex,
+          status: translateEventStage(runScopedEvent.stage),
+          currentStage: translateEventStage(runScopedEvent.stage),
+          attemptCount: runScopedEvent.attempt,
+        });
+        generationSlotRunRepository.appendTransition({
+          runId,
+          slotIndex: runScopedEvent.slotIndex,
+          attempt: runScopedEvent.attempt,
+          stage: runScopedEvent.stage,
+          status: "stage_started",
+          payload: runScopedEvent,
+        });
+      } else if (runScopedEvent.type === "slot_stage_finished") {
+        generationSlotRunRepository.updateStage({
+          runId,
+          slotIndex: runScopedEvent.slotIndex,
+          status: translateEventStage(runScopedEvent.stage),
+          currentStage: translateEventStage(runScopedEvent.stage),
+          attemptCount: runScopedEvent.attempt,
+          lastFailureKind: runScopedEvent.status === "failed" ? runScopedEvent.failureKind ?? null : null,
+          lastFailureCode:
+            runScopedEvent.status === "failed"
+              ? failureKindToFailureCode(runScopedEvent.failureKind, runScopedEvent.stage)
+              : null,
+          lastFailureMessage: runScopedEvent.status === "failed" ? runScopedEvent.message ?? null : null,
+          lastArtifactHash: runScopedEvent.artifactHash ?? null,
+        });
+        generationSlotRunRepository.appendTransition({
+          runId,
+          slotIndex: runScopedEvent.slotIndex,
+          attempt: runScopedEvent.attempt,
+          stage: runScopedEvent.stage,
+          status: runScopedEvent.status === "success" ? "stage_succeeded" : "stage_failed",
+          payload: runScopedEvent,
+        });
+      } else if (runScopedEvent.type === "slot_completed") {
+        const slot = generationSlotRunRepository.find(runId, runScopedEvent.slotIndex);
+        generationSlotRunRepository.markTerminal({
+          runId,
+          slotIndex: runScopedEvent.slotIndex,
+          status: "SUCCEEDED",
+          attemptCount: slot?.attempt_count ?? 1,
+        });
+        generationSlotRunRepository.appendTransition({
+          runId,
+          slotIndex: runScopedEvent.slotIndex,
+          status: "slot_succeeded",
+          payload: runScopedEvent,
+        });
+      } else if (runScopedEvent.type === "slot_failed_terminal") {
+        const slot = generationSlotRunRepository.find(runId, runScopedEvent.slotIndex);
+        generationSlotRunRepository.markTerminal({
+          runId,
+          slotIndex: runScopedEvent.slotIndex,
+          status:
+            runScopedEvent.failureKind === "repair_no_progress"
+              ? "QUARANTINED"
+              : runScopedEvent.failureKind === "infra" || runScopedEvent.failureKind === "judge_infra_failure"
+                ? "HARD_FAILURE"
+                : "RETRYABLE_FAILURE",
+          attemptCount: slot?.attempt_count ?? 1,
+          lastFailureKind: runScopedEvent.failureKind,
+          lastFailureCode:
+            failureKindToFailureCode(runScopedEvent.failureKind, runScopedEvent.stage),
+          lastFailureMessage: runScopedEvent.message,
+        });
+        generationSlotRunRepository.appendTransition({
+          runId,
+          slotIndex: runScopedEvent.slotIndex,
+          stage: runScopedEvent.stage,
+          status: "slot_failed_terminal",
+          payload: runScopedEvent,
+        });
+      }
+      publishGenerationProgress(runId, runScopedEvent);
+    };
+
     const workflow = createExecutionContext<Record<string, unknown>, { response?: GenerateFromThreadResponse }>({
-      workflowId: `thread-generation:${sessionId}`,
+      workflowId: `thread-generation:${sessionId}:${runId}`,
       threadId: sessionId,
-      publishProgress: (event) => publishGenerationProgress(sessionId, event as GenerationProgressEvent),
+      runId,
+      publishProgress: (event) => persistRunProgress(event as GenerationProgressEvent),
       loggerName: "threads.generation",
       initialState: {},
       initialResults: {},
@@ -96,21 +325,33 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
       {
         id: "prepare-thread-generation",
         run: async () => {
-          if (state !== "READY") {
-            const err = new Error(`Cannot generate when session state is ${state}. Expected READY.`);
+          if (!["READY", "INCOMPLETE", "RETRYABLE_FAILURE", "HARD_FAILURE"].includes(state)) {
+            const err = new Error(
+              `Cannot generate when session state is ${state}. Expected READY, INCOMPLETE, RETRYABLE_FAILURE, or HARD_FAILURE.`
+            );
             (err as any).status = 409;
             throw err;
           }
-          if (typeof session.activity_id === "string" && session.activity_id.trim()) {
+          if (existingActivityId && opts?.resume?.existingActivityId !== existingActivityId) {
             const err = new Error("Session already produced an activity. Cannot re-generate.");
             (err as any).status = 409;
             throw err;
           }
+          if (existingActivityId && opts?.resume?.existingActivityId === existingActivityId) {
+            const dbActivity = activityRepository.findById(existingActivityId);
+            if (!dbActivity || (dbActivity.status ?? "DRAFT") !== "INCOMPLETE") {
+              const err = new Error("Only incomplete activities can be repaired in place.");
+              (err as any).status = 409;
+              throw err;
+            }
+          }
 
-          transitionOrThrow(state, "GENERATING");
-          threadRepository.updateState(sessionId, "GENERATING");
+          transitionOrThrow(state as any, "GENERATE_PENDING");
+          threadRepository.updateState(sessionId, "GENERATE_PENDING");
+          currentThreadState = "GENERATE_PENDING";
+          threadRepository.setLastError(sessionId, null);
           progressHeartbeat = setInterval(() => {
-            publishGenerationProgress(sessionId, { type: "heartbeat", ts: new Date().toISOString() });
+            persistRunProgress({ type: "heartbeat", ts: currentIso() });
           }, 1000);
 
           const specObj = parseSpecJson(session.spec_json);
@@ -123,174 +364,251 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
             throw new Error(`Language "${spec.language}" is not supported for generation yet.`);
           }
 
-          resumeProblems = parseGeneratedProblems(session.problems_json);
-          resumeOutcomes = parseGenerationOutcomes(session.generation_outcomes_json);
-          if (resumeOutcomes.length !== resumeProblems.length) {
-            resumeOutcomes = resumeOutcomes.slice(0, resumeProblems.length);
-          }
-
           ({ plan } = derivePlanForSpec(spec));
+          resumeState = deriveResumePlanState({
+            plan,
+            ...(opts?.resume ? { resume: opts.resume } : {}),
+          });
+          generationRunRepository.create({
+            id: runId,
+            threadId: sessionId,
+            totalSlots: plan.length,
+            metaJson: JSON.stringify({
+              threadId: sessionId,
+              usedFallback: false,
+              ...(resumeState
+                ? {
+                    resumeMode: opts?.resume?.mode ?? "resume_interrupted",
+                    targetSlotIndexes: resumeState.targetSlotIndexes,
+                    existingActivityId: resumeState.existingActivityId,
+                  }
+                : {}),
+            }),
+          });
+          generationSlotRunRepository.seed(
+            runId,
+            plan.map((slot) => ({
+              slotIndex: slot.index,
+              topic: slot.topics[0] ?? null,
+              language: slot.language,
+            }))
+          );
+          if (resumeState?.keptSuccessfulSlotIndexes.length) {
+            const resumeProblemBySlot = buildProblemMapFromResume(resumeState.problems, resumeState.outcomes);
+            for (const slotIndex of resumeState.keptSuccessfulSlotIndexes) {
+              generationSlotRunRepository.markTerminal({
+                runId,
+                slotIndex,
+                status: "SUCCEEDED",
+                attemptCount: 0,
+                title: resumeProblemBySlot.get(slotIndex)?.title ?? null,
+              });
+              generationSlotRunRepository.appendTransition({
+                runId,
+                slotIndex,
+                status: "slot_resumed",
+                payload: { runId, slotIndex, status: "SUCCEEDED" },
+              });
+            }
+          }
+          generationRunRepository.markRunning(runId);
+          transitionOrThrow("GENERATE_PENDING", "GENERATING");
+          threadRepository.updateState(sessionId, "GENERATING");
+          currentThreadState = "GENERATING";
           threadRepository.setPlanJson(sessionId, JSON.stringify(plan));
-          publishGenerationProgress(sessionId, {
+          persistRunProgress({
             type: "generation_started",
             totalSlots: plan.length,
             totalProblems: plan.length,
             run: 1,
           });
-
-          if (resumeProblems.length > 0) {
-            for (let i = 0; i < Math.min(resumeProblems.length, plan.length); i++) {
-              publishGenerationProgress(sessionId, { type: "slot_completed", slotIndex: i });
-            }
-          }
+          persistRunProgress({ type: "generation_run_status", status: "RUNNING" });
         },
       },
       {
         id: "run-generation-pipeline",
         run: async () => {
           while (!problems) {
-            try {
-              const generated = await generateProblemsFromPlan(plan, {
-                customInstructionsMd: instructionsMd,
-                resume: { problems: resumeProblems, outcomes: resumeOutcomes },
-                onProgress: (event: GenerationProgressEvent) => publishGenerationProgress(sessionId, event),
-                onCheckpoint: ({ problems: checkpointProblems, outcomes: checkpointOutcomes }) => {
-                  threadRepository.setProblemsJson(sessionId, JSON.stringify(checkpointProblems));
-                  threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(checkpointOutcomes));
-                },
+            const generated = await generateProblemsFromPlan(plan, {
+              customInstructionsMd: instructionsMd,
+              ...(resumeState
+                ? {
+                    resume: { problems: resumeState.problems, outcomes: resumeState.outcomes },
+                    targetSlotIndexes: resumeState.targetSlotIndexes,
+                  }
+                : {}),
+              onProgress: (event: GenerationProgressEvent) => persistRunProgress(event),
+              onCheckpoint: ({ problems: checkpointProblems, outcomes: checkpointOutcomes }) => {
+                threadRepository.setProblemsJson(sessionId, JSON.stringify(checkpointProblems));
+                threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(checkpointOutcomes));
+              },
+            });
+            problems = generated.problems;
+            outcomes = generated.outcomes;
+            slotResults = generated.slotResults;
+
+            const allFailed = slotResults.length > 0 && slotResults.every((result) => result.terminalStatus !== "SUCCEEDED");
+            if (allFailed && !usedFallback && spec) {
+              const explicitDifficultyLocked = commitments?.difficulty_plan?.locked === true;
+              const explicitTopicsLocked = commitments?.topic_tags?.locked === true;
+              const decision = proposeGenerationFallbackWithPolicy(spec, {
+                allowDowngradeDifficulty: !explicitDifficultyLocked,
+                allowNarrowTopics: !explicitTopicsLocked,
               });
-              problems = generated.problems;
-              outcomes = generated.outcomes;
-            } catch (err: any) {
-              if (err instanceof GenerationSlotFailureError) {
-                if (Array.isArray(err.problemsSoFar)) {
-                  resumeProblems = err.problemsSoFar;
-                  threadRepository.setProblemsJson(sessionId, JSON.stringify(resumeProblems));
-                }
-                if (Array.isArray(err.outcomesSoFar)) {
-                  resumeOutcomes = err.outcomesSoFar;
-                  threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(resumeOutcomes));
-                }
+              if (decision) {
+                usedFallback = true;
+                appliedFallbackReason = decision.reason;
+
+                persistRunProgress({
+                  type: "generation_soft_fallback_applied",
+                  reason: decision.reason,
+                  patchPaths: decision.patch.map((p) => p.path),
+                });
 
                 persistTraceEvent({
-                  ts: new Date().toISOString(),
-                  type: "generation_failure",
-                  slotIndex: err.slotIndex,
-                  kind: err.kind,
-                  attempts: err.attempts,
-                  title: err.title ?? null,
-                  llmOutputHash: err.llmOutputHash ?? null,
-                  message: err.message,
-                  outcomes: err.outcomesSoFar ?? null,
+                  ts: currentIso(),
+                  type: "generation_soft_fallback",
+                  reason: decision.reason,
+                  patch: decision.patch,
                 });
 
-                trace("generation.failure.persisted", {
-                  sessionId,
-                  slotIndex: err.slotIndex,
-                  kind: err.kind,
-                  llmOutputHash: err.llmOutputHash,
-                });
+                persistConfidencePatch(decision.patch);
 
-                if (!usedFallback && spec) {
-                  const explicitDifficultyLocked = commitments?.difficulty_plan?.locked === true;
-                  const explicitTopicsLocked = commitments?.topic_tags?.locked === true;
-                  const decision = proposeGenerationFallbackWithPolicy(spec, {
-                    allowDowngradeDifficulty: !explicitDifficultyLocked,
-                    allowNarrowTopics: !explicitTopicsLocked,
+                const adjusted = applyJsonPatch(spec as any, decision.patch) as ActivitySpec;
+                const adjustedRes = ActivitySpecSchema.safeParse(adjusted);
+                if (!adjustedRes.success) {
+                  persistTraceEvent({
+                    ts: currentIso(),
+                    type: "generation_soft_fallback_failed",
+                    reason: "fallback patch produced invalid ActivitySpec",
+                    error: adjustedRes.error.issues[0]?.message ?? "invalid",
                   });
-                  if (decision) {
-                    usedFallback = true;
-                    appliedFallbackReason = decision.reason;
-
-                    publishGenerationProgress(sessionId, {
-                      type: "generation_soft_fallback_applied",
-                      reason: decision.reason,
-                      patchPaths: decision.patch.map((p) => p.path),
-                    });
-
-                    persistTraceEvent({
-                      ts: new Date().toISOString(),
-                      type: "generation_soft_fallback",
-                      reason: decision.reason,
-                      patch: decision.patch,
-                    });
-
-                    persistConfidencePatch(decision.patch);
-
-                    const adjusted = applyJsonPatch(spec as any, decision.patch) as ActivitySpec;
-                    const adjustedRes = ActivitySpecSchema.safeParse(adjusted);
-                    if (!adjustedRes.success) {
-                      persistTraceEvent({
-                        ts: new Date().toISOString(),
-                        type: "generation_soft_fallback_failed",
-                        reason: "fallback patch produced invalid ActivitySpec",
-                        error: adjustedRes.error.issues[0]?.message ?? "invalid",
-                      });
-                      throw err;
-                    }
-
-                    spec = adjustedRes.data;
-                    threadRepository.updateSpecJson(sessionId, JSON.stringify(spec));
-                    ({ plan } = derivePlanForSpec(spec));
-                    threadRepository.setPlanJson(sessionId, JSON.stringify(plan));
-                    continue;
-                  }
+                  throw new Error("Fallback patch produced an invalid ActivitySpec.");
                 }
+
+                spec = adjustedRes.data;
+                threadRepository.updateSpecJson(sessionId, JSON.stringify(spec));
+                ({ plan } = derivePlanForSpec(spec));
+                threadRepository.setPlanJson(sessionId, JSON.stringify(plan));
+                generationSlotRunRepository.seed(
+                  runId,
+                  plan.map((slot) => ({
+                    slotIndex: slot.index,
+                    topic: slot.topics[0] ?? null,
+                    language: slot.language,
+                  }))
+                );
+                problems = null;
+                outcomes = null;
+                slotResults = [];
+                continue;
               }
-
-              throw err;
             }
-          }
-
-          if (!problems) {
-            throw new Error("Generation failed: problems were not produced.");
+            break;
           }
         },
       },
       {
         id: "persist-generated-activity",
         run: async (ctx) => {
-          if (!problems || !spec) {
-            throw new Error("Generation did not produce finalized problems.");
+          if (!problems || !outcomes || !spec) {
+            throw new Error("Generation did not produce finalized results.");
           }
 
-          if (outcomes) {
-            const finalOutcomes = appliedFallbackReason
-              ? outcomes.map((outcome) => ({
-                  ...outcome,
-                  appliedFallback: outcome.appliedFallback ?? appliedFallbackReason,
-                }))
-              : outcomes;
-            threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(finalOutcomes));
-            persistTraceEvent({
-              ts: new Date().toISOString(),
-              type: "generation_outcomes",
-              outcomes: finalOutcomes,
-            });
-          }
-
-          threadRepository.setProblemsJson(sessionId, JSON.stringify(problems));
-
-          const activityId = crypto.randomUUID();
-          const activityTitle = `Activity (${spec.problem_count} problems)`;
-          activityRepository.create(activityId, activityTitle, JSON.stringify(problems), undefined, {
-            status: "DRAFT",
-            timeLimitSeconds: null,
+          const finalOutcomes = appliedFallbackReason
+            ? outcomes.map((outcome) => ({
+                ...outcome,
+                appliedFallback: outcome.appliedFallback ?? appliedFallbackReason,
+              }))
+            : outcomes;
+          threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(finalOutcomes));
+          persistTraceEvent({
+            ts: currentIso(),
+            type: "generation_outcomes",
+            outcomes: finalOutcomes,
+            runId,
           });
 
-          threadRepository.setActivityId(sessionId, activityId);
-          transitionOrThrow("GENERATING", "SAVED");
-          threadRepository.updateState(sessionId, "SAVED");
-          publishGenerationProgress(sessionId, { type: "generation_completed", activityId });
-          publishGenerationProgress(sessionId, { type: "generation_complete", activityId });
+          threadRepository.setProblemsJson(sessionId, JSON.stringify(problems));
+          runStatus = deriveRunStatus(slotResults);
+          const successfulSlots = slotResults.filter((result) => result.terminalStatus === "SUCCEEDED").length;
+          const failedSlots = slotResults.filter((result) => result.terminalStatus !== "SUCCEEDED").length;
+          const { kind: lastFailureKind, code: lastFailureCode, message: lastFailureMessage } = getLastFailure(slotResults);
+
+          let activityId: string | null = null;
+          if (problems.length > 0) {
+            if (resumeState?.existingActivityId) {
+              const updated = activityRepository.update(resumeState.existingActivityId, {
+                problems: JSON.stringify(problems),
+                status: activityStatusForRunStatus(runStatus),
+              });
+              if (!updated) {
+                throw new Error("Failed to update incomplete activity during repair.");
+              }
+              activityId = resumeState.existingActivityId;
+            } else {
+              activityId = crypto.randomUUID();
+              const activityTitle = `Activity (${problems.length} of ${spec.problem_count} problems)`;
+              activityRepository.create(activityId, activityTitle, JSON.stringify(problems), undefined, {
+                status: activityStatusForRunStatus(runStatus),
+                timeLimitSeconds: null,
+              });
+              threadRepository.setActivityId(sessionId, activityId);
+            }
+          }
+
+          generationRunRepository.finish({
+            id: runId,
+            status: runStatus,
+            activityId,
+            completedSlots: slotResults.length,
+            successfulSlots,
+            failedSlots,
+            lastFailureKind: lastFailureKind ?? null,
+            lastFailureCode: lastFailureCode ?? null,
+            lastFailureMessage: lastFailureMessage ?? null,
+          });
+
+          const terminalThreadState = mapRunStatusToThreadState(runStatus);
+          transitionOrThrow("GENERATING", terminalThreadState as any);
+          threadRepository.updateState(sessionId, terminalThreadState);
+          currentThreadState = terminalThreadState;
+          threadRepository.setLastError(
+            sessionId,
+            runStatus === "COMPLETED"
+              ? null
+              : lastFailureMessage ??
+                  (runStatus === "INCOMPLETE" || runStatus === "PARTIAL_SUCCESS"
+                    ? "Generation completed incompletely. Some slots failed."
+                    : "Generation failed.")
+          );
+          persistRunProgress({
+            type: "generation_run_status",
+            status: runStatus,
+            ...(activityId ? { activityId } : {}),
+            ...(lastFailureMessage ? { error: lastFailureMessage } : {}),
+          });
+          if (activityId) {
+            persistRunProgress({ type: "generation_completed", activityId });
+            persistRunProgress({ type: "generation_complete", activityId });
+          } else {
+            persistRunProgress({
+              type: "generation_failed",
+              error: lastFailureMessage ?? "Generation failed.",
+            });
+          }
 
           if (usedFallback) {
             persistTraceEvent({
-              ts: new Date().toISOString(),
+              ts: currentIso(),
               type: "generation_soft_fallback_succeeded",
+              runId,
             });
           }
 
+          if (!activityId) {
+            throw new Error(lastFailureMessage ?? "Generation failed without producing any problems.");
+          }
           ctx.setResult("response", { activityId, problems });
         },
       },
@@ -302,19 +620,45 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
       if (!response) throw new Error("Generation completed without a response payload.");
       return response;
     } catch (err: any) {
+      const failureRunStatus: GenerationRunStatus =
+        isTerminalRunStatus(runStatus)
+          ? runStatus
+          : String(err?.message ?? "").toLowerCase().includes("invalid activityspec")
+            ? "HARD_FAILURE"
+            : "RETRYABLE_FAILURE";
       try {
-        transitionOrThrow("GENERATING", "READY");
-        threadRepository.updateState(sessionId, "READY");
+        const failureState = mapRunStatusToThreadState(failureRunStatus);
+        if (currentThreadState !== failureState) {
+          transitionOrThrow(currentThreadState as any, failureState as any);
+          threadRepository.updateState(sessionId, failureState);
+          currentThreadState = failureState;
+        }
         threadRepository.setLastError(sessionId, err.message ?? "Unknown error during generation.");
+        const persistedRun = generationRunRepository.findById(runId);
+        if (!persistedRun || !isTerminalRunStatus(persistedRun.status as GenerationRunStatus)) {
+          generationRunRepository.finish({
+            id: runId,
+            status: failureRunStatus,
+            completedSlots: slotResults.length,
+            successfulSlots: slotResults.filter((result) => result.terminalStatus === "SUCCEEDED").length,
+            failedSlots: slotResults.filter((result) => result.terminalStatus !== "SUCCEEDED").length,
+            lastFailureKind: "infra",
+            lastFailureCode: "THREAD_GENERATION_FAILED",
+            lastFailureMessage: err.message ?? "Unknown error during generation.",
+          });
+          persistRunProgress({
+            type: "generation_run_status",
+            status: failureRunStatus,
+            error: err.message ?? "Unknown error during generation.",
+          });
+          persistRunProgress({
+            type: "generation_failed",
+            error: "Generation failed. Please try again.",
+          });
+        }
       } catch (transitionErr) {
-        console.error("Failed to transition session to READY:", transitionErr);
+        console.error("Failed to transition session after generation error:", transitionErr);
       }
-
-      publishGenerationProgress(sessionId, {
-        type: "generation_failed",
-        error: "Generation failed. Please try again.",
-        ...(err instanceof GenerationSlotFailureError ? { slotIndex: err.slotIndex } : {}),
-      });
       throw err;
     } finally {
       if (progressHeartbeat) clearInterval(progressHeartbeat);
@@ -323,6 +667,80 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
 }
 
 export const generateFromSession = generateFromThread;
+
+export async function repairFailedSlotsFromThread(
+  sessionId: string,
+  opts?: { runId?: string },
+): Promise<GenerateFromThreadResponse & { repairedSlotIndexes: number[] }> {
+  const session = requireSession(sessionId);
+  const state = session.state as SessionState;
+  if (state === "GENERATING" || state === "GENERATE_PENDING") {
+    const err = new Error("Cannot repair failed slots while generation is in progress.");
+    (err as any).status = 409;
+    throw err;
+  }
+
+  if (!["INCOMPLETE", "RETRYABLE_FAILURE", "HARD_FAILURE"].includes(state)) {
+    const err = new Error(
+      `Cannot repair failed slots when session state is ${state}. Expected INCOMPLETE, RETRYABLE_FAILURE, or HARD_FAILURE.`,
+    );
+    (err as any).status = 409;
+    throw err;
+  }
+
+  const specObj = parseSpecJson(session.spec_json);
+  const specResult = ActivitySpecSchema.safeParse(specObj);
+  if (!specResult.success) {
+    throw new Error(`Invalid ActivitySpec: ${specResult.error.issues[0]?.message ?? "validation failed"}`);
+  }
+  const spec = specResult.data;
+  if (!isLanguageSupportedForGeneration(spec.language)) {
+    throw new Error(`Language "${spec.language}" is not supported for generation yet.`);
+  }
+
+  const pedagogyPolicy =
+    parseLearningMode(session.learning_mode) === "guided"
+      ? buildGuidedPedagogyPolicy({ spec, learnerProfile: null })
+      : undefined;
+  const plan = deriveProblemPlan(spec, pedagogyPolicy);
+  const existingProblems = parseGeneratedProblems(session.problems_json);
+  const existingOutcomes = parseGenerationOutcomes(session.generation_outcomes_json);
+  const problemBySlot = buildProblemMapFromResume(existingProblems, existingOutcomes);
+
+  const targetSlotIndexes = plan
+    .filter((slot) => {
+      const outcome = existingOutcomes.find((candidate) => candidate.slotIndex === slot.index);
+      return !(outcome?.success && problemBySlot.has(slot.index));
+    })
+    .map((slot) => slot.index);
+
+  if (targetSlotIndexes.length === 0) {
+    const err = new Error("There are no failed or interrupted slots left to repair.");
+    (err as any).status = 409;
+    throw err;
+  }
+
+  const existingTrace = parseJsonArray(session.intent_trace_json);
+  const nextTrace = appendIntentTrace(existingTrace, {
+    ts: currentIso(),
+    type: "repair_failed_slots_requested",
+    targetSlotIndexes,
+    existingActivityId: session.activity_id ?? null,
+  });
+  threadRepository.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
+
+  const out = await generateFromThread(sessionId, {
+    ...(typeof opts?.runId === "string" && opts.runId.trim() ? { runId: opts.runId } : {}),
+    resume: {
+      problems: existingProblems,
+      outcomes: existingOutcomes,
+      targetSlotIndexes,
+      existingActivityId: session.activity_id ?? null,
+      mode: "repair_failed_slots",
+    },
+  });
+  return { ...out, repairedSlotIndexes: targetSlotIndexes };
+}
 
 export async function regenerateSlotFromThread(
   sessionId: string,
@@ -335,10 +753,18 @@ export async function regenerateSlotFromThread(
     | "narrow_topics" = "retry_full_slot"
 ): Promise<GenerateFromSessionResponse & { regeneratedSlotIndex: number; strategy: string }> {
   return withTraceContext({ sessionId }, async () => {
+    if (strategy !== "retry_full_slot") {
+      const err = new Error(
+        `Slot regeneration strategy "${strategy}" is deprecated until stage-targeted slot resume is implemented. Use "retry_full_slot".`
+      );
+      (err as any).status = 400;
+      throw err;
+    }
+
     const session = requireSession(sessionId);
     const state = session.state;
 
-    if (state === "GENERATING") {
+    if (state === "GENERATING" || state === "GENERATE_PENDING") {
       const err = new Error("Cannot regenerate a slot while generation is in progress.");
       (err as any).status = 409;
       throw err;
@@ -350,8 +776,10 @@ export async function regenerateSlotFromThread(
       throw err;
     }
 
-    if (state !== "READY" && state !== "FAILED") {
-      const err = new Error(`Cannot regenerate slots when session state is ${state}. Expected READY or FAILED.`);
+    if (!["READY", "RETRYABLE_FAILURE", "HARD_FAILURE"].includes(state)) {
+      const err = new Error(
+        `Cannot regenerate slots when session state is ${state}. Expected READY, RETRYABLE_FAILURE, or HARD_FAILURE.`
+      );
       (err as any).status = 409;
       throw err;
     }
@@ -396,8 +824,8 @@ export async function regenerateSlotFromThread(
     const nextTrace = appendIntentTrace(existingTrace, traceEntry);
     threadRepository.updateIntentTraceJson(sessionId, JSON.stringify(nextTrace));
 
-    if (state === "FAILED") {
-      transitionOrThrow("FAILED", "READY");
+    if (state === "RETRYABLE_FAILURE" || state === "HARD_FAILURE") {
+      transitionOrThrow(state as any, "READY");
       threadRepository.updateState(sessionId, "READY");
     }
 

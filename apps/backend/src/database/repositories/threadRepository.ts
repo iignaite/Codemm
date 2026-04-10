@@ -65,6 +65,11 @@ export const threadRepository = {
     return stmt.get(id) as DBSession | undefined;
   },
 
+  findByActivityId: (activityId: string): DBSession | undefined => {
+    const stmt = db.prepare(`SELECT * FROM threads WHERE activity_id = ? ORDER BY updated_at DESC LIMIT 1`);
+    return stmt.get(activityId) as DBSession | undefined;
+  },
+
   updateState: (id: string, state: string) => {
     const stmt = db.prepare(`UPDATE threads SET state = ?, updated_at = datetime('now') WHERE id = ?`);
     stmt.run(state, id);
@@ -154,6 +159,13 @@ export const threadRepository = {
       LIMIT ?
     `);
     return stmt.all(safeLimit) as DBSessionSummary[];
+  },
+
+  listByStates: (states: string[]) => {
+    if (!Array.isArray(states) || states.length === 0) return [] as DBSession[];
+    const placeholders = states.map(() => "?").join(", ");
+    const stmt = db.prepare(`SELECT * FROM threads WHERE state IN (${placeholders}) ORDER BY updated_at DESC`);
+    return stmt.all(...states) as DBSession[];
   },
 };
 

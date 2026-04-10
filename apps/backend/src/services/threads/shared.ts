@@ -14,6 +14,7 @@ import { DEFAULT_LEARNING_MODE, LearningModeSchema, type LearningMode } from "..
 import type { GenerationOutcome } from "../../contracts/generationOutcome";
 import type { GeneratedProblem } from "../../contracts/problem";
 import type { ConfidenceMap } from "../../agent/readiness";
+import type { GenerationFailureKind } from "@codemm/shared-contracts";
 import {
   USER_EDITABLE_SPEC_KEYS,
   type UserEditableSpecKey,
@@ -39,6 +40,8 @@ export type SessionRecord = {
   commitments: ReturnType<typeof listCommitments>;
   generationOutcomes: GenerationOutcome[];
   intentTrace: unknown[];
+  latestGenerationRunId?: string | null;
+  latestGenerationRunStatus?: string | null;
 };
 
 export type SessionCollectorState = {
@@ -90,15 +93,56 @@ export function parseGenerationOutcomes(json: string | null | undefined): Genera
     if (!item || typeof item !== "object") continue;
     const slotIndex = (item as any).slotIndex;
     const success = (item as any).success;
+    const status = (item as any).status;
     const retries = (item as any).retries;
     const appliedFallback = (item as any).appliedFallback;
+    const failureKind = (item as any).failureKind;
+    const failureCode = (item as any).failureCode;
+    const message = (item as any).message;
     if (typeof slotIndex !== "number" || !Number.isFinite(slotIndex)) continue;
     if (typeof success !== "boolean") continue;
     if (typeof retries !== "number" || !Number.isFinite(retries)) continue;
+    const normalizedFailureKind =
+      failureKind === "generation_schema_error" ||
+      failureKind === "static_rule_violation" ||
+      failureKind === "api_shape_mismatch" ||
+      failureKind === "complexity_risk_exceeded" ||
+      failureKind === "compile_failure" ||
+      failureKind === "test_failure" ||
+      failureKind === "time_budget_exceeded" ||
+      failureKind === "output_limit_exceeded" ||
+      failureKind === "judge_infra_failure" ||
+      failureKind === "repair_no_progress" ||
+      failureKind === "run_policy_failure" ||
+      failureKind === "compile" ||
+      failureKind === "tests" ||
+      failureKind === "timeout" ||
+      failureKind === "contract" ||
+      failureKind === "quality" ||
+      failureKind === "llm" ||
+      failureKind === "infra" ||
+      failureKind === "unknown"
+        ? (failureKind as GenerationFailureKind)
+        : undefined;
     outcomes.push({
       slotIndex,
       success,
+      status:
+        status === "SUCCEEDED" ||
+        status === "RECOVERABLE_FAILED" ||
+        status === "FATAL_FAILED" ||
+        status === "QUARANTINED" ||
+        status === "RETRYABLE_FAILURE" ||
+        status === "HARD_FAILURE" ||
+        status === "SKIPPED"
+          ? status
+          : success
+            ? "SUCCEEDED"
+            : "RETRYABLE_FAILURE",
       retries,
+      ...(normalizedFailureKind ? { failureKind: normalizedFailureKind } : {}),
+      ...(typeof failureCode === "string" ? { failureCode } : {}),
+      ...(typeof message === "string" ? { message } : {}),
       ...(typeof appliedFallback === "string" && appliedFallback.trim() ? { appliedFallback } : {}),
     });
   }

@@ -16,6 +16,7 @@ import { getResolvedSnapshotOrNull, getRouteForRole, summarizeRoutePlan } from "
 import type { ProblemSlot } from "../planner/types";
 import type { SlotPromptContext } from "../languages/types";
 import { buildDefaultClassSkeleton, inferClassName } from "../utils/javaCodegen";
+import { javaUsesStdin } from "../utils/javaSource";
 import {
   ReferenceSolutionValidationError,
   validateReferenceSolution,
@@ -27,6 +28,12 @@ import { generateReference, REFERENCE_PROMPT_TEMPLATE_ID, REPAIR_PROMPT_TEMPLATE
 import { generateSkeleton, SKELETON_PROMPT_TEMPLATE_ID } from "./stages/skeleton";
 import { generateTests, TESTS_PROMPT_TEMPLATE_ID } from "./stages/tests";
 import type { GenerationFailureKind } from "../generation/errors";
+import { assertJavaStructuralTopicRequirements, hasJavaStructuralTopics } from "../languages/java/structuralTopics";
+import {
+  persistExecutionAttempt,
+  persistFailureDiagnosis,
+  prepareValidatedExecutionBundle,
+} from "../generation/services/validationService";
 
 export class SlotPipelineTerminalError extends Error {
   stage: Exclude<SlotStageName, "complete">;
@@ -93,11 +100,86 @@ function buildSlotIntent(slot: ProblemSlot): SlotIntent {
 }
 
 function inferFailureKind(err: unknown): GenerationFailureKind {
+  const explicitKind = (err as { kind?: unknown } | null)?.kind;
+  if (
+    explicitKind === "compile" ||
+    explicitKind === "tests" ||
+    explicitKind === "timeout" ||
+    explicitKind === "contract" ||
+    explicitKind === "quality" ||
+    explicitKind === "llm" ||
+    explicitKind === "unknown"
+  ) {
+    return explicitKind;
+  }
   if (err instanceof ReferenceSolutionValidationError) return err.kind;
   if (err instanceof TestStrengthGateError) return "quality";
   if (/timed out|timeout/i.test(String((err as any)?.message ?? ""))) return "timeout";
   if (/compile|syntax|cannot find symbol|must define|validation failed/i.test(String((err as any)?.message ?? ""))) return "contract";
   return "llm";
+}
+
+function preflightValidateDraft(args: {
+  slot: ProblemSlot;
+  draft: GeneratedProblemDraft;
+  stage: "reference" | "repair";
+  llm?: CompletionMeta;
+  llmOutputHash?: string;
+}): void {
+  if (
+    args.draft.language !== "java" ||
+    !("reference_solution" in args.draft) ||
+    typeof args.draft.reference_solution !== "string"
+  ) {
+    return;
+  }
+
+  if (hasJavaStructuralTopics(args.slot.topics) && javaUsesStdin(args.draft.reference_solution)) {
+    throw new SlotPipelineTerminalError(
+      "stdin reads (Scanner/System.in) are not allowed for Java structural-topic slots (encapsulation/inheritance/polymorphism/etc). Use pure methods and deterministic unit tests instead.",
+      {
+        stage: args.stage,
+        kind: "contract",
+        ...(args.llm ? { llm: args.llm } : {}),
+        ...(args.llmOutputHash ? { llmOutputHash: args.llmOutputHash } : {}),
+        routeRole: args.stage === "repair" ? "repair" : "reference",
+        title: args.draft.title,
+      }
+    );
+  }
+
+  try {
+    assertJavaStructuralTopicRequirements({
+      topics: args.slot.topics,
+      referenceSource: args.draft.reference_solution,
+      testSuite: args.draft.test_suite,
+    });
+  } catch (error) {
+    throw new SlotPipelineTerminalError(error instanceof Error ? error.message : String(error), {
+      stage: args.stage,
+      kind: "contract",
+      ...(args.llm ? { llm: args.llm } : {}),
+      ...(args.llmOutputHash ? { llmOutputHash: args.llmOutputHash } : {}),
+      routeRole: args.stage === "repair" ? "repair" : "reference",
+      title: args.draft.title,
+    });
+  }
+}
+
+function isNoOpReferenceRepair(args: {
+  previousReferenceSource: string;
+  previousReferenceHash: string | undefined;
+  nextReferenceSource: string;
+  nextReferenceHash: string | undefined;
+}): boolean {
+  if (
+    typeof args.previousReferenceHash === "string" &&
+    typeof args.nextReferenceHash === "string" &&
+    args.previousReferenceHash === args.nextReferenceHash
+  ) {
+    return true;
+  }
+  return args.previousReferenceSource.trim() === args.nextReferenceSource.trim();
 }
 
 function maybeEmitRouteSelection(args: {
@@ -361,6 +443,8 @@ async function validateDraftWithTelemetry(args: {
   ctx: StageContext;
   draft: GeneratedProblemDraft;
   attempt: number;
+  repairStrategy?: "regenerate_reference_logic" | null;
+  llmOutputHash?: string | null;
 }): Promise<void> {
   const startedAt = new Date().toISOString();
   args.ctx.onProgress?.({
@@ -373,8 +457,58 @@ async function validateDraftWithTelemetry(args: {
     startedAt,
   });
   try {
-    await validateReferenceSolution(args.draft);
-    await runTestStrengthGate(args.draft, args.ctx.slot);
+    const bundle = prepareValidatedExecutionBundle({
+      slot: args.ctx.slot,
+      draft: args.draft,
+      repairStrategy: args.repairStrategy ?? null,
+      llmOutputHash: args.llmOutputHash ?? null,
+    });
+
+    const execStartedAt = new Date().toISOString();
+    const judgeResult = await validateReferenceSolution(bundle.draft);
+    persistExecutionAttempt({
+      slotIndex: args.ctx.slot.index,
+      attempt: args.attempt,
+      executionPhase:
+        judgeResult.timeoutStage === "compile" || judgeResult.failureCategory === "COMPILE_FAILURE" || judgeResult.failureCategory === "COMPILE_ERROR"
+          ? "compile"
+          : "test_exec",
+      bundle,
+      strategy: args.repairStrategy ?? null,
+      result: {
+        startedAt: execStartedAt,
+        finishedAt: new Date().toISOString(),
+        exitCode: judgeResult.exitCode ?? null,
+        timeoutStage: judgeResult.timeoutStage ?? null,
+        watchdogSource: judgeResult.watchdogSource ?? null,
+        failureCategory: judgeResult.failureCategory ?? null,
+        stdout: judgeResult.stdout,
+        stderr: judgeResult.stderr,
+        parsedFailures: judgeResult.parsedFailures,
+        trace: {
+          passedTests: judgeResult.passedTests,
+          failedTests: judgeResult.failedTests,
+          executionTimeMs: judgeResult.executionTimeMs,
+        },
+      },
+    });
+
+    const qualityStartedAt = new Date().toISOString();
+    await runTestStrengthGate(bundle.draft, args.ctx.slot);
+    persistExecutionAttempt({
+      slotIndex: args.ctx.slot.index,
+      attempt: args.attempt,
+      executionPhase: "quality_gate",
+      bundle,
+      strategy: args.repairStrategy ?? null,
+      result: {
+        startedAt: qualityStartedAt,
+        finishedAt: new Date().toISOString(),
+        trace: {
+          qualityGate: "passed",
+        },
+      },
+    });
     const endedAt = new Date().toISOString();
     args.ctx.onProgress?.({
       type: "slot_stage_finished",
@@ -391,6 +525,88 @@ async function validateDraftWithTelemetry(args: {
   } catch (error) {
     const endedAt = new Date().toISOString();
     const kind = inferFailureKind(error);
+    const bundle =
+      (() => {
+        try {
+          return prepareValidatedExecutionBundle({
+            slot: args.ctx.slot,
+            draft: args.draft,
+            repairStrategy: args.repairStrategy ?? null,
+            llmOutputHash: args.llmOutputHash ?? null,
+          });
+        } catch {
+          return null;
+        }
+      })();
+
+    if (bundle && error instanceof ReferenceSolutionValidationError) {
+      const executionAttemptId = persistExecutionAttempt({
+        slotIndex: args.ctx.slot.index,
+        attempt: args.attempt,
+        executionPhase:
+          error.timeoutStage === "compile" || error.failureCategory === "COMPILE_FAILURE" || error.failureCategory === "COMPILE_ERROR"
+            ? "compile"
+            : "test_exec",
+        bundle,
+        strategy: args.repairStrategy ?? null,
+        result: {
+          startedAt,
+          finishedAt: endedAt,
+          exitCode: error.exitCode ?? null,
+          timeoutStage: error.timeoutStage ?? null,
+          watchdogSource: error.watchdogSource ?? null,
+          failureCategory: error.failureCategory ?? null,
+          stdout: error.judgeStdout,
+          stderr: error.judgeStderr,
+          parsedFailures: error.parsedFailures,
+          trace: {
+            budgetProfile: error.budgetProfile ?? null,
+          },
+        },
+      });
+      persistFailureDiagnosis({
+        slot: args.ctx.slot,
+        attempt: args.attempt,
+        kind,
+        err: error,
+        sourceExecutionAttemptId: executionAttemptId,
+      });
+    } else if (bundle && error instanceof TestStrengthGateError) {
+      const executionAttemptId = persistExecutionAttempt({
+        slotIndex: args.ctx.slot.index,
+        attempt: args.attempt,
+        executionPhase: "quality_gate",
+        bundle,
+        strategy: args.repairStrategy ?? null,
+        result: {
+          startedAt,
+          finishedAt: endedAt,
+          failureCategory: "TEST_FAILURE",
+          parsedFailures: {
+            baselineId: error.baselineId,
+          },
+          trace: {
+            qualityGate: "failed",
+            baselineId: error.baselineId,
+          },
+        },
+      });
+      persistFailureDiagnosis({
+        slot: args.ctx.slot,
+        attempt: args.attempt,
+        kind,
+        err: error,
+        sourceExecutionAttemptId: executionAttemptId,
+      });
+    } else {
+      persistFailureDiagnosis({
+        slot: args.ctx.slot,
+        attempt: args.attempt,
+        kind,
+        err: error,
+      });
+    }
+
     args.ctx.onProgress?.({
       type: "slot_stage_finished",
       slotIndex: args.ctx.slot.index,
@@ -462,12 +678,6 @@ export async function runSlotPipeline(args: {
   });
   envelope.tests = tests.value;
 
-  maybeEmitRouteSelection({
-    slot: args.slot,
-    routeRole: "reference",
-    promptTemplateId: REFERENCE_PROMPT_TEMPLATE_ID,
-    ...(args.onProgress ? { onProgress: args.onProgress } : {}),
-  });
   let reference = await executeStage({
     stage: "reference",
     routeRole: "reference",
@@ -504,9 +714,21 @@ export async function runSlotPipeline(args: {
     );
   }
   draft = parsedDraft.data;
+  preflightValidateDraft({
+    slot: args.slot,
+    draft,
+    stage: "reference",
+    ...(reference.llm ? { llm: reference.llm } : {}),
+    ...(reference.llmOutputHash ? { llmOutputHash: reference.llmOutputHash } : {}),
+  });
 
   try {
-    await validateDraftWithTelemetry({ ctx, draft, attempt: 1 });
+    await validateDraftWithTelemetry({
+      ctx,
+      draft,
+      attempt: 1,
+      llmOutputHash: reference.llmOutputHash ?? null,
+    });
   } catch (error) {
     if (!(error instanceof ReferenceSolutionValidationError)) {
       throw new SlotPipelineTerminalError(error instanceof Error ? error.message : String(error), {
@@ -519,12 +741,8 @@ export async function runSlotPipeline(args: {
       });
     }
 
-    maybeEmitRouteSelection({
-      slot: args.slot,
-      routeRole: "repair",
-      promptTemplateId: REPAIR_PROMPT_TEMPLATE_ID,
-      ...(args.onProgress ? { onProgress: args.onProgress } : {}),
-    });
+    const previousReferenceSource = (envelope.reference as SlotReference).reference_solution;
+    const previousReferenceHash = reference.artifactHash;
     const repair = await executeStage({
       stage: "repair",
       routeRole: "repair",
@@ -545,6 +763,26 @@ export async function runSlotPipeline(args: {
     });
     envelope.reference = repair.value;
     reference = repair;
+    if (
+      isNoOpReferenceRepair({
+        previousReferenceSource,
+        previousReferenceHash,
+        nextReferenceSource: repair.value.reference_solution,
+        nextReferenceHash: repair.artifactHash,
+      })
+    ) {
+      throw new SlotPipelineTerminalError(
+        "Repair regenerated the same reference artifact after a validation failure.",
+        {
+          stage: "repair",
+          kind: "repair_no_progress",
+          ...(repair.llm ? { llm: repair.llm } : {}),
+          ...(repair.llmOutputHash ? { llmOutputHash: repair.llmOutputHash } : {}),
+          routeRole: "repair",
+          title: draft.title,
+        }
+      );
+    }
     draft = buildDraft({
       slot: args.slot,
       skeleton: envelope.skeleton as SlotSkeleton,
@@ -566,8 +804,21 @@ export async function runSlotPipeline(args: {
       );
     }
     draft = repairedDraft.data;
+    preflightValidateDraft({
+      slot: args.slot,
+      draft,
+      stage: "repair",
+      ...(repair.llm ? { llm: repair.llm } : {}),
+      ...(repair.llmOutputHash ? { llmOutputHash: repair.llmOutputHash } : {}),
+    });
     try {
-      await validateDraftWithTelemetry({ ctx, draft, attempt: 2 });
+      await validateDraftWithTelemetry({
+        ctx,
+        draft,
+        attempt: 2,
+        repairStrategy: "regenerate_reference_logic",
+        llmOutputHash: repair.llmOutputHash ?? null,
+      });
     } catch (repairError) {
       throw new SlotPipelineTerminalError(repairError instanceof Error ? repairError.message : String(repairError), {
         stage: "repair",
@@ -606,3 +857,12 @@ export async function runSlotPipeline(args: {
     },
   };
 }
+
+export const __test__ = {
+  inferFailureKind,
+  preflightValidateDraft,
+  isNoOpReferenceRepair,
+  stripCppComments,
+  extractCppSolveSignature,
+  deriveCppStarter,
+};

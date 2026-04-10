@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
+import { threadsClient } from "@/lib/bridge/threadsClient";
 
 type Problem = {
   id: string;
@@ -19,8 +20,11 @@ type Activity = {
   prompt: string;
   problems: Problem[];
   createdAt: string;
-  status?: "DRAFT" | "PUBLISHED";
+  status?: "DRAFT" | "INCOMPLETE" | "PUBLISHED";
   timeLimitSeconds?: number | null;
+  threadId?: string | null;
+  failedSlotIndexes?: number[];
+  failedSlotCount?: number;
 };
 
 function requireActivitiesApi() {
@@ -59,10 +63,11 @@ export default function ActivityReviewPage() {
   const [editing, setEditing] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [repairing, setRepairing] = useState(false);
 
   const [tourOpen, setTourOpen] = useState(false);
 
-  const isDraft = (activity?.status ?? "PUBLISHED") === "DRAFT";
+  const isEditableDraft = ["DRAFT", "INCOMPLETE"].includes(activity?.status ?? "PUBLISHED");
 
   const tourSteps: TourStep[] = [
     {
@@ -87,18 +92,18 @@ export default function ActivityReviewPage() {
       id: "publish",
       selector: '[data-tour="draft-publish"]',
       title: "Publish when ready",
-      body: "Publishing makes the activity shareable. Draft activities stay private.",
+      body: "Publishing makes the activity shareable. Incomplete activities stay blocked until all failed slots are repaired.",
     },
   ];
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!isDraft) return;
+    if (!isEditableDraft) return;
     const key = "codem-tutorial-draft-review-v1";
     if (localStorage.getItem(key) === "1") return;
     const t = window.setTimeout(() => setTourOpen(true), 600);
     return () => window.clearTimeout(t);
-  }, [isDraft]);
+  }, [isEditableDraft]);
 
   const shareUrl = useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -207,6 +212,40 @@ export default function ActivityReviewPage() {
     }
   }
 
+  async function repairFailedSlots() {
+    if (!activity?.threadId) {
+      setError("This activity is not linked to a repairable generation thread.");
+      return;
+    }
+
+    setRepairing(true);
+    setError(null);
+    setToast(null);
+    try {
+      const data = await threadsClient.repairFailedSlots({ threadId: activity.threadId });
+      const nextActivityId = typeof data?.activityId === "string" && data.activityId ? data.activityId : activityId;
+      const refreshed = await requireActivitiesApi().get({ id: nextActivityId });
+      const nextActivity = refreshed?.activity as Activity | undefined;
+      if (nextActivity) {
+        setActivity(nextActivity);
+        setTitle(nextActivity.title ?? "");
+        setTimeLimitMinutes(
+          typeof nextActivity.timeLimitSeconds === "number" && nextActivity.timeLimitSeconds > 0
+            ? String(Math.max(1, Math.round(nextActivity.timeLimitSeconds / 60)))
+            : "0",
+        );
+      }
+      setToast("Failed slots repaired. Review the refreshed activity before publishing.");
+      if (nextActivityId !== activityId) {
+        router.replace(`/activity/${nextActivityId}/review`);
+      }
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to repair incomplete activity."));
+    } finally {
+      setRepairing(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-900">
@@ -264,15 +303,26 @@ export default function ActivityReviewPage() {
               <h1 className="text-xl font-semibold tracking-tight">{activity.title}</h1>
               <span
                 className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
-                  isDraft ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                  activity.status === "INCOMPLETE"
+                    ? "bg-rose-100 text-rose-800"
+                    : isEditableDraft
+                      ? "bg-amber-100 text-amber-800"
+                      : "bg-emerald-100 text-emerald-800"
                 }`}
               >
-                {isDraft ? "Draft" : "Published"}
+                {activity.status === "INCOMPLETE" ? "Incomplete" : isEditableDraft ? "Draft" : "Published"}
               </span>
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              Preview and edit before publishing. Timer applies per problem.
+              {activity.status === "INCOMPLETE"
+                ? "Generation only partially succeeded. Review the surviving problems here; standard learner flow stays blocked."
+                : "Preview and edit before publishing. Timer applies per problem."}
             </p>
+            {activity.status === "INCOMPLETE" && typeof activity.failedSlotCount === "number" ? (
+              <p className="mt-1 text-xs text-rose-600">
+                Failed slots remaining: {activity.failedSlotCount}
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -281,9 +331,19 @@ export default function ActivityReviewPage() {
             >
               Home
             </button>
+            {activity.status === "INCOMPLETE" && activity.threadId ? (
+              <button
+                onClick={() => void repairFailedSlots()}
+                disabled={repairing}
+                className="rounded-full bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-500 disabled:opacity-60"
+              >
+                {repairing ? "Repairing…" : "Repair failed slots"}
+              </button>
+            ) : null}
             <button
               onClick={() => router.push(`/activity/${activityId}`)}
               className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              disabled={activity.status === "INCOMPLETE"}
             >
               Open
             </button>
@@ -301,7 +361,7 @@ export default function ActivityReviewPage() {
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              disabled={!isDraft || saving || publishing}
+              disabled={!isEditableDraft || saving || publishing}
               className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-50"
               placeholder="Activity title"
             />
@@ -310,7 +370,7 @@ export default function ActivityReviewPage() {
             <input
               value={timeLimitMinutes}
               onChange={(e) => setTimeLimitMinutes(e.target.value)}
-              disabled={!isDraft || saving || publishing}
+              disabled={!isEditableDraft || saving || publishing}
               inputMode="numeric"
               className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-500 disabled:bg-slate-50"
               placeholder="0"
@@ -320,15 +380,15 @@ export default function ActivityReviewPage() {
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <button
                 onClick={() => void saveDraft()}
-                disabled={!isDraft || saving || publishing}
+                disabled={!isEditableDraft || saving || publishing}
                 data-tour="draft-save"
                 className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
               >
-                {saving ? "Saving…" : "Save draft"}
+                {saving ? "Saving…" : activity.status === "INCOMPLETE" ? "Save incomplete activity" : "Save draft"}
               </button>
               <button
                 onClick={() => void publish()}
-                disabled={!isDraft || saving || publishing}
+                disabled={!isEditableDraft || saving || publishing || activity.status === "INCOMPLETE"}
                 data-tour="draft-publish"
                 className="rounded-full bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-60"
               >
@@ -337,7 +397,14 @@ export default function ActivityReviewPage() {
               {toast && <span className="text-sm text-slate-600">{toast}</span>}
             </div>
 
-          {!isDraft && shareUrl && (
+            {activity.status === "INCOMPLETE" && (
+              <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+                Publishing is disabled for incomplete activities until the failed generation slots are repaired.
+                {activity.threadId ? " Use the repair action above to rerun only the failed or interrupted slots." : ""}
+              </div>
+            )}
+
+          {!isEditableDraft && shareUrl && (
               <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Share link</div>
                 <div className="mt-1 flex items-center gap-2">
@@ -369,7 +436,7 @@ export default function ActivityReviewPage() {
                     <span className="ml-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                       {(p.language ?? "java").toUpperCase()}
                     </span>
-                    {isDraft && (
+                    {isEditableDraft && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -388,7 +455,7 @@ export default function ActivityReviewPage() {
                   </summary>
                   <div className="mt-2 text-sm text-slate-700 whitespace-pre-line">{p.description}</div>
 
-                  {isDraft && editingProblemId === p.id && (
+                  {isEditableDraft && editingProblemId === p.id && (
                     <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Edit with AI

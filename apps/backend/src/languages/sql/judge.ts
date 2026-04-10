@@ -2,8 +2,9 @@ import { rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { JudgeResult } from "../../types";
 import { trace } from "../../utils/trace";
-import { getJudgeTimeoutMs, runDocker, stripAnsi } from "../../judge/docker";
+import { getJudgeExecutionTimeoutMs, getJudgeTimeoutMs, runDocker, stripAnsi } from "../../judge/docker";
 import { mkCodemTmpDir } from "../../judge/tmp";
+import { buildJudgeResult, EXEC_TIMEOUT_MARKER } from "../../judge/outcome";
 
 function parseSqlRunner(stdout: string): { passed: string[]; failed: string[] } {
   const clean = stripAnsi(stdout);
@@ -21,9 +22,17 @@ function parseSqlRunner(stdout: string): { passed: string[]; failed: string[] } 
   return { passed: Array.from(passed), failed: Array.from(failed) };
 }
 
+function secondsFromMs(ms: number): number {
+  return Math.max(1, Math.ceil(ms / 1000));
+}
+
 export async function runSqlJudge(userSql: string, testSuiteJson: string): Promise<JudgeResult> {
   const start = Date.now();
   const tmp = mkCodemTmpDir("codem-sql-judge-");
+  const budgetProfile = {
+    overallTimeoutMs: getJudgeTimeoutMs(),
+    executeTimeoutMs: getJudgeExecutionTimeoutMs(),
+  };
 
   try {
     writeFileSync(join(tmp, "solution.sql"), userSql, "utf8");
@@ -34,31 +43,51 @@ export async function runSqlJudge(userSql: string, testSuiteJson: string): Promi
       "--rm",
       "--network",
       "none",
-      "--read-only",
+	      "--read-only",
+	      "--user",
+	      "65534:65534",
+	      "--cap-drop",
+	      "ALL",
+      "--security-opt",
+      "no-new-privileges",
+      "--pids-limit",
+      "256",
+      "--memory",
+      "512m",
+      "--cpus",
+      "1.0",
       "--tmpfs",
       "/tmp:rw",
       "-v",
       `${tmp}:/workspace:ro`,
       "--workdir",
       "/workspace",
+      "--entrypoint",
+      "/bin/bash",
       "codem-sql-judge",
+      "-lc",
+      `timeout -k 1s ${secondsFromMs(getJudgeExecutionTimeoutMs())}s sh -lc 'python /opt/codem/sql_judge.py' || { status=$?; if [ "$status" -eq 124 ]; then echo '${EXEC_TIMEOUT_MARKER}' >&2; exit 124; fi; exit "$status"; }`,
     ];
 
-    const { stdout, stderr, exitCode, timedOut } = await runDocker({ args, cwd: tmp, timeoutMs: getJudgeTimeoutMs() });
-    trace("judge.result", { exitCode, timedOut, stdoutLen: stdout.length, stderrLen: stderr.length });
+    const capture = await runDocker({ args, cwd: tmp, timeoutMs: getJudgeTimeoutMs() });
+    trace("judge.result", {
+      exitCode: capture.exitCode,
+      timedOut: capture.timedOut,
+      outputLimitExceeded: capture.outputLimitExceeded,
+      stdoutLen: capture.stdout.length,
+      stderrLen: capture.stderr.length,
+    });
 
     const executionTimeMs = Date.now() - start;
-    const { passed, failed } = parseSqlRunner(stdout);
-    return {
-      success: exitCode === 0,
+    const { passed, failed } = parseSqlRunner(capture.stdout);
+    return buildJudgeResult({
+      success: capture.exitCode === 0 && !capture.timedOut && !capture.outputLimitExceeded,
       passedTests: passed,
       failedTests: failed,
-      stdout,
-      stderr,
       executionTimeMs,
-      exitCode,
-      timedOut,
-    };
+      capture,
+      budgetProfile,
+    });
   } catch (e: any) {
     const executionTimeMs = Date.now() - start;
     return {

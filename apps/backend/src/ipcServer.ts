@@ -8,6 +8,7 @@ import { isObject, replyErr, replyOk, send, validateOrThrow } from "./ipc/server
 import { createJudgeHandlers } from "./ipc/judge";
 import { createThreadHandlers, shutdownThreadHandlers } from "./ipc/threads";
 import type { JsonObject, RpcHandlerDef } from "./ipc/types";
+import { reconcileInterruptedGenerationState } from "./services/threads/generationRecoveryService";
 
 type RpcRequest = {
   id: string;
@@ -74,6 +75,7 @@ function shutdown() {
 }
 
 initializeDatabase();
+reconcileInterruptedGenerationState();
 
 process.on("message", onMessage);
 process.on("disconnect", () => process.exit(0));

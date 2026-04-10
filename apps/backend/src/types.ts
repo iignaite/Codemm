@@ -1,3 +1,5 @@
+import type { JudgeFailureCategoryDto } from "@codemm/shared-contracts";
+
 /**
  * Shared types for Codemm v1.0.
  */
@@ -11,6 +13,12 @@ export interface JudgeResult {
   executionTimeMs: number;
   exitCode?: number;
   timedOut?: boolean;
+  failureCategory?: JudgeFailureCategoryDto;
+  timeoutStage?: "compile" | "execute" | "overall";
+  watchdogSource?: "inner" | "outer" | "unknown";
+  outputLimitExceeded?: boolean;
+  parsedFailures?: Record<string, unknown>;
+  budgetProfile?: Record<string, unknown>;
 }
 
 /**

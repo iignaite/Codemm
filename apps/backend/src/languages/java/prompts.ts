@@ -15,7 +15,7 @@ Hard requirements:
 - Java 17, no package declarations anywhere.
 - Return JSON for a SINGLE problem (not an array).
 - You MUST follow the exact output shape requested in the user prompt:
-  - EITHER the legacy single-file shape (starter_code + reference_solution)
+  - EITHER the single-file shape (starter_code + reference_solution)
   - OR the workspace shape (workspace + reference_workspace).
 
 Product checking mode (stdout-only):
@@ -37,7 +37,7 @@ Test suite requirements:
 - Use assertEquals/assertTrue/assertFalse/assertThrows with meaningful expectations
 - Avoid brittle whitespace expectations (do not assertEquals against string literals with leading/trailing spaces).
 
-Reference solution requirements (legacy):
+Reference solution requirements (single-file):
 - reference_solution must compile and pass all tests
 - starter_code and reference_solution must each declare at most ONE top-level public type (helper types should be non-public).
 - JSON formatting: represent newlines as "\n" (single backslash). Do NOT use "\\n" (double backslash).

@@ -37,7 +37,7 @@ export type ActivityProblemDto = {
   };
 };
 
-export type ActivityStatusDto = "DRAFT" | "PUBLISHED";
+export type ActivityStatusDto = "DRAFT" | "INCOMPLETE" | "PUBLISHED";
 
 export type ActivityDetailDto = {
   id: string;
@@ -47,6 +47,9 @@ export type ActivityDetailDto = {
   createdAt: string;
   status?: ActivityStatusDto;
   timeLimitSeconds?: number | null;
+  threadId?: string | null;
+  failedSlotIndexes?: number[];
+  failedSlotCount?: number;
 };
 
 export type ActivitySummaryDto = {

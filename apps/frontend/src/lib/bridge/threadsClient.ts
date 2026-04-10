@@ -43,17 +43,17 @@ export const threadsClient = {
     if (!api?.postMessage) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
     return api.postMessage(args) as Promise<PostThreadMessageResponseDto>;
   },
-  generate(args: { threadId: string }) {
+  generate(args: { threadId: string; runId?: string }) {
     const api = getCodemmBridge().threads;
     if (!api?.generate) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
     return api.generate(args) as Promise<GenerateThreadResponseDto>;
   },
-  generateV2(args: { threadId: string }) {
+  generateV2(args: { threadId: string; runId?: string }) {
     const api = getCodemmBridge().threads;
     if (!api?.generateV2) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
     return api.generateV2(args) as Promise<GenerateThreadResponseDto>;
   },
-  generateLatest(args: { threadId: string }) {
+  generateLatest(args: { threadId: string; runId?: string }) {
     const api = getCodemmBridge().threads;
     if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
     if (typeof api.generateV2 === "function") {
@@ -69,6 +69,11 @@ export const threadsClient = {
     if (!api?.regenerateSlot) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
     return api.regenerateSlot(args) as Promise<GenerateThreadResponseDto>;
   },
+  repairFailedSlots(args: { threadId: string; runId?: string }) {
+    const api = getCodemmBridge().threads;
+    if (!api?.repairFailedSlots) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
+    return api.repairFailedSlots(args) as Promise<GenerateThreadResponseDto>;
+  },
   getGenerationDiagnostics(args: { threadId: string; runId?: string | null; limit?: number }) {
     const api = getCodemmBridge().threads;
     if (!api?.getGenerationDiagnostics) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
@@ -78,7 +83,7 @@ export const threadsClient = {
       ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
     }) as Promise<GenerationDiagnosticsState>;
   },
-  subscribeGeneration(args: { threadId: string; onEvent: (event: GenerationProgressEvent) => void }) {
+  subscribeGeneration(args: { threadId: string; runId?: string; onEvent: (event: GenerationProgressEvent) => void }) {
     const api = getCodemmBridge().threads;
     if (!api?.subscribeGeneration) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
     return api.subscribeGeneration(args);

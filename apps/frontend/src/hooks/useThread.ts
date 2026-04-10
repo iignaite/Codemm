@@ -138,10 +138,11 @@ export function useThread() {
       localStorage.setItem("codem-last-learning-mode", mode);
 
       const state = String(data.state ?? "");
-      const ready = state === "READY" || state === "GENERATING" || state === "SAVED";
+      const ready = !["DRAFT", "CLARIFYING"].includes(state);
       setSpecReady(ready);
       specReadyRef.current = ready;
-      setGenerationLocked(state === "GENERATING");
+      setGenerationLocked(state === "GENERATING" || state === "GENERATE_PENDING");
+      setGenerationRunId(typeof data.latestGenerationRunId === "string" ? data.latestGenerationRunId : null);
 
       const instr = typeof data.instructions_md === "string" ? data.instructions_md : "";
       setInstructionsSaved(instr);
@@ -343,8 +344,13 @@ export function useThread() {
         4000,
       );
 
+      const runId = typeof window !== "undefined" && window.crypto?.randomUUID ? window.crypto.randomUUID() : `run-${Date.now()}`;
+      runIdForDiagnostics = runId;
+      setGenerationRunId(runId);
+
       const sub = await threadsClient.subscribeGeneration({
         threadId,
+        runId,
         onEvent: (event: GenerationProgressEvent) => {
           window.clearTimeout(hintTimer);
           setProgressHint((prev) =>
@@ -365,7 +371,7 @@ export function useThread() {
       });
       progressRef.current = { unsubscribe: sub.unsubscribe };
 
-      const data: GenerateThreadResponseDto = await threadsClient.generateLatest({ threadId });
+      const data: GenerateThreadResponseDto = await threadsClient.generateLatest({ threadId, runId });
       window.clearTimeout(hintTimer);
       if (typeof data.runId === "string") {
         runIdForDiagnostics = data.runId;

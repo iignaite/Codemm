@@ -75,15 +75,35 @@ function registerThreadsIpc(deps) {
   });
 
   tryRegisterIpcHandler("codemm:threads:generate", async (_evt, args) => {
-    const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
+    const parsed = validate(
+      z.object({
+        threadId: z.string().min(1).max(128),
+        runId: z.string().min(1).max(128).optional(),
+      }),
+      args
+    );
     const threadId = reqString(parsed.threadId, "threadId");
-    return engineCall("threads.generate", { threadId }, { llm: true, useCase: "generation" });
+    return engineCall(
+      "threads.generate",
+      { threadId, ...(typeof parsed.runId === "string" ? { runId: parsed.runId } : {}) },
+      { llm: true, useCase: "generation" }
+    );
   });
 
   tryRegisterIpcHandler("codemm:threads:generateV2", async (_evt, args) => {
-    const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
+    const parsed = validate(
+      z.object({
+        threadId: z.string().min(1).max(128),
+        runId: z.string().min(1).max(128).optional(),
+      }),
+      args
+    );
     const threadId = reqString(parsed.threadId, "threadId");
-    return engineCall("threads.generateV2", { threadId }, { llm: true, useCase: "generation" });
+    return engineCall(
+      "threads.generateV2",
+      { threadId, ...(typeof parsed.runId === "string" ? { runId: parsed.runId } : {}) },
+      { llm: true, useCase: "generation" }
+    );
   });
 
   tryRegisterIpcHandler("codemm:threads:regenerateSlot", async (_evt, args) => {
@@ -133,9 +153,18 @@ function registerThreadsIpc(deps) {
   });
 
   tryRegisterIpcHandler("codemm:threads:subscribeGeneration", async (_evt, args) => {
-    const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
+    const parsed = validate(
+      z.object({
+        threadId: z.string().min(1).max(128),
+        runId: z.string().min(1).max(128).optional(),
+      }),
+      args
+    );
     const threadId = reqString(parsed.threadId, "threadId");
-    return engineCall("threads.subscribeGeneration", { threadId });
+    return engineCall("threads.subscribeGeneration", {
+      threadId,
+      ...(typeof parsed.runId === "string" ? { runId: parsed.runId } : {}),
+    });
   });
 
   tryRegisterIpcHandler("codemm:threads:unsubscribeGeneration", async (_evt, args) => {

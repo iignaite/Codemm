@@ -41,9 +41,10 @@ test("generation: pipeline can finalize multiple languages (reference artifacts 
     },
   ];
 
-  const generateSingleProblem = async (slot) => {
+  const runSlotPipeline = async ({ slot }) => {
     if (slot.language === "cpp") {
       return {
+        envelope: {},
         draft: {
           language: "cpp",
           id: "cpp-smoke-1",
@@ -79,12 +80,13 @@ int main() {
           difficulty: slot.difficulty,
           topic_tag: slot.topics[0],
         },
-        meta: { llmOutputHash: "stub" },
+        meta: { llmOutputHash: "stub", promptTemplateId: "test", routePlan: null },
       };
     }
 
     if (slot.language === "python") {
       return {
+        envelope: {},
         draft: {
           language: "python",
           id: "py-smoke-1",
@@ -110,7 +112,7 @@ def test_case_8(): assert solve("x" * 20) == 20
           difficulty: slot.difficulty,
           topic_tag: slot.topics[0],
         },
-        meta: { llmOutputHash: "stub" },
+        meta: { llmOutputHash: "stub", promptTemplateId: "test", routePlan: null },
       };
     }
 
@@ -125,6 +127,7 @@ def test_case_8(): assert solve("x" * 20) == 20
         })),
       };
       return {
+        envelope: {},
         draft: {
           language: "sql",
           id: "sql-smoke-1",
@@ -139,12 +142,13 @@ def test_case_8(): assert solve("x" * 20) == 20
           difficulty: slot.difficulty,
           topic_tag: slot.topics[0],
         },
-        meta: { llmOutputHash: "stub" },
+        meta: { llmOutputHash: "stub", promptTemplateId: "test", routePlan: null },
       };
     }
 
     // java
     return {
+      envelope: {},
       draft: {
         language: "java",
         id: "java-smoke-1",
@@ -188,21 +192,15 @@ public class SumArrayTest {
         difficulty: slot.difficulty,
         topic_tag: slot.topics[0],
       },
-      meta: { llmOutputHash: "stub" },
+      meta: { llmOutputHash: "stub", promptTemplateId: "test", routePlan: null },
     };
   };
 
-  let validateCalls = 0;
-  const validateReferenceSolution = async () => {
-    validateCalls++;
-  };
-
   const result = await generateProblemsFromPlan(plan, {
-    deps: { generateSingleProblem, validateReferenceSolution, runTestStrengthGate: async () => {} },
+    deps: { runSlotPipeline },
   });
 
   assert.equal(result.problems.length, 4);
-  assert.equal(validateCalls, 4);
   for (const p of result.problems) {
     assert.equal("reference_solution" in p, false);
     assert.equal("reference_workspace" in p, false);

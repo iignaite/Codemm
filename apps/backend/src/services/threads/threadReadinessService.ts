@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { threadCollectorRepository, threadMessageRepository, threadRepository } from "../../database/repositories/threadRepository";
+import { generationRunRepository } from "../../database/repositories/generationRunRepository";
 import type { SessionState } from "../../contracts/session";
 import { DEFAULT_LEARNING_MODE, type LearningMode } from "../../contracts/learningMode";
 import { listCommitments, parseCommitmentsJson } from "../../agent/commitments";
@@ -43,6 +44,7 @@ export function getSession(id: string): SessionRecord {
   const intentTrace = parseJsonArray(session.intent_trace_json).slice(-50);
   const generationOutcomes = parseGenerationOutcomes(session.generation_outcomes_json);
   const learning_mode = parseLearningMode(session.learning_mode);
+  const latestGenerationRun = generationRunRepository.latestByThread(id);
 
   return {
     id: session.id,
@@ -56,6 +58,8 @@ export function getSession(id: string): SessionRecord {
     commitments,
     generationOutcomes,
     intentTrace,
+    latestGenerationRunId: latestGenerationRun?.id ?? null,
+    latestGenerationRunStatus: latestGenerationRun?.status ?? null,
   };
 }
 

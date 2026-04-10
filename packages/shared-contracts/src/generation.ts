@@ -5,20 +5,148 @@ export type Difficulty = "easy" | "medium" | "hard";
 export type GenerationLanguage = "java" | "python" | "cpp" | "sql";
 
 export type GenerationFailureKind =
+  | "spec_error"
+  | "generation_schema_error"
+  | "static_rule_violation"
+  | "api_shape_mismatch"
+  | "complexity_risk_exceeded"
+  | "compile_failure"
+  | "test_failure"
+  | "time_budget_exceeded"
+  | "output_limit_exceeded"
+  | "judge_infra_failure"
+  | "repair_no_progress"
+  | "run_policy_failure"
   | "compile"
   | "tests"
   | "timeout"
   | "contract"
   | "quality"
   | "llm"
+  | "infra"
   | "unknown";
 
+export type GenerationRunStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "COMPLETED"
+  | "INCOMPLETE"
+  | "PARTIAL_SUCCESS"
+  | "RETRYABLE_FAILURE"
+  | "HARD_FAILURE"
+  | "ABORTED";
+
+export type GenerationSlotStage =
+  | "QUEUED"
+  | "SKELETON_GENERATING"
+  | "TESTS_GENERATING"
+  | "REFERENCE_GENERATING"
+  | "GENERATION_CONTRACT_VALIDATING"
+  | "STATIC_ANALYSIS"
+  | "API_SHAPE_VALIDATION"
+  | "COMPLEXITY_RISK_ESTIMATION"
+  | "EXECUTION_BUNDLE_READY"
+  | "COMPILE_RUNNING"
+  | "TEST_EXEC_RUNNING"
+  | "QUALITY_GATE_RUNNING"
+  | "FAILURE_DIAGNOSED"
+  | "REPAIR_STRATEGY_SELECTED"
+  | "REPAIR_GENERATING"
+  | "REPAIR_SANITIZING"
+  | "REPAIR_EXECUTING"
+  | "SKELETON_RUNNING"
+  | "TESTS_RUNNING"
+  | "REFERENCE_RUNNING"
+  | "VALIDATING_REFERENCE"
+  | "REPAIRING_REFERENCE"
+  | "VALIDATING_REPAIR"
+  | "SUCCEEDED"
+  | "RECOVERABLE_FAILED"
+  | "FATAL_FAILED"
+  | "QUARANTINED"
+  | "RETRYABLE_FAILURE"
+  | "HARD_FAILURE"
+  | "SKIPPED";
+
+export type GenerationSlotTerminalStatus =
+  | "SUCCEEDED"
+  | "RECOVERABLE_FAILED"
+  | "FATAL_FAILED"
+  | "QUARANTINED"
+  | "RETRYABLE_FAILURE"
+  | "HARD_FAILURE"
+  | "SKIPPED";
+
+export type JudgeFailureCategoryDto =
+  | "COMPILE_FAILURE"
+  | "TEST_FAILURE"
+  | "TIME_BUDGET_EXCEEDED"
+  | "OUTPUT_LIMIT_EXCEEDED"
+  | "JUDGE_INFRA_FAILURE"
+  | "COMPILE_ERROR"
+  | "TEST_FAILURE"
+  | "EXEC_TIMEOUT"
+  | "OUTPUT_LIMIT"
+  | "INFRA_ERROR";
+
 export type RepairStrategy =
+  | "regenerate_reference_logic"
+  | "regenerate_reference_shape"
+  | "regenerate_tests_shape"
+  | "tighten_constraints"
+  | "inject_guardrails"
+  | "quarantine_slot"
   | "retry_full_slot"
   | "repair_reference_solution"
   | "repair_test_suite"
   | "downgrade_difficulty"
   | "narrow_topics";
+
+export type GenerationExecutionPhaseDto = "compile" | "test_exec" | "quality_gate";
+
+export type GenerationSlotDiagnosisDto = {
+  runId: string;
+  slotIndex: number;
+  attempt: number;
+  diagnosisClass: string;
+  recoverability: "recoverable" | "fatal" | "quarantine";
+  normalizedSymptom: string;
+  recommendedRepairStrategy?: RepairStrategy | null;
+  sourceExecutionAttemptId?: number | null;
+};
+
+export type GenerationExecutionAttemptDto = {
+  id: number;
+  runId: string;
+  slotIndex: number;
+  attempt: number;
+  executionPhase: GenerationExecutionPhaseDto;
+  bundleHash: string;
+  strategy?: RepairStrategy | null;
+  budgetProfile?: Record<string, unknown> | null;
+  startedAt: string;
+  finishedAt?: string | null;
+  exitCode?: number | null;
+  timeoutStage?: "compile" | "execute" | "overall" | null;
+  watchdogSource?: "inner" | "outer" | "unknown" | null;
+  failureCategory?: JudgeFailureCategoryDto | GenerationFailureKind | null;
+  stdoutHash?: string | null;
+  stderrHash?: string | null;
+  stdoutSnippet?: string | null;
+  stderrSnippet?: string | null;
+  parsedFailures?: Record<string, unknown> | null;
+  trace?: Record<string, unknown> | null;
+};
+
+export type GenerationRunFailureCacheEntryDto = {
+  runId: string;
+  language: GenerationLanguage;
+  topicSignature: string;
+  failureClass: string;
+  normalizedSymptom: string;
+  guardrailPatch?: Record<string, unknown> | null;
+  createdAt: string;
+};
 
 export type CompletionUsageDto = {
   inputTokens?: number;
@@ -158,9 +286,57 @@ export type GenerationDiagnosticsDto = {
   errors: Array<{ seq: number; message: string; createdAt: string }>;
 };
 
+export type GenerationRunSummaryDto = {
+  runId: string;
+  threadId: string;
+  status: GenerationRunStatus;
+  activityId?: string | null;
+  totalSlots: number;
+  completedSlots: number;
+  successfulSlots: number;
+  failedSlots: number;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  lastFailureKind?: GenerationFailureKind | null;
+  lastFailureCode?: string | null;
+  lastFailureMessage?: string | null;
+};
+
+export type GenerationSlotRunDto = {
+  runId: string;
+  slotIndex: number;
+  status: GenerationSlotStage;
+  currentStage?: GenerationSlotStage | null;
+  attemptCount: number;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  lastFailureKind?: GenerationFailureKind | null;
+  lastFailureCode?: string | null;
+  lastFailureMessage?: string | null;
+  title?: string | null;
+  topic?: string | null;
+  language?: GenerationLanguage | null;
+};
+
+export type ValidatedExecutionBundleSummaryDto = {
+  language: GenerationLanguage;
+  bundleHash: string;
+  artifactHashes: {
+    starter?: string;
+    reference?: string;
+    tests?: string;
+    description?: string;
+  };
+  staticFindings: Array<{ code: string; severity: "info" | "warn" | "error"; message: string }>;
+  riskScore: number;
+  budgetProfile: Record<string, unknown>;
+};
+
 export type GenerationProgressEvent =
-  | { type: "generation_started"; totalSlots: number; totalProblems?: number; run?: number }
+  | { type: "generation_started"; runId?: string; totalSlots: number; totalProblems?: number; run?: number }
+  | { type: "generation_run_status"; runId?: string; status: GenerationRunStatus; activityId?: string; error?: string }
   | {
+      runId?: string;
       type: "route_selected";
       slotIndex: number;
       routeRole: LlmRole;
@@ -170,6 +346,7 @@ export type GenerationProgressEvent =
       promptTemplateId?: string;
     }
   | {
+      runId?: string;
       type: "slot_stage_started";
       slotIndex: number;
       stage: "skeleton" | "tests" | "reference" | "validate" | "repair";
@@ -181,6 +358,7 @@ export type GenerationProgressEvent =
       startedAt?: string;
     }
   | {
+      runId?: string;
       type: "slot_stage_finished";
       slotIndex: number;
       stage: "skeleton" | "tests" | "reference" | "validate" | "repair";
@@ -200,6 +378,7 @@ export type GenerationProgressEvent =
       timedOut?: boolean;
     }
   | {
+      runId?: string;
       type: "slot_escalated";
       slotIndex: number;
       stage: "tests" | "reference" | "repair";
@@ -209,6 +388,7 @@ export type GenerationProgressEvent =
       reason: string;
     }
   | {
+      runId?: string;
       type: "slot_failed_terminal";
       slotIndex: number;
       stage: "skeleton" | "tests" | "reference" | "validate" | "repair";
@@ -218,15 +398,17 @@ export type GenerationProgressEvent =
       message: string;
     }
   | {
+      runId?: string;
       type: "slot_started";
       slotIndex: number;
       difficulty: Difficulty;
       topic: string;
       language: GenerationLanguage;
     }
-  | { type: "slot_llm_attempt_started"; slotIndex: number; attempt: number }
-  | { type: "slot_contract_validated"; slotIndex: number; attempt: number }
+  | { runId?: string; type: "slot_llm_attempt_started"; slotIndex: number; attempt: number }
+  | { runId?: string; type: "slot_contract_validated"; slotIndex: number; attempt: number }
   | {
+      runId?: string;
       type: "slot_evidence";
       slotIndex: number;
       attempt: number;
@@ -234,10 +416,11 @@ export type GenerationProgressEvent =
       qualityGate?: { baselines: Array<{ id: string; ok: boolean }> };
       rewrites?: Array<{ id: string; applied: boolean; detail?: string }>;
     }
-  | { type: "slot_contract_failed"; slotIndex: number; attempt: number; shortError: string }
-  | { type: "slot_docker_validation_started"; slotIndex: number; attempt: number }
-  | { type: "slot_docker_validation_failed"; slotIndex: number; attempt: number; shortError: string }
+  | { runId?: string; type: "slot_contract_failed"; slotIndex: number; attempt: number; shortError: string }
+  | { runId?: string; type: "slot_docker_validation_started"; slotIndex: number; attempt: number }
+  | { runId?: string; type: "slot_docker_validation_failed"; slotIndex: number; attempt: number; shortError: string }
   | {
+      runId?: string;
       type: "slot_attempt_summary";
       slotIndex: number;
       attempt: number;
@@ -278,6 +461,7 @@ export type GenerationProgressEvent =
       };
     }
   | {
+      runId?: string;
       type: "slot_failure_diagnostic";
       slotIndex: number;
       attempt: number;
@@ -287,22 +471,23 @@ export type GenerationProgressEvent =
       final: boolean;
     }
   | {
+      runId?: string;
       type: "slot_repair_applied";
       slotIndex: number;
       attempt: number;
       strategy: RepairStrategy;
       detail?: string;
     }
-  | { type: "slot_completed"; slotIndex: number }
-  | { type: "generation_completed"; activityId: string }
-  | { type: "generation_failed"; error: string; slotIndex?: number }
-  | { type: "generation_soft_fallback_applied"; reason: string; patchPaths: string[] }
-  | { type: "heartbeat"; ts: string }
-  | { type: "problem_started"; index: number; difficulty: Difficulty }
-  | { type: "attempt_started"; index: number; attempt: number }
-  | { type: "validation_started"; index: number; attempt: number }
-  | { type: "validation_failed"; index: number; attempt: number }
-  | { type: "attempt_failed"; index: number; attempt: number; phase: "generate" | "validate" }
-  | { type: "problem_validated"; index: number }
-  | { type: "problem_failed"; index: number }
-  | { type: "generation_complete"; activityId: string };
+  | { runId?: string; type: "slot_completed"; slotIndex: number }
+  | { runId?: string; type: "generation_completed"; activityId: string }
+  | { runId?: string; type: "generation_failed"; error: string; slotIndex?: number }
+  | { runId?: string; type: "generation_soft_fallback_applied"; reason: string; patchPaths: string[] }
+  | { runId?: string; type: "heartbeat"; ts: string }
+  | { runId?: string; type: "problem_started"; index: number; difficulty: Difficulty }
+  | { runId?: string; type: "attempt_started"; index: number; attempt: number }
+  | { runId?: string; type: "validation_started"; index: number; attempt: number }
+  | { runId?: string; type: "validation_failed"; index: number; attempt: number }
+  | { runId?: string; type: "attempt_failed"; index: number; attempt: number; phase: "generate" | "validate" }
+  | { runId?: string; type: "problem_validated"; index: number }
+  | { runId?: string; type: "problem_failed"; index: number }
+  | { runId?: string; type: "generation_complete"; activityId: string };

@@ -45,6 +45,8 @@ Keep in mind:
 - Codemm’s “agent logic” is backend-owned; the IDE should remain a thin shell over backend contracts.
 - Judging relies on Docker; don’t add a path that executes untrusted code outside Docker.
 - For generation APIs, preserve IPC naming stability (`threads.generate`, `threads.generateV2`, `threads.regenerateSlot`, `threads.getGenerationDiagnostics`).
+- Generation progress is `runId`-scoped. Do not add thread-wide progress reducers or subscriptions that can mix overlapping runs.
+- Persistent generation state lives in `generation_runs`, `generation_slot_runs`, and `generation_slot_transitions`. Avoid rebuilding run state from transient UI reducers or `problems_json` length.
 
 ## Style / Guardrails
 

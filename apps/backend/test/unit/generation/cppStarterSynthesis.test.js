@@ -3,7 +3,7 @@ require("../../helpers/setupBase");
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { __test__ } = require("../../../src/generation/perSlotGenerator");
+const { __test__ } = require("../../../src/pipeline/slotStages");
 
 test("cpp starter synthesis: strips comments before checking for solve()", () => {
   const starter = `#include <bits/stdc++.h>
@@ -25,10 +25,7 @@ long long solve(int n, const std::vector<std::tuple<int,int,int>>& edges) {
   const signature = __test__.extractCppSolveSignature(reference);
   assert.equal(signature, "long long solve(int n, const std::vector<std::tuple<int,int,int>>& edges)");
 
-  const starter = __test__.synthesizeCppStarterCodeFromReference({
-    referenceSolution: reference,
-    fallbackTopic: "minimum spanning tree",
-  });
+  const starter = __test__.deriveCppStarter(reference, "minimum spanning tree");
   assert.ok(starter);
   assert.match(starter, /long long solve\s*\(/);
   assert.match(starter, /throw std::runtime_error\("TODO"\);/);
