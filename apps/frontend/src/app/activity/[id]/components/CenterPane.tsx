@@ -1,9 +1,12 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
-import Editor from "@monaco-editor/react";
+import Editor, { type OnMount } from "@monaco-editor/react";
 import type { FileRole, LanguageId } from "@/lib/languages";
-import type { CodeFiles, RunResult, FeedbackState } from "../types";
+import type { CodeFiles, FeedbackState } from "../types";
+
+type MonacoEditor = Parameters<OnMount>[0];
+type MonacoApi = Parameters<OnMount>[1];
 
 type Props = {
   files: CodeFiles;
@@ -44,8 +47,8 @@ export default function CenterPane({
   onDeleteFile,
   isFileDeletable,
 }: Props) {
-  const editorRef = useRef<any>(null);
-  const monacoRef = useRef<any>(null);
+  const editorRef = useRef<MonacoEditor | null>(null);
+  const monacoRef = useRef<MonacoApi | null>(null);
   const todoDecorationsRef = useRef<string[]>([]);
   const [terminalOpen, setTerminalOpen] = useState(true);
   const [terminalHeight, setTerminalHeight] = useState(180);
@@ -88,12 +91,8 @@ export default function CenterPane({
   }, [activeFilename, activeCode]);
 
   // Terminal output from the last run/check
-  const terminalStdout = feedback?.result
-    ? String((feedback.result as any).formattedStdout ?? (feedback.result as any).stdout ?? "")
-    : "";
-  const terminalStderr = feedback?.result
-    ? String((feedback.result as any).formattedStderr ?? (feedback.result as any).stderr ?? "")
-    : "";
+  const terminalStdout = feedback?.result ? String(feedback.result.formattedStdout ?? feedback.result.stdout ?? "") : "";
+  const terminalStderr = feedback?.result ? String(feedback.result.formattedStderr ?? feedback.result.stderr ?? "") : "";
   const hasTerminalOutput = Boolean(terminalStdout || terminalStderr);
 
   // Terminal resize

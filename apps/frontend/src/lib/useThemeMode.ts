@@ -1,23 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
+
+const THEME_KEY = "codem-theme";
+const listeners = new Set<() => void>();
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function readIsDark(): boolean {
+  return localStorage.getItem(THEME_KEY) === "dark";
+}
 
 export function useThemeMode(): { darkMode: boolean; toggleDarkMode: () => void } {
-  const [darkMode, setDarkMode] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem("codem-theme");
-    setDarkMode(stored === "dark");
-  }, []);
+  // localStorage is an external store; useSyncExternalStore keeps every
+  // consumer of this hook in sync and renders light on the server snapshot.
+  const darkMode = useSyncExternalStore(subscribe, readIsDark, () => false);
 
   const toggleDarkMode = () => {
-    setDarkMode((prev) => {
-      const next = !prev;
-      localStorage.setItem("codem-theme", next ? "dark" : "light");
-      return next;
-    });
+    localStorage.setItem(THEME_KEY, darkMode ? "light" : "dark");
+    for (const listener of listeners) listener();
   };
 
   return { darkMode, toggleDarkMode };
 }
-

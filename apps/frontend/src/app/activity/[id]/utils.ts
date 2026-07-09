@@ -14,13 +14,13 @@ export function getProblemLanguage(p: Problem | null | undefined): LanguageId {
 
 export function isJudgeResult(x: JudgeResult | RunResult | null | undefined): x is JudgeResult {
   if (!x || typeof x !== "object") return false;
-  const anyX = x as any;
+  const candidate = x as Partial<JudgeResult>;
   return (
-    typeof anyX.success === "boolean" &&
-    Array.isArray(anyX.passedTests) &&
-    Array.isArray(anyX.failedTests) &&
-    typeof anyX.stdout === "string" &&
-    typeof anyX.stderr === "string"
+    typeof candidate.success === "boolean" &&
+    Array.isArray(candidate.passedTests) &&
+    Array.isArray(candidate.failedTests) &&
+    typeof candidate.stdout === "string" &&
+    typeof candidate.stderr === "string"
   );
 }
 

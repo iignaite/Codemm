@@ -43,14 +43,14 @@ function deriveSlotKeyFromQuestionKey(key?: string | null): SpecSlot["key"] | nu
   const k = (key ?? "").trim().toLowerCase();
   if (!k) return null;
   if (k === "ready") return null;
-  if (k.startsWith("invalid:")) return (k.slice("invalid:".length) as any) ?? null;
+  if (k.startsWith("invalid:")) return (k.slice("invalid:".length) as SpecSlot["key"]) ?? null;
   if (k.startsWith("confirm:")) {
     const first = k
       .slice("confirm:".length)
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)[0];
-    return (first as any) ?? null;
+    return (first as SpecSlot["key"] | undefined) ?? null;
   }
   if (k.startsWith("goal:")) {
     const goal = k.slice("goal:".length);

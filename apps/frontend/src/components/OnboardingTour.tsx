@@ -37,14 +37,18 @@ export function OnboardingTour(props: {
   const { open, steps, onClose } = props;
   const [index, setIndex] = useState(0);
   const [highlight, setHighlight] = useState<Highlight | null>(null);
+
+  // Restart from the first step whenever the tour is (re)opened. Adjusting
+  // state during render avoids the extra effect-driven render pass.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) setIndex(0);
+  }
+
   const active = steps[index] ?? null;
 
   const isLast = index >= steps.length - 1;
-
-  useEffect(() => {
-    if (!open) return;
-    setIndex(0);
-  }, [open]);
 
   useEffect(() => {
     if (!open || !active) return;

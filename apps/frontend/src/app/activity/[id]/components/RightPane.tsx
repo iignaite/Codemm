@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { LanguageId } from "@/lib/languages";
 import { countTests } from "@/lib/languages";
-import type { Activity, Problem, ProblemStatus, FeedbackState, JudgeResult } from "../types";
+import type { Activity, Problem, ProblemStatus, FeedbackState } from "../types";
 import { isJudgeResult, sortTestCaseNames, getProblemLanguage } from "../utils";
 
 type RightPaneTab = "testcases" | "results";
@@ -136,16 +136,7 @@ export default function RightPane({
             />
           )}
           {bottomTab === "results" && (
-            <ResultsTab
-              activity={activity}
-              feedback={feedback}
-              selectedLanguage={selectedLanguage}
-              selectedProblemId={selectedProblemId}
-              testSuite={testSuite}
-              problemStatusById={problemStatusById}
-              onClearFeedback={onClearFeedback}
-              onSelectProblem={onSelectProblem}
-            />
+            <ResultsTab activity={activity} feedback={feedback} onClearFeedback={onClearFeedback} />
           )}
         </div>
       </div>
@@ -235,7 +226,7 @@ function TestcasesTab({
 
       {!hasResults && (
         <p className="text-[11px] text-slate-400">
-          Click "Run all testcases" or "Check Code" to see results.
+          Click &quot;Run all testcases&quot; or &quot;Check Code&quot; to see results.
         </p>
       )}
 
@@ -276,21 +267,11 @@ function TestcasesTab({
 function ResultsTab({
   activity,
   feedback,
-  selectedLanguage,
-  selectedProblemId,
-  testSuite,
-  problemStatusById,
   onClearFeedback,
-  onSelectProblem,
 }: {
   activity: Activity;
   feedback: FeedbackState | null;
-  selectedLanguage: LanguageId;
-  selectedProblemId: string | null;
-  testSuite: string;
-  problemStatusById: Record<string, ProblemStatus>;
   onClearFeedback: () => void;
-  onSelectProblem: (problem: Problem) => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
