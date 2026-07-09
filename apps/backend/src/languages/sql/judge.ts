@@ -36,7 +36,7 @@ export async function runSqlJudge(userSql: string, testSuiteJson: string): Promi
       "none",
       "--read-only",
       "--tmpfs",
-      "/tmp:rw,size=256m",
+      "/tmp:rw,size=256m,mode=1777",
       "-v",
       `${tmp}:/workspace:ro`,
       "--workdir",

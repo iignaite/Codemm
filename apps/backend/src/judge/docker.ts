@@ -119,9 +119,22 @@ export const CONTAINER_LIMIT_ARGS: readonly string[] = [
   "no-new-privileges",
 ];
 
+/**
+ * On POSIX hosts the sandbox runs as the invoking user with every Linux
+ * capability dropped: untrusted code gets no root and no capabilities, while
+ * host-owned bind mounts (created 0700 by mkdtemp) stay readable and Java's
+ * read-write compile mount stays writable because the uids match. Windows has
+ * no getuid; there the container keeps the image default user and relies on
+ * the existing no-new-privileges + resource limits.
+ */
+export function sandboxUserArgs(): readonly string[] {
+  if (typeof process.getuid !== "function" || typeof process.getgid !== "function") return [];
+  return ["--user", `${process.getuid()}:${process.getgid()}`, "--cap-drop", "ALL"];
+}
+
 export function withContainerLimits(args: string[]): string[] {
   if (args[0] !== "run") return args;
-  return [args[0], ...CONTAINER_LIMIT_ARGS, ...args.slice(1)];
+  return [args[0], ...CONTAINER_LIMIT_ARGS, ...sandboxUserArgs(), ...args.slice(1)];
 }
 
 export async function runDocker(opts: {

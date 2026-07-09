@@ -38,6 +38,14 @@ Local model option:
 - The app should never run submitted code directly via `child_process` outside Docker.
 - Docker is invoked via `spawn()` with argument arrays (no shell command strings) to reduce injection surface and improve cross-platform behavior.
 
+Sandbox flags (injected for every container at the single `runDocker` choke point — see `apps/backend/src/judge/docker.ts`):
+
+- `--network none` and a read-only root filesystem, with scratch confined to a size-capped `mode=1777` tmpfs.
+- Resource limits: `--pids-limit 256`, `--memory 1g` (swap capped equal), `--cpus 2` — verified to contain a fork bomb on a live judge.
+- `--security-opt no-new-privileges` everywhere.
+- On POSIX hosts, untrusted code runs as the invoking user (`--user uid:gid`) with **every Linux capability dropped** (`--cap-drop ALL`); matching the host uid keeps the 0700 bind-mounted workspaces readable and Java's read-write compile mount writable. Windows has no uid mapping, so containers there keep the image default user plus the flags above.
+- Wall-clock timeouts and output-size kills apply on top (`spawnCapture`).
+
 ## Localhost Port Hijacking (Transitional)
 
 Codemm-Desktop currently serves the renderer UI from a local Next.js server (127.0.0.1).

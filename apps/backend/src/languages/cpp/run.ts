@@ -48,7 +48,7 @@ export async function runCppFiles(opts: { files: CppFiles; stdin?: string }): Pr
       "none",
       "--read-only",
       "--tmpfs",
-      "/tmp:rw,exec,size=256m",
+      "/tmp:rw,exec,size=256m,mode=1777",
       "-v",
       `${tmp}:/workspace:ro`,
       "--workdir",

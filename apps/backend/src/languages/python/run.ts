@@ -46,7 +46,7 @@ export async function runPythonFiles(opts: { files: PythonFiles; stdin?: string 
       "none",
       "--read-only",
       "--tmpfs",
-      "/tmp:rw,size=256m",
+      "/tmp:rw,size=256m,mode=1777",
       "-e",
       "PYTHONDONTWRITEBYTECODE=1",
       "-e",

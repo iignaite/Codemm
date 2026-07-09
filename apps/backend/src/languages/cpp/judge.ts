@@ -61,7 +61,7 @@ export async function runCppJudgeFiles(userFiles: CppFiles, testSuite: string): 
       "none",
       "--read-only",
       "--tmpfs",
-      "/tmp:rw,exec,size=256m",
+      "/tmp:rw,exec,size=256m,mode=1777",
       "-v",
       `${tmp}:/workspace:ro`,
       "--workdir",
