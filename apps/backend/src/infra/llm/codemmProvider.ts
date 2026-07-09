@@ -1,8 +1,4 @@
-import type { CompletionOpts, CompletionResult, LlmProvider, ResolvedLlmRoutePlan, ResolvedLlmSnapshot } from "./types";
-import { createGeminiCompletion, hasGeminiApiKey } from "./adapters/gemini";
-import { hasAnthropicApiKey } from "./adapters/anthropic";
-import { hasOllamaModelConfigured } from "./adapters/ollama";
-import { hasOpenAiApiKey, getOpenAiClient } from "./adapters/openai";
+import type { CompletionOpts, CompletionResult, LlmProvider, ResolvedLlmRoutePlan } from "./types";
 import { getResolvedLlmSnapshot } from "./executionContext";
 import { ensureRoutePlan, getRouteForRole } from "./runtimeService";
 import { findProviderPlugin, getProviderPlugin, listProviderPlugins } from "../plugins/provider";
@@ -23,14 +19,19 @@ function getConfiguredProvider(): LlmProvider | null {
   return normalizeProvider(raw);
 }
 
+/** Error shown when a provider is explicitly requested via env but not configured. */
+const EXPLICIT_PROVIDER_ERRORS: Record<LlmProvider, string> = {
+  openai: "Missing OpenAI API key. Set CODEX_API_KEY or OPENAI_API_KEY, or set CODEX_PROVIDER=anthropic|gemini.",
+  anthropic: "Missing Anthropic API key. Set ANTHROPIC_API_KEY, or set CODEX_PROVIDER=openai|gemini.",
+  gemini: "Missing Gemini API key. Set GEMINI_API_KEY/GOOGLE_API_KEY, or set CODEX_PROVIDER=openai|anthropic.",
+  ollama: 'Missing Ollama model. Set CODEMM_OLLAMA_MODEL (example: "qwen2.5-coder:7b") and ensure Ollama is running.',
+};
+
 export function hasAnyLlmApiKey(): boolean {
   const snapshot = ensureRoutePlan(getResolvedLlmSnapshot());
   const plugin = findProviderPlugin(snapshot);
-  if (snapshot && snapshot.provider === "gemini") {
-    return Boolean(snapshot.apiKey && snapshot.apiKey.trim());
-  }
   if (plugin && plugin.id !== "ollama") return plugin.isConfigured(snapshot);
-  return hasOpenAiApiKey() || hasAnthropicApiKey() || hasGeminiApiKey();
+  return listProviderPlugins().some((candidate) => candidate.id !== "ollama" && candidate.isConfigured(null));
 }
 
 export function hasAnyLlmConfigured(): boolean {
@@ -40,12 +41,9 @@ export function hasAnyLlmConfigured(): boolean {
     const route = getRouteForRole(snapshot, "dialogue");
     return snapshot.readiness === "READY" && Boolean(route?.model && route.model.trim());
   }
-  if (snapshot?.provider === "gemini") {
-    return Boolean(snapshot.apiKey && snapshot.apiKey.trim());
-  }
   if (plugin) return plugin.isConfigured(snapshot);
 
-  return hasAnyLlmApiKey() || hasOllamaModelConfigured();
+  return listProviderPlugins().some((candidate) => candidate.isConfigured(null));
 }
 
 function resolveProviderOrThrow(): LlmProvider {
@@ -64,51 +62,22 @@ function resolveProviderOrThrow(): LlmProvider {
       }
       return plugin.id;
     }
-    if (
-      snapshot.provider === "gemini" &&
-      !(snapshot.apiKey && String(snapshot.apiKey).trim())
-    ) {
-      throw new Error("Resolved gemini snapshot is missing an API key.");
-    }
     return snapshot.provider;
   }
 
   const explicit = getConfiguredProvider();
-  if (explicit === "openai") {
-    if (!hasOpenAiApiKey()) {
-      throw new Error(
-        "Missing OpenAI API key. Set CODEX_API_KEY or OPENAI_API_KEY, or set CODEX_PROVIDER=anthropic|gemini."
-      );
+  if (explicit) {
+    const plugin = getProviderPlugin(explicit);
+    if (!plugin?.isConfigured(null)) {
+      throw new Error(EXPLICIT_PROVIDER_ERRORS[explicit]);
     }
-    return "openai";
-  }
-  if (explicit === "anthropic") {
-    if (!hasAnthropicApiKey()) {
-      throw new Error("Missing Anthropic API key. Set ANTHROPIC_API_KEY, or set CODEX_PROVIDER=openai|gemini.");
-    }
-    return "anthropic";
-  }
-  if (explicit === "gemini") {
-    if (!hasGeminiApiKey()) {
-      throw new Error("Missing Gemini API key. Set GEMINI_API_KEY/GOOGLE_API_KEY, or set CODEX_PROVIDER=openai|anthropic.");
-    }
-    return "gemini";
-  }
-  if (explicit === "ollama") {
-    if (!hasOllamaModelConfigured()) {
-      throw new Error('Missing Ollama model. Set CODEMM_OLLAMA_MODEL (example: "qwen2.5-coder:7b") and ensure Ollama is running.');
-    }
-    return "ollama";
+    return explicit;
   }
 
-  // Auto mode: choose the first available provider (one provider per process).
+  // Auto mode: first configured provider in registry order (one provider per process).
   for (const plugin of listProviderPlugins()) {
-    if (plugin.id === "ollama") continue;
     if (plugin.isConfigured(null)) return plugin.id;
   }
-  if (hasGeminiApiKey()) return "gemini";
-  if (getProviderPlugin("ollama")?.isConfigured(null)) return "ollama";
-  if (hasOllamaModelConfigured()) return "ollama";
 
   throw new Error(
     'No LLM configured. Open LLM Settings and save a cloud provider API key, or click "Use Local Model" to set up Ollama.'
@@ -122,33 +91,19 @@ export async function createCodemmCompletion(opts: CompletionOpts): Promise<Comp
   const route = getRouteForRole(snapshot, role, {
     escalationIndex: typeof opts.attempt === "number" ? Math.max(0, opts.attempt - 1) : 0,
   });
-  if (provider === "gemini") {
-    const resolvedModel = opts.model ?? route?.model ?? snapshot?.defaultModel;
-    const resolvedOpts: CompletionOpts = resolvedModel && !opts.model ? { ...opts, model: resolvedModel } : opts;
-    if (snapshot?.provider === "gemini" && snapshot.apiKey) {
-      return createGeminiCompletion(resolvedOpts, {
-        apiKey: snapshot.apiKey,
-        ...(snapshot.baseURL ? { baseURL: snapshot.baseURL } : {}),
-      });
-    }
-    return createGeminiCompletion(resolvedOpts);
-  }
   const plugin = getProviderPlugin(provider);
-  if (plugin) {
-    const { model: resolvedModel } = plugin.resolveModel({ opts, snapshot, route });
-    return plugin.createCompletion({
-      opts,
-      snapshot,
-      route,
-      ...(resolvedModel ? { resolvedModel } : {}),
-    });
+  if (!plugin) {
+    throw new Error(`No provider plugin registered for "${provider}".`);
   }
-  const fallbackModel = opts.model ?? route?.model ?? snapshot?.defaultModel;
-  const fallbackOpts: CompletionOpts = fallbackModel && !opts.model ? { ...opts, model: fallbackModel } : opts;
-  return createGeminiCompletion(fallbackOpts);
+  const { model: resolvedModel } = plugin.resolveModel({ opts, snapshot, route });
+  return plugin.createCompletion({
+    opts,
+    snapshot,
+    route,
+    ...(resolvedModel ? { resolvedModel } : {}),
+  });
 }
 
 export function getResolvedSnapshotOrNull(): ResolvedLlmRoutePlan | null {
   return ensureRoutePlan(getResolvedLlmSnapshot());
 }
-

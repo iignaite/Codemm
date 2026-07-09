@@ -1,10 +1,17 @@
 import type { LlmProvider, ResolvedLlmRoutePlan } from "../../llm/types";
 import type { ProviderPlugin } from "./ProviderPlugin";
 import { anthropicProviderPlugin } from "./anthropicProvider";
+import { geminiProviderPlugin } from "./geminiProvider";
 import { ollamaProviderPlugin } from "./ollamaProvider";
 import { openaiProviderPlugin } from "./openaiProvider";
 
-const providerPlugins: ProviderPlugin[] = [openaiProviderPlugin, anthropicProviderPlugin, ollamaProviderPlugin];
+// Auto-selection order: cloud providers first, local fallback last.
+const providerPlugins: ProviderPlugin[] = [
+  openaiProviderPlugin,
+  anthropicProviderPlugin,
+  geminiProviderPlugin,
+  ollamaProviderPlugin,
+];
 
 export function listProviderPlugins(): ProviderPlugin[] {
   return [...providerPlugins];
