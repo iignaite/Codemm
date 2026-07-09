@@ -24,6 +24,81 @@ function assertDockerAvailable(): void {
   }
 }
 
+const MAX_TOTAL_CODE_LENGTH = 200_000;
+const MAX_STDIN_LENGTH = 50_000;
+
+type ActivityLanguage = (typeof ActivityLanguageSchema)["_type"];
+
+/** Per-language rules for user-supplied file sets. */
+const FILE_RULES: Record<ActivityLanguage, { pattern: RegExp; runMaxFiles: number; submitMaxFiles: number }> = {
+  java: { pattern: /^[A-Za-z_][A-Za-z0-9_]*\.java$/, runMaxFiles: 12, submitMaxFiles: 16 },
+  python: { pattern: /^[A-Za-z_][A-Za-z0-9_]*\.py$/, runMaxFiles: 20, submitMaxFiles: 30 },
+  cpp: { pattern: /^[A-Za-z_][A-Za-z0-9_]*\.(?:cpp|h|hpp)$/, runMaxFiles: 40, submitMaxFiles: 50 },
+  sql: { pattern: /^[A-Za-z_][A-Za-z0-9_]*\.sql$/, runMaxFiles: 12, submitMaxFiles: 16 },
+};
+
+/** Language-specific requirements on the file set, applied after generic validation. */
+const RUN_FILESET_CHECKS: Partial<Record<ActivityLanguage, (files: Record<string, string>) => void>> = {
+  python: (files) => {
+    if (!("main.py" in files)) throw new Error('Python /run requires a "main.py" file.');
+  },
+  cpp: (files) => {
+    if (!("main.cpp" in files)) throw new Error('C++ /run requires a "main.cpp" file.');
+  },
+  sql: () => {
+    throw new Error("SQL does not support /run yet. Use /submit (Run tests).");
+  },
+};
+
+const SUBMIT_FILESET_CHECKS: Partial<Record<ActivityLanguage, (files: Record<string, string>) => void>> = {
+  python: (files) => {
+    if ("test_solution.py" in files) throw new Error('files must not include "test_solution.py".');
+    if (!("solution.py" in files)) throw new Error('Python /submit requires a "solution.py" file.');
+  },
+  cpp: (files) => {
+    if ("test.cpp" in files) throw new Error('files must not include "test.cpp".');
+    if (!("solution.cpp" in files)) throw new Error('C++ /submit requires a "solution.cpp" file.');
+    const extraSources = Object.keys(files).filter((f) => f.endsWith(".cpp") && f !== "solution.cpp");
+    if (extraSources.length > 0) {
+      throw new Error(`C++ /submit supports "solution.cpp" plus optional headers only. Remove: ${extraSources.join(", ")}`);
+    }
+  },
+  sql: (files) => {
+    if (!("solution.sql" in files)) throw new Error('SQL /submit requires a "solution.sql" file.');
+    const extras = Object.keys(files).filter((f) => f !== "solution.sql");
+    if (extras.length > 0) throw new Error(`SQL /submit supports only solution.sql. Remove: ${extras.join(", ")}`);
+  },
+};
+
+function validateUserFiles(args: {
+  lang: ActivityLanguage;
+  files: object;
+  maxFiles: number;
+  reservedLength: number;
+}): Record<string, string> {
+  const { pattern } = FILE_RULES[args.lang];
+  const entries = Object.entries(args.files as Record<string, unknown>);
+  if (entries.length === 0) throw new Error("files must be a non-empty object.");
+  if (entries.length > args.maxFiles) throw new Error(`Too many files. Max is ${args.maxFiles}.`);
+
+  let totalLen = args.reservedLength;
+  const safeFiles: Record<string, string> = {};
+  for (const [filename, source] of entries) {
+    if (typeof filename !== "string" || !pattern.test(filename)) {
+      throw new Error(`Invalid filename "${String(filename)}".`);
+    }
+    if (typeof source !== "string" || !source.trim()) {
+      throw new Error(`File "${filename}" must be a non-empty string.`);
+    }
+    totalLen += source.length;
+    if (totalLen > MAX_TOTAL_CODE_LENGTH) {
+      throw new Error(`Total code exceeds maximum length of ${MAX_TOTAL_CODE_LENGTH} characters.`);
+    }
+    safeFiles[filename] = source;
+  }
+  return safeFiles;
+}
+
 export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
   return {
     "judge.run": {
@@ -49,22 +124,10 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         const profile = getLanguageProfile(lang);
         if (!profile.executionAdapter) throw new Error(`No execution adapter configured for "${lang}".`);
 
-        const maxTotalCodeLength = 200_000;
-        const maxStdinLength = 50_000;
-        const maxFileCount = lang === "python" ? 20 : lang === "cpp" ? 40 : 12;
-        const filenamePattern =
-          lang === "python"
-            ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/
-            : lang === "cpp"
-              ? /^[A-Za-z_][A-Za-z0-9_]*\.(?:cpp|h|hpp)$/
-              : lang === "sql"
-                ? /^[A-Za-z_][A-Za-z0-9_]*\.sql$/
-                : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
-
         let safeStdin: string | undefined = undefined;
         if (typeof stdin !== "undefined") {
           if (typeof stdin !== "string") throw new Error("stdin must be a string.");
-          if (stdin.length > maxStdinLength) throw new Error(`stdin exceeds maximum length of ${maxStdinLength} characters.`);
+          if (stdin.length > MAX_STDIN_LENGTH) throw new Error(`stdin exceeds maximum length of ${MAX_STDIN_LENGTH} characters.`);
           safeStdin = stdin;
         }
 
@@ -78,37 +141,13 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         });
 
         if (files && typeof files === "object") {
-          const entries = Object.entries(files as Record<string, unknown>);
-          if (entries.length === 0) throw new Error("files must be a non-empty object.");
-          if (entries.length > maxFileCount) throw new Error(`Too many files. Max is ${maxFileCount}.`);
-
-          let totalLen = safeStdin?.length ?? 0;
-          const safeFiles: Record<string, string> = {};
-          for (const [filename, source] of entries) {
-            if (typeof filename !== "string" || !filenamePattern.test(filename)) {
-              throw new Error(`Invalid filename "${String(filename)}".`);
-            }
-            if (typeof source !== "string" || !source.trim()) {
-              throw new Error(`File "${filename}" must be a non-empty string.`);
-            }
-            totalLen += source.length;
-            if (totalLen > maxTotalCodeLength) {
-              throw new Error(`Total code exceeds maximum length of ${maxTotalCodeLength} characters.`);
-            }
-            safeFiles[filename] = source;
-          }
-
-          if (lang === "python") {
-            const hasMain = entries.some(([filename]) => filename === "main.py");
-            if (!hasMain) throw new Error('Python /run requires a "main.py" file.');
-          }
-          if (lang === "cpp") {
-            const hasMain = entries.some(([filename]) => filename === "main.cpp");
-            if (!hasMain) throw new Error('C++ /run requires a "main.cpp" file.');
-          }
-          if (lang === "sql") {
-            throw new Error('SQL does not support /run yet. Use /submit (Run tests).');
-          }
+          const safeFiles = validateUserFiles({
+            lang,
+            files,
+            maxFiles: FILE_RULES[lang].runMaxFiles,
+            reservedLength: safeStdin?.length ?? 0,
+          });
+          RUN_FILESET_CHECKS[lang]?.(safeFiles);
 
           const execReq: {
             kind: "files";
@@ -133,7 +172,7 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
           throw new Error("Provide either code (string) or files (object).");
         }
         const total = code.length + (safeStdin?.length ?? 0);
-        if (total > maxTotalCodeLength) throw new Error(`Code exceeds maximum length of ${maxTotalCodeLength} characters.`);
+        if (total > MAX_TOTAL_CODE_LENGTH) throw new Error(`Code exceeds maximum length of ${MAX_TOTAL_CODE_LENGTH} characters.`);
 
         const execReq: { kind: "code"; code: string; stdin?: string } = { kind: "code", code };
         if (typeof safeStdin === "string") execReq.stdin = safeStdin;
@@ -176,17 +215,6 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         const profile = getLanguageProfile(lang);
         if (!profile.judgeAdapter) throw new Error(`No judge adapter configured for "${lang}".`);
 
-        const maxTotalCodeLength = 200_000;
-        const maxFileCount = lang === "python" ? 30 : lang === "cpp" ? 50 : 16;
-        const filenamePattern =
-          lang === "python"
-            ? /^[A-Za-z_][A-Za-z0-9_]*\.py$/
-            : lang === "cpp"
-              ? /^[A-Za-z_][A-Za-z0-9_]*\.(?:cpp|h|hpp)$/
-              : lang === "sql"
-                ? /^[A-Za-z_][A-Za-z0-9_]*\.sql$/
-                : /^[A-Za-z_][A-Za-z0-9_]*\.java$/;
-
         const runId = crypto.randomUUID();
         runRepository.create(runId, "judge.submit", {
           threadId: null,
@@ -202,53 +230,13 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         let codeForPersistence: string | null = null;
 
         if (files && typeof files === "object") {
-          const entries = Object.entries(files as Record<string, unknown>);
-          if (entries.length === 0) throw new Error("files must be a non-empty object.");
-          if (entries.length > maxFileCount) throw new Error(`Too many files. Max is ${maxFileCount}.`);
-
-          let totalLen = testSuite.length;
-          const safeFiles: Record<string, string> = {};
-          for (const [filename, source] of entries) {
-            if (typeof filename !== "string" || !filenamePattern.test(filename)) {
-              throw new Error(`Invalid filename "${String(filename)}".`);
-            }
-            if (typeof source !== "string" || !source.trim()) {
-              throw new Error(`File "${filename}" must be a non-empty string.`);
-            }
-            totalLen += source.length;
-            if (totalLen > maxTotalCodeLength) throw new Error(`Total code exceeds maximum length of ${maxTotalCodeLength} characters.`);
-            safeFiles[filename] = source;
-          }
-
-          if (lang === "python") {
-            if (Object.prototype.hasOwnProperty.call(safeFiles, "test_solution.py")) {
-              throw new Error('files must not include "test_solution.py".');
-            }
-            if (!Object.prototype.hasOwnProperty.call(safeFiles, "solution.py")) {
-              throw new Error('Python /submit requires a "solution.py" file.');
-            }
-          }
-          if (lang === "cpp") {
-            if (Object.prototype.hasOwnProperty.call(safeFiles, "test.cpp")) {
-              throw new Error('files must not include "test.cpp".');
-            }
-            if (!Object.prototype.hasOwnProperty.call(safeFiles, "solution.cpp")) {
-              throw new Error('C++ /submit requires a "solution.cpp" file.');
-            }
-            const cppSources = Object.keys(safeFiles).filter((f) => f.endsWith(".cpp") && f !== "solution.cpp");
-            if (cppSources.length > 0) {
-              throw new Error(`C++ /submit supports "solution.cpp" plus optional headers only. Remove: ${cppSources.join(", ")}`);
-            }
-          }
-          if (lang === "sql") {
-            if (!Object.prototype.hasOwnProperty.call(safeFiles, "solution.sql")) {
-              throw new Error('SQL /submit requires a "solution.sql" file.');
-            }
-            const extras = Object.keys(safeFiles).filter((f) => f !== "solution.sql");
-            if (extras.length > 0) {
-              throw new Error(`SQL /submit supports only solution.sql. Remove: ${extras.join(", ")}`);
-            }
-          }
+          const safeFiles = validateUserFiles({
+            lang,
+            files,
+            maxFiles: FILE_RULES[lang].submitMaxFiles,
+            reservedLength: testSuite.length,
+          });
+          SUBMIT_FILESET_CHECKS[lang]?.(safeFiles);
 
           result = await profile.judgeAdapter.judge({ kind: "files", files: safeFiles, testSuite });
           codeForPersistence = JSON.stringify(safeFiles);
@@ -256,8 +244,8 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
           if (typeof code !== "string" || !code.trim()) {
             throw new Error("code is required non-empty string.");
           }
-          if (code.length + testSuite.length > maxTotalCodeLength) {
-            throw new Error(`Total code exceeds maximum length of ${maxTotalCodeLength} characters.`);
+          if (code.length + testSuite.length > MAX_TOTAL_CODE_LENGTH) {
+            throw new Error(`Total code exceeds maximum length of ${MAX_TOTAL_CODE_LENGTH} characters.`);
           }
           result = await profile.judgeAdapter.judge({ kind: "code", code, testSuite });
           codeForPersistence = code;

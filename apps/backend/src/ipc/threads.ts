@@ -145,11 +145,8 @@ export function createThreadHandlers(deps: {
         const params = requireParams(paramsRaw);
         const threadId = getString(params.threadId);
         if (!threadId) throw new Error("threadId is required.");
-        const raw = params.instructions_md;
-        const instructionsMd = typeof raw === "string" ? raw : raw === null ? null : null;
-        if (typeof instructionsMd === "string" && instructionsMd.length > 8000) {
-          throw new Error("instructions_md is too large.");
-        }
+        // Schema already enforces string-or-null and the 8000-char cap.
+        const instructionsMd = typeof params.instructions_md === "string" ? params.instructions_md : null;
         const response: UpdateThreadInstructionsResponseDto = setThreadInstructions(threadId, instructionsMd);
         return response;
       },

@@ -48,13 +48,10 @@ async function handle(method: string, paramsRaw: unknown, contextRaw?: unknown):
     throw new Error(`Unknown method: ${method}`);
   }
   const validated = def.schema ? validateOrThrow(def.schema, paramsRaw) : paramsRaw;
-  const context = isObject(contextRaw) ? contextRaw : {};
-  const llmContext =
-    isObject((context as any).llmRoutePlan) && typeof (context as any).llmRoutePlan.provider === "string"
-      ? ((context as any).llmRoutePlan as ResolvedLlmRoutePlan)
-      : isObject((context as any).llmSnapshot) && typeof (context as any).llmSnapshot.provider === "string"
-        ? ((context as any).llmSnapshot as ResolvedLlmSnapshot)
-        : null;
+  const context = isObject(contextRaw) ? (contextRaw as RpcRequest["context"]) : {};
+  const pickPlan = (value: ResolvedLlmRoutePlan | null | undefined): ResolvedLlmRoutePlan | null =>
+    isObject(value) && typeof value.provider === "string" ? value : null;
+  const llmContext = pickPlan(context?.llmRoutePlan) ?? pickPlan(context?.llmSnapshot);
   return withResolvedLlmSnapshot(llmContext, () => def.handler(validated));
 }
 

@@ -7,6 +7,7 @@ import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
 import { type LearningMode } from "@/lib/bridge/codemmBridge";
 import { renderOverallPercent, renderSlotPercent, renderSlotStatus } from "@/lib/threads/progressReducer";
 import { useThread } from "@/hooks/useThread";
+import { useThemeMode } from "@/lib/useThemeMode";
 
 const tutorialSteps: TourStep[] = [
   {
@@ -77,10 +78,7 @@ export default function Home() {
     refreshGenerationDiagnostics,
   } = useThread();
 
-  const [darkMode, setDarkMode] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return localStorage.getItem("codem-theme") === "dark";
-  });
+  const { darkMode, toggleDarkMode } = useThemeMode();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
 
@@ -108,12 +106,6 @@ export default function Home() {
     if (window.location.pathname === "/") {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
-  };
-
-  const toggleDarkMode = () => {
-    const nextMode = !darkMode;
-    setDarkMode(nextMode);
-    localStorage.setItem("codem-theme", nextMode ? "dark" : "light");
   };
 
   const isBusy = chatLoading || loading;

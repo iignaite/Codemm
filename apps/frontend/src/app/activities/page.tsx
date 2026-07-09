@@ -3,34 +3,11 @@
 import Link from "next/link";
 import { ArrowLeft, Moon, RefreshCw, Search, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { ActivitySummaryDto } from "@codemm/shared-contracts";
+import { activitiesClient } from "@/lib/bridge/activitiesClient";
+import { useThemeMode } from "@/lib/useThemeMode";
 
-type ActivitySummary = {
-  id: string;
-  title: string;
-  status?: "DRAFT" | "PUBLISHED" | string;
-  time_limit_seconds?: number | null;
-  created_at: string;
-};
-
-type ActivitiesListResponse = { activities?: unknown };
-
-function isObject(x: unknown): x is Record<string, unknown> {
-  return Boolean(x) && typeof x === "object" && !Array.isArray(x);
-}
-
-function isActivitySummary(x: unknown): x is ActivitySummary {
-  if (!isObject(x)) return false;
-  return typeof x.id === "string" && typeof x.title === "string" && typeof x.created_at === "string";
-}
-
-function requireActivitiesApi() {
-  const w = window as unknown as { codemm?: unknown };
-  const codemm = isObject(w.codemm) ? w.codemm : null;
-  const activities = codemm && isObject(codemm.activities) ? codemm.activities : null;
-  const list = activities && "list" in activities ? (activities as Record<string, unknown>).list : null;
-  if (typeof list !== "function") throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
-  return { list: list as (args: { limit?: number }) => Promise<ActivitiesListResponse> };
-}
+type ActivitySummary = ActivitySummaryDto;
 
 function formatTs(ts: string): string {
   const d = new Date(ts);
@@ -39,7 +16,7 @@ function formatTs(ts: string): string {
 }
 
 export default function ActivitiesPage() {
-  const [darkMode, setDarkMode] = useState(false);
+  const { darkMode, toggleDarkMode } = useThemeMode();
   const [items, setItems] = useState<ActivitySummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,10 +26,8 @@ export default function ActivitiesPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await requireActivitiesApi().list({ limit });
-      const raw = data && Array.isArray(data.activities) ? data.activities : [];
-      const next = raw.filter(isActivitySummary);
-      setItems(next);
+      const data = await activitiesClient.list({ limit });
+      setItems(Array.isArray(data.activities) ? data.activities : []);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to load activities.";
       setError(msg);
@@ -64,18 +39,6 @@ export default function ActivitiesPage() {
   useEffect(() => {
     void load();
   }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = localStorage.getItem("codem-theme");
-    setDarkMode(stored === "dark");
-  }, []);
-
-  const toggleDarkMode = () => {
-    const next = !darkMode;
-    setDarkMode(next);
-    localStorage.setItem("codem-theme", next ? "dark" : "light");
-  };
 
   const q = query.trim().toLowerCase();
   const filtered = q
