@@ -16,6 +16,7 @@ const { registerThreadsIpc } = require("./ipc/threads");
 const { registerActivitiesIpc } = require("./ipc/activities");
 const { registerJudgeIpc } = require("./ipc/judge");
 const { registerLearningIpc } = require("./ipc/learning");
+const { inferModelCapability } = require("./llm/capability");
 
 const DEFAULT_FRONTEND_PORT = Number.parseInt(process.env.CODEMM_FRONTEND_PORT || "3000", 10);
 
@@ -873,7 +874,7 @@ async function createWindowAndBoot() {
       if (!s) throw new Error(`${name} is required.`);
       return s;
     };
-    const ROUTE_ROLES = ["dialogue", "skeleton", "tests", "reference", "repair", "edit"];
+    const ROUTE_ROLES = ["dialogue", "skeleton", "tests", "reference", "repair", "edit", "wording"];
     const LOCAL_PROFILE_MODELS = {
       fast_local: "qwen2.5-coder:1.5b",
       balanced_local: "qwen2.5-coder:7b",
@@ -886,19 +887,7 @@ async function createWindowAndBoot() {
       }
       return "auto";
     };
-    const inferCapability = (provider, model) => {
-      const normalized = typeof model === "string" ? model.trim().toLowerCase() : "";
-      if (!normalized) return provider === "ollama" ? "weak" : "strong";
-      if (provider !== "ollama") return "strong";
-      const billionMatch = /(\d+(?:\.\d+)?)b\b/.exec(normalized);
-      const size = billionMatch?.[1] ? Number(billionMatch[1]) : Number.NaN;
-      if (Number.isFinite(size)) {
-        if (size <= 3) return "weak";
-        if (size < 12) return "balanced";
-        return "strong";
-      }
-      return "balanced";
-    };
+    const inferCapability = (provider, model) => inferModelCapability(model, provider);
     const sanitizeRoleModels = (raw) => {
       const out = {};
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;

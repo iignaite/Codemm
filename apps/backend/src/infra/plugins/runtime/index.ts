@@ -1,10 +1,5 @@
-import type {
-  LlmCapability,
-  LlmRole,
-  LlmRoute,
-  ResolvedLlmRoutePlan,
-  ResolvedLlmSnapshot,
-} from "../../llm/types";
+import type { LlmRole, LlmRoute, ResolvedLlmRoutePlan, ResolvedLlmSnapshot } from "../../llm/types";
+import { inferModelCapability } from "../../llm/capability";
 import type { RuntimePlugin } from "./RuntimePlugin";
 
 const ROLE_ORDER: readonly LlmRole[] = ["dialogue", "skeleton", "tests", "reference", "repair", "edit", "wording"];
@@ -14,23 +9,8 @@ function normalizeModel(raw: unknown): string | undefined {
   return value ? value : undefined;
 }
 
-function inferCapability(model: string | undefined, provider: string): LlmCapability {
-  const normalized = normalizeModel(model)?.toLowerCase() ?? "";
-  if (!normalized) return provider === "ollama" ? "weak" : "strong";
-  if (provider !== "ollama") return "strong";
-
-  const billionMatch = /(?:^|:)(\d+(?:\.\d+)?)b\b/.exec(normalized) ?? /(\d+(?:\.\d+)?)b\b/.exec(normalized);
-  const size = billionMatch?.[1] ? Number(billionMatch[1]) : Number.NaN;
-  if (Number.isFinite(size)) {
-    if (size <= 3) return "weak";
-    if (size < 12) return "balanced";
-    return "strong";
-  }
-
-  if (normalized.includes("1.5b") || normalized.includes("3b")) return "weak";
-  if (normalized.includes("7b") || normalized.includes("8b")) return "balanced";
-  if (normalized.includes("13b") || normalized.includes("14b") || normalized.includes("32b")) return "strong";
-  return provider === "ollama" ? "balanced" : "strong";
+function inferCapability(model: string | undefined, provider: string) {
+  return inferModelCapability(model, provider);
 }
 
 function normalizeRoute(provider: ResolvedLlmRoutePlan["provider"], route: LlmRoute | undefined, defaultModel?: string): LlmRoute {
