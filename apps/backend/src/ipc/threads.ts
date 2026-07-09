@@ -24,7 +24,7 @@ import type {
 } from "@codemm/shared-contracts";
 import { getGenerationProgressBuffer, subscribeGenerationProgress } from "../generation/progressBus";
 import { collectAttemptDiagnostics } from "../generation/diagnostics";
-import { defaultAssistantPrompt, getNumber, getString, makeSubId, requireParams, safeJsonStringify } from "./common";
+import { bestEffort, defaultAssistantPrompt, getNumber, getString, makeSubId, requireParams, safeJsonStringify } from "./common";
 import type { RpcHandlerDef } from "./types";
 
 type Subscription = { threadId: string; unsubscribe: () => void };
@@ -48,11 +48,9 @@ async function runGenerationWithRunTracking(args: {
   let seq = 0;
   const unsubPersist = subscribeGenerationProgress(args.threadId, (ev: GenerationProgressEvent) => {
     seq += 1;
-    try {
+    bestEffort("runlog.progress_append_failed", { runId, seq }, () => {
       runEventRepository.append(runId, seq, "progress", safeJsonStringify(ev));
-    } catch {
-      // ignore persistence failures; stream must still work
-    }
+    });
   });
 
   try {
@@ -60,7 +58,7 @@ async function runGenerationWithRunTracking(args: {
     runRepository.finish(runId, "succeeded");
     return { activityId, problemCount: Array.isArray(problems) ? problems.length : 0, runId };
   } catch (err) {
-    try {
+    bestEffort("runlog.error_append_failed", { runId }, () => {
       seq += 1;
       runEventRepository.append(
         runId,
@@ -68,17 +66,11 @@ async function runGenerationWithRunTracking(args: {
         "error",
         safeJsonStringify({ message: err instanceof Error ? err.message : String(err) })
       );
-    } catch {
-      // ignore
-    }
+    });
     runRepository.finish(runId, "failed");
     throw err;
   } finally {
-    try {
-      unsubPersist();
-    } catch {
-      // ignore
-    }
+    bestEffort("runlog.unsubscribe_failed", { runId }, unsubPersist);
   }
 }
 
@@ -393,11 +385,7 @@ export function createThreadHandlers(deps: {
 
 export function shutdownThreadHandlers() {
   for (const [subId, sub] of generationSubs.entries()) {
-    try {
-      sub.unsubscribe();
-    } catch {
-      // ignore
-    }
+    bestEffort("runlog.shutdown_unsubscribe_failed", { subId }, () => sub.unsubscribe());
     generationSubs.delete(subId);
   }
 }

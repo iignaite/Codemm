@@ -12,7 +12,7 @@ import {
 import { formatJudgeResult, formatRunResult } from "../judge/resultFormatter";
 import { recordAttemptMastery } from "../learning/masteryService";
 import { logStructured } from "../infra/observability/logger";
-import { requireParams, safeJsonStringify } from "./common";
+import { bestEffort, requireParams, safeJsonStringify } from "./common";
 import type { RpcHandlerDef } from "./types";
 
 export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
@@ -111,12 +111,10 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
 
           const result = await profile.executionAdapter.run(execReq);
           const formatted = formatRunResult(result);
-          try {
+          bestEffort("runlog.result_append_failed", { runId }, () => {
             runEventRepository.append(runId, 1, "result", safeJsonStringify({ stdout: result.stdout, stderr: result.stderr }));
             runRepository.finish(runId, "succeeded");
-          } catch {
-            // ignore
-          }
+          });
           const response: JudgeRunResultDto = { stdout: result.stdout, stderr: result.stderr, runId, ...formatted };
           return response;
         }
@@ -131,12 +129,10 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         if (typeof safeStdin === "string") execReq.stdin = safeStdin;
         const result = await profile.executionAdapter.run(execReq);
         const formatted = formatRunResult(result);
-        try {
+        bestEffort("runlog.result_append_failed", { runId }, () => {
           runEventRepository.append(runId, 1, "result", safeJsonStringify({ stdout: result.stdout, stderr: result.stderr }));
           runRepository.finish(runId, "succeeded");
-        } catch {
-          // ignore
-        }
+        });
         const response: JudgeRunResultDto = { stdout: result.stdout, stderr: result.stderr, runId, ...formatted };
         return response;
       },
@@ -290,7 +286,7 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
           }
         }
 
-        try {
+        bestEffort("runlog.result_append_failed", { runId }, () => {
           runEventRepository.append(
             runId,
             1,
@@ -305,9 +301,7 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
             })
           );
           runRepository.finish(runId, "succeeded");
-        } catch {
-          // ignore
-        }
+        });
 
         const formatted = formatJudgeResult({ language: lang, testSuite, result });
         const response: JudgeSubmitResultDto = { ...result, ...formatted, testCaseDetails: formatted.testCaseDetails, runId };

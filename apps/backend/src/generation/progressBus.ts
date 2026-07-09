@@ -1,4 +1,5 @@
 import type { GenerationProgressEvent } from "../contracts/generationProgress";
+import { logStructured } from "../infra/observability/logger";
 
 type Listener = (event: GenerationProgressEvent) => void;
 
@@ -53,8 +54,13 @@ export function publishGenerationProgress(sessionId: string, event: GenerationPr
   for (const listener of channel.listeners) {
     try {
       listener(event);
-    } catch {
-      // ignore listener errors
+    } catch (err) {
+      // One bad subscriber must not break the others, but its failure is a bug worth seeing.
+      logStructured("warn", "generation.progress.listener_failed", {
+        sessionId,
+        eventType: event.type,
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 }

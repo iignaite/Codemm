@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { z } from "zod";
 import type { JsonObject } from "./types";
+import { logStructured } from "../infra/observability/logger";
 
 export function isObject(x: unknown): x is JsonObject {
   return Boolean(x) && typeof x === "object" && !Array.isArray(x);
@@ -49,4 +50,16 @@ export function validateOrThrow(schema: z.ZodTypeAny, paramsRaw: unknown): unkno
     throw new ValidationError(msg);
   }
   return res.data;
+}
+
+/**
+ * Run a side effect that must not break the caller (e.g. run-log persistence
+ * during a live stream) but whose failure is a bug worth seeing in logs.
+ */
+export function bestEffort(event: string, context: Record<string, unknown>, fn: () => void): void {
+  try {
+    fn();
+  } catch (err) {
+    logStructured("warn", event, { ...context, message: err instanceof Error ? err.message : String(err) });
+  }
 }
