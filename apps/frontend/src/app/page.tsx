@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { History as HistoryIcon, LayoutGrid, Moon, Sun, X } from "lucide-react";
+import { History as HistoryIcon, LayoutGrid, Map, Moon, Sun, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
 import { type LearningMode } from "@/lib/bridge/codemmBridge";
@@ -246,6 +246,17 @@ export default function Home() {
             >
               <LayoutGrid className="h-4 w-4" />
               Activities
+            </Link>
+            <Link
+              href="/roadmap"
+              className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition ${
+                darkMode
+                  ? "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              <Map className="h-4 w-4" />
+              Roadmap
             </Link>
             <Link
               href="/settings/llm"
