@@ -38,6 +38,33 @@ function clampInt(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.trunc(n)));
 }
 
+function difficultyBadgeClass(difficulty: string): string {
+  switch (difficulty.trim().toLowerCase()) {
+    case "easy":
+      return "bg-emerald-100 text-emerald-700";
+    case "medium":
+      return "bg-amber-100 text-amber-700";
+    case "hard":
+      return "bg-rose-100 text-rose-700";
+    default:
+      return "bg-slate-100 text-slate-600";
+  }
+}
+
+function difficultyMix(problems: { difficulty?: string }[]): string {
+  const counts: Record<string, number> = {};
+  for (const p of problems) {
+    const key = (p.difficulty ?? "").trim().toLowerCase();
+    if (key) counts[key] = (counts[key] ?? 0) + 1;
+  }
+  const order = ["easy", "medium", "hard"];
+  const parts = order.filter((k) => counts[k]).map((k) => `${counts[k]} ${k}`);
+  const extras = Object.keys(counts)
+    .filter((k) => !order.includes(k))
+    .map((k) => `${counts[k]} ${k}`);
+  return [...parts, ...extras].join(" · ");
+}
+
 function getErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof Error && typeof err.message === "string" && err.message.trim()) return err.message;
   if (typeof err === "string" && err.trim()) return err;
@@ -331,6 +358,7 @@ export default function ActivityReviewPage() {
             <h2 className="text-sm font-semibold text-slate-900">Preview</h2>
             <p className="mt-1 text-xs text-slate-600">
               {activity.problems.length} problems
+              {difficultyMix(activity.problems) ? ` · ${difficultyMix(activity.problems)}` : ""}
             </p>
             <div className="mt-3 space-y-2">
               {activity.problems.map((p) => (
@@ -340,6 +368,16 @@ export default function ActivityReviewPage() {
                     <span className="ml-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                       {(p.language ?? "java").toUpperCase()}
                     </span>
+                    {p.difficulty && (
+                      <span
+                        className={`ml-2 rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${difficultyBadgeClass(p.difficulty)}`}
+                      >
+                        {p.difficulty}
+                      </span>
+                    )}
+                    {p.topic_tag && (
+                      <span className="ml-2 text-[11px] font-medium text-slate-500">{p.topic_tag}</span>
+                    )}
                     {isDraft && (
                       <button
                         type="button"
