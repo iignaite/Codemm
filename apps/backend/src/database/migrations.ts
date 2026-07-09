@@ -1,51 +1,73 @@
+import type { Database } from "better-sqlite3";
 import db from "./db";
+import { logStructured } from "../infra/observability/logger";
 
-export function initializeDatabase() {
-  const tableExists = (name: string): boolean => {
-    const row = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(name) as
-      | { name: string }
-      | undefined;
-    return Boolean(row && row.name === name);
-  };
+/**
+ * Versioned, table-driven migrations tracked via `PRAGMA user_version`.
+ *
+ * Rules:
+ * - Migrations run in ascending `version` order inside a transaction each;
+ *   `user_version` is stamped as part of the same transaction.
+ * - The baseline (version 1) MUST stay idempotent: databases created before
+ *   versioning have `user_version = 0` but already contain every table, so
+ *   the baseline must be a no-op against them.
+ * - Migrations with version >= 2 run at most once and may use plain DDL.
+ * - Never edit an existing migration after it has shipped; append a new one.
+ */
 
-  const colSet = (table: string): Set<string> => {
-    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-    return new Set(cols.map((c) => c.name));
-  };
+type Migration = {
+  version: number;
+  name: string;
+  up: (database: Database) => void;
+};
 
-  const hasSessions = tableExists("sessions");
-  const hasThreads = tableExists("threads");
+function tableExists(database: Database, name: string): boolean {
+  const row = database.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(name) as
+    | { name: string }
+    | undefined;
+  return Boolean(row && row.name === name);
+}
+
+function colSet(database: Database, table: string): Set<string> {
+  const cols = database.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return new Set(cols.map((c) => c.name));
+}
+
+/** Idempotent baseline: the full IDE-first schema plus legacy `sessions` → `threads` renames. */
+function baselineSchema(database: Database): void {
+  const hasSessions = tableExists(database, "sessions");
+  const hasThreads = tableExists(database, "threads");
   if (hasSessions && !hasThreads) {
-    db.exec(`ALTER TABLE sessions RENAME TO threads`);
+    database.exec(`ALTER TABLE sessions RENAME TO threads`);
   }
 
-  const hasSessionMsgs = tableExists("session_messages");
-  const hasThreadMsgs = tableExists("thread_messages");
+  const hasSessionMsgs = tableExists(database, "session_messages");
+  const hasThreadMsgs = tableExists(database, "thread_messages");
   if (hasSessionMsgs && !hasThreadMsgs) {
-    db.exec(`ALTER TABLE session_messages RENAME TO thread_messages`);
+    database.exec(`ALTER TABLE session_messages RENAME TO thread_messages`);
   }
 
-  const hasSessionCollectors = tableExists("session_collectors");
-  const hasThreadCollectors = tableExists("thread_collectors");
+  const hasSessionCollectors = tableExists(database, "session_collectors");
+  const hasThreadCollectors = tableExists(database, "thread_collectors");
   if (hasSessionCollectors && !hasThreadCollectors) {
-    db.exec(`ALTER TABLE session_collectors RENAME TO thread_collectors`);
+    database.exec(`ALTER TABLE session_collectors RENAME TO thread_collectors`);
   }
 
-  if (tableExists("thread_messages")) {
-    const cols = colSet("thread_messages");
+  if (tableExists(database, "thread_messages")) {
+    const cols = colSet(database, "thread_messages");
     if (cols.has("session_id") && !cols.has("thread_id")) {
-      db.exec(`ALTER TABLE thread_messages RENAME COLUMN session_id TO thread_id`);
+      database.exec(`ALTER TABLE thread_messages RENAME COLUMN session_id TO thread_id`);
     }
   }
 
-  if (tableExists("thread_collectors")) {
-    const cols = colSet("thread_collectors");
+  if (tableExists(database, "thread_collectors")) {
+    const cols = colSet(database, "thread_collectors");
     if (cols.has("session_id") && !cols.has("thread_id")) {
-      db.exec(`ALTER TABLE thread_collectors RENAME COLUMN session_id TO thread_id`);
+      database.exec(`ALTER TABLE thread_collectors RENAME COLUMN session_id TO thread_id`);
     }
   }
 
-  db.exec(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS threads (
       id TEXT PRIMARY KEY,
       state TEXT NOT NULL,
@@ -64,17 +86,17 @@ export function initializeDatabase() {
     )
   `);
 
-  const threadColSet = colSet("threads");
-  if (!threadColSet.has("confidence_json")) db.exec(`ALTER TABLE threads ADD COLUMN confidence_json TEXT`);
-  if (!threadColSet.has("intent_trace_json")) db.exec(`ALTER TABLE threads ADD COLUMN intent_trace_json TEXT`);
-  if (!threadColSet.has("commitments_json")) db.exec(`ALTER TABLE threads ADD COLUMN commitments_json TEXT`);
-  if (!threadColSet.has("generation_outcomes_json")) db.exec(`ALTER TABLE threads ADD COLUMN generation_outcomes_json TEXT`);
-  if (!threadColSet.has("instructions_md")) db.exec(`ALTER TABLE threads ADD COLUMN instructions_md TEXT`);
+  const threadColSet = colSet(database, "threads");
+  if (!threadColSet.has("confidence_json")) database.exec(`ALTER TABLE threads ADD COLUMN confidence_json TEXT`);
+  if (!threadColSet.has("intent_trace_json")) database.exec(`ALTER TABLE threads ADD COLUMN intent_trace_json TEXT`);
+  if (!threadColSet.has("commitments_json")) database.exec(`ALTER TABLE threads ADD COLUMN commitments_json TEXT`);
+  if (!threadColSet.has("generation_outcomes_json")) database.exec(`ALTER TABLE threads ADD COLUMN generation_outcomes_json TEXT`);
+  if (!threadColSet.has("instructions_md")) database.exec(`ALTER TABLE threads ADD COLUMN instructions_md TEXT`);
   if (!threadColSet.has("learning_mode")) {
-    db.exec(`ALTER TABLE threads ADD COLUMN learning_mode TEXT NOT NULL DEFAULT 'practice'`);
+    database.exec(`ALTER TABLE threads ADD COLUMN learning_mode TEXT NOT NULL DEFAULT 'practice'`);
   }
 
-  db.exec(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS thread_collectors (
       thread_id TEXT PRIMARY KEY,
       current_question_key TEXT,
@@ -85,7 +107,7 @@ export function initializeDatabase() {
     )
   `);
 
-  db.exec(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS thread_messages (
       id TEXT PRIMARY KEY,
       thread_id TEXT NOT NULL,
@@ -96,7 +118,7 @@ export function initializeDatabase() {
     )
   `);
 
-  db.exec(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS activities (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -108,17 +130,15 @@ export function initializeDatabase() {
     )
   `);
 
-  const activityCols = db.prepare(`PRAGMA table_info(activities)`).all() as { name: string }[];
-  const activityColSet = new Set(activityCols.map((c) => c.name));
-
+  const activityColSet = colSet(database, "activities");
   if (!activityColSet.has("status")) {
-    db.exec(`ALTER TABLE activities ADD COLUMN status TEXT NOT NULL DEFAULT 'DRAFT'`);
+    database.exec(`ALTER TABLE activities ADD COLUMN status TEXT NOT NULL DEFAULT 'DRAFT'`);
   }
   if (!activityColSet.has("time_limit_seconds")) {
-    db.exec(`ALTER TABLE activities ADD COLUMN time_limit_seconds INTEGER`);
+    database.exec(`ALTER TABLE activities ADD COLUMN time_limit_seconds INTEGER`);
   }
 
-  db.exec(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS submissions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       activity_id TEXT NOT NULL,
@@ -133,7 +153,7 @@ export function initializeDatabase() {
     )
   `);
 
-  db.exec(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS runs (
       id TEXT PRIMARY KEY,
       thread_id TEXT,
@@ -145,7 +165,7 @@ export function initializeDatabase() {
     )
   `);
 
-  db.exec(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS run_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       run_id TEXT NOT NULL,
@@ -158,7 +178,7 @@ export function initializeDatabase() {
     )
   `);
 
-  db.exec(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS learner_profile (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       goal TEXT,
@@ -168,7 +188,7 @@ export function initializeDatabase() {
     )
   `);
 
-  db.exec(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS concept_mastery (
       language TEXT NOT NULL,
       concept TEXT NOT NULL,
@@ -181,7 +201,7 @@ export function initializeDatabase() {
     )
   `);
 
-  db.exec(`
+  database.exec(`
     CREATE INDEX IF NOT EXISTS idx_threads_state ON threads(state);
     CREATE INDEX IF NOT EXISTS idx_concept_mastery_language ON concept_mastery(language);
     CREATE INDEX IF NOT EXISTS idx_thread_messages_thread_id ON thread_messages(thread_id);
@@ -190,6 +210,26 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_runs_thread_id ON runs(thread_id);
     CREATE INDEX IF NOT EXISTS idx_run_events_run_id ON run_events(run_id);
   `);
+}
 
-  console.log("Database initialized successfully");
+const MIGRATIONS: readonly Migration[] = [{ version: 1, name: "baseline-ide-first-schema", up: baselineSchema }];
+
+export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
+
+export function getSchemaVersion(database: Database = db): number {
+  return Number(database.pragma("user_version", { simple: true }));
+}
+
+export function initializeDatabase(database: Database = db): void {
+  const startVersion = getSchemaVersion(database);
+  for (const migration of MIGRATIONS) {
+    if (migration.version <= startVersion) continue;
+    const apply = database.transaction(() => {
+      migration.up(database);
+      database.pragma(`user_version = ${migration.version}`);
+    });
+    apply();
+    logStructured("info", "db.migration.applied", { version: migration.version, name: migration.name });
+  }
+  logStructured("info", "db.initialized", { schemaVersion: getSchemaVersion(database) });
 }
