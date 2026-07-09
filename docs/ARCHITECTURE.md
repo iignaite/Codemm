@@ -20,11 +20,11 @@ Core docs:
 2. Select a workspace folder (prompt on first run; persisted).
 3. Ensure npm dependencies are installed in the repo root (`npm install` if `node_modules/` is missing).
 4. Ensure judge images exist (build `apps/backend/Dockerfile.*-judge` as needed).
-5. Start engine via IPC (`fork` → `apps/backend/ipc-server.js`) with:
+5. Start engine as a child process with an IPC channel (`spawn` with `ELECTRON_RUN_AS_NODE`/system Node → `apps/backend/ipc-server.js`) with:
    - `CODEMM_DB_PATH=<workspaceDataDir>/codemm.db`
    - run-scoped LLM snapshots sent over IPC for LLM-backed calls
-6. Start frontend on `CODEMM_FRONTEND_PORT` (default 3000).
-7. Load the frontend URL inside Electron with a preload bridge (`apps/ide/preload.js`).
+6. Start frontend on `CODEMM_FRONTEND_PORT` (default 3000; falls back to an ephemeral port if busy).
+7. Verify the frontend via `GET /codemm/health` with a per-boot token, then load it inside Electron with a preload bridge (`apps/ide/preload.js`).
 
 ## Packaging Target (Next)
 

@@ -152,8 +152,3 @@ export function getResolvedSnapshotOrNull(): ResolvedLlmRoutePlan | null {
   return ensureRoutePlan(getResolvedLlmSnapshot());
 }
 
-// Backwards-compatible alias for older call sites.
-export const createCodexCompletion = createCodemmCompletion;
-
-// Backwards-compatible export for older code that directly asked for an OpenAI client.
-export const getCodexClient = getOpenAiClient;

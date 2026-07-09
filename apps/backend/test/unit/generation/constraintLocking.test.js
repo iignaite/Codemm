@@ -8,7 +8,6 @@ const { generateSingleProblem } = require("../../../src/generation/perSlotGenera
 function installPythonGeneratorStub(t, drafts) {
   const codex = require("../../../src/infra/llm/codemmProvider");
   const originalCreateCodemm = codex.createCodemmCompletion;
-  const originalCreateCodex = codex.createCodexCompletion;
   let n = 0;
 
   const stub = async ({ system }) => {
@@ -21,11 +20,9 @@ function installPythonGeneratorStub(t, drafts) {
   };
 
   codex.createCodemmCompletion = stub;
-  codex.createCodexCompletion = stub;
 
   t.after(() => {
     codex.createCodemmCompletion = originalCreateCodemm;
-    codex.createCodexCompletion = originalCreateCodex;
   });
 
   return { getCalls: () => n };

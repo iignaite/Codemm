@@ -34,7 +34,6 @@ function installGenerationStub(t, args) {
   const { LANGUAGE_PROFILES } = require("../../src/languages/profiles");
 
   const originalCreateCodemm = codex.createCodemmCompletion;
-  const originalCreateCodex = codex.createCodexCompletion;
   const originalValidate = validator.validateReferenceSolution;
   const originalJudge = LANGUAGE_PROFILES[args.language]?.judgeAdapter?.judge;
 
@@ -69,7 +68,6 @@ function installGenerationStub(t, args) {
   };
 
   codex.createCodemmCompletion = stub;
-  codex.createCodexCompletion = stub;
   validator.validateReferenceSolution = async () => {};
 
   if (LANGUAGE_PROFILES[args.language]?.judgeAdapter) {
@@ -87,7 +85,6 @@ function installGenerationStub(t, args) {
 
   t.after(() => {
     codex.createCodemmCompletion = originalCreateCodemm;
-    codex.createCodexCompletion = originalCreateCodex;
     validator.validateReferenceSolution = originalValidate;
     if (LANGUAGE_PROFILES[args.language]?.judgeAdapter && typeof originalJudge === "function") {
       LANGUAGE_PROFILES[args.language].judgeAdapter.judge = originalJudge;

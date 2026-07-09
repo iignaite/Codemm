@@ -9,7 +9,7 @@ import { trace } from "../utils/trace";
 import { GenerationSlotFailureError } from "./errors";
 import { deriveSlotObligations } from "./obligations";
 import { runSlotPipeline, SlotPipelineTerminalError } from "../pipeline/slotStages";
-import { applyGuidedScaffoldingAsync } from "./services/scaffoldingService";
+import { applyGuidedScaffoldingAsync } from "./scaffolding";
 import { runLegacySlotAdapter } from "./legacyAdapter";
 import {
   buildArtifactSet,

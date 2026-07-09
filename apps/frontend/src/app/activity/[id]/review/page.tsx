@@ -87,7 +87,7 @@ export default function ActivityReviewPage() {
       id: "publish",
       selector: '[data-tour="draft-publish"]',
       title: "Publish when ready",
-      body: "Publishing makes the activity shareable. Draft activities stay private.",
+      body: "Publishing finalizes the activity for practice. Everything stays local to this machine.",
     },
   ];
 
@@ -162,7 +162,7 @@ export default function ActivityReviewPage() {
       await requireActivitiesApi().publish({ id: activityId });
 
       setActivity((prev) => (prev ? { ...prev, status: "PUBLISHED" } : prev));
-      setToast("Published. You can share the link now.");
+      setToast("Published. The activity is ready to practice.");
     } catch (e: unknown) {
       setError(getErrorMessage(e, "Failed to publish."));
     } finally {
@@ -339,7 +339,9 @@ export default function ActivityReviewPage() {
 
           {!isDraft && shareUrl && (
               <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Share link</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Local link (works on this machine only)
+                </div>
                 <div className="mt-1 flex items-center gap-2">
                   <code className="flex-1 overflow-x-auto rounded-lg bg-white px-2 py-1 text-xs text-slate-800">
                     {shareUrl}
