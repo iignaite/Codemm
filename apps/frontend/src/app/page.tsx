@@ -100,7 +100,9 @@ export default function Home() {
     const langLabel =
       ({ java: "Java", python: "Python", cpp: "C++", sql: "SQL" } as Record<string, string>)[params.get("lang") ?? ""] ??
       "Java";
-    setChatInput(`I want to practice ${concept} in ${langLabel}. 3 problems: 2 easy, 1 medium.`);
+    // Structured format: the engine captures every line deterministically, so
+    // one Send reaches READY without an LLM round-trip.
+    setChatInput(`Language: ${langLabel}\nStyle: stdout\nTopics: ${concept}\nDifficulty: easy:3`);
     setHasInteracted(true);
     window.history.replaceState(null, "", "/");
     // eslint-disable-next-line react-hooks/exhaustive-deps

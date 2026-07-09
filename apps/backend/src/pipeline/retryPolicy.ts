@@ -11,7 +11,7 @@ const POLICY: Record<Exclude<SlotStageName, "complete">, StageRetryPolicy> = {
   tests: { maxAttempts: 2, allowEscalation: true, terminalOnRepeatedFingerprint: true },
   reference: { maxAttempts: 2, allowEscalation: true, terminalOnRepeatedFingerprint: true },
   validate: { maxAttempts: 1, allowEscalation: false, terminalOnRepeatedFingerprint: false },
-  repair: { maxAttempts: 1, allowEscalation: true, terminalOnRepeatedFingerprint: true },
+  repair: { maxAttempts: 2, allowEscalation: true, terminalOnRepeatedFingerprint: true },
 };
 
 export function getStageRetryPolicy(stage: Exclude<SlotStageName, "complete">): StageRetryPolicy {

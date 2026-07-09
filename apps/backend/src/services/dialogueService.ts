@@ -76,11 +76,16 @@ function safeExtractPatchFromText(userMessage: string): Partial<ActivitySpec> {
     if (Number.isFinite(n) && n >= 1 && n <= 7) patch.problem_count = n;
   }
 
-  // topics (best-effort): "focus on X, Y" or comma-separated short list
-  const topicTail = msg.replace(/^.*\b(?:topics?|focus on|about|cover)\b/i, "").trim();
-  const candidate = topicTail && topicTail.length <= 200 ? topicTail : msg.length <= 120 && msg.includes(",") ? msg : "";
-  if (candidate) {
-    const tags = candidate
+  // topics: a structured "Topics: a, b" line anywhere in the message, else a
+  // free-text "focus on …" tail (bounded to its own line), else — only when the
+  // message carries no other signal — a bare comma-separated list, which is how
+  // learners answer the "what topics?" question.
+  const topicsSource =
+    msg.match(/\btopics?\s*[:=]\s*([^\n]+)/i)?.[1] ??
+    msg.match(/\b(?:focus on|about|cover)\s+([^\n]+)/i)?.[1] ??
+    (Object.keys(patch).length === 0 && msg.length <= 120 && msg.includes(",") && !msg.includes("\n") ? msg : "");
+  if (topicsSource) {
+    const tags = topicsSource
       .split(",")
       .map((t) => t.trim())
       .filter((t) => t.length >= 2 && t.length <= 40)

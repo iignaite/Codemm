@@ -34,6 +34,10 @@ Keep the response deterministic and concise.
   const user = `
 Generate exactly one problem skeleton for this slot.
 
+The problem must be solvable by a single solve(...) function that receives ALL
+input via its parameters. The description must NOT ask the learner to read from
+stdin, the console, or files — phrase it as "solve(x, y) prints/returns ...".
+
 Language: ${slot.language}
 Difficulty: ${slot.difficulty}
 Topics: ${slot.topics.join(", ")}

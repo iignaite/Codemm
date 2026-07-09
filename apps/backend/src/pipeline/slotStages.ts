@@ -454,17 +454,29 @@ export async function runSlotPipeline(args: {
   });
   envelope.skeleton = skeleton.value;
 
+  let rejectedTests: string | undefined;
+  let rejectedTestsError: string | undefined;
   const tests = await executeStage({
     stage: "tests",
     routeRole: "tests",
     promptTemplateId: TESTS_PROMPT_TEMPLATE_ID,
     ctx,
-    runner: (attempt) =>
-      generateTests({
-        slot: args.slot,
-        skeleton: envelope.skeleton as SlotSkeleton,
-        attempt,
-      }),
+    runner: async (attempt) => {
+      try {
+        return await generateTests({
+          slot: args.slot,
+          skeleton: envelope.skeleton as SlotSkeleton,
+          attempt,
+          ...(rejectedTests ? { previousTests: rejectedTests } : {}),
+          ...(rejectedTests && rejectedTestsError ? { errorMessage: rejectedTestsError } : {}),
+        });
+      } catch (error) {
+        const failed = error as Error & { testSuite?: string };
+        if (typeof failed.testSuite === "string" && failed.testSuite.trim()) rejectedTests = failed.testSuite;
+        rejectedTestsError = failed.message;
+        throw error;
+      }
+    },
   });
   envelope.tests = tests.value;
 

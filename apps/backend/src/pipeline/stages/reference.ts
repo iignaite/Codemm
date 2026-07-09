@@ -31,7 +31,7 @@ function buildReferenceInstructions(slot: ProblemSlot): string {
     return [
       "Return JSON: {\"reference_solution\":\"...\"}.",
       "Define solve(...). Do not define main().",
-      "Do not read from stdin.",
+      "NEVER use std::cin, std::getline, scanf, or any stdin read — all input arrives via solve(...) parameters. Stdin reads hang the sandboxed judge and fail the artifact.",
       "Match the signatures implied by the test suite exactly.",
     ].join("\n");
   }

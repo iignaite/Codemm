@@ -195,9 +195,13 @@ function registerRealActivityGenerationE2e({ provider }) {
 
                   const s = getThread(sessionId);
                   assert.equal(s.state, "SAVED");
+                  // Mark PASS inside the subtest: node:test resolves the awaited
+                  // t.test() promise even when the subtest fails, so setting PASS
+                  // after the await mislabels failed rows.
+                  row.status = "PASS";
                 });
 
-                row.status = "PASS";
+                if (row.status !== "PASS") row.status = "FAIL";
               } catch (err) {
                 row.status = "FAIL";
                 row.failureKind = err?.kind;
