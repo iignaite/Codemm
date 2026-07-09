@@ -1,6 +1,7 @@
 import type { LearningMode } from "../contracts/learningMode";
 import type { ActivitySpec } from "../contracts/activitySpec";
 import type { MasterySnapshot } from "../contracts/learner";
+import { normalizeConceptKey } from "../learning/mastery";
 
 /**
  * Planner-level pedagogy policy.
@@ -32,13 +33,17 @@ function baseScaffoldForIndex(index: number): number {
   return 10;
 }
 
+function masteryForTag(tag: string, mastery: Record<string, number>): number {
+  const v = mastery[normalizeConceptKey(tag)];
+  return typeof v === "number" ? clamp01(v) : 0.5;
+}
+
 function computeAverageMastery(tags: string[], mastery: Record<string, number> | null | undefined): number {
   if (!tags.length) return 0.5;
   const m = mastery ?? {};
   let sum = 0;
   for (const t of tags) {
-    const v = typeof m[t] === "number" ? (m[t] as number) : 0.5;
-    sum += clamp01(v);
+    sum += masteryForTag(t, m);
   }
   return sum / tags.length;
 }
@@ -49,7 +54,7 @@ export function buildGuidedPedagogyPolicy(args: {
 }): PedagogyPolicy {
   const mastery = args.masterySnapshot?.concept_mastery ?? {};
   const focus_concepts = [...args.spec.topic_tags]
-    .map((t) => ({ t, v: typeof mastery[t] === "number" ? clamp01(mastery[t] as number) : 0.5 }))
+    .map((t) => ({ t, v: masteryForTag(t, mastery) }))
     .sort((a, b) => (a.v === b.v ? a.t.localeCompare(b.t) : a.v - b.v))
     .map((x) => x.t);
 

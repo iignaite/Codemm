@@ -17,6 +17,7 @@ import { proposeGenerationFallbackWithPolicy } from "../../agent/generationFallb
 import { trace } from "../../utils/trace";
 import { withTraceContext } from "../../utils/traceContext";
 import { activityRepository } from "../../database/repositories/activityRepository";
+import { conceptMasteryRepository } from "../../database/repositories/learnerRepository";
 import { threadRepository } from "../../database/repositories/threadRepository";
 import {
   appendIntentTrace,
@@ -80,7 +81,12 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
 
     const derivePlanForSpec = (currentSpec: ActivitySpec) => {
       const pedagogyPolicy =
-        learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec: currentSpec, masterySnapshot: null }) : undefined;
+        learning_mode === "guided"
+          ? buildGuidedPedagogyPolicy({
+              spec: currentSpec,
+              masterySnapshot: conceptMasteryRepository.snapshot(currentSpec.language),
+            })
+          : undefined;
       return { pedagogyPolicy, plan: deriveProblemPlan(currentSpec, pedagogyPolicy) };
     };
 
@@ -368,7 +374,9 @@ export async function regenerateSlotFromThread(
 
     const learning_mode = parseLearningMode(session.learning_mode);
     const pedagogyPolicy =
-      learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec, masterySnapshot: null }) : undefined;
+      learning_mode === "guided"
+        ? buildGuidedPedagogyPolicy({ spec, masterySnapshot: conceptMasteryRepository.snapshot(spec.language) })
+        : undefined;
     const plan = deriveProblemPlan(spec, pedagogyPolicy);
     if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= plan.length) {
       throw new Error(`slotIndex must be between 0 and ${Math.max(0, plan.length - 1)}.`);

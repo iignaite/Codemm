@@ -10,6 +10,8 @@ import {
   isLanguageSupportedForJudge,
 } from "../languages/profiles";
 import { formatJudgeResult, formatRunResult } from "../judge/resultFormatter";
+import { recordAttemptMastery } from "../learning/masteryService";
+import { logStructured } from "../infra/observability/logger";
 import { requireParams, safeJsonStringify } from "./common";
 import type { RpcHandlerDef } from "./types";
 
@@ -267,6 +269,24 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
               totalTests,
               result.executionTimeMs
             );
+            try {
+              recordAttemptMastery({
+                activityProblemsJson: dbActivity.problems,
+                problemId,
+                fallbackLanguage: lang,
+                evidence: {
+                  passed: Boolean(result.success),
+                  passedTests: result.passedTests.length,
+                  totalTests,
+                  at: new Date().toISOString(),
+                },
+              });
+            } catch (err) {
+              logStructured("error", "learning.mastery.update_failed", {
+                problemId,
+                message: err instanceof Error ? err.message : String(err),
+              });
+            }
           }
         }
 
