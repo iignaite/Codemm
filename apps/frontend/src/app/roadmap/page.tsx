@@ -201,7 +201,12 @@ export default function RoadmapPage() {
               </div>
             </div>
             <div className={`mt-3 h-2 w-full overflow-hidden rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-100"}`}>
-              <div className="h-full rounded-full bg-sky-500" style={{ width: `${masteryPercent(path.overallMastery)}%` }} />
+              <div
+                className="rm-bar relative h-full overflow-hidden rounded-full bg-sky-500"
+                style={{ width: `${masteryPercent(path.overallMastery)}%` }}
+              >
+                <span className="rm-shimmer" aria-hidden="true" />
+              </div>
             </div>
             {path.recommendedConcept ? (
               <p className="mt-4 text-sm">
@@ -236,6 +241,7 @@ export default function RoadmapPage() {
                 aria-hidden="true"
               >
                 <path
+                  className="rm-trail"
                   d={buildTrailPath(modules.length)}
                   stroke={darkMode ? "#334155" : "#cbd5e1"}
                   strokeWidth={6}
@@ -250,9 +256,13 @@ export default function RoadmapPage() {
                 const c = nodeColors(m.status, m.recommended, darkMode);
                 const pct = masteryPercent(m.mastery);
                 return (
-                  <div key={m.concept} className="absolute" style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}>
+                  <div
+                    key={`${language}:${m.concept}`}
+                    className="rm-node absolute"
+                    style={{ left: x, top: y, transform: "translate(-50%, -50%)", animationDelay: `${i * 90}ms` }}
+                  >
                     {m.recommended && (
-                      <div className="absolute -top-11 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                      <div className="rm-bob absolute -top-11 left-1/2 -translate-x-1/2 whitespace-nowrap">
                         <div className="relative rounded-full bg-sky-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-lg">
                           Start
                           <div className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-sky-600" />
@@ -260,7 +270,7 @@ export default function RoadmapPage() {
                       </div>
                     )}
                     <div
-                      className={`relative flex items-center justify-center rounded-full ${m.recommended ? "animate-pulse-slow" : ""}`}
+                      className={`rm-circle relative flex items-center justify-center rounded-full ${m.recommended ? "animate-pulse-slow" : ""}`}
                       style={{
                         width: NODE,
                         height: NODE,
@@ -269,16 +279,17 @@ export default function RoadmapPage() {
                       }}
                       title={`${m.concept} · ${STATUS_LABEL[m.status]} · ${pct}%`}
                     >
+                      {m.recommended && <span className="rm-sonar" aria-hidden="true" />}
                       <div
-                        className="flex items-center justify-center rounded-full"
+                        className="rm-inner flex items-center justify-center rounded-full"
                         style={{ width: NODE - 12, height: NODE - 12, background: c.fill, border: `2px solid ${c.border}`, color: c.text }}
                       >
                         {m.status === "mastered" ? (
-                          <Check className="h-6 w-6" strokeWidth={3} />
+                          <Check className="rm-icon h-6 w-6" strokeWidth={3} />
                         ) : m.recommended ? (
-                          <Star className="h-6 w-6" fill="currentColor" strokeWidth={0} />
+                          <Star className="rm-icon rm-twinkle h-6 w-6" fill="currentColor" strokeWidth={0} />
                         ) : (
-                          <span className="text-sm font-bold">{pct}%</span>
+                          <span className="rm-icon text-sm font-bold">{pct}%</span>
                         )}
                       </div>
                     </div>
@@ -302,11 +313,81 @@ export default function RoadmapPage() {
       </div>
 
       <style>{`
+        /* The trail's dots march forward — a gentle "follow me" cue. */
+        @keyframes rm-march { to { stroke-dashoffset: -18; } }
+        .rm-trail { animation: rm-march 2.6s linear infinite; }
+
+        /* Stops pop onto the trail one by one with a springy overshoot. */
+        @keyframes rm-pop {
+          0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+          70% { opacity: 1; transform: translate(-50%, -50%) scale(1.12); }
+          100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        }
+        .rm-node { animation: rm-pop 480ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+
+        /* The recommended stop breathes... */
         @keyframes roadmap-pulse-slow {
           0%, 100% { transform: scale(1); }
           50% { transform: scale(1.06); }
         }
         .animate-pulse-slow { animation: roadmap-pulse-slow 2.4s ease-in-out infinite; }
+
+        /* ...and radiates a sonar ping. */
+        @keyframes rm-sonar {
+          0% { opacity: 0.55; transform: scale(1); }
+          100% { opacity: 0; transform: scale(1.7); }
+        }
+        .rm-sonar {
+          position: absolute;
+          inset: 0;
+          border-radius: 9999px;
+          border: 3px solid #0ea5e9;
+          animation: rm-sonar 1.8s ease-out infinite;
+          pointer-events: none;
+        }
+
+        /* The Start bubble bobs like it's waving you over. */
+        @keyframes rm-bob {
+          0%, 100% { transform: translate(-50%, 0); }
+          50% { transform: translate(-50%, -6px); }
+        }
+        .rm-bob { animation: rm-bob 1.6s ease-in-out infinite; }
+
+        /* The star on the next stop twinkles. */
+        @keyframes rm-twinkle {
+          0%, 100% { transform: scale(1) rotate(0deg); }
+          40% { transform: scale(1.18) rotate(8deg); }
+          60% { transform: scale(0.94) rotate(-6deg); }
+        }
+        .rm-twinkle { animation: rm-twinkle 2.8s ease-in-out infinite; }
+
+        /* Hover: the stop leans in; a mastered check takes a victory spin. */
+        .rm-inner, .rm-icon { transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .rm-node:hover .rm-inner { transform: scale(1.12); }
+        .rm-node:hover .rm-icon { transform: rotate(360deg); }
+
+        /* Overall mastery fills in, then a shimmer sweeps across it. */
+        @keyframes rm-grow { from { width: 0; } }
+        .rm-bar { animation: rm-grow 900ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+        @keyframes rm-shimmer-sweep {
+          0% { transform: translateX(-100%); }
+          60%, 100% { transform: translateX(220%); }
+        }
+        .rm-shimmer {
+          position: absolute;
+          inset: 0;
+          width: 45%;
+          background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+          animation: rm-shimmer-sweep 2.4s ease-in-out 600ms infinite;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .rm-trail, .rm-node, .rm-sonar, .rm-bob, .rm-twinkle, .rm-bar, .rm-shimmer, .animate-pulse-slow {
+            animation: none !important;
+          }
+          .rm-inner, .rm-icon { transition: none !important; }
+          .rm-sonar { display: none; }
+        }
       `}</style>
     </div>
   );

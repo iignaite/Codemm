@@ -5,7 +5,7 @@
       "name": "frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--workspace", "codem-frontend", "run", "dev"],
-      "port": 3000
+      "autoPort": true
     }
   ]
 }
