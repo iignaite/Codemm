@@ -495,11 +495,12 @@ export function useActivity() {
       });
     } catch (error) {
       console.error(error);
+      const message = error instanceof Error && error.message ? error.message : "Failed to run code. Please try again.";
       setFeedback({
         problemId: selectedProblem.id,
         kind: "run",
         atIso: new Date().toISOString(),
-        result: { stdout: "", stderr: "Failed to run code. Please try again.", runId: "" },
+        result: { stdout: "", stderr: message, runId: "" },
       });
     } finally {
       setRunning(false);
@@ -547,6 +548,21 @@ export function useActivity() {
       setIsTimerRunning(false);
     } catch (error) {
       console.error(error);
+      const message =
+        error instanceof Error && error.message ? error.message : "Failed to check your code. Please try again.";
+      setFeedback({
+        problemId: selectedProblem.id,
+        kind: "tests",
+        atIso: new Date().toISOString(),
+        result: {
+          success: false,
+          passedTests: [],
+          failedTests: [],
+          stdout: "",
+          stderr: message,
+          runId: "",
+        },
+      });
     } finally {
       setSubmitting(false);
     }

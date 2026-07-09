@@ -15,6 +15,15 @@ import { logStructured } from "../infra/observability/logger";
 import { bestEffort, requireParams, safeJsonStringify } from "./common";
 import type { RpcHandlerDef } from "./types";
 
+const DOCKER_UNAVAILABLE_MESSAGE =
+  "Docker is required to run and check code, and it isn't available. Start Docker Desktop and relaunch Codemm. You can still browse and read activities without it.";
+
+function assertDockerAvailable(): void {
+  if (process.env.CODEMM_DOCKER_AVAILABLE === "0") {
+    throw new Error(DOCKER_UNAVAILABLE_MESSAGE);
+  }
+}
+
 export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
   return {
     "judge.run": {
@@ -29,6 +38,7 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         .passthrough()
         .refine((v) => Boolean(v.code) !== Boolean(v.files), { message: 'Provide either "code" or "files".' }),
       handler: async (paramsRaw) => {
+        assertDockerAvailable();
         const params = requireParams(paramsRaw);
         const { code, language, files, mainClass, stdin } = params;
 
@@ -151,6 +161,7 @@ export function createJudgeHandlers(): Record<string, RpcHandlerDef> {
         .passthrough()
         .refine((v) => Boolean(v.code) !== Boolean(v.files), { message: 'Provide either "code" or "files".' }),
       handler: async (paramsRaw) => {
+        assertDockerAvailable();
         const params = requireParams(paramsRaw);
         const { code, testSuite, activityId, problemId, files, language } = params;
 

@@ -36,6 +36,24 @@ test("ipc boundary: judge.run rejects malformed requests before any execution", 
   }
 });
 
+test("ipc boundary: judge handlers refuse to run when Docker is unavailable", async (t) => {
+  const prev = process.env.CODEMM_DOCKER_AVAILABLE;
+  process.env.CODEMM_DOCKER_AVAILABLE = "0";
+  t.after(() => {
+    if (prev === undefined) delete process.env.CODEMM_DOCKER_AVAILABLE;
+    else process.env.CODEMM_DOCKER_AVAILABLE = prev;
+  });
+
+  await assert.rejects(
+    dispatch(judge["judge.run"], { language: "python", code: "print(1)" }),
+    /Docker is required/i
+  );
+  await assert.rejects(
+    dispatch(judge["judge.submit"], { language: "python", testSuite: "t", code: "x" }),
+    /Docker is required/i
+  );
+});
+
 test("ipc boundary: judge.submit rejects malformed requests before any execution", async () => {
   const cases = [
     { name: "missing testSuite", params: { language: "python", code: "x" } },

@@ -787,37 +787,24 @@ async function createWindowAndBoot() {
     process.env.CODEMM_WORKSPACE_DIR = repoRoot;
   }
 
+  // Docker is required only to run/judge code. The app still launches without
+  // it so the user can browse activities, read problems, and reach Settings;
+  // judge handlers surface a clear "Docker needed" error at execution time.
   const dockerBin = findDockerBinary();
+  let dockerAvailable = Boolean(dockerBin);
   if (!dockerBin) {
-    dialog.showErrorBox(
-      "Docker Not Found",
-      [
-        "Codemm requires Docker for judging (/run and /submit).",
-        "Install Docker Desktop and ensure `docker` is available in your PATH,",
-        "or set DOCKER_PATH to the docker binary.",
-      ].join("\n"),
-    );
-    app.quit();
-    return;
+    console.warn("[ide] Docker binary not found — launching in browse-only mode (code execution disabled).");
+  } else {
+    console.log(`[ide] dockerBin=${dockerBin}`);
+    console.log('[ide] Checking Docker ("docker info")...');
+    const dockerCheck = await waitForDockerRunning({ dockerBin });
+    dockerAvailable = dockerCheck.ok;
+    if (!dockerCheck.ok) {
+      console.warn(`[ide] Docker not running — browse-only mode (code execution disabled). ${dockerCheck.reason}`);
+    } else {
+      console.log("[ide] Docker is running");
+    }
   }
-  console.log(`[ide] dockerBin=${dockerBin}`);
-
-  console.log('[ide] Checking Docker ("docker info")...');
-  const dockerCheck = await waitForDockerRunning({ dockerBin });
-  if (!dockerCheck.ok) {
-    dialog.showErrorBox(
-      "Docker Not Running",
-      [
-        "Codemm requires Docker for judging.",
-        "Start Docker Desktop, wait until it's running, then relaunch Codemm-Desktop.",
-        "",
-        `Details: ${dockerCheck.reason}`,
-      ].join("\n"),
-    );
-    app.quit();
-    return;
-  }
-  console.log("[ide] Docker is running");
 
   const workspaceResolution = await resolveWorkspace({ userDataDir: storage.userDataDir });
   if (!workspaceResolution.workspaceDir) {
@@ -1410,11 +1397,16 @@ async function createWindowAndBoot() {
   let frontendProc = null;
 
   const baseEnv = { ...process.env };
+  // Tell the engine whether code execution is available so judge handlers can
+  // fail with a clear message instead of a raw docker spawn error.
+  baseEnv.CODEMM_DOCKER_AVAILABLE = dockerAvailable ? "1" : "0";
   // Improve odds of finding docker from a GUI-launched app (PATH can be minimal on macOS).
-  baseEnv.DOCKER_PATH = dockerBin;
-  if (dockerBin !== "docker") {
-    const dockerDir = path.dirname(dockerBin);
-    prependToPath(baseEnv, dockerDir);
+  if (dockerBin) {
+    baseEnv.DOCKER_PATH = dockerBin;
+    if (dockerBin !== "docker") {
+      const dockerDir = path.dirname(dockerBin);
+      prependToPath(baseEnv, dockerDir);
+    }
   }
 
   // Ensure monorepo dependencies exist (npm workspaces).
@@ -1441,7 +1433,7 @@ async function createWindowAndBoot() {
   }
 
   // Ensure Docker judge images exist (Codemm compiles/runs in Docker).
-  {
+  if (dockerAvailable) {
     console.log("[ide] Ensuring judge Docker images...");
     splashUpdate({
       status: "Preparing Docker judge…",
@@ -1459,6 +1451,9 @@ async function createWindowAndBoot() {
       app.quit();
       return;
     }
+    splashUpdate({ pct: 62, indeterminate: false });
+  } else {
+    console.log("[ide] Skipping judge image build — Docker unavailable (browse-only mode).");
     splashUpdate({ pct: 62, indeterminate: false });
   }
 
