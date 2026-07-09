@@ -181,6 +181,18 @@ All file/line citations were produced against commit `c6cd095` by direct inspect
 
 ---
 
-## 11. Blunt final recommendation
+## 11. Status of landed changes (2026-07-09)
+
+The first tranche of the plan has landed on `main`:
+
+- **Phase 1–2 (learner model)**: `LocalLearnerProfile`/`ConceptMastery`/`MasterySnapshot` contracts replace the dead SaaS `LearnerProfile`; `learner_profile` + `concept_mastery` tables and repositories persist learner state in the workspace DB; a pure, deterministic mastery module (`src/learning/mastery.ts`) folds every graded `judge.submit` into per-concept mastery; guided generation consumes the real mastery snapshot; `learning.*` IPC channels expose profile and mastery to the UI.
+- **Phase 5 (routing, partial)**: one capability module per process with a parity test; Gemini registered as a `ProviderPlugin` and all special cases removed; provider resolution is registry iteration + an explicit-provider error table; `wording` role wired into IDE route plans.
+- **Phase 6 (partial)**: no-LLM first-run errors now point to LLM Settings; onboarding tour gained a model-setup step; stale env-var error text, `fork`/fixed-port boot description, and "share link" copy corrected.
+- **Phase 7 (partial)**: `scaffoldingService` shim, `createCodex*` aliases, and the duplicate `threads.generateV2` method deleted.
+- **Security**: judge containers now run with `--pids-limit`, `--memory`, `--memory-swap`, `--cpus`, `no-new-privileges`, and sized tmpfs mounts, injected at the `runDocker` choke point.
+
+Still open (in priority order): non-root judge containers + `--cap-drop` (needs verification on a machine with Docker; interacts with host-mount permissions), deleting `perSlotGenerator.ts`/`legacyAdapter.ts` after porting its five tests, the `LearningPath`/`PathModule`/`PathLesson` contracts and UI (Phases 3, 9), free-RAM/`num_ctx` guards for local models, and the Phase 8 orchestration simplifications.
+
+## 12. Blunt final recommendation
 
 Codemm is a well-engineered **activity generator** wearing a learning-system mission statement. The single most important gap is not code quality — it is that **the learner does not exist in the data model**. Fix that first (Phases 1–4), with deterministic mastery updates and workspace-local persistence, before investing further in generation sophistication or local-model orchestration. Ollama support is currently over-weighted relative to the product: it is an inference fallback and should stay one. The security posture is close to right and needs the cheap container-hardening flags now.
