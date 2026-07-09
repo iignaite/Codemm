@@ -32,4 +32,9 @@ export {
   runRepository as runDb,
 } from "./database/repositories/runRepository";
 
+export {
+  conceptMasteryRepository as conceptMasteryDb,
+  learnerProfileRepository as learnerProfileDb,
+} from "./database/repositories/learnerRepository";
+
 export default db;

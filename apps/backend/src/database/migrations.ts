@@ -159,7 +159,31 @@ export function initializeDatabase() {
   `);
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS learner_profile (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      goal TEXT,
+      preferred_style TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS concept_mastery (
+      language TEXT NOT NULL,
+      concept TEXT NOT NULL,
+      mastery REAL NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      passes INTEGER NOT NULL DEFAULT 0,
+      last_attempt_at TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (language, concept)
+    )
+  `);
+
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_threads_state ON threads(state);
+    CREATE INDEX IF NOT EXISTS idx_concept_mastery_language ON concept_mastery(language);
     CREATE INDEX IF NOT EXISTS idx_thread_messages_thread_id ON thread_messages(thread_id);
     CREATE INDEX IF NOT EXISTS idx_thread_collectors_thread_id ON thread_collectors(thread_id);
     CREATE INDEX IF NOT EXISTS idx_submissions_activity_id ON submissions(activity_id);
