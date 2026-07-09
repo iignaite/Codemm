@@ -298,6 +298,16 @@ export function useThread() {
             content: 'Activity spec is already ready. Click "Generate" to create problems.',
           },
         ]);
+      } else if (/no llm configured|missing api key/i.test(message)) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            tone: "info",
+            content:
+              "No AI model is set up yet, so I can't respond. Open LLM Settings (the \"API Key\" link in the header), then either save a cloud provider key or click \"Use Local Model\". Your message will work once a model is configured.",
+          },
+        ]);
       } else {
         setMessages((prev) => [
           ...prev,

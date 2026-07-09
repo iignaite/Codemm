@@ -10,6 +10,12 @@ import { useThread } from "@/hooks/useThread";
 
 const tutorialSteps: TourStep[] = [
   {
+    id: "llm-setup",
+    selector: '[data-tour="llm-settings"]',
+    title: "Set up an AI model first",
+    body: 'Codemm needs a model to chat and generate problems. Save a cloud provider key here, or click "Use Local Model" for offline Ollama.',
+  },
+  {
     id: "mode",
     selector: '[data-tour="mode-toggle"]',
     title: "Pick a learning mode",
@@ -243,6 +249,7 @@ export default function Home() {
             </Link>
             <Link
               href="/settings/llm"
+              data-tour="llm-settings"
               className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                 darkMode
                   ? "border-slate-800 bg-slate-900/60 text-slate-200 hover:bg-slate-800"

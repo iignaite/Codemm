@@ -111,7 +111,7 @@ function resolveProviderOrThrow(): LlmProvider {
   if (hasOllamaModelConfigured()) return "ollama";
 
   throw new Error(
-    'No LLM configured. Set one of: CODEX_API_KEY/OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY/GOOGLE_API_KEY, or use Ollama by setting CODEX_PROVIDER=ollama and CODEMM_OLLAMA_MODEL.'
+    'No LLM configured. Open LLM Settings and save a cloud provider API key, or click "Use Local Model" to set up Ollama.'
   );
 }
 
