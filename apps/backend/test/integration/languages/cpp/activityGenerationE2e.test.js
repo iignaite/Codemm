@@ -5,7 +5,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { activityDb } = require("../../../../src/database");
-const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../../src/services/sessionService");
+const { createThread, processThreadMessage, generateFromThread, getThread } = require("../../../../src/services/threads");
 
 function installStubs(t, language) {
   function parseRequestedCountAndTopic(msg) {
@@ -95,10 +95,10 @@ test("e2e activity generation (cpp): 2/4/7 problems (stdout-only)", async (t) =>
     await t.test(`count=${problem_count}`, async () => {
       calls.length = 0;
 
-      const { sessionId } = createSession("practice");
+      const { sessionId } = createThread("practice");
       const prompt = `Create ${problem_count} easy problems in C++. Topics: graphs`;
 
-      const msgRes = await processSessionMessage(sessionId, prompt);
+      const msgRes = await processThreadMessage(sessionId, prompt);
       assert.equal(msgRes.accepted, true);
       assert.equal(msgRes.done, true);
       assert.equal(msgRes.state, "READY");
@@ -106,7 +106,7 @@ test("e2e activity generation (cpp): 2/4/7 problems (stdout-only)", async (t) =>
       assert.equal(msgRes.spec.problem_count, problem_count);
       assert.equal(msgRes.spec.problem_style, "stdout");
 
-      const genRes = await generateFromSession(sessionId);
+      const genRes = await generateFromThread(sessionId);
       assert.ok(genRes.activityId);
       assert.equal(genRes.problems.length, problem_count);
       for (const p of genRes.problems) {
@@ -119,7 +119,7 @@ test("e2e activity generation (cpp): 2/4/7 problems (stdout-only)", async (t) =>
       const storedProblems = JSON.parse(stored.problems);
       assert.equal(storedProblems.length, problem_count);
 
-      const session = getSession(sessionId);
+      const session = getThread(sessionId);
       assert.equal(session.state, "SAVED");
     });
   }

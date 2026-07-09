@@ -4,7 +4,7 @@ const { installGenerationStub } = require("../../helpers/installGenerationStub")
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../src/services/sessionService");
+const { createThread, processThreadMessage, generateFromThread, getThread } = require("../../../src/services/threads");
 
 function installStubs(t) {
   function parseRequestedCountAndStyle(msg) {
@@ -71,33 +71,33 @@ function installStubs(t) {
 test("e2e edge: missing difficulty requires confirmation, then 'yes' applies pending patch", async (t) => {
   installStubs(t);
 
-  const { sessionId } = createSession("practice");
+  const { sessionId } = createThread("practice");
 
-  const msg1 = await processSessionMessage(sessionId, "Create 4 problems in SQL with stdout style. Topics: filtering");
+  const msg1 = await processThreadMessage(sessionId, "Create 4 problems in SQL with stdout style. Topics: filtering");
   assert.equal(msg1.accepted, true);
   assert.equal(msg1.done, false);
   assert.equal(msg1.state, "CLARIFYING");
   assert.equal(msg1.next_action, "ask");
   assert.equal(msg1.questionKey, "difficulty_plan");
 
-  const msg2 = await processSessionMessage(sessionId, "easy");
+  const msg2 = await processThreadMessage(sessionId, "easy");
   assert.equal(msg2.accepted, true);
   assert.equal(msg2.done, true);
   assert.equal(msg2.state, "READY");
 
-  const gen = await generateFromSession(sessionId);
+  const gen = await generateFromThread(sessionId);
   assert.equal(gen.problems.length, 4);
 
-  const s = getSession(sessionId);
+  const s = getThread(sessionId);
   assert.equal(s.state, "SAVED");
 });
 
 test("e2e edge: problem_count > 7 (without difficulty) does not complete the spec", async (t) => {
   installStubs(t);
 
-  const { sessionId } = createSession("practice");
+  const { sessionId } = createThread("practice");
 
-  const msg = await processSessionMessage(sessionId, "Create 8 problems in SQL with stdout style. Topics: filtering");
+  const msg = await processThreadMessage(sessionId, "Create 8 problems in SQL with stdout style. Topics: filtering");
   assert.equal(msg.accepted, true);
   assert.equal(msg.done, false);
   assert.equal(msg.state, "CLARIFYING");
@@ -107,17 +107,17 @@ test("e2e edge: problem_count > 7 (without difficulty) does not complete the spe
 test("e2e edge: problem_count > 7 with difficulty shorthand clamps to 7", async (t) => {
   installStubs(t);
 
-  const { sessionId } = createSession("practice");
+  const { sessionId } = createThread("practice");
 
-  const msg = await processSessionMessage(sessionId, "Create 8 easy problems in SQL with stdout style. Topics: filtering");
+  const msg = await processThreadMessage(sessionId, "Create 8 easy problems in SQL with stdout style. Topics: filtering");
   assert.equal(msg.accepted, true);
   assert.equal(msg.done, true);
   assert.equal(msg.state, "READY");
   assert.equal(msg.spec.problem_count, 7);
 
-  const gen = await generateFromSession(sessionId);
+  const gen = await generateFromThread(sessionId);
   assert.equal(gen.problems.length, 7);
 
-  const s = getSession(sessionId);
+  const s = getThread(sessionId);
   assert.equal(s.state, "SAVED");
 });

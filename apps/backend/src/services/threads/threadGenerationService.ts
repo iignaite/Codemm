@@ -33,12 +33,11 @@ import {
 } from "./shared";
 import { parseCommitmentsJson } from "../../agent/commitments";
 
-export type GenerateFromSessionResponse = {
+export type GenerateFromThreadResponse = {
   activityId: string;
   problems: GeneratedProblem[];
 };
 
-export type GenerateFromThreadResponse = GenerateFromSessionResponse;
 
 export async function generateFromThread(sessionId: string): Promise<GenerateFromThreadResponse> {
   return withTraceContext({ sessionId, threadId: sessionId }, async () => {
@@ -328,7 +327,6 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
   });
 }
 
-export const generateFromSession = generateFromThread;
 
 export async function regenerateSlotFromThread(
   sessionId: string,
@@ -339,7 +337,7 @@ export async function regenerateSlotFromThread(
     | "repair_test_suite"
     | "downgrade_difficulty"
     | "narrow_topics" = "retry_full_slot"
-): Promise<GenerateFromSessionResponse & { regeneratedSlotIndex: number; strategy: string }> {
+): Promise<GenerateFromThreadResponse & { regeneratedSlotIndex: number; strategy: string }> {
   return withTraceContext({ sessionId }, async () => {
     const session = requireSession(sessionId);
     const state = session.state;
@@ -414,4 +412,3 @@ export async function regenerateSlotFromThread(
   });
 }
 
-export const regenerateSlotFromSession = regenerateSlotFromThread;

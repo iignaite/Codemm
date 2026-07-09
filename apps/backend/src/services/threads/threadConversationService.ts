@@ -61,7 +61,7 @@ export type ProcessMessageResponse =
       next_action?: string;
     };
 
-export async function processSessionMessage(
+export async function processThreadMessage(
   sessionId: string,
   message: string
 ): Promise<ProcessMessageResponse> {
@@ -398,4 +398,3 @@ export async function processSessionMessage(
   });
 }
 
-export const processThreadMessage = processSessionMessage;

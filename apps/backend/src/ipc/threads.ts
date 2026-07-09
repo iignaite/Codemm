@@ -10,7 +10,7 @@ import {
   processThreadMessage,
   regenerateSlotFromThread,
   setThreadInstructions,
-} from "../services/sessionService";
+} from "../services/threads";
 import { getResolvedLlmSnapshot } from "../infra/llm/executionContext";
 import { summarizeRoutePlan } from "../infra/llm/runtimeService";
 import type { GenerationProgressEvent } from "../contracts/generationProgress";

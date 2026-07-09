@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const { execSync } = require("node:child_process");
 
 const { activityDb } = require("../../../src/database");
-const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../src/services/sessionService");
+const { createThread, processThreadMessage, generateFromThread, getThread } = require("../../../src/services/threads");
 
 /**
  * Real-LLM + Docker matrix runner.
@@ -103,7 +103,7 @@ function registerRealActivityGenerationE2e({ provider }) {
   const test = require("node:test");
 
   test(
-    `e2e (real LLM:${provider}): prompt → dialogue → READY → generateFromSession → activity persisted (stdout-only × 4 langs)`,
+    `e2e (real LLM:${provider}): prompt → dialogue → READY → generateFromThread → activity persisted (stdout-only × 4 langs)`,
     // This test exercises real LLM calls + real Docker validation across a matrix.
     // Keep a generous timeout to avoid parent cancellation cascading into many subtest failures.
     { timeout: 6 * 60 * 60 * 1000 },
@@ -169,8 +169,8 @@ function registerRealActivityGenerationE2e({ provider }) {
                   // difficultyPlanParser will deterministically set difficulty_plan and problem_count from "easy:N".
                   const prompt = `Language: ${language}\nStyle: stdout\nTopics: ${topic}\nDifficulty: easy:${count}`;
 
-                  const { sessionId } = createSession("practice");
-                  const msg = await processSessionMessage(sessionId, prompt);
+                  const { sessionId } = createThread("practice");
+                  const msg = await processThreadMessage(sessionId, prompt);
                   assert.equal(msg.accepted, true);
                   assert.equal(msg.done, true);
                   assert.equal(msg.state, "READY");
@@ -178,7 +178,7 @@ function registerRealActivityGenerationE2e({ provider }) {
                   assert.equal(msg.spec.problem_count, count);
                   assert.equal(msg.spec.problem_style, "stdout");
 
-                  const generated = await generateFromSession(sessionId);
+                  const generated = await generateFromThread(sessionId);
                   row.activityId = generated.activityId;
                   assert.ok(generated.activityId);
                   assert.equal(generated.problems.length, count);
@@ -193,7 +193,7 @@ function registerRealActivityGenerationE2e({ provider }) {
                   const storedProblems = JSON.parse(stored.problems);
                   assert.equal(storedProblems.length, count);
 
-                  const s = getSession(sessionId);
+                  const s = getThread(sessionId);
                   assert.equal(s.state, "SAVED");
                 });
 

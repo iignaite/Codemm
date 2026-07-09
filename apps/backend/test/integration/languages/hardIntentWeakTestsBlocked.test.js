@@ -4,7 +4,7 @@ const { installGenerationStub } = require("../../helpers/installGenerationStub")
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { createSession, processSessionMessage, generateFromSession, getSession } = require("../../../src/services/sessionService");
+const { createThread, processThreadMessage, generateFromThread, getThread } = require("../../../src/services/threads");
 
 function installStubs(t) {
   const dialogueResponse = {
@@ -89,16 +89,16 @@ public class BillingTest {
 test("e2e: hard intent + weak tests (baseline passes) must not reach SAVED or silently downgrade", async (t) => {
   installStubs(t);
 
-  const { sessionId } = createSession("practice");
+  const { sessionId } = createThread("practice");
 
-  const msg = await processSessionMessage(sessionId, "Create 1 hard problem in Java. Topics: polymorphism");
+  const msg = await processThreadMessage(sessionId, "Create 1 hard problem in Java. Topics: polymorphism");
   assert.equal(msg.accepted, true);
   assert.equal(msg.done, true);
   assert.equal(msg.state, "READY");
 
-  await assert.rejects(() => generateFromSession(sessionId));
+  await assert.rejects(() => generateFromThread(sessionId));
 
-  const s = getSession(sessionId);
+  const s = getThread(sessionId);
   assert.equal(s.state, "READY");
   assert.equal(s.spec.problem_style, "stdout");
   assert.ok(Array.isArray(s.spec.difficulty_plan));
