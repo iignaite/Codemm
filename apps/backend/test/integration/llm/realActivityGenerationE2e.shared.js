@@ -108,6 +108,13 @@ function registerRealActivityGenerationE2e({ provider }) {
     // Keep a generous timeout to avoid parent cancellation cascading into many subtest failures.
     { timeout: 6 * 60 * 60 * 1000 },
     async (t) => {
+      if (process.env.CODEMM_RUN_REAL_E2E !== "1") {
+        // Real runs cost API tokens. A key in the environment (e.g. a dev .env)
+        // must never trigger paid calls by surprise — require explicit opt-in.
+        t.skip("Set CODEMM_RUN_REAL_E2E=1 to run real-provider e2e generation.");
+        return;
+      }
+
       if (!["openai", "anthropic", "gemini"].includes(provider)) {
         t.skip(`Unknown provider "${provider}"`);
         return;
