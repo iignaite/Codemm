@@ -39,6 +39,14 @@ export type {
   RunResultDto,
 } from "./judge";
 export type {
+  ConceptMasteryDto,
+  LearnerMasteryResponseDto,
+  LearnerPreferredStyleDto,
+  LearnerProfileResponseDto,
+  LocalLearnerProfileDto,
+  MasteryLevelDto,
+} from "./learning";
+export type {
   LlmCapability,
   LlmControlStatus,
   LlmProvider,

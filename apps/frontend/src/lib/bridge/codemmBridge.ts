@@ -9,6 +9,9 @@ import type {
   JudgeRunResultDto,
   JudgeSubmitRequestDto,
   JudgeSubmitResultDto,
+  LearnerMasteryResponseDto,
+  LearnerPreferredStyleDto,
+  LearnerProfileResponseDto,
   LlmControlStatus,
   LlmSettingsResponse,
   LocalLlmStatus,
@@ -95,6 +98,14 @@ export type CodemmBridge = {
   judge?: {
     run?: (args: JudgeRunRequestDto) => Promise<JudgeRunResultDto>;
     submit?: (args: JudgeSubmitRequestDto) => Promise<JudgeSubmitResultDto>;
+  };
+  learning?: {
+    getProfile?: () => Promise<LearnerProfileResponseDto>;
+    updateProfile?: (args: {
+      goal?: string | null;
+      preferredStyle?: LearnerPreferredStyleDto | null;
+    }) => Promise<LearnerProfileResponseDto>;
+    getMastery?: (args: { language: "java" | "python" | "cpp" | "sql" }) => Promise<LearnerMasteryResponseDto>;
   };
 };
 

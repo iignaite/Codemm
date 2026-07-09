@@ -122,4 +122,9 @@ contextBridge.exposeInMainWorld("codemm", {
     run: (args) => ipcRenderer.invoke("codemm:judge:run", args),
     submit: (args) => ipcRenderer.invoke("codemm:judge:submit", args),
   },
+  learning: {
+    getProfile: () => ipcRenderer.invoke("codemm:learning:getProfile"),
+    updateProfile: (args) => ipcRenderer.invoke("codemm:learning:updateProfile", args),
+    getMastery: (args) => ipcRenderer.invoke("codemm:learning:getMastery", args),
+  },
 });

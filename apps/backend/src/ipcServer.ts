@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createActivityHandlers } from "./ipc/activities";
 import { isObject, replyErr, replyOk, send, validateOrThrow } from "./ipc/serverCommon";
 import { createJudgeHandlers } from "./ipc/judge";
+import { createLearningHandlers } from "./ipc/learning";
 import { createThreadHandlers, shutdownThreadHandlers } from "./ipc/threads";
 import type { JsonObject, RpcHandlerDef } from "./ipc/types";
 
@@ -38,6 +39,7 @@ const rpcHandlers: Record<string, RpcHandlerDef> = {
   }),
   ...createActivityHandlers(),
   ...createJudgeHandlers(),
+  ...createLearningHandlers(),
 };
 
 async function handle(method: string, paramsRaw: unknown, contextRaw?: unknown): Promise<unknown> {

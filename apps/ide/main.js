@@ -15,6 +15,7 @@ const { registerLlmIpc } = require("./ipc/llm");
 const { registerThreadsIpc } = require("./ipc/threads");
 const { registerActivitiesIpc } = require("./ipc/activities");
 const { registerJudgeIpc } = require("./ipc/judge");
+const { registerLearningIpc } = require("./ipc/learning");
 
 const DEFAULT_FRONTEND_PORT = Number.parseInt(process.env.CODEMM_FRONTEND_PORT || "3000", 10);
 
@@ -1075,6 +1076,12 @@ async function createWindowAndBoot() {
     });
 
     registerJudgeIpc({
+      tryRegisterIpcHandler,
+      validate,
+      engineCall,
+    });
+
+    registerLearningIpc({
       tryRegisterIpcHandler,
       validate,
       engineCall,
