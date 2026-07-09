@@ -75,8 +75,7 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
     let resumeOutcomes: GenerationOutcome[] = [];
     let problems: GeneratedProblem[] | null = null;
     let outcomes: GenerationOutcome[] | null = null;
-    let usedFallback = false;
-    let appliedFallbackReason: string | null = null;
+    const appliedFallbackReasons: string[] = [];
 
     const derivePlanForSpec = (currentSpec: ActivitySpec) => {
       const pedagogyPolicy =
@@ -196,7 +195,10 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
                   llmOutputHash: err.llmOutputHash,
                 });
 
-                if (!usedFallback && spec) {
+                // Degradation ladder: each rung strictly reduces the spec's
+                // ambition (hard→medium, then narrowed topics), so this loop
+                // terminates when the policy runs out of rungs and rethrows.
+                if (spec) {
                   const explicitDifficultyLocked = commitments?.difficulty_plan?.locked === true;
                   const explicitTopicsLocked = commitments?.topic_tags?.locked === true;
                   const decision = proposeGenerationFallbackWithPolicy(spec, {
@@ -204,8 +206,7 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
                     allowNarrowTopics: !explicitTopicsLocked,
                   });
                   if (decision) {
-                    usedFallback = true;
-                    appliedFallbackReason = decision.reason;
+                    appliedFallbackReasons.push(decision.reason);
 
                     publishGenerationProgress(sessionId, {
                       type: "generation_soft_fallback_applied",
@@ -260,6 +261,7 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
           }
 
           if (outcomes) {
+            const appliedFallbackReason = appliedFallbackReasons.length > 0 ? appliedFallbackReasons.join("; ") : null;
             const finalOutcomes = appliedFallbackReason
               ? outcomes.map((outcome) => ({
                   ...outcome,
@@ -289,10 +291,11 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
           publishGenerationProgress(sessionId, { type: "generation_completed", activityId });
           publishGenerationProgress(sessionId, { type: "generation_complete", activityId });
 
-          if (usedFallback) {
+          if (appliedFallbackReasons.length > 0) {
             persistTraceEvent({
               ts: new Date().toISOString(),
               type: "generation_soft_fallback_succeeded",
+              reasons: appliedFallbackReasons,
             });
           }
 
@@ -315,9 +318,15 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
         console.error("Failed to transition session to READY:", transitionErr);
       }
 
+      const keptCount = resumeProblems.length;
+      const totalCount = plan.length;
+      const partialNote =
+        err instanceof GenerationSlotFailureError && keptCount > 0 && totalCount > keptCount
+          ? ` ${keptCount} of ${totalCount} problems were kept — click Generate to resume from problem ${keptCount + 1}.`
+          : "";
       publishGenerationProgress(sessionId, {
         type: "generation_failed",
-        error: "Generation failed. Please try again.",
+        error: `Generation failed. Please try again.${partialNote}`,
         ...(err instanceof GenerationSlotFailureError ? { slotIndex: err.slotIndex } : {}),
       });
       throw err;
