@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Moon, RefreshCw, Sun } from "lucide-react";
+import { ArrowLeft, Check, Moon, RefreshCw, Star, Sun } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { LearningPathDto, LearningPathModuleDto, ModuleStatusDto } from "@codemm/shared-contracts";
 import { learningClient, type PathLanguage } from "@/lib/bridge/learningClient";
@@ -20,19 +20,79 @@ const STATUS_LABEL: Record<ModuleStatusDto, string> = {
   mastered: "Mastered",
 };
 
-function statusBadgeClass(status: ModuleStatusDto, darkMode: boolean): string {
-  switch (status) {
-    case "mastered":
-      return darkMode ? "bg-emerald-900/50 text-emerald-300" : "bg-emerald-100 text-emerald-700";
-    case "in_progress":
-      return darkMode ? "bg-amber-900/50 text-amber-300" : "bg-amber-100 text-amber-700";
-    default:
-      return darkMode ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500";
-  }
-}
+// Winding-path geometry (fixed coordinate space, centered; scrolls on narrow screens).
+const COL_W = 340;
+const ROW_H = 132;
+const TOP_PAD = 64;
+const BOTTOM_PAD = 40;
+const AMPLITUDE = 104;
+const NODE = 68;
 
 function masteryPercent(mastery: number): number {
   return Math.round(Math.max(0, Math.min(1, mastery)) * 100);
+}
+
+function nodeX(index: number): number {
+  // Serpentine: smooth sine oscillation left/right of center.
+  return COL_W / 2 + Math.sin(index * 0.85) * AMPLITUDE;
+}
+
+function nodeY(index: number): number {
+  return TOP_PAD + ROW_H / 2 + index * ROW_H;
+}
+
+/** Smooth vertical-tangent bezier trail through the node centers. */
+function buildTrailPath(count: number): string {
+  if (count === 0) return "";
+  let d = `M ${nodeX(0)} ${nodeY(0)}`;
+  for (let i = 1; i < count; i++) {
+    const x0 = nodeX(i - 1);
+    const y0 = nodeY(i - 1);
+    const x1 = nodeX(i);
+    const y1 = nodeY(i);
+    const c = (y1 - y0) / 2;
+    d += ` C ${x0} ${y0 + c} ${x1} ${y1 - c} ${x1} ${y1}`;
+  }
+  return d;
+}
+
+type NodeColors = { ring: string; track: string; fill: string; text: string; border: string };
+
+function nodeColors(status: ModuleStatusDto, recommended: boolean, darkMode: boolean): NodeColors {
+  if (recommended) {
+    return {
+      ring: "#0ea5e9",
+      track: darkMode ? "#1e293b" : "#e2e8f0",
+      fill: darkMode ? "#0c4a6e" : "#e0f2fe",
+      text: darkMode ? "#e0f2fe" : "#075985",
+      border: "#0ea5e9",
+    };
+  }
+  if (status === "mastered") {
+    return {
+      ring: "#10b981",
+      track: darkMode ? "#064e3b" : "#d1fae5",
+      fill: "#10b981",
+      text: "#ffffff",
+      border: "#10b981",
+    };
+  }
+  if (status === "in_progress") {
+    return {
+      ring: "#f59e0b",
+      track: darkMode ? "#1e293b" : "#e2e8f0",
+      fill: darkMode ? "#78350f" : "#fef3c7",
+      text: darkMode ? "#fde68a" : "#92400e",
+      border: "#f59e0b",
+    };
+  }
+  return {
+    ring: darkMode ? "#475569" : "#cbd5e1",
+    track: darkMode ? "#1e293b" : "#e2e8f0",
+    fill: darkMode ? "#0f172a" : "#f8fafc",
+    text: darkMode ? "#94a3b8" : "#64748b",
+    border: darkMode ? "#334155" : "#cbd5e1",
+  };
 }
 
 export default function RoadmapPage() {
@@ -61,6 +121,8 @@ export default function RoadmapPage() {
   }, [language, load]);
 
   const empty = path && path.totalCount === 0;
+  const modules = path?.modules ?? [];
+  const canvasH = TOP_PAD + modules.length * ROW_H + BOTTOM_PAD;
 
   return (
     <div className={darkMode ? "min-h-screen bg-slate-950 text-slate-100" : "min-h-screen bg-slate-50 text-slate-900"}>
@@ -99,8 +161,8 @@ export default function RoadmapPage() {
         </header>
 
         <p className={`mt-2 text-sm ${darkMode ? "text-slate-400" : "text-slate-600"}`}>
-          Your skill map is built from the concepts you have practiced and how well your submissions passed. Work down the
-          list &mdash; the concept that needs the most attention is at the top.
+          Follow the trail. Each stop is a concept &mdash; the ring fills as your submissions pass. Start at the glowing
+          stop and work your way down.
         </p>
 
         <div className="mt-5 flex flex-wrap gap-2">
@@ -143,7 +205,7 @@ export default function RoadmapPage() {
             </div>
             {path.recommendedConcept ? (
               <p className="mt-4 text-sm">
-                <span className={darkMode ? "text-slate-400" : "text-slate-600"}>Work on next: </span>
+                <span className={darkMode ? "text-slate-400" : "text-slate-600"}>Start here: </span>
                 <span className="font-semibold">{path.recommendedConcept}</span>
               </p>
             ) : (
@@ -163,51 +225,89 @@ export default function RoadmapPage() {
         )}
 
         {path && !empty && (
-          <ul className="mt-4 space-y-2">
-            {path.modules.map((m: LearningPathModuleDto) => (
-              <li
-                key={m.concept}
-                className={`rounded-xl border p-4 ${
-                  m.recommended
-                    ? darkMode
-                      ? "border-sky-700 bg-sky-950/30"
-                      : "border-sky-300 bg-sky-50"
-                    : darkMode
-                      ? "border-slate-800 bg-slate-900"
-                      : "border-slate-200 bg-white"
-                }`}
+          <div className="mt-4 overflow-x-auto">
+            <div className="relative mx-auto" style={{ width: COL_W, height: canvasH }}>
+              <svg
+                className="absolute inset-0"
+                width={COL_W}
+                height={canvasH}
+                viewBox={`0 0 ${COL_W} ${canvasH}`}
+                fill="none"
+                aria-hidden="true"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">{m.concept}</span>
+                <path
+                  d={buildTrailPath(modules.length)}
+                  stroke={darkMode ? "#334155" : "#cbd5e1"}
+                  strokeWidth={6}
+                  strokeLinecap="round"
+                  strokeDasharray="2 16"
+                />
+              </svg>
+
+              {modules.map((m: LearningPathModuleDto, i: number) => {
+                const x = nodeX(i);
+                const y = nodeY(i);
+                const c = nodeColors(m.status, m.recommended, darkMode);
+                const pct = masteryPercent(m.mastery);
+                return (
+                  <div key={m.concept} className="absolute" style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}>
                     {m.recommended && (
-                      <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white">
-                        Next
-                      </span>
+                      <div className="absolute -top-11 left-1/2 -translate-x-1/2 whitespace-nowrap">
+                        <div className="relative rounded-full bg-sky-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-lg">
+                          Start
+                          <div className="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-sky-600" />
+                        </div>
+                      </div>
                     )}
+                    <div
+                      className={`relative flex items-center justify-center rounded-full ${m.recommended ? "animate-pulse-slow" : ""}`}
+                      style={{
+                        width: NODE,
+                        height: NODE,
+                        background: `conic-gradient(${c.ring} ${pct}%, ${c.track} ${pct}% 100%)`,
+                        boxShadow: m.recommended ? `0 0 0 6px ${darkMode ? "rgba(14,165,233,0.18)" : "rgba(14,165,233,0.16)"}` : "none",
+                      }}
+                      title={`${m.concept} · ${STATUS_LABEL[m.status]} · ${pct}%`}
+                    >
+                      <div
+                        className="flex items-center justify-center rounded-full"
+                        style={{ width: NODE - 12, height: NODE - 12, background: c.fill, border: `2px solid ${c.border}`, color: c.text }}
+                      >
+                        {m.status === "mastered" ? (
+                          <Check className="h-6 w-6" strokeWidth={3} />
+                        ) : m.recommended ? (
+                          <Star className="h-6 w-6" fill="currentColor" strokeWidth={0} />
+                        ) : (
+                          <span className="text-sm font-bold">{pct}%</span>
+                        )}
+                      </div>
+                    </div>
+                    <div
+                      className="absolute left-1/2 top-full mt-1.5 w-40 -translate-x-1/2 text-center"
+                      style={{ color: darkMode ? "#cbd5e1" : "#334155" }}
+                    >
+                      <div className="truncate text-xs font-semibold capitalize" title={m.concept}>
+                        {m.concept}
+                      </div>
+                      <div className={`text-[11px] ${darkMode ? "text-slate-500" : "text-slate-400"}`}>
+                        {m.passes}/{m.attempts} passed
+                      </div>
+                    </div>
                   </div>
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${statusBadgeClass(m.status, darkMode)}`}>
-                    {STATUS_LABEL[m.status]}
-                  </span>
-                </div>
-                <div className={`mt-2 flex items-center gap-3 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
-                  <span>{masteryPercent(m.mastery)}% mastery</span>
-                  <span>·</span>
-                  <span>
-                    {m.passes}/{m.attempts} attempts passed
-                  </span>
-                </div>
-                <div className={`mt-2 h-1.5 w-full overflow-hidden rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-100"}`}>
-                  <div
-                    className={`h-full rounded-full ${m.status === "mastered" ? "bg-emerald-500" : "bg-sky-500"}`}
-                    style={{ width: `${masteryPercent(m.mastery)}%` }}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
+
+      <style>{`
+        @keyframes roadmap-pulse-slow {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.06); }
+        }
+        .animate-pulse-slow { animation: roadmap-pulse-slow 2.4s ease-in-out infinite; }
+      `}</style>
     </div>
   );
 }
