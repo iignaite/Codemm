@@ -80,11 +80,6 @@ function registerThreadsIpc(deps) {
     return engineCall("threads.generate", { threadId }, { llm: true, useCase: "generation" });
   });
 
-  tryRegisterIpcHandler("codemm:threads:generateV2", async (_evt, args) => {
-    const parsed = validate(z.object({ threadId: z.string().min(1).max(128) }), args);
-    const threadId = reqString(parsed.threadId, "threadId");
-    return engineCall("threads.generateV2", { threadId }, { llm: true, useCase: "generation" });
-  });
 
   tryRegisterIpcHandler("codemm:threads:regenerateSlot", async (_evt, args) => {
     const parsed = validate(

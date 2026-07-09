@@ -79,7 +79,6 @@ contextBridge.exposeInMainWorld("codemm", {
     setInstructions: (args) => ipcRenderer.invoke("codemm:threads:setInstructions", args),
     postMessage: (args) => ipcRenderer.invoke("codemm:threads:postMessage", args),
     generate: (args) => ipcRenderer.invoke("codemm:threads:generate", args),
-    generateV2: (args) => ipcRenderer.invoke("codemm:threads:generateV2", args),
     regenerateSlot: (args) => ipcRenderer.invoke("codemm:threads:regenerateSlot", args),
     getGenerationDiagnostics: (args) => ipcRenderer.invoke("codemm:threads:getGenerationDiagnostics", args),
     subscribeGeneration: async ({ threadId, onEvent }) => {

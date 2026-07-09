@@ -48,22 +48,6 @@ export const threadsClient = {
     if (!api?.generate) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
     return api.generate(args) as Promise<GenerateThreadResponseDto>;
   },
-  generateV2(args: { threadId: string }) {
-    const api = getCodemmBridge().threads;
-    if (!api?.generateV2) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
-    return api.generateV2(args) as Promise<GenerateThreadResponseDto>;
-  },
-  generateLatest(args: { threadId: string }) {
-    const api = getCodemmBridge().threads;
-    if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
-    if (typeof api.generateV2 === "function") {
-      return api.generateV2(args) as Promise<GenerateThreadResponseDto>;
-    }
-    if (typeof api.generate === "function") {
-      return api.generate(args) as Promise<GenerateThreadResponseDto>;
-    }
-    throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
-  },
   regenerateSlot(args: { threadId: string; slotIndex: number; strategy?: string }) {
     const api = getCodemmBridge().threads;
     if (!api?.regenerateSlot) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");

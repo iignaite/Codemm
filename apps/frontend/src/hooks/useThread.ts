@@ -375,7 +375,7 @@ export function useThread() {
       });
       progressRef.current = { unsubscribe: sub.unsubscribe };
 
-      const data: GenerateThreadResponseDto = await threadsClient.generateLatest({ threadId });
+      const data: GenerateThreadResponseDto = await threadsClient.generate({ threadId });
       window.clearTimeout(hintTimer);
       if (typeof data.runId === "string") {
         runIdForDiagnostics = data.runId;

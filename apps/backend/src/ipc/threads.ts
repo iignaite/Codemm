@@ -243,21 +243,7 @@ export function createThreadHandlers(deps: {
         if (!threadId) throw new Error("threadId is required.");
         return runGenerationWithRunTracking({
           threadId,
-          meta: { threadId, mode: "v1", operation: "generate" },
-          execute: async () => generateFromThread(threadId),
-        });
-      },
-    },
-
-    "threads.generateV2": {
-      schema: z.object({ threadId: z.string().min(1).max(128) }).passthrough(),
-      handler: async (paramsRaw) => {
-        const params = requireParams(paramsRaw);
-        const threadId = getString(params.threadId);
-        if (!threadId) throw new Error("threadId is required.");
-        return runGenerationWithRunTracking({
-          threadId,
-          meta: { threadId, mode: "v2", operation: "generate" },
+          meta: { threadId, operation: "generate" },
           execute: async () => generateFromThread(threadId),
         });
       },
