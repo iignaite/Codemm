@@ -106,6 +106,14 @@ export function useThread() {
       }
     } catch (e) {
       console.error("Failed to create thread:", e);
+      setMessages([
+        {
+          role: "assistant",
+          tone: "hint",
+          content:
+            "I couldn't start a new session — the local engine may still be starting up. Wait a moment, then click the mode toggle (Practice/Guided) to retry.",
+        },
+      ]);
     }
   }
 

@@ -66,7 +66,7 @@ export default function RightPane({
                 <StatusIcon status={status} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-900 truncate">
+                    <span className="text-xs font-semibold text-slate-900 truncate" title={p.title}>
                       {i + 1}. {p.title}
                     </span>
                   </div>
@@ -136,7 +136,13 @@ export default function RightPane({
             />
           )}
           {bottomTab === "results" && (
-            <ResultsTab activity={activity} feedback={feedback} onClearFeedback={onClearFeedback} />
+            <ResultsTab
+              activity={activity}
+              feedback={feedback}
+              onClearFeedback={onClearFeedback}
+              selectedProblemId={selectedProblemId}
+              onSelectProblem={onSelectProblem}
+            />
           )}
         </div>
       </div>
@@ -268,10 +274,14 @@ function ResultsTab({
   activity,
   feedback,
   onClearFeedback,
+  selectedProblemId,
+  onSelectProblem,
 }: {
   activity: Activity;
   feedback: FeedbackState | null;
   onClearFeedback: () => void;
+  selectedProblemId: string | null;
+  onSelectProblem: (problem: Problem) => void;
 }) {
   const [showDetails, setShowDetails] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -505,13 +515,32 @@ function ResultsTab({
         </>
       )}
 
-      {/* View solution button (appears when all passed) */}
       {isJudgeResult(feedbackResult) && feedbackResult.success && !judgeTimedOut && (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-center">
           <div className="text-xs font-semibold text-emerald-700">Problem complete!</div>
           <p className="mt-1 text-[11px] text-emerald-600">
             All test cases passed. Great work!
           </p>
+          {(() => {
+            const idx = activity.problems.findIndex((pr) => pr.id === selectedProblemId);
+            const next = idx >= 0 ? activity.problems[idx + 1] : undefined;
+            return next ? (
+              <button
+                type="button"
+                onClick={() => onSelectProblem(next)}
+                className="mt-2 rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+              >
+                Next problem →
+              </button>
+            ) : (
+              <a
+                href="/roadmap"
+                className="mt-2 inline-block rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+              >
+                Activity finished — see your roadmap
+              </a>
+            );
+          })()}
         </div>
       )}
     </div>

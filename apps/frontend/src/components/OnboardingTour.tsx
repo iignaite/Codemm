@@ -120,7 +120,16 @@ export function OnboardingTour(props: {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-start"
+      ref={(el) => {
+        // Move focus into the dialog so keyboard users interact with the tour,
+        // not the page behind the overlay.
+        if (el && !el.contains(document.activeElement)) el.focus();
+      }}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
+      className="fixed inset-0 z-[100] flex items-start justify-start outline-none"
       role="dialog"
       aria-modal="true"
       aria-label="Tutorial"

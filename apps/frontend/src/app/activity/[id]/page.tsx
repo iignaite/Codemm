@@ -102,6 +102,12 @@ export default function ActivityPage() {
             >
               Home
             </button>
+            <a
+              href="/roadmap"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Roadmap
+            </a>
             <div className="h-4 w-px bg-slate-200" />
             <div>
               <h1 className="text-sm font-semibold tracking-tight text-slate-900">{activity.title}</h1>

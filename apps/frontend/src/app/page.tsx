@@ -90,6 +90,22 @@ export default function Home() {
     return () => window.clearTimeout(timeoutId);
   }, []);
 
+  // Roadmap deep-link: /?practice=<concept>&lang=<language> pre-fills the chat
+  // so a stop on the trail is one click away from a fresh activity for it.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const concept = params.get("practice")?.trim();
+    if (!concept) return;
+    const langLabel =
+      ({ java: "Java", python: "Python", cpp: "C++", sql: "SQL" } as Record<string, string>)[params.get("lang") ?? ""] ??
+      "Java";
+    setChatInput(`I want to practice ${concept} in ${langLabel}. 3 problems: 2 easy, 1 medium.`);
+    setHasInteracted(true);
+    window.history.replaceState(null, "", "/");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!historyOpen) return;
@@ -695,7 +711,7 @@ export default function Home() {
                     </button>
                     <button
                       onClick={() => void handleChatSend()}
-                      disabled={chatLoading || !chatInput.trim() || specReady}
+                      disabled={chatLoading || !chatInput.trim() || specReady || !threadId}
                       data-tour="send"
                       className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-sm transition ${
                         darkMode

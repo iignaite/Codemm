@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type {
   LlmControlStatus,
   LlmProvider,
@@ -255,14 +256,14 @@ export default function LlmSettingsPage() {
               Choose a cloud API key or let Codemm run a local Ollama model on this machine.
             </p>
           </div>
-          <button
+          <Link
             className={`rounded-lg px-3 py-2 text-sm font-medium ${
               darkMode ? "bg-slate-800 hover:bg-slate-700" : "bg-slate-100 hover:bg-slate-200"
             }`}
-            onClick={() => history.back()}
+            href="/"
           >
             Back
-          </button>
+          </Link>
         </div>
 
         <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">

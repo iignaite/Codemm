@@ -173,6 +173,9 @@ export default function ActivityReviewPage() {
       if (act) setActivity(act);
       setToast("Saved.");
       return act ?? null;
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to save the draft."));
+      return null;
     } finally {
       setSaving(false);
     }
@@ -301,6 +304,12 @@ export default function ActivityReviewPage() {
               className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Open
+            </button>
+            <button
+              onClick={() => router.push("/roadmap")}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Roadmap
             </button>
           </div>
         </header>

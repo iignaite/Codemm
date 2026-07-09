@@ -18,7 +18,7 @@ function formatTs(ts: string): string {
 export default function ActivitiesPage() {
   const { darkMode, toggleDarkMode } = useThemeMode();
   const [items, setItems] = useState<ActivitySummary[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
@@ -157,7 +157,10 @@ export default function ActivitiesPage() {
               {filtered.map((a) => (
                 <div key={a.id} className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
-                    <div className={`truncate text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}>
+                    <div
+                      className={`truncate text-sm font-semibold ${darkMode ? "text-slate-100" : "text-slate-900"}`}
+                      title={a.title || "Untitled activity"}
+                    >
                       {a.title || "Untitled activity"}
                     </div>
                     <div className={`mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>

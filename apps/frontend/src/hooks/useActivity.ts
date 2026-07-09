@@ -545,7 +545,8 @@ export function useActivity() {
         ...prev,
         [selectedProblem.id]: safeResult.success && !safeResult.timedOut ? "passed" : "failed",
       }));
-      setIsTimerRunning(false);
+      // Keep the clock running after a failed check; stop it only on success.
+      if (safeResult.success && !safeResult.timedOut) setIsTimerRunning(false);
     } catch (error) {
       console.error(error);
       const message =

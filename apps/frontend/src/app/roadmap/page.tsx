@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowLeft, Check, Moon, RefreshCw, Star, Sun } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { LearningPathDto, LearningPathModuleDto, ModuleStatusDto } from "@codemm/shared-contracts";
 import { learningClient, type PathLanguage } from "@/lib/bridge/learningClient";
 import { useThemeMode } from "@/lib/useThemeMode";
@@ -21,7 +22,7 @@ const STATUS_LABEL: Record<ModuleStatusDto, string> = {
 };
 
 // Winding-path geometry (fixed coordinate space, centered; scrolls on narrow screens).
-const COL_W = 340;
+const COL_W = 380;
 const ROW_H = 132;
 const TOP_PAD = 64;
 const BOTTOM_PAD = 40;
@@ -96,6 +97,7 @@ function nodeColors(status: ModuleStatusDto, recommended: boolean, darkMode: boo
 }
 
 export default function RoadmapPage() {
+  const router = useRouter();
   const { darkMode, toggleDarkMode } = useThemeMode();
   const [language, setLanguage] = useState<PathLanguage>("java");
   const [path, setPath] = useState<LearningPathDto | null>(null);
@@ -119,6 +121,10 @@ export default function RoadmapPage() {
   useEffect(() => {
     void load(language);
   }, [language, load]);
+
+  const practiceConcept = (concept: string) => {
+    router.push(`/?practice=${encodeURIComponent(concept)}&lang=${language}`);
+  };
 
   const empty = path && path.totalCount === 0;
   const modules = path?.modules ?? [];
@@ -219,6 +225,18 @@ export default function RoadmapPage() {
           </section>
         )}
 
+        {loading && !path && !error && (
+          <div className="mt-10 flex flex-col items-center gap-10" aria-label="Loading roadmap">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className={`h-16 w-16 animate-pulse rounded-full ${darkMode ? "bg-slate-800" : "bg-slate-200"}`}
+                style={{ marginLeft: i % 2 === 0 ? -60 : 60 }}
+              />
+            ))}
+          </div>
+        )}
+
         {empty && (
           <div className={`mt-6 rounded-2xl border p-6 text-sm ${darkMode ? "border-slate-800 bg-slate-900 text-slate-300" : "border-slate-200 bg-white text-slate-600"}`}>
             No concepts tracked for {LANGUAGES.find((l) => l.value === language)?.label} yet. Generate an activity and check
@@ -269,15 +287,18 @@ export default function RoadmapPage() {
                         </div>
                       </div>
                     )}
-                    <div
-                      className={`rm-circle relative flex items-center justify-center rounded-full ${m.recommended ? "animate-pulse-slow" : ""}`}
+                    <button
+                      type="button"
+                      onClick={() => practiceConcept(m.concept)}
+                      aria-label={`Practice ${m.concept} (${STATUS_LABEL[m.status]}, ${pct}% mastery)`}
+                      className={`rm-circle relative flex cursor-pointer items-center justify-center rounded-full ${m.recommended ? "animate-pulse-slow" : ""}`}
                       style={{
                         width: NODE,
                         height: NODE,
                         background: `conic-gradient(${c.ring} ${pct}%, ${c.track} ${pct}% 100%)`,
                         boxShadow: m.recommended ? `0 0 0 6px ${darkMode ? "rgba(14,165,233,0.18)" : "rgba(14,165,233,0.16)"}` : "none",
                       }}
-                      title={`${m.concept} · ${STATUS_LABEL[m.status]} · ${pct}%`}
+                      title={`${m.concept} · ${STATUS_LABEL[m.status]} · ${pct}% — click to practice`}
                     >
                       {m.recommended && <span className="rm-sonar" aria-hidden="true" />}
                       <div
@@ -292,7 +313,7 @@ export default function RoadmapPage() {
                           <span className="rm-icon text-sm font-bold">{pct}%</span>
                         )}
                       </div>
-                    </div>
+                    </button>
                     <div
                       className="absolute left-1/2 top-full mt-1.5 w-40 -translate-x-1/2 text-center"
                       style={{ color: darkMode ? "#cbd5e1" : "#334155" }}

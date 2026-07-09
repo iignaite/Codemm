@@ -48,7 +48,7 @@ export default function LeftPane({ problem, problemIndex, totalProblems, status 
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Problem {problemIndex + 1} of {totalProblems}
           </div>
-          <h2 className="mt-1 truncate text-sm font-semibold text-slate-900">
+          <h2 className="mt-1 truncate text-sm font-semibold text-slate-900" title={problem?.title ?? undefined}>
             {problem?.title ?? "Problem"}
           </h2>
           <div className="flex items-center gap-2 mt-1">
