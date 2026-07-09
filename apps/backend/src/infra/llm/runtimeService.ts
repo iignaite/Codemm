@@ -27,10 +27,6 @@ function normalizeRoute(provider: ResolvedLlmRoutePlan["provider"], route: LlmRo
   };
 }
 
-export function inferCapabilityFromModel(model: string | undefined, provider: string): LlmCapability {
-  return inferModelCapability(model, provider);
-}
-
 export function ensureRoutePlan(plan: ResolvedLlmRoutePlan | ResolvedLlmSnapshot | null): ResolvedLlmRoutePlan | null {
   if (!plan || !plan.provider) return null;
   const defaultModel = normalizeModel((plan as ResolvedLlmSnapshot).model) ?? normalizeModel(plan.defaultModel);
