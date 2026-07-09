@@ -106,3 +106,12 @@ test("ipc boundary: learning handlers validate and roundtrip", async () => {
   assert.equal(mastery.language, "java");
   assert.ok(Array.isArray(mastery.concepts));
 });
+
+test("ipc boundary: learning.getPath validates language and returns a path", async () => {
+  await assert.rejects(dispatch(learning["learning.getPath"], { language: "cobol" }));
+  const res = await dispatch(learning["learning.getPath"], { language: "python" });
+  assert.equal(res.path.language, "python");
+  assert.ok(Array.isArray(res.path.modules));
+  assert.equal(typeof res.path.overallMastery, "number");
+  assert.ok("recommendedConcept" in res.path);
+});

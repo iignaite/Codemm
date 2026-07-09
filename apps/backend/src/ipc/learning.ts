@@ -1,9 +1,15 @@
 import { z } from "zod";
-import type { ConceptMasteryDto, LearnerMasteryResponseDto, LearnerProfileResponseDto } from "@codemm/shared-contracts";
+import type {
+  ConceptMasteryDto,
+  LearnerMasteryResponseDto,
+  LearnerProfileResponseDto,
+  LearningPathResponseDto,
+} from "@codemm/shared-contracts";
 import { ActivityLanguageSchema } from "../contracts/activitySpec";
 import { LearnerPreferredStyleSchema } from "../contracts/learner";
 import { conceptMasteryRepository, learnerProfileRepository } from "../database/repositories/learnerRepository";
 import { masteryLevelFor } from "../learning/mastery";
+import { buildLearningPath } from "../learning/learningPath";
 import { requireParams } from "./common";
 import type { RpcHandlerDef } from "./types";
 
@@ -49,6 +55,21 @@ export function createLearningHandlers(): Record<string, RpcHandlerDef> {
           concepts,
           taken_at: new Date().toISOString(),
         };
+        return response;
+      },
+    },
+
+    "learning.getPath": {
+      schema: z.object({ language: ActivityLanguageSchema }).passthrough(),
+      handler: async (paramsRaw) => {
+        const params = requireParams(paramsRaw);
+        const language = ActivityLanguageSchema.parse(params.language);
+        const path = buildLearningPath({
+          language,
+          concepts: conceptMasteryRepository.listByLanguage(language),
+          builtAt: new Date().toISOString(),
+        });
+        const response: LearningPathResponseDto = { path };
         return response;
       },
     },

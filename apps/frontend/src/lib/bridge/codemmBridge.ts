@@ -12,6 +12,7 @@ import type {
   LearnerMasteryResponseDto,
   LearnerPreferredStyleDto,
   LearnerProfileResponseDto,
+  LearningPathResponseDto,
   LlmControlStatus,
   LlmSettingsResponse,
   LocalLlmStatus,
@@ -105,6 +106,7 @@ export type CodemmBridge = {
       preferredStyle?: LearnerPreferredStyleDto | null;
     }) => Promise<LearnerProfileResponseDto>;
     getMastery?: (args: { language: "java" | "python" | "cpp" | "sql" }) => Promise<LearnerMasteryResponseDto>;
+    getPath?: (args: { language: "java" | "python" | "cpp" | "sql" }) => Promise<LearningPathResponseDto>;
   };
 };
 

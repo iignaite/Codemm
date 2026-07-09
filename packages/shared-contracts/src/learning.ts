@@ -31,3 +31,29 @@ export type LearnerMasteryResponseDto = {
   concepts: ConceptMasteryDto[];
   taken_at: string;
 };
+
+export type ModuleStatusDto = "not_started" | "in_progress" | "mastered";
+
+export type LearningPathModuleDto = {
+  concept: string;
+  mastery: number;
+  level: MasteryLevelDto;
+  status: ModuleStatusDto;
+  attempts: number;
+  passes: number;
+  recommended: boolean;
+};
+
+export type LearningPathDto = {
+  language: ActivityLanguageDto;
+  modules: LearningPathModuleDto[];
+  recommendedConcept: string | null;
+  overallMastery: number;
+  masteredCount: number;
+  totalCount: number;
+  builtAt: string;
+};
+
+export type LearningPathResponseDto = {
+  path: LearningPathDto;
+};

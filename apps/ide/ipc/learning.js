@@ -27,6 +27,14 @@ function registerLearningIpc(deps) {
     );
     return engineCall("learning.getMastery", parsed);
   });
+
+  tryRegisterIpcHandler("codemm:learning:getPath", async (_evt, args) => {
+    const parsed = validate(
+      z.object({ language: z.enum(["java", "python", "cpp", "sql"]) }).strict(),
+      args
+    );
+    return engineCall("learning.getPath", parsed);
+  });
 }
 
 module.exports = { registerLearningIpc };

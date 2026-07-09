@@ -43,8 +43,12 @@ export type {
   LearnerMasteryResponseDto,
   LearnerPreferredStyleDto,
   LearnerProfileResponseDto,
+  LearningPathDto,
+  LearningPathModuleDto,
+  LearningPathResponseDto,
   LocalLearnerProfileDto,
   MasteryLevelDto,
+  ModuleStatusDto,
 } from "./learning";
 export type {
   LlmCapability,
