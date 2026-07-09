@@ -64,7 +64,7 @@ export async function runPythonJudgeFiles(userFiles: PythonFiles, testSuite: str
       "none",
       "--read-only",
       "--tmpfs",
-      "/tmp:rw",
+      "/tmp:rw,size=256m",
       "-e",
       "PYTHONDONTWRITEBYTECODE=1",
       "-e",

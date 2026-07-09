@@ -101,6 +101,29 @@ export async function spawnCapture(opts: {
   });
 }
 
+/**
+ * Resource limits applied to every sandbox container. The wall-clock timeout
+ * alone cannot stop a fork bomb or memory balloon from freezing the host
+ * before it fires; these caps contain them inside the container.
+ */
+export const CONTAINER_LIMIT_ARGS: readonly string[] = [
+  "--pids-limit",
+  "256",
+  "--memory",
+  "1g",
+  "--memory-swap",
+  "1g",
+  "--cpus",
+  "2",
+  "--security-opt",
+  "no-new-privileges",
+];
+
+export function withContainerLimits(args: string[]): string[] {
+  if (args[0] !== "run") return args;
+  return [args[0], ...CONTAINER_LIMIT_ARGS, ...args.slice(1)];
+}
+
 export async function runDocker(opts: {
   args: string[];
   cwd: string;
@@ -109,5 +132,5 @@ export async function runDocker(opts: {
 }): Promise<SpawnCaptureResult> {
   const cmd = resolveDockerBin();
   const extra = typeof opts.env === "object" && opts.env ? { env: opts.env } : {};
-  return spawnCapture({ cmd, args: opts.args, cwd: opts.cwd, timeoutMs: opts.timeoutMs, ...extra });
+  return spawnCapture({ cmd, args: withContainerLimits(opts.args), cwd: opts.cwd, timeoutMs: opts.timeoutMs, ...extra });
 }

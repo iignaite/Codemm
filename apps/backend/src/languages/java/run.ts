@@ -81,7 +81,7 @@ export async function runJavaFiles(opts: {
       "none",
       "--read-only",
       "--tmpfs",
-      "/tmp:rw",
+      "/tmp:rw,size=256m",
       "-v",
       `${tmp}:/workspace`,
       "--workdir",
