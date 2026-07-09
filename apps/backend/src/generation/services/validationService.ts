@@ -1,4 +1,3 @@
-import type { ProblemPlan } from "../../planner/types";
 import type { GeneratedProblemDraft } from "../../contracts/problem";
 import type { AttemptDiagnostic, SlotIntent } from "../../contracts/generationDiagnostics";
 import type { CompletionMeta } from "../../infra/llm/types";
@@ -12,7 +11,6 @@ import {
 } from "../referenceSolutionValidator";
 import { TestStrengthGateError } from "../testStrengthGate";
 import { isValidJUnit5TestSuiteCountRange, pruneJUnitTestMethods } from "../../languages/java/rules";
-import { assertJavaStructuralTopicRequirements } from "../../languages/java/structuralTopics";
 
 export function inferFailureKind(err: unknown): GenerationFailureKind {
   if (err instanceof ReferenceSolutionValidationError) return err.kind;
@@ -32,26 +30,6 @@ export function recommendedRemediation(kind: GenerationFailureKind): string[] {
   if (kind === "quality") return ["Regenerate stronger tests", "Reduce requested hardness"];
   if (kind === "llm") return ["Retry this slot", "Switch to a stronger model"];
   return ["Retry this slot", "Narrow topic scope"];
-}
-
-export function validateInjectedDraftContract(slot: ProblemPlan[number], draft: GeneratedProblemDraft): void {
-  if (draft.language !== slot.language) {
-    throw new GenerationContractError(`Invalid language for slot ${slot.index}: must match slot.language exactly.`, {
-      slotIndex: slot.index,
-    });
-  }
-  if (draft.constraints !== slot.constraints) {
-    throw new GenerationContractError(`Invalid constraints for slot ${slot.index}: must match slot.constraints exactly.`, {
-      slotIndex: slot.index,
-    });
-  }
-  if (slot.language === "java" && "reference_solution" in draft && typeof draft.reference_solution === "string") {
-    assertJavaStructuralTopicRequirements({
-      topics: slot.topics,
-      referenceSource: draft.reference_solution,
-      testSuite: draft.test_suite,
-    });
-  }
 }
 
 export async function validateDraftArtifacts(draft: GeneratedProblemDraft): Promise<void> {

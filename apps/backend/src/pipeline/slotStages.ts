@@ -171,6 +171,12 @@ function deriveJavaStarter(referenceSolution: string): string {
   return buildDefaultClassSkeleton(className);
 }
 
+export const __test__ = {
+  stripCppComments,
+  extractCppSolveSignature,
+  deriveCppStarter,
+};
+
 function buildDraft(args: {
   slot: ProblemSlot;
   skeleton: SlotSkeleton;
