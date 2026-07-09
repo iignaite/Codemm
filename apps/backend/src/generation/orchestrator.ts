@@ -2,9 +2,6 @@ import type { ProblemPlan } from "../planner/types";
 import type { GeneratedProblem } from "../contracts/problem";
 import type { GenerationOutcome } from "../contracts/generationOutcome";
 import type { GenerationProgressEvent } from "../contracts/generationProgress";
-import { createExecutionContext } from "../engine/execution/ExecutionContext";
-import { ExecutionEngine } from "../engine/execution/ExecutionEngine";
-import type { Step } from "../engine/execution/Step";
 import { trace } from "../utils/trace";
 import { GenerationSlotFailureError } from "./errors";
 import { deriveSlotObligations } from "./obligations";
@@ -234,24 +231,15 @@ export async function generateProblemsFromPlan(
     if (typeof title === "string" && title.trim()) usedTitles.push(title);
   }
 
-  const context = createExecutionContext<OrchestratorState, Record<string, never>>({
-    workflowId: `generation-plan:${plan.length}:${initialCount}`,
-    loggerName: "generation.orchestrator",
-    initialState: { problems, outcomes, usedDomains, usedTitles },
-  });
-  const steps: Step<OrchestratorState, Record<string, never>>[] = plan.slice(initialCount).map((slot) => ({
-    id: `slot:${slot.index}`,
-    run: async () => {
-      await runSlotGenerationStep({
-        slot,
-        state: context.state,
-        ...(onProgress ? { onProgress } : {}),
-        ...(onCheckpoint ? { onCheckpoint } : {}),
-        ...(customInstructionsMd ? { customInstructionsMd } : {}),
-      });
-    },
-  }));
-
-  await new ExecutionEngine(steps).run(context);
-  return { problems: context.state.problems, outcomes: context.state.outcomes };
+  const state: OrchestratorState = { problems, outcomes, usedDomains, usedTitles };
+  for (const slot of plan.slice(initialCount)) {
+    await runSlotGenerationStep({
+      slot,
+      state,
+      ...(onProgress ? { onProgress } : {}),
+      ...(onCheckpoint ? { onCheckpoint } : {}),
+      ...(customInstructionsMd ? { customInstructionsMd } : {}),
+    });
+  }
+  return { problems: state.problems, outcomes: state.outcomes };
 }

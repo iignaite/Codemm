@@ -1,8 +1,5 @@
 import crypto from "crypto";
 import { ActivitySpecSchema, type ActivitySpec } from "../../contracts/activitySpec";
-import { createExecutionContext } from "../../engine/execution/ExecutionContext";
-import { ExecutionEngine } from "../../engine/execution/ExecutionEngine";
-import type { Step } from "../../engine/execution/Step";
 import { isLanguageSupportedForGeneration } from "../../languages/profiles";
 import { deriveProblemPlan } from "../../planner";
 import { buildGuidedPedagogyPolicy } from "../../planner/pedagogy";
@@ -88,227 +85,202 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
       return { pedagogyPolicy, plan: deriveProblemPlan(currentSpec, pedagogyPolicy) };
     };
 
-    const workflow = createExecutionContext<Record<string, unknown>, { response?: GenerateFromThreadResponse }>({
-      workflowId: `thread-generation:${sessionId}`,
-      threadId: sessionId,
-      publishProgress: (event) => publishGenerationProgress(sessionId, event as GenerationProgressEvent),
-      loggerName: "threads.generation",
-      initialState: {},
-      initialResults: {},
-    });
-    const steps: Step<Record<string, unknown>, { response?: GenerateFromThreadResponse }>[] = [
-      {
-        id: "prepare-thread-generation",
-        run: async () => {
-          if (state !== "READY") {
-            const err = new Error(`Cannot generate when session state is ${state}. Expected READY.`);
-            (err as any).status = 409;
-            throw err;
-          }
-          if (typeof session.activity_id === "string" && session.activity_id.trim()) {
-            const err = new Error("Session already produced an activity. Cannot re-generate.");
-            (err as any).status = 409;
-            throw err;
-          }
+    try {
+      // 1) Validate thread state and derive the plan.
+      if (state !== "READY") {
+        const err = new Error(`Cannot generate when session state is ${state}. Expected READY.`);
+        (err as any).status = 409;
+        throw err;
+      }
+      if (typeof session.activity_id === "string" && session.activity_id.trim()) {
+        const err = new Error("Session already produced an activity. Cannot re-generate.");
+        (err as any).status = 409;
+        throw err;
+      }
 
-          transitionOrThrow(state, "GENERATING");
-          threadRepository.updateState(sessionId, "GENERATING");
-          progressHeartbeat = setInterval(() => {
-            publishGenerationProgress(sessionId, { type: "heartbeat", ts: new Date().toISOString() });
-          }, 1000);
+      transitionOrThrow(state, "GENERATING");
+      threadRepository.updateState(sessionId, "GENERATING");
+      progressHeartbeat = setInterval(() => {
+        publishGenerationProgress(sessionId, { type: "heartbeat", ts: new Date().toISOString() });
+      }, 1000);
 
-          const specObj = parseSpecJson(session.spec_json);
-          const specResult = ActivitySpecSchema.safeParse(specObj);
-          if (!specResult.success) {
-            throw new Error(`Invalid ActivitySpec: ${specResult.error.issues[0]?.message ?? "validation failed"}`);
-          }
-          spec = specResult.data;
-          if (!isLanguageSupportedForGeneration(spec.language)) {
-            throw new Error(`Language "${spec.language}" is not supported for generation yet.`);
-          }
+      const specObj = parseSpecJson(session.spec_json);
+      const specResult = ActivitySpecSchema.safeParse(specObj);
+      if (!specResult.success) {
+        throw new Error(`Invalid ActivitySpec: ${specResult.error.issues[0]?.message ?? "validation failed"}`);
+      }
+      spec = specResult.data;
+      if (!isLanguageSupportedForGeneration(spec.language)) {
+        throw new Error(`Language "${spec.language}" is not supported for generation yet.`);
+      }
 
-          resumeProblems = parseGeneratedProblems(session.problems_json);
-          resumeOutcomes = parseGenerationOutcomes(session.generation_outcomes_json);
-          if (resumeOutcomes.length !== resumeProblems.length) {
-            resumeOutcomes = resumeOutcomes.slice(0, resumeProblems.length);
-          }
+      resumeProblems = parseGeneratedProblems(session.problems_json);
+      resumeOutcomes = parseGenerationOutcomes(session.generation_outcomes_json);
+      if (resumeOutcomes.length !== resumeProblems.length) {
+        resumeOutcomes = resumeOutcomes.slice(0, resumeProblems.length);
+      }
 
-          ({ plan } = derivePlanForSpec(spec));
-          threadRepository.setPlanJson(sessionId, JSON.stringify(plan));
-          publishGenerationProgress(sessionId, {
-            type: "generation_started",
-            totalSlots: plan.length,
-            totalProblems: plan.length,
-            run: 1,
+      ({ plan } = derivePlanForSpec(spec));
+      threadRepository.setPlanJson(sessionId, JSON.stringify(plan));
+      publishGenerationProgress(sessionId, {
+        type: "generation_started",
+        totalSlots: plan.length,
+        totalProblems: plan.length,
+        run: 1,
+      });
+
+      if (resumeProblems.length > 0) {
+        for (let i = 0; i < Math.min(resumeProblems.length, plan.length); i++) {
+          publishGenerationProgress(sessionId, { type: "slot_completed", slotIndex: i });
+        }
+      }
+
+      // 2) Generate problems, applying the soft-fallback ladder on failure.
+      while (!problems) {
+        try {
+          const generated = await generateProblemsFromPlan(plan, {
+            customInstructionsMd: instructionsMd,
+            resume: { problems: resumeProblems, outcomes: resumeOutcomes },
+            onProgress: (event: GenerationProgressEvent) => publishGenerationProgress(sessionId, event),
+            onCheckpoint: ({ problems: checkpointProblems, outcomes: checkpointOutcomes }) => {
+              threadRepository.setProblemsJson(sessionId, JSON.stringify(checkpointProblems));
+              threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(checkpointOutcomes));
+            },
           });
-
-          if (resumeProblems.length > 0) {
-            for (let i = 0; i < Math.min(resumeProblems.length, plan.length); i++) {
-              publishGenerationProgress(sessionId, { type: "slot_completed", slotIndex: i });
+          problems = generated.problems;
+          outcomes = generated.outcomes;
+        } catch (err: any) {
+          if (err instanceof GenerationSlotFailureError) {
+            if (Array.isArray(err.problemsSoFar)) {
+              resumeProblems = err.problemsSoFar;
+              threadRepository.setProblemsJson(sessionId, JSON.stringify(resumeProblems));
             }
-          }
-        },
-      },
-      {
-        id: "run-generation-pipeline",
-        run: async () => {
-          while (!problems) {
-            try {
-              const generated = await generateProblemsFromPlan(plan, {
-                customInstructionsMd: instructionsMd,
-                resume: { problems: resumeProblems, outcomes: resumeOutcomes },
-                onProgress: (event: GenerationProgressEvent) => publishGenerationProgress(sessionId, event),
-                onCheckpoint: ({ problems: checkpointProblems, outcomes: checkpointOutcomes }) => {
-                  threadRepository.setProblemsJson(sessionId, JSON.stringify(checkpointProblems));
-                  threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(checkpointOutcomes));
-                },
+            if (Array.isArray(err.outcomesSoFar)) {
+              resumeOutcomes = err.outcomesSoFar;
+              threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(resumeOutcomes));
+            }
+
+            persistTraceEvent({
+              ts: new Date().toISOString(),
+              type: "generation_failure",
+              slotIndex: err.slotIndex,
+              kind: err.kind,
+              attempts: err.attempts,
+              title: err.title ?? null,
+              llmOutputHash: err.llmOutputHash ?? null,
+              message: err.message,
+              outcomes: err.outcomesSoFar ?? null,
+            });
+
+            trace("generation.failure.persisted", {
+              sessionId,
+              slotIndex: err.slotIndex,
+              kind: err.kind,
+              llmOutputHash: err.llmOutputHash,
+            });
+
+            // Degradation ladder: each rung strictly reduces the spec's
+            // ambition (hard→medium, then narrowed topics), so this loop
+            // terminates when the policy runs out of rungs and rethrows.
+            if (spec) {
+              const explicitDifficultyLocked = commitments?.difficulty_plan?.locked === true;
+              const explicitTopicsLocked = commitments?.topic_tags?.locked === true;
+              const decision = proposeGenerationFallbackWithPolicy(spec, {
+                allowDowngradeDifficulty: !explicitDifficultyLocked,
+                allowNarrowTopics: !explicitTopicsLocked,
               });
-              problems = generated.problems;
-              outcomes = generated.outcomes;
-            } catch (err: any) {
-              if (err instanceof GenerationSlotFailureError) {
-                if (Array.isArray(err.problemsSoFar)) {
-                  resumeProblems = err.problemsSoFar;
-                  threadRepository.setProblemsJson(sessionId, JSON.stringify(resumeProblems));
-                }
-                if (Array.isArray(err.outcomesSoFar)) {
-                  resumeOutcomes = err.outcomesSoFar;
-                  threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(resumeOutcomes));
-                }
+              if (decision) {
+                appliedFallbackReasons.push(decision.reason);
+
+                publishGenerationProgress(sessionId, {
+                  type: "generation_soft_fallback_applied",
+                  reason: decision.reason,
+                  patchPaths: decision.patch.map((p) => p.path),
+                });
 
                 persistTraceEvent({
                   ts: new Date().toISOString(),
-                  type: "generation_failure",
-                  slotIndex: err.slotIndex,
-                  kind: err.kind,
-                  attempts: err.attempts,
-                  title: err.title ?? null,
-                  llmOutputHash: err.llmOutputHash ?? null,
-                  message: err.message,
-                  outcomes: err.outcomesSoFar ?? null,
+                  type: "generation_soft_fallback",
+                  reason: decision.reason,
+                  patch: decision.patch,
                 });
 
-                trace("generation.failure.persisted", {
-                  sessionId,
-                  slotIndex: err.slotIndex,
-                  kind: err.kind,
-                  llmOutputHash: err.llmOutputHash,
-                });
+                persistConfidencePatch(decision.patch);
 
-                // Degradation ladder: each rung strictly reduces the spec's
-                // ambition (hard→medium, then narrowed topics), so this loop
-                // terminates when the policy runs out of rungs and rethrows.
-                if (spec) {
-                  const explicitDifficultyLocked = commitments?.difficulty_plan?.locked === true;
-                  const explicitTopicsLocked = commitments?.topic_tags?.locked === true;
-                  const decision = proposeGenerationFallbackWithPolicy(spec, {
-                    allowDowngradeDifficulty: !explicitDifficultyLocked,
-                    allowNarrowTopics: !explicitTopicsLocked,
+                const adjusted = applyJsonPatch(spec as any, decision.patch) as ActivitySpec;
+                const adjustedRes = ActivitySpecSchema.safeParse(adjusted);
+                if (!adjustedRes.success) {
+                  persistTraceEvent({
+                    ts: new Date().toISOString(),
+                    type: "generation_soft_fallback_failed",
+                    reason: "fallback patch produced invalid ActivitySpec",
+                    error: adjustedRes.error.issues[0]?.message ?? "invalid",
                   });
-                  if (decision) {
-                    appliedFallbackReasons.push(decision.reason);
-
-                    publishGenerationProgress(sessionId, {
-                      type: "generation_soft_fallback_applied",
-                      reason: decision.reason,
-                      patchPaths: decision.patch.map((p) => p.path),
-                    });
-
-                    persistTraceEvent({
-                      ts: new Date().toISOString(),
-                      type: "generation_soft_fallback",
-                      reason: decision.reason,
-                      patch: decision.patch,
-                    });
-
-                    persistConfidencePatch(decision.patch);
-
-                    const adjusted = applyJsonPatch(spec as any, decision.patch) as ActivitySpec;
-                    const adjustedRes = ActivitySpecSchema.safeParse(adjusted);
-                    if (!adjustedRes.success) {
-                      persistTraceEvent({
-                        ts: new Date().toISOString(),
-                        type: "generation_soft_fallback_failed",
-                        reason: "fallback patch produced invalid ActivitySpec",
-                        error: adjustedRes.error.issues[0]?.message ?? "invalid",
-                      });
-                      throw err;
-                    }
-
-                    spec = adjustedRes.data;
-                    threadRepository.updateSpecJson(sessionId, JSON.stringify(spec));
-                    ({ plan } = derivePlanForSpec(spec));
-                    threadRepository.setPlanJson(sessionId, JSON.stringify(plan));
-                    continue;
-                  }
+                  throw err;
                 }
-              }
 
-              throw err;
+                spec = adjustedRes.data;
+                threadRepository.updateSpecJson(sessionId, JSON.stringify(spec));
+                ({ plan } = derivePlanForSpec(spec));
+                threadRepository.setPlanJson(sessionId, JSON.stringify(plan));
+                continue;
+              }
             }
           }
 
-          if (!problems) {
-            throw new Error("Generation failed: problems were not produced.");
-          }
-        },
-      },
-      {
-        id: "persist-generated-activity",
-        run: async (ctx) => {
-          if (!problems || !spec) {
-            throw new Error("Generation did not produce finalized problems.");
-          }
+          throw err;
+        }
+      }
 
-          if (outcomes) {
-            const appliedFallbackReason = appliedFallbackReasons.length > 0 ? appliedFallbackReasons.join("; ") : null;
-            const finalOutcomes = appliedFallbackReason
-              ? outcomes.map((outcome) => ({
-                  ...outcome,
-                  appliedFallback: outcome.appliedFallback ?? appliedFallbackReason,
-                }))
-              : outcomes;
-            threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(finalOutcomes));
-            persistTraceEvent({
-              ts: new Date().toISOString(),
-              type: "generation_outcomes",
-              outcomes: finalOutcomes,
-            });
-          }
+      if (!problems) {
+        throw new Error("Generation failed: problems were not produced.");
+      }
 
-          threadRepository.setProblemsJson(sessionId, JSON.stringify(problems));
+      // 3) Persist the activity and mark the thread SAVED.
+      if (!problems || !spec) {
+        throw new Error("Generation did not produce finalized problems.");
+      }
 
-          const activityId = crypto.randomUUID();
-          const activityTitle = `Activity (${spec.problem_count} problems)`;
-          activityRepository.create(activityId, activityTitle, JSON.stringify(problems), undefined, {
-            status: "DRAFT",
-            timeLimitSeconds: null,
-          });
+      if (outcomes) {
+        const appliedFallbackReason = appliedFallbackReasons.length > 0 ? appliedFallbackReasons.join("; ") : null;
+        const finalOutcomes = appliedFallbackReason
+          ? outcomes.map((outcome) => ({
+              ...outcome,
+              appliedFallback: outcome.appliedFallback ?? appliedFallbackReason,
+            }))
+          : outcomes;
+        threadRepository.updateGenerationOutcomesJson(sessionId, JSON.stringify(finalOutcomes));
+        persistTraceEvent({
+          ts: new Date().toISOString(),
+          type: "generation_outcomes",
+          outcomes: finalOutcomes,
+        });
+      }
 
-          threadRepository.setActivityId(sessionId, activityId);
-          transitionOrThrow("GENERATING", "SAVED");
-          threadRepository.updateState(sessionId, "SAVED");
-          publishGenerationProgress(sessionId, { type: "generation_completed", activityId });
-          publishGenerationProgress(sessionId, { type: "generation_complete", activityId });
+      threadRepository.setProblemsJson(sessionId, JSON.stringify(problems));
 
-          if (appliedFallbackReasons.length > 0) {
-            persistTraceEvent({
-              ts: new Date().toISOString(),
-              type: "generation_soft_fallback_succeeded",
-              reasons: appliedFallbackReasons,
-            });
-          }
+      const activityId = crypto.randomUUID();
+      const activityTitle = `Activity (${spec.problem_count} problems)`;
+      activityRepository.create(activityId, activityTitle, JSON.stringify(problems), undefined, {
+        status: "DRAFT",
+        timeLimitSeconds: null,
+      });
 
-          ctx.setResult("response", { activityId, problems });
-        },
-      },
-    ];
+      threadRepository.setActivityId(sessionId, activityId);
+      transitionOrThrow("GENERATING", "SAVED");
+      threadRepository.updateState(sessionId, "SAVED");
+      publishGenerationProgress(sessionId, { type: "generation_completed", activityId });
+      publishGenerationProgress(sessionId, { type: "generation_complete", activityId });
 
-    try {
-      await new ExecutionEngine(steps).run(workflow);
-      const response = workflow.getResult("response");
-      if (!response) throw new Error("Generation completed without a response payload.");
-      return response;
+      if (appliedFallbackReasons.length > 0) {
+        persistTraceEvent({
+          ts: new Date().toISOString(),
+          type: "generation_soft_fallback_succeeded",
+          reasons: appliedFallbackReasons,
+        });
+      }
+
+      return { activityId, problems };
     } catch (err: any) {
       try {
         transitionOrThrow("GENERATING", "READY");
