@@ -406,6 +406,44 @@ async function probeReadiness({ baseURL, model }) {
   });
 }
 
+/**
+ * Empirical structured-output check: can this model emit a small exact JSON
+ * object? Generation stages depend on strict JSON, so a model that fails this
+ * gets routed as "weak" regardless of its parameter count. Never throws —
+ * failure downgrades capability rather than blocking readiness.
+ */
+async function probeStructuredOutput({ baseURL, model }) {
+  const normalizedBaseUrl = String(baseURL || OLLAMA_DEFAULT_URL).replace(/\/+$/, "");
+  try {
+    const response = await fetch(`${normalizedBaseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        format: "json",
+        keep_alive: "10m",
+        options: { temperature: 0, num_predict: 64, num_ctx: 1024 },
+        messages: [
+          { role: "system", content: 'Reply with exactly this JSON object and nothing else: {"answer":42,"ok":true}' },
+          { role: "user", content: "Emit the JSON now." },
+        ],
+      }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const text = await response.text();
+    if (!response.ok) return false;
+    const parsed = JSON.parse(text);
+    const content =
+      (parsed && parsed.message && typeof parsed.message.content === "string" ? parsed.message.content : "") ||
+      (parsed && typeof parsed.response === "string" ? parsed.response : "");
+    const json = JSON.parse(String(content));
+    return Boolean(json) && json.ok === true && json.answer === 42;
+  } catch {
+    return false;
+  }
+}
+
 module.exports = {
   OLLAMA_DEFAULT_URL,
   detectInstallation,
@@ -414,4 +452,5 @@ module.exports = {
   listModels,
   pullModel,
   probeReadiness,
+  probeStructuredOutput,
 };

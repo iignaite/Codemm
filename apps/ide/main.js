@@ -931,13 +931,21 @@ async function createWindowAndBoot() {
       const storedModel = typeof llm?.model === "string" && llm.model.trim() ? llm.model.trim() : null;
       const roleModels = sanitizeRoleModels(llm?.roleModels);
       const profileModel = normalizedProfile === "auto" ? storedModel : LOCAL_PROFILE_MODELS[normalizedProfile] || storedModel;
-      const defaultModel = profileModel || storedModel || requireLocalLlmOrchestrator().getStatus()?.runtime?.activeModel || "qwen2.5-coder:1.5b";
+      const localStatus = requireLocalLlmOrchestrator().getStatus();
+      const defaultModel = profileModel || storedModel || localStatus?.runtime?.activeModel || "qwen2.5-coder:1.5b";
+      // A probed model that cannot emit strict JSON is routed as weak no matter its size:
+      // every generation stage depends on structured output.
+      const structuredOutputOk = localStatus?.runtime?.capabilities?.structuredOutputOk;
+      const capForModel = (model) =>
+        structuredOutputOk === false && model === localStatus?.runtime?.activeModel
+          ? "weak"
+          : inferCapability("ollama", model);
       const modelsByRole = {};
       for (const role of ROUTE_ROLES) {
         const model = normalizedProfile === "custom" ? roleModels[role] || defaultModel : defaultModel;
         modelsByRole[role] = {
           model,
-          capability: inferCapability("ollama", model),
+          capability: capForModel(model),
         };
       }
       return {

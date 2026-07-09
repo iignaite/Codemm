@@ -180,6 +180,7 @@ class LocalLlmOrchestrator extends EventEmitter {
 
       const installedModels = await runtimeDriver.listModels({ baseURL: this.baseURL });
       let resolvedModel = null;
+      let resolvedCapabilities = null;
       let lastError = null;
 
       for (const candidate of candidates) {
@@ -197,6 +198,12 @@ class LocalLlmOrchestrator extends EventEmitter {
 
           this.#transition("PROBING", { kind: "probe", message: `Warming model ${model}…`, model });
           await runtimeDriver.probeReadiness({ baseURL: this.baseURL, model });
+          this.#setOperation("probe", `Checking structured output for ${model}…`, { model });
+          const structuredOutputOk =
+            typeof runtimeDriver.probeStructuredOutput === "function"
+              ? await runtimeDriver.probeStructuredOutput({ baseURL: this.baseURL, model })
+              : null;
+          resolvedCapabilities = { structuredOutputOk, probedAt: new Date().toISOString() };
           resolvedModel = model;
           break;
         } catch (err) {
@@ -218,6 +225,7 @@ class LocalLlmOrchestrator extends EventEmitter {
         baseURL: this.baseURL,
         revision,
         lastReadyAt: new Date().toISOString(),
+        capabilities: resolvedCapabilities,
         lastError: null,
       });
 

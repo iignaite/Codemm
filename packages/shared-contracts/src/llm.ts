@@ -60,6 +60,7 @@ export type LocalLlmStatus = {
     revision: string | null;
     lastReadyAt: string | null;
     leaseCount: number;
+    capabilities?: { structuredOutputOk?: boolean | null; probedAt?: string | null } | null;
     lastError: { code: string; message: string; detail?: unknown } | null;
   };
   updatedAt: string;

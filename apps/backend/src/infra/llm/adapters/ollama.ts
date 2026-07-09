@@ -21,6 +21,19 @@ function getOllamaBaseUrl(explicit?: string): string {
   return raw.replace(/\/+$/, "");
 }
 
+/**
+ * Context-window cap for local inference. Without it Ollama loads the model's
+ * full context (often 32k), which can OOM low-RAM machines on large
+ * generation prompts. Override with CODEMM_OLLAMA_NUM_CTX.
+ */
+const OLLAMA_DEFAULT_NUM_CTX = 8192;
+
+function getOllamaNumCtx(): number {
+  const raw = Number(process.env.CODEMM_OLLAMA_NUM_CTX);
+  if (Number.isFinite(raw) && raw >= 1024) return Math.floor(raw);
+  return OLLAMA_DEFAULT_NUM_CTX;
+}
+
 function getOllamaTimeoutMs(maxTokens?: number): number {
   const envRaw = process.env.CODEMM_OLLAMA_TIMEOUT_MS;
   const envMs =
@@ -86,7 +99,11 @@ export async function createOllamaCompletion(
       { role: "system", content: opts.system },
       { role: "user", content: opts.user },
     ],
-    ...(typeof temperature === "number" ? { options: { temperature, ...(typeof maxTokens === "number" ? { num_predict: maxTokens } : {}) } } : typeof maxTokens === "number" ? { options: { num_predict: maxTokens } } : {}),
+    options: {
+      num_ctx: getOllamaNumCtx(),
+      ...(typeof temperature === "number" ? { temperature } : {}),
+      ...(typeof maxTokens === "number" ? { num_predict: maxTokens } : {}),
+    },
   };
 
   const json = await fetchJson(`${baseUrl}/api/chat`, {

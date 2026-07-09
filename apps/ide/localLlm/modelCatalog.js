@@ -40,6 +40,12 @@ function scoreProfile(profile, caps, useCase) {
   if (caps.gpu && caps.gpu.available) score += 10;
   if (Array.isArray(profile.preferredUseCases) && profile.preferredUseCases.includes(useCase || "general")) score += 20;
   if (caps.totalRamGb < profile.minRamGb) score -= (profile.minRamGb - caps.totalRamGb) * 20;
+  // freeRamGb is an availability estimate (see hostCapabilityProbe). Under
+  // genuine memory starvation it demotes demanding models below smaller ones,
+  // but never hard-blocks: total RAM remains the only compatibility gate.
+  if (typeof caps.freeRamGb === "number" && caps.freeRamGb < profile.minRamGb / 2) {
+    score -= (profile.minRamGb / 2 - caps.freeRamGb) * 40;
+  }
   return score;
 }
 
@@ -58,7 +64,8 @@ function resolveCandidateProfiles(caps, opts = {}) {
   });
 
   if (compatible.length > 0) return compatible;
-  return ranked.reverse();
+  // No profile fits this machine: try the least demanding model rather than failing.
+  return [...MODEL_PROFILES].sort((a, b) => a.minRamGb - b.minRamGb);
 }
 
 module.exports = {

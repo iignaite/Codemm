@@ -27,9 +27,20 @@ function getDiskFreeGb(dirPath) {
   }
 }
 
+function getAvailableRamGb() {
+  // os.freemem() severely undercounts on macOS (reclaimable cache counts as
+  // used). process.availableMemory() is a real availability estimate; fall
+  // back to freemem where it does not exist.
+  if (typeof process.availableMemory === "function") {
+    const value = Number(process.availableMemory());
+    if (Number.isFinite(value) && value > 0) return bytesToGb(value);
+  }
+  return bytesToGb(os.freemem());
+}
+
 function probeHostCapabilities({ probePath }) {
   const totalRamGb = bytesToGb(os.totalmem());
-  const freeRamGb = bytesToGb(os.freemem());
+  const freeRamGb = getAvailableRamGb();
   const cpuCount = Array.isArray(os.cpus()) ? os.cpus().length : 0;
   const gpu = detectGpu();
   const diskFreeGb = getDiskFreeGb(probePath || os.homedir());
