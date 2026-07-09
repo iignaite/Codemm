@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { OnboardingTour, type TourStep } from "@/components/OnboardingTour";
+import { getCodemmBridge } from "@/lib/bridge/codemmBridge";
 
 type Problem = {
   id: string;
@@ -24,9 +25,12 @@ type Activity = {
 };
 
 function requireActivitiesApi() {
-  const api = (window as any)?.codemm?.activities;
-  if (!api) throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
-  return api;
+  const api = getCodemmBridge().activities;
+  const { get, patch, publish, aiEdit } = api ?? {};
+  if (!get || !patch || !publish || !aiEdit) {
+    throw new Error("IDE bridge unavailable. Launch this UI inside Codemm-Desktop.");
+  }
+  return { get, patch, publish, aiEdit };
 }
 
 function clampInt(n: number, min: number, max: number): number {
@@ -100,12 +104,6 @@ export default function ActivityReviewPage() {
     return () => window.clearTimeout(t);
   }, [isDraft]);
 
-  const shareUrl = useMemo(() => {
-    if (typeof window === "undefined") return null;
-    if (!activityId) return null;
-    return `${window.location.origin}/activity/${activityId}`;
-  }, [activityId]);
-
   useEffect(() => {
     async function load() {
       setLoading(true);
@@ -167,16 +165,6 @@ export default function ActivityReviewPage() {
       setError(getErrorMessage(e, "Failed to publish."));
     } finally {
       setPublishing(false);
-    }
-  }
-
-  async function copyShareLink() {
-    if (!shareUrl) return;
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setToast("Link copied.");
-    } catch {
-      setToast("Could not copy link.");
     }
   }
 
@@ -336,25 +324,6 @@ export default function ActivityReviewPage() {
               </button>
               {toast && <span className="text-sm text-slate-600">{toast}</span>}
             </div>
-
-          {!isDraft && shareUrl && (
-              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Local link (works on this machine only)
-                </div>
-                <div className="mt-1 flex items-center gap-2">
-                  <code className="flex-1 overflow-x-auto rounded-lg bg-white px-2 py-1 text-xs text-slate-800">
-                    {shareUrl}
-                  </code>
-                  <button
-                    onClick={() => void copyShareLink()}
-                    className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-            )}
 
           </section>
 
