@@ -186,7 +186,7 @@ test("llm provider: Gemini falls back to flash when preferred model 404s", async
       );
     }
 
-    assert.ok(url.includes("/models/gemini-1.5-flash:generateContent"));
+    assert.ok(url.includes("/models/gemini-2.0-flash-lite:generateContent"));
     return new Response(
       JSON.stringify({
         candidates: [{ content: { parts: [{ text: "ok-from-fallback" }] } }],
@@ -228,7 +228,7 @@ test("llm provider: Gemini uses ListModels to find a supported model when flash 
       return new Response(JSON.stringify({ error: { code: 404, status: "NOT_FOUND" } }), { status: 404 });
     }
     if (call === 2) {
-      assert.ok(url.includes("/models/gemini-1.5-flash:generateContent"));
+      assert.ok(url.includes("/models/gemini-2.0-flash-lite:generateContent"));
       return new Response(JSON.stringify({ error: { code: 404, status: "NOT_FOUND" } }), { status: 404 });
     }
     if (call === 3) {

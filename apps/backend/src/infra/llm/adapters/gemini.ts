@@ -1,8 +1,9 @@
 import type { CompletionOpts, CompletionResult } from "../types";
 
-// Default to a broadly available model (free keys often lack access to Pro).
-// Default to a broadly available model (Pro is preferred for reasoning, Flash for backup).
-const DEFAULT_GEMINI_MODEL = "gemini-1.5-pro";
+// Default to a current, free-tier-friendly Flash model. Free Google AI Studio
+// keys reliably have Flash access and it handles Codemm's strict-JSON stages
+// well; ListModels recovery below covers key-specific availability.
+const DEFAULT_GEMINI_MODEL = "gemini-2.0-flash";
 
 function getGeminiApiKey(): string | null {
   const k = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
@@ -46,12 +47,14 @@ function pickSupportedModelFromList(models: GeminiModelInfo[], preferred: string
     if (supported.includes(want)) return want;
   }
 
-  // Heuristic: Prefer "pro" models for quality, then "flash" for speed/availability.
-  const pro = supported.filter((m) => /\bpro\b/i.test(m));
-  if (pro.length) return pro.sort((a, b) => a.localeCompare(b))[0]!;
-
+  // Heuristic: prefer "flash" for free-tier availability, then "pro".
+  // Sort descending so newer generations (2.5 > 2.0 > 1.5) win.
+  const byNewest = (a: string, b: string) => b.localeCompare(a);
   const flash = supported.filter((m) => /\bflash\b/i.test(m));
-  if (flash.length) return flash.sort((a, b) => a.localeCompare(b))[0]!;
+  if (flash.length) return flash.sort(byNewest)[0]!;
+
+  const pro = supported.filter((m) => /\bpro\b/i.test(m));
+  if (pro.length) return pro.sort(byNewest)[0]!;
 
   return supported.sort((a, b) => a.localeCompare(b))[0]!;
 }
@@ -106,9 +109,9 @@ export async function createGeminiCompletion(
   }
 
   // Fallback Logic:
-  // 1. Try preferred model (default: gemini-1.5-pro)
-  // 2. If 404/NotFound (e.g. free tier limit or invalid name) -> Try "gemini-1.5-flash" explicitly
-  // 3. If still fails -> ListModels and pick best available
+  // 1. Try preferred model (default: gemini-2.0-flash)
+  // 2. If 404/NotFound (e.g. free tier limit or invalid name) -> Try "gemini-2.0-flash-lite" explicitly
+  // 3. If still fails -> ListModels and pick best available for this key
 
   let finalRaw: string;
   let finalStatus: number;
@@ -123,7 +126,7 @@ export async function createGeminiCompletion(
   // Explicit Fallback: particular for free tier users where 'pro' might be unavailable or 404s
   if (looksLikeModelNotFound(finalStatus, finalRaw)) {
     // console.warn(`Gemini model ${firstModel} failed (${finalStatus}), trying fallback logic...`);
-    const fallbackFlash = normalizeGeminiModelName("gemini-1.5-flash");
+    const fallbackFlash = normalizeGeminiModelName("gemini-2.0-flash-lite");
     if (!tried.has(fallbackFlash)) {
       tried.add(fallbackFlash);
       const retry = await requestOnce(fallbackFlash);
@@ -135,10 +138,11 @@ export async function createGeminiCompletion(
   if (looksLikeModelNotFound(finalStatus, finalRaw)) {
     const models = await listModels();
     const picked = pickSupportedModelFromList(models, [
-      "gemini-1.5-pro",
-      "gemini-1.5-flash",
+      "gemini-2.5-flash",
       "gemini-2.0-flash",
       "gemini-2.0-flash-lite",
+      "gemini-1.5-flash",
+      "gemini-1.5-pro",
     ]);
     if (picked && !tried.has(picked)) {
       tried.add(picked);

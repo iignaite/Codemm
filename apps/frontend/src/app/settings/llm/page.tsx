@@ -437,9 +437,35 @@ export default function LlmSettingsPage() {
                 >
                   <option value="openai">OpenAI</option>
                   <option value="anthropic">Anthropic</option>
-                  <option value="gemini">Gemini</option>
+                  <option value="gemini">Gemini (free key available)</option>
                 </select>
               </div>
+
+              {provider === "gemini" && (
+                <div
+                  className={`rounded-xl border p-3 text-sm ${
+                    darkMode ? "border-sky-900 bg-sky-950/40 text-slate-200" : "border-sky-200 bg-sky-50 text-slate-700"
+                  }`}
+                >
+                  <div className="font-medium">No paid plan needed</div>
+                  <p className="mt-1">
+                    Google AI Studio gives a free Gemini API key (no credit card). It is fast and reliable for generating
+                    activities.{" "}
+                    <a
+                      href="https://aistudio.google.com/apikey"
+                      target="_blank"
+                      rel="noreferrer"
+                      className={darkMode ? "font-semibold text-sky-300 underline" : "font-semibold text-sky-700 underline"}
+                    >
+                      Get a free key →
+                    </a>
+                  </p>
+                  <p className={`mt-2 text-xs ${darkMode ? "text-slate-400" : "text-slate-500"}`}>
+                    Note: with any cloud provider, your prompts and generated code leave this machine. For fully local and
+                    private use, choose <span className="font-medium">Use Local Model</span> above instead.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className={`block text-sm font-medium ${darkMode ? "text-slate-200" : "text-slate-700"}`}>API Key</label>
