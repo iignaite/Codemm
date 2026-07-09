@@ -1385,19 +1385,6 @@ async function createWindowAndBoot() {
                     if (typeof patch.step === "string") state.step = patch.step;
                     if (typeof patch.pct !== "undefined") state.pct = clamp(patch.pct);
                     if (typeof patch.indeterminate === "boolean") state.indeterminate = patch.indeterminate;
-
-                    // Back-compat with earlier patch shapes.
-                    if (typeof patch.sub === "string") state.status = patch.sub;
-                    if (typeof patch.overall !== "undefined") state.pct = clamp(patch.overall);
-                    if (patch.deps && typeof patch.deps === "object" && typeof patch.deps.indeterminate === "boolean") {
-                      state.indeterminate = patch.deps.indeterminate;
-                    }
-                    if (patch.judge && typeof patch.judge === "object" && typeof patch.judge.indeterminate === "boolean") {
-                      state.indeterminate = patch.judge.indeterminate;
-                    }
-                    if (patch.app && typeof patch.app === "object" && typeof patch.app.indeterminate === "boolean") {
-                      state.indeterminate = patch.app.indeterminate;
-                    }
                   }
                 } catch (e) {}
                 render();
