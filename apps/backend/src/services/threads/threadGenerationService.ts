@@ -80,7 +80,7 @@ export async function generateFromThread(sessionId: string): Promise<GenerateFro
 
     const derivePlanForSpec = (currentSpec: ActivitySpec) => {
       const pedagogyPolicy =
-        learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec: currentSpec, learnerProfile: null }) : undefined;
+        learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec: currentSpec, masterySnapshot: null }) : undefined;
       return { pedagogyPolicy, plan: deriveProblemPlan(currentSpec, pedagogyPolicy) };
     };
 
@@ -368,7 +368,7 @@ export async function regenerateSlotFromThread(
 
     const learning_mode = parseLearningMode(session.learning_mode);
     const pedagogyPolicy =
-      learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec, learnerProfile: null }) : undefined;
+      learning_mode === "guided" ? buildGuidedPedagogyPolicy({ spec, masterySnapshot: null }) : undefined;
     const plan = deriveProblemPlan(spec, pedagogyPolicy);
     if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= plan.length) {
       throw new Error(`slotIndex must be between 0 and ${Math.max(0, plan.length - 1)}.`);

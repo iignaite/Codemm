@@ -2,7 +2,7 @@ export * from "./activitySpec";
 export * from "./activity";
 export * from "./generation";
 export * from "./judge";
-export * from "./learnerProfile";
+export * from "./learner";
 export * from "./learningMode";
 export * from "./llm";
 export * from "./session";

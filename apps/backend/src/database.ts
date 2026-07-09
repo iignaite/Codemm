@@ -32,11 +32,4 @@ export {
   runRepository as runDb,
 } from "./database/repositories/runRepository";
 
-export interface DBLearnerProfile {
-  // removed (SaaS/user-account concept)
-}
-
-export const userDb = undefined as never;
-export const learnerProfileDb = undefined as never;
-
 export default db;

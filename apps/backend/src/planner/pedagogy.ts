@@ -1,6 +1,6 @@
 import type { LearningMode } from "../contracts/learningMode";
 import type { ActivitySpec } from "../contracts/activitySpec";
-import type { LearnerProfile } from "../contracts/learnerProfile";
+import type { MasterySnapshot } from "../contracts/learner";
 
 /**
  * Planner-level pedagogy policy.
@@ -45,9 +45,9 @@ function computeAverageMastery(tags: string[], mastery: Record<string, number> |
 
 export function buildGuidedPedagogyPolicy(args: {
   spec: ActivitySpec;
-  learnerProfile?: LearnerProfile | null;
+  masterySnapshot?: MasterySnapshot | null;
 }): PedagogyPolicy {
-  const mastery = args.learnerProfile?.concept_mastery ?? {};
+  const mastery = args.masterySnapshot?.concept_mastery ?? {};
   const focus_concepts = [...args.spec.topic_tags]
     .map((t) => ({ t, v: typeof mastery[t] === "number" ? clamp01(mastery[t] as number) : 0.5 }))
     .sort((a, b) => (a.v === b.v ? a.t.localeCompare(b.t) : a.v - b.v))

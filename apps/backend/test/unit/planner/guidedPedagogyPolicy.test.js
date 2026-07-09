@@ -22,25 +22,19 @@ test("guided pedagogy policy: scaffold depends on mastery", () => {
 
   const low = buildGuidedPedagogyPolicy({
     spec,
-    learnerProfile: {
-      user_id: 1,
+    masterySnapshot: {
       language: "java",
       concept_mastery: { "graph theory": 0.1 },
-      recent_failures: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      taken_at: new Date().toISOString(),
     },
   });
 
   const high = buildGuidedPedagogyPolicy({
     spec,
-    learnerProfile: {
-      user_id: 1,
+    masterySnapshot: {
       language: "java",
       concept_mastery: { "graph theory": 0.95 },
-      recent_failures: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      taken_at: new Date().toISOString(),
     },
   });
 
