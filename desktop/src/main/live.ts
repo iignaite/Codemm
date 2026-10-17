@@ -166,6 +166,9 @@ export function createLive(d: LiveDeps): Live {
       // Nor does any job while an agent Codemm couldn't stop may still run (§3.1).
       if (unstoppable) return { ok: false, problem: 'unstoppable', text: [] };
       const { id, exe } = await d.connect.chosen();
+      // Again after the lookup: another job may have found its agent unstoppable meanwhile.
+      if (unstoppable) return { ok: false, problem: 'unstoppable', text: [] };
+      if (stop.signal.aborted) return { ok: false, problem: 'failed', text: [] };
       const began = Date.now();
       log('job-start', { kind, lane, agent: id });
       const outcome = await runJob({

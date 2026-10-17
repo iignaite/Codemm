@@ -419,4 +419,36 @@ describe('live CodemmApi', () => {
     };
     expect(await t.api.course()).toBeNull();
   });
+
+  it('a job that was waiting for the agent lookup does not launch once another job turned out unstoppable', async () => {
+    let release: () => void = () => {};
+    const lookup = new Promise<void>((r) => (release = r));
+    let unstoppable = false;
+    const t = live({
+      author: () => {
+        if (unstoppable) return { ok: false, problem: 'unstoppable' };
+        t.c.exercises.set('values-easy-1', { concept: 'values', file: 'int main() { /* yours */ }', digest: '0'.repeat(64), created: new Date().toISOString(), difficulty: 1 });
+        return {};
+      },
+    });
+    await practising(t);
+    unstoppable = true;
+    const chosen = t.connect.chosen.bind(t.connect);
+    // The tutor turn waits in the agent lookup while a background author job finds its agent unstoppable.
+    let calls = 0;
+    t.connect.chosen = async () => {
+      // ask() looks up the agent, then the job does again: hold the job's lookup.
+      if (++calls === 2) await lookup;
+      return chosen();
+    };
+    const lesson = (await t.api.course())!.topics[0].lessons[0].id;
+    const ask = t.api.ask({ lessonId: lesson }, 'Why?').catch((e: Error) => e.message);
+    await until(t.api, () => calls === 2);
+    t.c.exercises.clear();
+    await t.api.retryJobs();
+    await until(t.api, (c) => c.stalled === 'unstoppable');
+    release();
+    expect(await ask).toContain('codemm:unstoppable');
+    expect(t.jobs.ran.filter((j) => j.kind === 'tutor')).toHaveLength(0);
+  });
 });

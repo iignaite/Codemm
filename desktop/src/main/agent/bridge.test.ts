@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { ask, run, spawnable, treeKillConfirmed, type Executable } from './bridge';
+import { ask, run, spawnable, type Executable } from './bridge';
 
 const parse = (line: string) => (line.startsWith('{') ? [JSON.parse(line) as Record<string, unknown>] : []);
 /** A fake agent: this Node running a script, the way the app runs a JavaScript agent. */
@@ -67,38 +67,59 @@ describe('bridge (D5)', () => {
     expect(alive(child)).toBe(false);
   });
 
-  it('a cancel resolves once the agent is stopped, even when a descendant keeps the output pipe open', async () => {
+  // Stopping is confirmed only when it is (§3.1): anything else is unconfirmed, and blocks new jobs.
+  const withGrandchild = (detached: boolean, parentExits = false) =>
+    node(`const c = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: ${detached}, stdio: ['ignore', 'inherit', 'ignore'] });
+          ${detached ? 'c.unref();' : ''} console.log(JSON.stringify({ child: c.pid })); ${parentExits ? 'setTimeout(() => process.exit(0), 100)' : 'setInterval(() => {}, 1000)'}`);
+  const cancelAfterFirstEvent = async ([exe, args]: [Executable, string[]], waitMs = 0) => {
     const controller = new AbortController();
-    let descendant = 0;
-    const out = run(
-      ...node(`const c = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 'inherit', 'ignore'] });
-              c.unref(); console.log(JSON.stringify({ child: c.pid })); setInterval(() => {}, 1000)`),
-      parse,
-      {
-        onEvent: (e) => {
-          descendant = e.child as number;
-          controller.abort();
-        },
-        signal: controller.signal,
-        killAfterMs: 300,
+    let grandchild = 0;
+    const out = run(exe, args, parse, {
+      onEvent: (e) => {
+        grandchild = e.child as number;
+        setTimeout(() => controller.abort(), waitMs);
       },
-    );
-    try {
-      const result = await Promise.race([out, new Promise((r) => setTimeout(() => r('still waiting'), 10_000))]);
-      expect(result).toMatchObject({ cancelled: true });
-    } finally {
-      if (descendant && alive(descendant)) process.kill(descendant, 'SIGKILL');
-    }
+      signal: controller.signal,
+      killAfterMs: 300,
+    });
+    const result = await Promise.race([out, new Promise<'still waiting'>((r) => setTimeout(() => r('still waiting'), 15_000))]);
+    const survived = grandchild > 0 && alive(grandchild);
+    if (survived) process.kill(grandchild, 'SIGKILL');
+    return { result, survived };
+  };
+
+  it('confirms a cancel once the agent and a grandchild holding its output are gone', async () => {
+    const { result, survived } = await cancelAfterFirstEvent(withGrandchild(false));
+    expect(result).toMatchObject({ cancelled: true, stopped: true });
+    expect(survived).toBe(false);
   });
 
-  it('confirms a Windows tree kill only when it worked, or the agent had already ended on its own (N1)', () => {
-    expect(treeKillConfirmed(0, false)).toBe(true);
-    // taskkill's "not found": the agent finished its turn before the kill, like any finished turn.
-    expect(treeKillConfirmed(128, true)).toBe(true);
-    // Any other failure leaves descendants unconfirmed, even with the parent gone.
-    expect(treeKillConfirmed(128, false)).toBe(false);
-    expect(treeKillConfirmed(1, true)).toBe(false);
-    expect(treeKillConfirmed(null, true)).toBe(false);
+  it.skipIf(process.platform === 'win32')('leaves a cancel unconfirmed, but settled, when a descendant left the group and holds the output', async () => {
+    const { result, survived } = await cancelAfterFirstEvent(withGrandchild(true));
+    expect(result).toMatchObject({ cancelled: true, stopped: false });
+    expect(survived).toBe(true);
+  });
+
+  it('a parent that already exited: POSIX confirms through its group; Windows cannot check the tree, so it is unconfirmed', async () => {
+    const { result } = await cancelAfterFirstEvent(withGrandchild(false, true), 500);
+    expect(result).toMatchObject({ cancelled: true, stopped: process.platform !== 'win32' });
+  });
+
+  it('delivers no event after a run settles', async () => {
+    const controller = new AbortController();
+    let events = 0;
+    const out = run(...node(`setInterval(() => console.log('{"tick":1}'), 10)`), parse, {
+      onEvent: () => {
+        events++;
+        controller.abort();
+      },
+      signal: controller.signal,
+      killAfterMs: 300,
+    });
+    await out;
+    const settledAt = events;
+    await new Promise((r) => setTimeout(r, 300));
+    expect(events).toBe(settledAt);
   });
 
   it('never starts a job cancelled before it starts', async () => {

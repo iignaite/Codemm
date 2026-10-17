@@ -112,7 +112,9 @@ describe('jobs (§3.2)', () => {
 
   it('a Codemm server that failed to start is an infrastructure failure: no relaunch', async () => {
     const failedServer = { ...init, mcp_servers: [{ name: 'codemm', status: 'failed' }] };
-    const agent = fakeAgent([failedServer, say('I have no tools.'), success]);
+    // A real agent keeps running its turn without tools; the job cancels it. (One that has already exited
+    // can't be confirmed stopped on Windows, which the bridge tests cover.)
+    const agent = fakeAgent([failedServer, say('I have no tools.')], { hang: true });
     expect(await runJob(job(agent.exe, { kind: 'lesson', done: () => false }))).toMatchObject({ ok: false, problem: 'infra' });
     expect(agent.runs()).toBe(1);
   });
