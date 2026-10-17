@@ -15,7 +15,7 @@ Codemm 1.0 is a rewrite. The v1 desktop app is replaced by a small, open-source 
 
 ### What's new
 
-- **Your agent writes, Codemm verifies.** Claude Code, Codex or Cursor writes tracks (language or framework environments), roadmaps and CodeChum-style exercises on your own plan. Codemm never calls a model and never handles credentials.
+- **Your agent writes, Codemm verifies.** Claude Code, Codex or Cursor writes tracks (language or framework environments), roadmaps and graded coding exercises on your own plan. Codemm never calls a model and never handles credentials.
 - **Codemm ships no languages.** Any language or framework that builds and tests headless in one Linux container can be installed as a versioned track (`id@version`), once, and shared by every course.
 - **Two test styles.** `io` (stdin/stdout; Codemm writes the expected outputs from the reference) and `unit` (the track's own test runner; for example JUnit, pytest or Vitest).
 - **Verification gates.**

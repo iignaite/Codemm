@@ -5,7 +5,7 @@
   </picture>
 </h1>
 
-CodeChum-style practice for any language or framework, written by **your own coding agent**. Codemm proves every exercise works before you see it, grades your code in a sandbox, and tracks what you've mastered.
+Graded coding practice for any language or framework, written by **your own coding agent**. Codemm proves every exercise works before you see it, grades your code in a sandbox, and tracks what you've mastered.
 
 Codemm is an open-source harness, not a tutor and not a model. It works with Claude Code, Codex and Cursor on your own plan; there are no API keys and no accounts. **Codemm ships no languages.** Your agent installs each language or framework the first time you need it, and Codemm checks that it works.
 
