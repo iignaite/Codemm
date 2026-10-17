@@ -154,6 +154,30 @@ async function toActivity() {
   return (await page.getByRole('heading', { level: 1 }).first().innerText()).slice(0, 80);
 }
 
+/** The index of the current topic on the course map. */
+async function nowIndex(): Promise<number> {
+  const nav = page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Learn' });
+  if (await nav.isVisible()) await nav.click();
+  const items = page.getByRole('list', { name: 'Topics' }).getByRole('listitem');
+  await expect(items.first()).toBeVisible({ timeout: 2 * MIN });
+  return items.evaluateAll((els) => els.findIndex((el) => el.querySelector('[aria-label="Now"]')));
+}
+
+/** From the course map, passes the current topic's activities until topic `index` is current. */
+async function passUntilNow(index: number) {
+  for (let round = 1; round <= 6 && (await nowIndex()) < index; round++) {
+    await step(`master-${round}`, async () => {
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      const title = await toActivity();
+      await rightAnswer();
+      const verdict = await check();
+      expect(verdict).toMatch(/^(\d+) of \1 passed$/);
+      return `${title}: ${verdict}`;
+    });
+  }
+  expect(await nowIndex()).toBe(index);
+}
+
 /** Passes the current topic's activities until the course is complete (a skipped topic comes back last). */
 async function complete() {
   for (let round = 1; round <= 15; round++) {
@@ -204,13 +228,12 @@ async function activity(skipAfter: boolean) {
     return verdict;
   });
   if (!skipAfter) return;
-  await step('next-topic', async () => {
-    await button('Continue').click();
-    const topic = page.getByRole('heading', { level: 1 }).first();
-    await expect(topic).toBeVisible();
-    return topic.innerText();
+  // Mastering a topic can take more than one exercise: pass them until the second topic is current.
+  await passUntilNow(1);
+  await step('second-topic', async () => {
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    return toActivity();
   });
-  await lessonsThenActivity(false);
   await step('skip', async () => {
     await wrongAnswer(2);
     await check();
