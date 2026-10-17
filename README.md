@@ -17,7 +17,6 @@
 <p align="center">
   <a href="https://github.com/iignaite/Codemm/actions/workflows/ci.yml"><img src="https://github.com/iignaite/Codemm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0E2754" alt="License: MIT"></a>
-  <img src="https://img.shields.io/badge/node-%E2%89%A522-0E2754" alt="Node.js 22 or newer">
   <img src="https://img.shields.io/badge/app-macOS%20%7C%20Windows%20%28beta%29-0E2754" alt="App: macOS and Windows (beta)">
 </p>
 
@@ -36,11 +35,11 @@ Codemm launches your agent; it never calls a model API, and it never reads, stor
 5. **Do the activity.** Your agent writes an exercise: a statement, starter code, a reference solution, 2–4 deliberately broken variants, and visible and hidden tests. Codemm accepts it only if the reference passes, the starter fails, and the tests catch every broken variant. You edit the code, use **Try it** for the visible tests, then **Check**.
 6. **Ask Codemm** when you're stuck. It explains and hints; it doesn't edit your code. Skip means "come back later", never "mastered".
 
-**What counts.** Try it is never recorded. Check records an attempt, except for a check of the unedited starter or one that failed for a reason outside your code (Docker stopped, for example). Mastery moves only on an exercise's first check, or when you beat your best score on it; re-checking a solved exercise adds nothing. Difficulty steps up after a first-try pass and down after repeated failures.
+**What counts.** Try it is never recorded. Check records an attempt, except for a check of the unedited starter or one that failed for a reason outside your code (Docker stopped, for example). Mastery moves only on an exercise's first check, or when you beat your best score on it; re-checking a solved exercise adds nothing. Difficulty goes up (to at most 3) after a first-try pass without assistance, and down (to 1) after repeated failures.
 
 ## Install (beta)
 
-Codemm 1.0 is in a private beta. When a beta build is published on the [Releases page](https://github.com/iignaite/Codemm/releases), download the installer for your computer:
+A private beta is planned once the packaged app passes its macOS and Windows journeys. When a beta build is published on the [Releases page](https://github.com/iignaite/Codemm/releases), download the installer for your computer:
 
 - **macOS** (Apple Silicon or Intel): the `.dmg`. Beta builds are unsigned: open the app once, then choose System Settings, Privacy & Security, Open Anyway.
 - **Windows** (x64): the installer. Beta builds are unsigned: in the SmartScreen prompt, choose More info, then Run anyway.
@@ -78,7 +77,7 @@ codemm init
 
 This sets up Claude Code, Codex and Cursor; use `--host claude` (repeatable) to pick specific ones. It adds an MCP server entry for each agent, a Codemm section in `AGENTS.md`, an author subagent and the Claude Code practice hook. Existing config is merged, never replaced. Open the folder in your agent and say what you want to learn.
 
-**The practice hook is Claude Code-only.** In Claude Code it blocks the agent's edits to your exercise files unless you run `codemm assist on` (assisted attempts count for less). In Codex and Cursor, the instructions in `AGENTS.md` ask the agent not to edit them, but nothing enforces it.
+**The practice hook is Claude Code-only, and a practice aid rather than a lock.** In Claude Code it blocks the `Edit`, `Write`, `MultiEdit` and `NotebookEdit` tools on files under `exercises/` unless you run `codemm assist on` (assisted attempts count for less). Writes through the shell aren't blocked. In Codex and Cursor, the instructions in `AGENTS.md` ask the agent not to edit your files, but nothing enforces it.
 
 > [!NOTE]
 > Codex loads `.codex/config.toml` only for projects you've marked as trusted, and asks before each Codemm tool call. To skip those prompts, add `default_tools_approval_mode = "approve"` under `[mcp_servers.codemm]`; that also skips your approval for `save_track`, which runs a network build.

@@ -41,7 +41,7 @@ Each item is verified by an automated test unless marked *journey*. Journeys run
 
 ### Supported matrix for 1.0
 
-- **Desktop app:** macOS (Apple Silicon and Intel) and Windows 11 x64, with Docker Desktop, in beta. Its journeys with real agents (desktop D17 and D18) are release steps.
+- **Desktop app:** macOS (Apple Silicon and Intel) and Windows 11 x64, with Docker Desktop. Its journeys with real agents on packaged builds (desktop D17 and D18) come before the private beta.
 - **Terminal, verified:** macOS with Docker Desktop (A14 to A16), and Linux in CI with Docker. Core unit tests also run on Windows in CI.
 - **Experimental:** Podman, and terminal use on Windows through WSL 2. The code supports them, but they are not verified with a real agent.
 
