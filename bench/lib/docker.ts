@@ -49,8 +49,11 @@ export function cleanupPlan(attempted: string[], storeIds: string[], before: Sna
   }
   for (const id of storeIds) if (!before.ids.has(id)) created.add(id);
   const ours = new Set(attempted);
+  const untagged = new Set(plan.filter(([cmd]) => cmd === "rmi").map((args) => args.at(-1)));
   const kept = (id: string) => [...after.tags].some(([tag, tid]) => tid === id && !ours.has(tag));
-  for (const id of created) if (!kept(id)) plan.push(["rmi", "--no-prune", id]);
+  // Untagging an image's last tag already removes it; remove by ID only what no untag covers.
+  const covered = (id: string) => [...after.tags].some(([tag, tid]) => tid === id && untagged.has(tag));
+  for (const id of created) if (!kept(id) && !covered(id)) plan.push(["rmi", "--no-prune", id]);
   return plan;
 }
 

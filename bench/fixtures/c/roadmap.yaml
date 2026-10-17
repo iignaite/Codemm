@@ -1,0 +1,37 @@
+goal: Write small C programs that read from standard input and print to standard output
+track: c@1
+style: io
+concepts:
+  - id: hello-output
+    title: Program structure and printf
+    requires: []
+  - id: variables-input
+    title: Variables, types and reading input with scanf
+    requires: [hello-output]
+  - id: arithmetic
+    title: Arithmetic operators, integer division and modulo
+    requires: [variables-input]
+  - id: conditionals
+    title: Conditionals with if/else and switch
+    requires: [arithmetic]
+  - id: loops
+    title: Loops with for and while, reading until EOF
+    requires: [conditionals]
+  - id: functions
+    title: Writing and calling functions
+    requires: [loops]
+  - id: arrays
+    title: Arrays and processing sequences of numbers
+    requires: [functions]
+  - id: strings
+    title: Character arrays, strings and getchar/fgets
+    requires: [arrays]
+  - id: pointers
+    title: Pointers and passing by reference
+    requires: [strings]
+  - id: structs
+    title: Structs for grouping data
+    requires: [pointers]
+  - id: dynamic-memory
+    title: Dynamic memory with malloc and free
+    requires: [structs]

@@ -1,0 +1,53 @@
+{
+  "judge": "gpt-6-astra",
+  "labelledWith": [
+    "hints-before",
+    "hints-after",
+    "hints-after-v2",
+    "hints-v3-haiku"
+  ],
+  "labels": {
+    "claude-haiku-c-r2": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Asks an implementation question but then supplies declarations, input code, and the full output recipe."
+    },
+    "claude-haiku-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Suggests three branches but asks the learner to determine the return values."
+    },
+    "claude-haiku-c-r1": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Asks about tutoring preferences and exercise identity, not a concrete solving step."
+    },
+    "claude-haiku-python-r3": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Asks about branches but supplies all case outcomes and the conditional structure."
+    },
+    "claude-haiku-c-r3": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies missing storage and asks the learner to construct the scanf call."
+    },
+    "claude-haiku-python-r2": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Describes the three cases and asks for the first return value without answering it."
+    }
+  }
+}

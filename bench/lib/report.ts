@@ -35,7 +35,7 @@ export function violationSummary(v: Violations | undefined): string {
   return violationCount(v) === 0 ? "none" : parts.join(", ");
 }
 
-export function renderTable(results: CellResult[], labels: Record<string, Label> = {}): string {
+export function renderTable(results: CellResult[], labels: Record<string, Pick<Label, "hint">> = {}): string {
   const rows = [
     "| Host | Model | Subject | Author journey | `save_exercise` calls | `save_track` calls | Tool calls | Minutes (author + tutor) | Cost | Tutor refused | Hint (Astra) | Violations |",
     "|---|---|---|---|---|---|---|---|---|---|---|---|",

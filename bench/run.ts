@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Runs one bench cell: `node bench/run.ts --host claude|codex --model <m> --subject c|python [--rep N] [--out results/<set>] [--keep]`.
- * Fresh temp workspace and CODEMM_HOME, `codemm init`, then the author and tutor journeys. Writes
+ * Runs one bench cell: `node bench/run.ts --host claude|codex --model <m> --subject c|python [--journey both|tutor] [--rep N] [--out results/<set>] [--keep]`.
+ * Fresh temp workspace and CODEMM_HOME, `codemm init`, then the author and tutor journeys, or with `--journey tutor`
+ * only the tutor journey on the subject's fixture exercise (bench/fixtures/<subject>/). Writes
  * bench/<out>/<host>-<model>-<subject>-r<N>.json and keeps raw logs in bench/runs/ (git-ignored).
  */
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -19,7 +20,7 @@ import { type Evidence, type FileMap, readEvidence, type StoredExercise } from "
 import { authorPrompt, SUBJECTS, TUTOR_PROMPT } from "./lib/journeys.ts";
 import { type JourneyResult, journeyResult, saveStats, type Violations } from "./lib/metrics.ts";
 import { capture, cleanEnv, run } from "./lib/proc.ts";
-import { SEED, seedExercise } from "./lib/seed.ts";
+import { seedExercise, shellFixture, subjectFixture } from "./lib/seed.ts";
 import { removeClaudeSessions, removeCodexSessions } from "./lib/sessions.ts";
 import { solveCheck } from "./lib/solve.ts";
 import { parseTapLog, type TapCall } from "./lib/tap-log.ts";
@@ -31,10 +32,12 @@ const TAP = join(BENCH, "tap.ts");
 const AUTHOR_TIMEOUT = 40 * 60_000;
 const TUTOR_TIMEOUT = 10 * 60_000;
 
-const { values: opts } = parseArgs({ options: { host: { type: "string" }, model: { type: "string" }, subject: { type: "string" }, rep: { type: "string", default: "1" }, out: { type: "string", default: "results" }, keep: { type: "boolean", default: false } } });
+const { values: opts } = parseArgs({ options: { host: { type: "string" }, model: { type: "string" }, subject: { type: "string" }, rep: { type: "string", default: "1" }, out: { type: "string", default: "results" }, journey: { type: "string", default: "both" }, keep: { type: "boolean", default: false } } });
 const adapter = HOSTS[opts.host ?? ""];
 const subject = SUBJECTS[opts.subject ?? ""];
-if (!adapter || !subject || !opts.model) throw new Error("usage: run.ts --host claude|codex --model <m> --subject c|python [--rep N] [--out results/<set>] [--keep]");
+if (!adapter || !subject || !opts.model || !["both", "tutor"].includes(opts.journey!)) {
+  throw new Error("usage: run.ts --host claude|codex --model <m> --subject c|python [--journey both|tutor] [--rep N] [--out results/<set>] [--keep]");
+}
 if (!existsSync(CLI)) throw new Error("Build Codemm first: npm run build");
 
 const cell = `${opts.host}-${opts.model}-${opts.subject}-r${opts.rep}`;
@@ -106,39 +109,46 @@ try {
   const init = capture(process.execPath, [CLI, "init"], { cwd: ws, env: cleanEnv({ CODEMM_HOME: home }) });
   if (init.code !== 0) throw new Error(`codemm init failed: ${init.out}`);
 
-  // Author journey.
-  const a = await journey("author", authorPrompt(subject), AUTHOR_TIMEOUT);
-  tags.push(...attemptedTags(a.calls));
-  ev = readEvidence(home, ws);
-  const authored = ev.exercises.filter((ex) => ex.course === ev.course);
-  const materialized = authored.filter((ex) => Object.keys(learnerView(ex, trackFilesOf(ev, ex))).every((p) => p in ev.workspace));
-  const authorChanges = workspaceDiff(allLearnerViews(ev), ev.workspace);
-  result.models = a.run.models;
-  result.author = {
-    ...journeyResult(a.run, a.calls, { success: materialized.length > 0, wallMs: a.wallMs, timedOut: a.timedOut, violations: violations(a.run, ev.exercises, authorChanges) }),
-    track: saveStats(a.calls, "save_track"),
-    roadmap: saveStats(a.calls, "save_roadmap"),
-    exercise: saveStats(a.calls, "save_exercise"),
-    tracksInstalled: ev.tracks.map((t) => t.ref),
-    exercisesSaved: authored.map((ex) => ex.slug),
-    reply: a.run.finalText.slice(0, 1500),
-  } satisfies JourneyResult & Record<string, unknown>;
+  let materialized: StoredExercise[] = [];
+  if (opts.journey === "both") {
+    // Author journey.
+    const a = await journey("author", authorPrompt(subject), AUTHOR_TIMEOUT);
+    tags.push(...attemptedTags(a.calls));
+    ev = readEvidence(home, ws);
+    const authored = ev.exercises.filter((ex) => ex.course === ev.course);
+    materialized = authored.filter((ex) => Object.keys(learnerView(ex, trackFilesOf(ev, ex))).every((p) => p in ev.workspace));
+    const authorChanges = workspaceDiff(allLearnerViews(ev), ev.workspace);
+    result.models = a.run.models;
+    result.author = {
+      ...journeyResult(a.run, a.calls, { success: materialized.length > 0, wallMs: a.wallMs, timedOut: a.timedOut, violations: violations(a.run, ev.exercises, authorChanges) }),
+      track: saveStats(a.calls, "save_track"),
+      roadmap: saveStats(a.calls, "save_roadmap"),
+      exercise: saveStats(a.calls, "save_exercise"),
+      tracksInstalled: ev.tracks.map((t) => t.ref),
+      exercisesSaved: authored.map((ex) => ex.slug),
+      reply: a.run.finalText.slice(0, 1500),
+    } satisfies JourneyResult & Record<string, unknown>;
+  }
 
-  // Tutor journey, on the authored exercise or, failing that, the seeded fixture.
+  // Tutor journey, on the authored exercise or else a seeded fixture: the subject's own for --journey tutor,
+  // the shell fixture when the author journey saved nothing.
   let source = "authored";
   const config = join(ws, "codemm.json");
   const current = existsSync(config) ? (JSON.parse(readFileSync(config, "utf8")).current as string | undefined) : undefined;
   let ex = materialized.find((e) => e.slug === current) ?? materialized[0];
   if (!ex) {
-    source = "seeded";
-    say("tutor: no authored exercise; seeding the fixture exercise");
-    await seedExercise(CLI, ws, home);
-    tags.push("codemm-track-shell-io:1");
+    const fixture = opts.journey === "tutor" ? subjectFixture(opts.subject!) : shellFixture();
+    source = opts.journey === "tutor" ? "fixture" : "seeded";
+    say(`tutor: seeding ${fixture.course}/${fixture.slug}`);
+    const tag = tagForTrackYaml(readFileSync(join(fixture.track, "track.yaml"), "utf8"));
+    if (tag) tags.push(tag);
+    await seedExercise(CLI, ws, home, fixture);
     ev = readEvidence(home, ws);
-    ex = ev.exercises.find((e) => e.course === SEED.course && e.slug === SEED.slug)!;
+    ex = ev.exercises.find((e) => e.course === fixture.course && e.slug === fixture.slug)!;
   }
   const before = readEvidence(home, ws).workspace;
   const t = await journey("tutor", TUTOR_PROMPT, TUTOR_TIMEOUT);
+  result.models ??= t.run.models;
   tags.push(...attemptedTags(t.calls));
   ev = readEvidence(home, ws);
   const tutorChanges = workspaceDiff(before, ev.workspace);

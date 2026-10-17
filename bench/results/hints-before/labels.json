@@ -1,0 +1,81 @@
+{
+  "judge": "gpt-6-astra",
+  "labelledWith": [
+    "hints-before",
+    "hints-after",
+    "hints-after-v2",
+    "hints-v3-haiku"
+  ],
+  "labels": {
+    "claude-opus-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Supplies declarations, output code, successor arithmetic, and the implementation recipe."
+    },
+    "claude-sonnet-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Enumerates the complete branching solution; embedded condition checks are not learner-directed guiding questions."
+    },
+    "codex-gpt-5.6-luna-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Suggests a conditional structure without supplying conditions or return values; asks no question."
+    },
+    "claude-sonnet-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Lists the program structure, input code, output formatting, and successor expression."
+    },
+    "claude-opus-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Gives branch and comparison hints but leaves branch return values unspecified; asks no guiding question."
+    },
+    "claude-haiku-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Names the C exercise and asks which input and output functions to use."
+    },
+    "codex-gpt-6-astra-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Provides branching scaffolding but leaves return values unspecified and asks no question."
+    },
+    "codex-gpt-5.6-luna-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Provides the declaration, input call, formatting, successor calculation, and termination recipe."
+    },
+    "claude-haiku-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Includes next-step questions but also supplies every condition, return outcome, and the complete branching structure."
+    },
+    "codex-gpt-6-astra-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Provides concrete input code and the output recipe, including successor, formatting, punctuation, and newlines."
+    }
+  }
+}

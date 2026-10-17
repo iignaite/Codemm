@@ -1,0 +1,109 @@
+{
+  "judge": "gpt-6-astra",
+  "labelledWith": [
+    "hints-before",
+    "hints-after",
+    "hints-after-v2",
+    "hints-v3-haiku"
+  ],
+  "labels": {
+    "claude-opus-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies the pass stub and asks what the first branch should return."
+    },
+    "claude-haiku-c-r1": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Requests exercise identification rather than asking a guiding question about solving it."
+    },
+    "claude-haiku-c-r2": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Asks which exercise the learner is doing, not how to approach its next step."
+    },
+    "claude-haiku-python-r2": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Offers generic tutoring options and requests context without a substantive guiding question."
+    },
+    "claude-sonnet-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies the pass placeholder and asks what to return below the lower bound."
+    },
+    "codex-gpt-5.6-luna-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Asks about declaring and reading the integer; does not supply the complete output implementation."
+    },
+    "claude-opus-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Asks the learner to write the missing variable declaration, leaving output implementation unresolved."
+    },
+    "codex-gpt-6-astra-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies missing input handling and asks which standard library function reads an integer."
+    },
+    "claude-haiku-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Asks about combining comparisons without supplying an expression, though the smallest-first hint is misleading."
+    },
+    "claude-haiku-python-r3": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Requests code and exercise context without offering an exercise-specific guiding question."
+    },
+    "codex-gpt-5.6-luna-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies pass as the blocker and asks the learner to determine all three return values."
+    },
+    "claude-haiku-c-r3": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Asks the learner to construct the output statement without supplying its format string or arguments."
+    },
+    "codex-gpt-6-astra-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies the pass stub and asks which boundary should be returned."
+    },
+    "claude-sonnet-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies missing input and output, then asks the learner to determine the scanf format."
+    }
+  }
+}
