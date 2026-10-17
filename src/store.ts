@@ -8,7 +8,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { CodemmError } from "./errors.js";
 import { assertId, assertRelativePath, type FileMap, readFileMap, validateFileMap, writeFileMap } from "./files.js";
 import type { LearnerEvent } from "./learner.js";
-import { CourseRecord, ExerciseRecord, LearnerEventSchema, TrackRecord, WorkspaceConfig } from "./schemas.js";
+import { CourseRecord, ExerciseRecord, LearnerEventSchema, LessonRecord, TrackRecord, WorkspaceConfig } from "./schemas.js";
 
 /** Persistence for everything under $CODEMM_HOME and the workspace's codemm.json. */
 
@@ -150,12 +150,14 @@ function parseRecord<T>(schema: { parse: (v: unknown) => T }, file: string): T {
 
 // ---------- atomic writes ----------
 
-function writeJsonAtomic(path: string, value: unknown): void {
+function writeTextAtomic(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;
-  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
+  writeFileSync(tmp, text);
   renameSync(tmp, path);
 }
+
+const writeJsonAtomic = (path: string, value: unknown) => writeTextAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
 
 /** Writes `files` (and optional JSON records) into a fresh folder, then renames it to `target`. */
 export function commitFolder(target: string, files: FileMap, records: Record<string, unknown> = {}): void {
@@ -236,6 +238,39 @@ export function readExercise(course: string, slug: string): { record: ExerciseRe
 
 export const writeExerciseRecord = (course: string, record: ExerciseRecord) =>
   writeJsonAtomic(join(exerciseDir(course, record.slug), "exercise.json"), record);
+
+// ---------- lessons ----------
+
+export const lessonDir = (course: string, id: string) => {
+  assertId("lesson id", id);
+  return join(courseDir(course), "lessons", id);
+};
+
+/** Lessons in the order they were saved. */
+export function listLessons(course: string): LessonRecord[] {
+  const dir = join(courseDir(course), "lessons");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((n) => !n.startsWith("."))
+    .map((id) => parseRecord(LessonRecord, join(dir, id, "lesson.json")))
+    .sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
+}
+
+/** The agent's text never changes after saving; the learner's notes sit beside it. */
+export function readLesson(course: string, id: string): { record: LessonRecord; markdown: string; notes: string } {
+  const dir = lessonDir(course, id);
+  if (!existsSync(join(dir, "lesson.json"))) throw new CodemmError(`No lesson "${id}" in course "${course}".`);
+  return {
+    record: parseRecord(LessonRecord, join(dir, "lesson.json")),
+    markdown: readFileSync(join(dir, "lesson.md"), "utf8"),
+    notes: readFileSync(join(dir, "notes.md"), "utf8"),
+  };
+}
+
+export const writeLesson = (course: string, record: LessonRecord, markdown: string) =>
+  commitFolder(lessonDir(course, record.id), { "lesson.md": markdown, "notes.md": "" }, { "lesson.json": record });
+
+export const writeNotes = (course: string, id: string, text: string) => writeTextAtomic(join(lessonDir(course, id), "notes.md"), text);
 
 // ---------- events ----------
 

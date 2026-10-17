@@ -55,7 +55,7 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   });
 
   it("asks for a first exercise", () => {
-    expect(app.nextStep(ws)).toEqual({ kind: "author", concept: "sh.basics", difficulty: 1, style: "io", track: "shell-io@1" });
+    expect(app.nextStep(ws)).toEqual({ kind: "author", concept: "sh.basics", difficulty: 1, lesson: null, style: "io", track: "shell-io@1" });
   });
 
   it("saves an exercise and writes only learner-side files to the workspace", async () => {
@@ -126,9 +126,9 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(events.at(-1)).toMatchObject({ kind: "check", assisted: true });
   });
 
-  it("skips a concept", async () => {
+  it("defers a skipped concept without marking it mastered", async () => {
     await app.skip(ws, "sh.basics");
-    expect(app.progress(ws).concepts[0]).toMatchObject({ mastered: true });
+    expect(app.progress(ws).concepts[0]).toMatchObject({ mastered: false });
     await expect(app.skip(ws, "sh.nope")).rejects.toThrow(/not in/);
   });
 

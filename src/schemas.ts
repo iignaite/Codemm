@@ -179,4 +179,33 @@ export const LearnerEventSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ format_version: z.literal(1), kind: z.literal("skip"), at: z.string(), concept: Id }),
   z.object({ format_version: z.literal(1), kind: z.literal("assist"), at: z.string(), exercise: Id }),
+  z.object({ format_version: z.literal(1), kind: z.literal("retry"), at: z.string(), concept: Id }),
+  z.object({ format_version: z.literal(1), kind: z.literal("read"), at: z.string(), lesson: Id, concept: Id }),
 ]);
+
+const MAX_LESSON_BYTES = 65_536;
+const LessonInput = z
+  .object({ id: Id, concept: Id, title: z.string().min(1).max(200), markdown: z.string().min(1) })
+  .strict()
+  .refine((l) => Buffer.byteLength(l.markdown) <= MAX_LESSON_BYTES, { message: "markdown is larger than 64 KB", path: ["markdown"] });
+export type LessonInput = z.infer<typeof LessonInput>;
+
+/** A lesson as the agent saves it: static Markdown for one roadmap concept. */
+export function parseLesson(input: unknown): LessonInput {
+  const parsed = LessonInput.safeParse(input);
+  if (!parsed.success) throw new CodemmError(`Invalid lesson: ${describe(parsed.error)}`);
+  return parsed.data;
+}
+
+/** The learner's notes on a lesson share the lesson's size limit. */
+export function assertNotes(text: string): string {
+  if (Buffer.byteLength(text) > MAX_LESSON_BYTES) throw new CodemmError("Notes are larger than 64 KB.");
+  return text;
+}
+
+export const LessonRecord = z.object({ format_version: z.literal(1), id: Id, concept: Id, title: z.string(), created: z.string() });
+export type LessonRecord = z.infer<typeof LessonRecord>;
+
+/** A track the agent proposed in the desktop app, waiting for the learner's consent. */
+export const ProposalRecord = z.object({ format_version: z.literal(1), track: z.string(), digest: z.string(), created: z.string() });
+export type ProposalRecord = z.infer<typeof ProposalRecord>;

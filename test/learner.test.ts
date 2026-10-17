@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type CheckEvent, type LearnerEvent, MASTERED, nextStep, replay, type SkipEvent } from "../src/learner.js";
+import { type CheckEvent, type LearnerEvent, MASTERED, nextStep, replay, type RetryEvent, type SkipEvent } from "../src/learner.js";
 
 const at = (n: number) => new Date(Date.UTC(2026, 9, 17, 0, n)).toISOString();
 
@@ -7,6 +7,8 @@ function attempt(over: Partial<CheckEvent> & { exercise: string; concepts: strin
   return { format_version: 1, kind: "check", at: at(n), difficulty: 1, passed: 1, total: 1, assisted: false, ...over };
 }
 const skip = (concept: string, n: number): SkipEvent => ({ format_version: 1, kind: "skip", at: at(n), concept });
+const retry = (concept: string, n: number): RetryEvent => ({ format_version: 1, kind: "retry", at: at(n), concept });
+const read = (lesson: string, concept: string, n: number): LearnerEvent => ({ format_version: 1, kind: "read", at: at(n), lesson, concept });
 
 describe("replay: mastery", () => {
   it("starts at 0.5 and needs four perfect unassisted checks to reach mastery", () => {
@@ -68,9 +70,22 @@ describe("replay: mastery", () => {
     expect(states.get("b")?.mastery).toBeCloseTo(0.65);
   });
 
-  it("skip marks a concept mastered without lowering a higher score", () => {
-    const states = replay([skip("x", 0)]);
-    expect(states.get("x")?.mastery).toBe(MASTERED);
+  it("skip defers a concept without changing its mastery, until its next check", () => {
+    const skipped = replay([attempt({ exercise: "e", concepts: ["x"], passed: 0 }, 0), skip("x", 1)]).get("x")!;
+    expect(skipped).toMatchObject({ mastery: 0.35, deferred: true });
+    expect(replay([skip("x", 0), attempt({ exercise: "e", concepts: ["x"], passed: 0 }, 1)]).get("x")!.deferred).toBe(false);
+  });
+
+  it("retry ends stuck without changing mastery or difficulty", () => {
+    const stuck = [0, 1].map((n) => attempt({ exercise: "e", concepts: ["x"], passed: 0 }, n));
+    const before = replay(stuck).get("x")!;
+    const after = replay([...stuck, retry("x", 2)]).get("x")!;
+    expect(before.stuck).toBe(true);
+    expect(after).toMatchObject({ stuck: false, failStreak: 0, mastery: before.mastery, difficulty: 1 });
+  });
+
+  it("a read changes nothing about mastery", () => {
+    expect(replay([read("l1", "x", 0)]).get("x")?.mastery ?? 0.5).toBe(0.5);
   });
 });
 
@@ -119,17 +134,17 @@ describe("nextStep", () => {
   };
 
   it("asks for a new exercise for the first unlocked concept", () => {
-    expect(nextStep(roadmap, [], [])).toEqual({ kind: "author", concept: "a", difficulty: 1 });
+    expect(nextStep(roadmap, [], [], [])).toEqual({ kind: "author", concept: "a", difficulty: 1, lesson: null });
   });
 
   it("returns an unpassed exercise that already fits", () => {
     const exercises = [{ slug: "a1", concepts: ["a"], difficulty: 1 }];
-    expect(nextStep(roadmap, exercises, [])).toEqual({ kind: "practice", exercise: "a1", concept: "a", difficulty: 1 });
+    expect(nextStep(roadmap, exercises, [], [])).toEqual({ kind: "practice", exercise: "a1", concept: "a", difficulty: 1, lesson: null });
   });
 
   it("prefers the lowest mastery among unlocked concepts", () => {
     const log = [attempt({ exercise: "a1", concepts: ["a"] }, 0)];
-    expect(nextStep(roadmap, [{ slug: "a1", concepts: ["a"], difficulty: 1 }], log)).toMatchObject({ concept: "c" });
+    expect(nextStep(roadmap, [{ slug: "a1", concepts: ["a"], difficulty: 1 }], log, [])).toMatchObject({ concept: "c" });
   });
 
   it("unlocks a concept once its prerequisites are mastered", () => {
@@ -137,19 +152,59 @@ describe("nextStep", () => {
       ...[0, 1, 2, 3].map((n) => attempt({ exercise: `a${n}`, concepts: ["a"] }, n)),
       ...[4, 5, 6, 7].map((n) => attempt({ exercise: `c${n}`, concepts: ["c"] }, n)),
     ];
-    expect(nextStep(roadmap, [], log)).toMatchObject({ kind: "author", concept: "b" });
+    expect(nextStep(roadmap, [], log, [])).toMatchObject({ kind: "author", concept: "b" });
   });
 
   it("reports stuck before offering more practice", () => {
     const stuck = [0, 1].map((n) => attempt({ exercise: "a1", concepts: ["a"], passed: 0 }, n));
     const exercises = [{ slug: "a1", concepts: ["a"], difficulty: 1 }];
-    expect(nextStep({ concepts: [{ id: "a", requires: [] }] }, exercises, stuck)).toEqual({ kind: "stuck", concept: "a" });
+    expect(nextStep({ concepts: [{ id: "a", requires: [] }] }, exercises, stuck, [])).toEqual({ kind: "stuck", concept: "a" });
   });
 
   it("reports stuck and done", () => {
     const stuck = [0, 1].map((n) => attempt({ exercise: "a1", concepts: ["a"], passed: 0 }, n));
-    expect(nextStep({ concepts: [{ id: "a", requires: [] }] }, [], stuck)).toEqual({ kind: "stuck", concept: "a" });
-    const done = [skip("a", 0)];
-    expect(nextStep({ concepts: [{ id: "a", requires: [] }] }, [], done)).toEqual({ kind: "done" });
+    expect(nextStep({ concepts: [{ id: "a", requires: [] }] }, [], stuck, [])).toEqual({ kind: "stuck", concept: "a" });
+    const done = [0, 1, 2, 3].map((n) => attempt({ exercise: `a${n}`, concepts: ["a"] }, n));
+    expect(nextStep({ concepts: [{ id: "a", requires: [] }] }, [], done, [])).toEqual({ kind: "done" });
+  });
+
+  it("never finishes or unlocks through skip", () => {
+    expect(nextStep({ concepts: [{ id: "a", requires: [] }] }, [], [skip("a", 0)], [])).toMatchObject({ kind: "author", concept: "a" });
+    expect(nextStep(roadmap, [], [skip("a", 0), skip("c", 1)], [])).toMatchObject({ concept: "a" });
+  });
+
+  it("puts deferred concepts after the others", () => {
+    expect(nextStep(roadmap, [], [skip("a", 0)], [])).toMatchObject({ concept: "c" });
+  });
+
+  it("chooses the earliest concept when every candidate is deferred", () => {
+    const log = [attempt({ exercise: "c1", concepts: ["c"], passed: 0 }, 0), skip("c", 1), skip("a", 2)];
+    expect(nextStep(roadmap, [], log, [])).toMatchObject({ concept: "a" });
+  });
+
+  it("isn't stuck after a retry", () => {
+    const stuck = [0, 1].map((n) => attempt({ exercise: "a1", concepts: ["a"], passed: 0 }, n));
+    const exercises = [{ slug: "a1", concepts: ["a"], difficulty: 1 }];
+    expect(nextStep({ concepts: [{ id: "a", requires: [] }] }, exercises, [...stuck, retry("a", 2)], [])).toMatchObject({ kind: "practice", exercise: "a1" });
+  });
+});
+
+describe("nextStep: lessons", () => {
+  const roadmap = { concepts: [{ id: "a", requires: [] as string[] }] };
+  const lessons = [{ id: "l1", concept: "a" }, { id: "l2", concept: "a" }, { id: "other", concept: "b" }];
+
+  it("asks for a lesson when the concept has none", () => {
+    expect(nextStep(roadmap, [], [], [])).toMatchObject({ kind: "author", lesson: null });
+    expect(nextStep(roadmap, [{ slug: "a1", concepts: ["a"], difficulty: 1 }], [], [])).toMatchObject({ kind: "practice", lesson: null });
+  });
+
+  it("names the earliest unread lesson", () => {
+    expect(nextStep(roadmap, [], [], lessons)).toMatchObject({ lesson: "l1" });
+    expect(nextStep(roadmap, [], [read("l1", "a", 0)], lessons)).toMatchObject({ lesson: "l2" });
+  });
+
+  it("leaves the field out once every lesson for the concept is read", () => {
+    const step = nextStep(roadmap, [], [read("l2", "a", 0), read("l1", "a", 1)], lessons);
+    expect(step).toEqual({ kind: "author", concept: "a", difficulty: 1 });
   });
 });

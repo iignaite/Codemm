@@ -4,20 +4,21 @@ import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./fi
 import { verifyExercise, verifyTrack } from "./gates.js";
 import type { TestResult, TestSet } from "./grading.js";
 import { gradeIoRun, gradeUnitRun, type IoRun, runIo, runUnit, type UnitRun } from "./judge.js";
-import { MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
+import { type LearnerEvent, MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
 import { assertRuntime, cli as sandboxCli, inspectImage } from "./sandbox.js";
-import { type CourseRecord, type ExerciseRecord, parseRoadmapYaml, parseTrackYaml, type TrackRecord } from "./schemas.js";
+import { assertNotes, type CourseRecord, type ExerciseRecord, parseLesson, parseRoadmapYaml, parseTrackYaml, type TrackRecord } from "./schemas.js";
 import * as store from "./store.js";
 
 /**
  * Codemm's use cases. The CLI and the MCP server are thin wrappers around these.
- * `ws` is always an absolute workspace path.
+ * `ws` is always an absolute workspace path. Course-scoped use cases take an optional `bound` course,
+ * which replaces the workspace's active one (`codemm mcp --course`).
  */
 
 const learnerDir = (course: string, slug: string) => `exercises/${course}/${slug}`;
 
-function activeCourse(ws: string): CourseRecord {
-  const { course } = store.readWorkspace(ws);
+function activeCourse(ws: string, bound?: string): CourseRecord {
+  const course = bound ?? store.readWorkspace(ws).course;
   if (!course) throw new CodemmError("No course in this workspace yet. Ask your agent to plan a roadmap (save_roadmap).");
   const record = store.readCourse(course);
   if (!record) throw new CodemmError(`Course "${course}" is missing from ${store.codemmHome()}.`);
@@ -107,22 +108,42 @@ export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exer
 
 // ---------- roadmaps ----------
 
-export async function saveRoadmap(ws: string, course: string, yaml: string): Promise<{ course: string; concepts: number }> {
+const eventConcepts = (e: LearnerEvent): string[] => (e.kind === "check" ? e.concepts : "concept" in e ? [e.concept] : []);
+
+/**
+ * The track may be a draft that isn't installed yet (next_step then says "setup"), and may change until the
+ * course has exercises. A stuck concept that gains a prerequisite gets a `retry` event: a fresh start.
+ */
+export async function saveRoadmap(ws: string, course: string, yaml: string, bound?: string): Promise<{ course: string; concepts: number }> {
+  if (bound && course !== bound) throw new CodemmError(`This job saves only course "${bound}".`);
   const roadmap = parseRoadmapYaml(yaml);
-  const track = installedTrack(roadmap.track);
-  if (!track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
+  const track = store.readTrack(roadmap.track);
+  if (track && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
   const record: CourseRecord = { format_version: 1, course, ...roadmap };
   await store.withLock(store.courseLockPath(course), async () => {
     const existing = store.readCourse(course);
     if (existing) {
-      if (existing.track !== roadmap.track) throw new CodemmError(`Course "${course}" uses ${existing.track}; a course can't switch tracks. Start a new course instead.`);
+      const exercises = store.listExercises(course);
+      if (existing.track !== roadmap.track && exercises.length > 0) {
+        throw new CodemmError(`Course "${course}" has exercises for ${existing.track}, so it can't switch tracks. Start a new course instead.`);
+      }
+      const events = store.readEvents(course);
       const kept = new Set(roadmap.concepts.map((c) => c.id));
       const used = new Set([
-        ...store.listExercises(course).flatMap((e) => e.concepts),
-        ...store.readEvents(course).flatMap((e) => (e.kind === "check" ? e.concepts : e.kind === "skip" ? [e.concept] : [])),
+        ...exercises.flatMap((e) => e.concepts),
+        ...events.flatMap(eventConcepts),
+        ...store.listLessons(course).map((l) => l.concept),
       ]);
       const removed = [...used].filter((c) => !kept.has(c));
-      if (removed.length > 0) throw new CodemmError(`These concepts have exercises or progress and can't be removed: ${removed.join(", ")}.`);
+      if (removed.length > 0) throw new CodemmError(`These concepts have exercises, lessons or progress and can't be removed: ${removed.join(", ")}.`);
+      const states = replay(events);
+      const before = new Map(existing.concepts.map((c) => [c.id, c.requires]));
+      for (const c of roadmap.concepts) {
+        const old = before.get(c.id);
+        if (old && states.get(c.id)?.stuck && c.requires.some((r) => !old.includes(r))) {
+          store.appendEvent(course, { format_version: 1, kind: "retry", at: new Date().toISOString(), concept: c.id });
+        }
+      }
     }
     store.writeCourse(record);
   });
@@ -130,13 +151,73 @@ export async function saveRoadmap(ws: string, course: string, yaml: string): Pro
   return { course, concepts: roadmap.concepts.length };
 }
 
+export function getRoadmap(ws: string, bound?: string) {
+  const { course, goal, track, style, concepts } = activeCourse(ws, bound);
+  return { course, goal, track, style, concepts };
+}
+
+// ---------- lessons ----------
+
+/** Saves static Markdown for one roadmap concept. Nothing in a lesson runs, and its text never changes. */
+export async function saveLesson(ws: string, input: unknown, bound?: string): Promise<{ lesson: string }> {
+  const lesson = parseLesson(input);
+  const courseId = activeCourse(ws, bound).course;
+  await store.withLock(store.courseLockPath(courseId), async () => {
+    const course = store.readCourse(courseId)!;
+    if (!course.concepts.some((c) => c.id === lesson.concept)) throw new CodemmError(`"${lesson.concept}" is not in the roadmap for ${courseId}.`);
+    if (store.listLessons(courseId).some((l) => l.id === lesson.id)) throw new CodemmError(`Lesson id "${lesson.id}" is already used in ${courseId}. Pick a new id.`);
+    const { markdown, ...meta } = lesson;
+    store.writeLesson(courseId, { format_version: 1, ...meta, created: new Date().toISOString() }, markdown);
+  });
+  return { lesson: lesson.id };
+}
+
+/** The lesson and the learner's notes. Reading records nothing: only markLessonRead does. */
+export function getLesson(ws: string, id: string, bound?: string) {
+  const { record, markdown, notes } = store.readLesson(activeCourse(ws, bound).course, id);
+  return { id: record.id, concept: record.concept, title: record.title, markdown, notes };
+}
+
+export function listLessons(ws: string, bound?: string) {
+  const course = activeCourse(ws, bound).course;
+  const read = new Set(store.readEvents(course).flatMap((e) => (e.kind === "read" ? [e.lesson] : [])));
+  return store.listLessons(course).map((l) => ({ id: l.id, concept: l.concept, title: l.title, read: read.has(l.id) }));
+}
+
+export async function saveNotes(ws: string, id: string, text: string, bound?: string): Promise<void> {
+  assertNotes(text);
+  const course = activeCourse(ws, bound).course;
+  await store.withLock(store.courseLockPath(course), async () => {
+    store.readLesson(course, id);
+    store.writeNotes(course, id, text);
+  });
+}
+
+/** The learner's acknowledgement that they read a lesson. Recorded once. */
+export async function markLessonRead(ws: string, id: string, bound?: string): Promise<void> {
+  const course = activeCourse(ws, bound).course;
+  await store.withLock(store.courseLockPath(course), async () => {
+    const { record } = store.readLesson(course, id);
+    if (store.readEvents(course).some((e) => e.kind === "read" && e.lesson === id)) return;
+    store.appendEvent(course, { format_version: 1, kind: "read", at: new Date().toISOString(), lesson: id, concept: record.concept });
+  });
+}
+
 // ---------- exercises ----------
 
-export type NextStep = Step | (Extract<Step, { kind: "author" }> & { style: string; track: string });
+export type NextStep = Step | { kind: "setup"; track: string } | (Extract<Step, { kind: "author" }> & { style: string; track: string });
 
-export function nextStep(ws: string): NextStep {
-  const course = activeCourse(ws);
-  const step = pickNext(course, store.listExercises(course.course), store.readEvents(course.course));
+const pickFor = (course: CourseRecord) =>
+  pickNext(course, store.listExercises(course.course), store.readEvents(course.course), store.listLessons(course.course));
+
+export function nextStep(ws: string, bound?: string): NextStep {
+  const course = activeCourse(ws, bound);
+  const track = store.readTrack(course.track);
+  if (!track) return { kind: "setup", track: course.track };
+  if (!track.styles.includes(course.style)) {
+    throw new CodemmError(`Track ${course.track} offers ${track.styles.join(", ")}, not style "${course.style}". Edit the roadmap's style.`);
+  }
+  const step = pickFor(course);
   return step.kind === "author" ? { ...step, style: course.style, track: course.track } : step;
 }
 
@@ -182,7 +263,7 @@ function loadExercise(ws: string, slug?: string) {
   const course = activeCourse(ws);
   const config = store.readWorkspace(ws);
   const preferred = slug ?? config.current;
-  const next = preferred ? undefined : pickNext(course, store.listExercises(course.course), store.readEvents(course.course));
+  const next = preferred ? undefined : pickFor(course);
   const chosen = preferred ?? (next?.kind === "practice" ? next.exercise : undefined);
   if (!chosen) throw new CodemmError("No exercise to practice yet. Ask your agent for the next step (next_step).");
   const { record, files } = store.readExercise(course.course, chosen);
