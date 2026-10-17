@@ -44,6 +44,12 @@ describe('lessonParts', () => {
     expect((parts[0] as { html: string }).html).toContain('href="https://example.com/docs"');
   });
 
+  it('agrees with core on the edge cases: blank lines, no closing fence, an outer fence indented up to 3 spaces', () => {
+    for (const text of ['```example\n\n1\n\n```\n', '```example\n1\n', '   ````md\n```example\n1\n```\n   ````\n']) {
+      expect(lessonParts(text).every((p) => 'html' in p)).toBe(true);
+    }
+  });
+
   it('shows, never runs, an example fence inside another fence or indented', () => {
     const parts = lessonParts(`\`\`\`\`md\n${fence(1)}\n\`\`\`\`\n\n    \`\`\`example\n    2\n    \`\`\`\n`);
     expect(parts.every((p) => 'html' in p)).toBe(true);

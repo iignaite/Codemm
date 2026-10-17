@@ -203,22 +203,23 @@ const LessonInput = z
 export type LessonInput = z.infer<typeof LessonInput>;
 
 /**
- * Where the Markdown places example N: a fenced code block at the start of a line (``` or ~~~), not inside another
- * fence, whose info string is `example` and whose only line is N. The app's renderer finds the same blocks.
+ * Where the Markdown places example N: an unindented fence (``` or ~~~) whose info string is `example`, then one line
+ * holding N, then the closing fence. Any fence indented up to 3 spaces starts a code block whose contents are shown,
+ * never run (CommonMark). The app's renderer finds exactly the same blocks.
  */
 export function exampleRefs(markdown: string): number[] {
   const lines = markdown.split(/\r?\n/);
-  const fenceAt = (i: number) => /^(`{3,}|~{3,})(.*)$/.exec(lines[i] ?? "");
+  const fenceAt = (i: number) => /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(lines[i] ?? "");
   const closes = (i: number, open: string) => {
     const m = fenceAt(i);
-    return !!m && m[1]![0] === open[0] && m[1]!.length >= open.length && m[2]!.trim() === "";
+    return !!m && m[2]![0] === open[0] && m[2]!.length >= open.length && m[3]!.trim() === "";
   };
   const refs: number[] = [];
   for (let i = 0; i < lines.length; i++) {
     const m = fenceAt(i);
-    if (!m || (m[1]![0] === "`" && m[2]!.includes("`"))) continue;
-    const open = m[1]!;
-    if (m[2]!.trim() === "example" && /^\s*\d+\s*$/.test(lines[i + 1] ?? "") && closes(i + 2, open)) {
+    if (!m || (m[2]![0] === "`" && m[3]!.includes("`"))) continue;
+    const open = m[2]!;
+    if (m[1] === "" && m[3]!.trim() === "example" && /^[ \t]*\d+[ \t]*$/.test(lines[i + 1] ?? "") && closes(i + 2, open)) {
       refs.push(Number(lines[i + 1]!.trim()));
       i += 2;
       continue;

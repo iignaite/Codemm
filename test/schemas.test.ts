@@ -83,6 +83,12 @@ describe("lesson examples", () => {
     expect(exampleRefs("~~~example\n2\n~~~\n")).toEqual([2]);
   });
 
+  it("agrees with the renderer on the edge cases: blank lines, no closing fence, an outer fence indented up to 3 spaces", () => {
+    expect(exampleRefs("```example\n\n1\n\n```\n")).toEqual([]);
+    expect(exampleRefs("```example\n1\n")).toEqual([]);
+    expect(exampleRefs("   ````md\n```example\n1\n```\n   ````\n")).toEqual([]);
+  });
+
   it("accepts examples that are each referenced", () => {
     expect(parseLesson(lesson(`See:\n\n${fence(1)}\n`, [ex])).examples).toEqual([ex]);
     expect(parseLesson(lesson("No examples")).examples).toBeUndefined();

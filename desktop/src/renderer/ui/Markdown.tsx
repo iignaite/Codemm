@@ -24,9 +24,9 @@ export function Markdown({ text, className = 'md' }: { text: string; className?:
 export type LessonPart = { html: string } | { example: number };
 
 /**
- * A lesson rendered in one pass, cut at each example block: a top-level fence at the start of its line (``` or ~~~)
- * whose info string is `example` and whose only line is N, as core finds them (core DESIGN §5). Links and other
- * references keep their definitions from anywhere in the lesson.
+ * A lesson rendered in one pass, cut at each example block: an unindented top-level fence (``` or ~~~) whose info
+ * string is `example`, then one line holding N, then the closing fence, exactly as core finds them (core DESIGN §5).
+ * Links and other references keep their definitions from anywhere in the lesson.
  */
 export function lessonParts(text: string): LessonPart[] {
   const env = {};
@@ -39,11 +39,11 @@ export function lessonParts(text: string): LessonPart[] {
     chunk = [];
   };
   for (const token of tokens) {
-    const n = token.content.trim();
-    const atLineStart = token.map ? /^[`~]/.test(lines[token.map[0]] ?? '') : false;
-    if (token.type === 'fence' && token.level === 0 && atLineStart && token.info.trim() === 'example' && /^\d+$/.test(n)) {
+    // Three lines (open, N, close), so neither blank lines nor a fence left open at the end count.
+    const block = token.map && token.map[1] - token.map[0] === 3 && /^[`~]/.test(lines[token.map[0]] ?? '');
+    if (token.type === 'fence' && token.level === 0 && block && token.info.trim() === 'example' && /^[ \t]*\d+[ \t]*\n$/.test(token.content)) {
       flush();
-      parts.push({ example: Number(n) });
+      parts.push({ example: Number(token.content.trim()) });
     } else {
       chunk.push(token);
     }
