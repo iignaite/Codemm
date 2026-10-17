@@ -184,8 +184,10 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor i
 - **Tested versions.** `agents.ts` lists the CLI versions the recorded fixtures come from: Claude Code 2.1.283 and Codex 0.156.1 so far, and none for Cursor.
 - **Startup check.** At startup and on the connect screen, the app runs `<agent> --version` as a status command. A version not on the list, including a prerelease of a listed one, shows "Untested version. It may still work." on that agent's connect row. It never blocks.
 - **Contract tests.** In CI, each tested version's recorded streams must parse to their expected events. A new version joins the list after a manual live run (the spike's `run` and `status`) records its streams as fixtures.
-- **Minimum model.** `desktop/src/shared/models.json` holds one recommended minimum model per agent, from the bench results in `docs/bench`. When it is set, the connect row shows "Recommended: ‹model›", and Codex jobs pass exactly that model with `-m`, because they ignore the learner's config. Claude Code jobs keep the learner's default.
-  **Placeholder:** both entries are `null` until the bench results land. Until then the row shows nothing, and Codex uses its default model.
+- **Model choice (O6).** `desktop/src/shared/models.json` lists the bench-tested models per agent (`docs/bench/results.md`) and marks the recommended one.
+  - A connected agent's row shows a "Model" select with the recommended one preselected and marked "(recommended)". A disconnected row shows "Recommended: ‹model›". Cursor has no list.
+  - The choice is saved in `desktop.json` as `models`. A saved model that is no longer on the list falls back to the recommended one.
+  - Every job for that agent runs with the chosen model: `--model` for Claude Code and `-m` for Codex. Jobs therefore never depend on the learner's own default.
 
 ## 4. New core capabilities
 
@@ -279,6 +281,25 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 - `--tools <list>` registers only the listed tools.
 
 With neither option, the server behaves as in core.
+
+### 4.7 Reviews
+
+Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In the app:
+
+- **Due.** A due review shows as "Review" on the course map and the topic page, and the activity opens with a "Review" label. If no unused exercise fits, an author job writes one (`review: true`), shown as the review being written. A review comes due with time, not with a learner action, so reading the course starts that job when it isn't running (an exception to D9's "reads start nothing", which is about reopening saved work). The course map and topic page re-read the course when the window regains focus, and every 10 minutes once settled, so a review that came due while the app was open shows up.
+- **Scheduled.** The mastery panel, and the completed-course screen, show "Review tomorrow" or "Review in N days" for a mastered topic. They never show dates. Overdue reviews wait their turn behind the one being offered, without a countdown.
+- **Outcome.** A review is an ordinary Check. A pass keeps the topic mastered; a fail sends it back to practice.
+
+### 4.8 Check progress
+
+- **Core.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }` (core §4.2).
+  - io reports each visible test as it finishes; the build, when the track has one, shows once as `building`.
+  - Hidden tests and unit tests report their phase only (`total` 0): no names, counts or timing per hidden test.
+- **Desktop.**
+  - The renderer passes a run id with each Try it or Check. `live` tags that run's events with it and keeps only `phase`, `done` and `total`.
+  - Main sends each event to the app's windows only, on the one-way channel `codemm:check-progress`.
+  - The preload exposes it as `onCheckProgress(listener)`, which returns a function that stops listening. It isn't an IPC call: `invoke('onCheckProgress')` is refused.
+- **Renderer.** While Try it or Check runs, the results panel shows a quiet bar with the phase and "3 of 8". With no count, it shows the phase alone. It hears only its own run's events, and stops listening when the learner leaves.
 
 ## 5. Failure states
 
@@ -382,7 +403,7 @@ Each item is verified by an automated test unless marked *journey* or *release*.
 | D3 | **IPC contract.** Every IPC channel is declared in `shared/api.ts`. Each handler validates its input and calls one function. Unknown channels and bad input are rejected. |
 | D4 | **Learner-safe boundary.** An exercise whose solution, mutants, hidden tests and expected outputs hold canary strings is authored through a recorded author stream. Every IPC handler is driven, and no renderer-bound payload or app log holds a canary. A tutor reply that quotes a canary line is held back. |
 | D5 | **Agent bridge.** For Claude Code and Codex: launch arguments match §3.1, and recorded streams parse to the expected events, while malformed lines produce none. A cancelled job resolves only after its whole process group is gone, including a child that ignores SIGTERM, and a job cancelled before it starts never spawns. Overlong lines are dropped. Status commands stop at their deadline and cap. There is no stdin and no shell. No desktop code reads credential files or variables, and sign-in output (for example, an email address) never reaches IPC or logs. |
-| D6 | **Versions and the minimum model.** Each tested version's `--version` output parses to its full token. An untested version, including a prerelease, shows the warning and doesn't block. With `models.json` set, the connect row shows "Recommended: ‹model›" and Codex launches with exactly that `-m`; with `null` (development only), neither happens. *Release:* both entries are filled from the bench results before the beta. |
+| D6 | **Versions and the minimum model.** Each tested version's `--version` output parses to its full token. An untested version, including a prerelease, shows the warning and doesn't block. A connected agent offers only its bench-tested models, with the recommended one preselected. The choice is saved in `desktop.json`, and every job for that agent launches with it (`--model` or `-m`). A model that isn't on the list is refused. |
 | D7 | **One consent.** With `--desktop`, `save_track` stores a proposal and builds nothing. Only `installProposal` builds, and only when the digest matches; a proposal whose files changed after the learner saw them is refused. Approving a roadmap never builds. |
 | D8 | **Roadmap.** `get_roadmap` round-trips. Rename, add, move and remove keep ids. A move is refused when a topic would come before one it requires, and a remove is refused for a required topic or one used by an exercise, event or lesson. An uninstalled track gives `setup`. The track can change until the course has exercises, and the change cancels the old track's jobs and proposals. Adding a prerequisite to a stuck concept records `retry`. |
 | D9 | **Lessons.** Save, get and notes work, and writes are locked, atomic and versioned. `get_lesson` records nothing; only `mark_lesson_read` records a read. The `lesson` field on `practice` and `author` steps is `null`, the earliest unread id, or absent, as §4.3 says. Reopening a saved lesson or activity starts no agent process. |
@@ -436,9 +457,9 @@ Cut from 1.0 by the owner's scope ledger:
 - **Lessons:** running code examples in the sandbox (the lesson gate), predict questions, and learner edits of lesson text. Notes stay.
 - **Usage:** recording agent usage and showing cost per topic. Lesson caching stays (§4.3).
 - **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
-- **Review scheduling** and the prototype's review card, streaks and activity history.
+- The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
 - **Research sources:** storing and showing the agent's sources with the roadmap. The agent may still research before writing it.
-- **Progress:** streaming check and install progress. Jobs show `running`, `done` or `failed`.
+- **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.8).
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.
 - **Platforms:** Linux installers, Windows and Linux arm64, Colima, and Podman.
 - **Cursor** beyond experimental, and its stream parser.
@@ -456,10 +477,10 @@ Also deferred:
 |---|---|---|
 | O1 | Pass the agent the app's environment unchanged, or remove API-key variables so runs always use the signed-in plan | Unchanged. Removing variables breaks learners who use keys on purpose, and Codemm stays out of credentials. The connect line then says "Codemm uses your agent and your account." |
 | O5 | Default workspace folder | `~/Codemm`, changeable in settings. A switch moves nothing: the new folder gets its own `codemm.json`, learner files are re-created on demand, and tutor sessions start fresh. |
-| O6 | Add a model setting? | No for 1.0. The bench picks the Codex model (§3.3), and a failure shows "Check your agent". |
+| O6 | Model choice | Yes: a per-agent model choice of bench-tested models, with the recommended one preselected (§3.3). The owner reversed the earlier "no" on 18 Oct 2026. |
 | O7 | Keep the terminal path in 1.0, or make the app the only way in (§11) | Keep it for 1.0: it is built, tested and journey-verified (A9 to A16). Revisit after D17. |
 
-The owner accepted all four recommendations (the scope ledger, 17 Oct 2026). Also decided: O2 (the honest consent line, §4.1), O3 (macOS and Windows installers, Linux deferred), O4 (lessons before activities for everyone), O8 (decision 10) and O9 (decision 11).
+The owner accepted the recommendations for O1, O5 and O7 (the scope ledger, 17 Oct 2026). Also decided: O2 (the honest consent line, §4.1), O3 (macOS and Windows installers, Linux deferred), O4 (lessons before activities for everyone), O8 (decision 10) and O9 (decision 11).
 
 ## 14. Review log
 

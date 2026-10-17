@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gradeIo, gradeUnit, normalizeOutput, parseFrames } from "../src/grading.js";
+import { frameProgress, gradeIo, gradeUnit, normalizeOutput, parseFrames } from "../src/grading.js";
 
 describe("parseFrames", () => {
   it("reads length-framed records and ignores stray bytes", () => {
@@ -79,5 +79,31 @@ describe("gradeUnit", () => {
     const tests = gradeUnit("visible", raw, ["a"]);
     expect(tests).toHaveLength(1);
     expect(tests[0]).toMatchObject({ name: "visible/a", status: "error" });
+  });
+});
+
+describe("frameProgress", () => {
+  const frame = (kind: string, name: string, body: string) => `\n@@codemm ${kind} ${name} 0 ${Buffer.byteLength(body)}\n${body}`;
+  // A body that looks like a frame header must be skipped by length, never counted.
+  const bytes = Buffer.from(frame("build", "build", "") + frame("case", "01", "@@codemm case 99 0 1\nx") + frame("stderr", "01", "") + frame("big", "02", "") + frame("stderr", "02", "oops"));
+  const milestones = (chunks: Buffer[]) => {
+    const seen: ("built" | number)[] = [];
+    const feed = frameProgress((m) => seen.push(m));
+    for (const c of chunks) feed(c);
+    return seen;
+  };
+
+  it("reports the build, then each finished case, however the output is split", () => {
+    expect(milestones([bytes])).toEqual(["built", 1, 2]);
+    for (let at = 1; at < bytes.length; at++) expect(milestones([bytes.subarray(0, at), bytes.subarray(at)])).toEqual(["built", 1, 2]);
+    expect(milestones([...bytes].map((b) => Buffer.from([b])))).toEqual(["built", 1, 2]);
+  });
+
+  it("stays linear: 4 MB in 1 KB chunks", () => {
+    const big = Buffer.from(Array.from({ length: 400 }, (_, i) => frame("case", String(i), "y".repeat(10_000))).join(""));
+    const chunks = Array.from({ length: Math.ceil(big.length / 1024) }, (_, i) => big.subarray(i * 1024, (i + 1) * 1024));
+    const started = performance.now();
+    expect(milestones(chunks)).toHaveLength(400);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });

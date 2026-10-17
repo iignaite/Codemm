@@ -12,6 +12,25 @@ async function approved(options?: MockOptions) {
   return { api, roadmap };
 }
 
+describe('review on the topic page', () => {
+  it('labels a due review and opens it, and shows a review being written', async () => {
+    const { api } = await mockWithCourse({ read: true });
+    const real = (await api.course())!;
+    const withReview = (review: 'due' | 'writing') => async () => ({
+      ...real,
+      topics: real.topics.map((t) => (t.id === TOPIC ? { ...t, state: 'mastered' as const, review, activity: review === 'due' ? ('open' as const) : ('writing' as const) } : t)),
+    });
+    api.course = withReview('due');
+    const view = renderApp({ to: 'topic', topicId: TOPIC }, api);
+    expect(await screen.findByText('Review', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument();
+    view.unmount();
+    api.course = withReview('writing');
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    expect(await screen.findByRole('img', { name: 'Writing the review' })).toBeInTheDocument();
+  });
+});
+
 describe('topic page and setup consent', () => {
   it('asks once before setup, shows exactly what will be built, and sets up', async () => {
     const user = userEvent.setup();
@@ -141,6 +160,33 @@ describe('background work that stopped', () => {
   });
 });
 
+describe('stalled work beside a lesson', () => {
+  it('shows the banner on the lesson page, and Try again clears it', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse({ stalled: 'failed' });
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Codemm couldn't finish that.");
+    await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('keeps looking while the activity is being written, so a stall shows up while reading', async () => {
+    const options: MockOptions = {};
+    const { api } = await mockWithCourse(options);
+    const course = api.course;
+    api.course = async () => {
+      const c = (await course())!;
+      return { ...c, topics: c.topics.map((t) => (t.state === 'now' ? { ...t, activity: 'writing' as const } : t)) };
+    };
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+    await screen.findByRole('heading', { name: 'useState', level: 1 });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    options.stalled = 'failed';
+    expect(await screen.findByRole('alert')).toHaveTextContent("Codemm couldn't finish that.");
+  });
+});
+
 describe('lessons', () => {
   it('reads a static lesson, keeps a note, and moves on to the activity once both lessons are read', async () => {
     const user = userEvent.setup();
@@ -220,5 +266,17 @@ describe('lessons', () => {
     await screen.findByRole('heading', { name: 'What javascript basics is', level: 1 });
     await user.click(screen.getByRole('button', { name: 'useState' }));
     expect(await screen.findByText('Saved note')).toBeInTheDocument();
+  });
+});
+
+describe('the activity while the agent writes it', () => {
+  it('shows it being written, not locked, once every lesson is read', async () => {
+    const { api, course } = await mockWithCourse({ read: true });
+    // The real core reports `writing` for the current topic until the author job saves an exercise.
+    const writing = { ...course, topics: course.topics.map((t, i) => (i === 0 ? { ...t, activity: 'writing' as const } : t)) };
+    api.course = async () => writing;
+    renderApp({ to: 'topic', topicId: course.topics[0].id }, api);
+    expect(await screen.findByRole('img', { name: 'Writing the activity' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Opens after the lessons' })).not.toBeInTheDocument();
   });
 });

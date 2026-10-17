@@ -8,6 +8,7 @@ import {
   REPAIR,
   SIGNED_OUT,
   UNSTOPPABLE,
+  type CheckProgress,
   type CodemmApi,
   type Computer,
   type Concept,
@@ -16,7 +17,6 @@ import {
   type Roadmap,
   type SetupProblem,
 } from '../shared/api';
-import models from '../shared/models.json';
 import type { McpServer } from './agent/agents';
 import { briefsFrom, courseId } from './agent/briefs';
 import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type JobProblem } from './agent/jobs';
@@ -165,7 +165,7 @@ export function createLive(d: LiveDeps): Live {
       if (stop.signal.aborted || (lane === 'bg' && stalled)) return { ok: false, problem: 'failed', text: [] };
       // Nor does any job while an agent Codemm couldn't stop may still run (§3.1).
       if (unstoppable) return { ok: false, problem: 'unstoppable', text: [] };
-      const { id, exe } = await d.connect.chosen();
+      const { id, exe, model } = await d.connect.chosen();
       // Again after the lookup: another job may have found its agent unstoppable meanwhile.
       if (unstoppable) return { ok: false, problem: 'unstoppable', text: [] };
       if (stop.signal.aborted) return { ok: false, problem: 'failed', text: [] };
@@ -179,8 +179,8 @@ export function createLive(d: LiveDeps): Live {
         brief,
         server: (tools) => d.server(course, tools),
         cwd: ws,
-        // Codex jobs ignore the learner's config, so they run the recommended model (§3.3).
-        model: id === 'codex' ? (models.codex ?? undefined) : undefined,
+        // The learner's model choice, or the recommended one (O6), for every agent with choices.
+        model,
         resume,
         signal: stop.signal,
         done,
@@ -242,8 +242,8 @@ export function createLive(d: LiveDeps): Live {
 
   /**
    * Starts the background work the course needs: a setup proposal, the current topic's lesson and
-   * activity. Only Codemm's own steps call it, never a read, so reopening a lesson or an activity
-   * starts no agent (D9).
+   * activity. Codemm's own steps call it, so reopening a lesson or an activity starts no agent (D9).
+   * The one read that calls it is a course read that finds a review the clock made due (core §7).
    */
   function schedule() {
     try {
@@ -309,14 +309,22 @@ export function createLive(d: LiveDeps): Live {
   /** The saved activity for a concept, even when the next step recommends something else (stuck, §3.2). */
   function exerciseFor(concept: string, course: string): string | undefined {
     const next = core.progress(ws, course).next;
-    if (next.kind === 'practice' && next.concept === concept) return next.exercise;
+    if ((next.kind === 'practice' || next.kind === 'review') && next.concept === concept) return next.exercise;
     return core.listExercises(ws, course).filter((e) => e.concepts.includes(concept)).sort((a, b) => b.created.localeCompare(a.created))[0]?.exercise;
   }
 
   // Work the course still needs when the app starts.
   queueMicrotask(schedule);
 
+  // Check progress goes to whoever listens (main sends it to the app window). Only the phase and counts.
+  const progressListeners = new Set<(p: CheckProgress) => void>();
+  const progressOf = (run?: string) => ({ phase, done, total }: CheckProgress) => progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
+
   const api: Live = {
+    onCheckProgress(listener) {
+      progressListeners.add(listener);
+      return () => void progressListeners.delete(listener);
+    },
     async agents() {
       const agents = await d.connect.agents();
       log('agents', Object.fromEntries(agents.map((a) => [a.id, a.untested ? `${a.state}-untested` : a.state])));
@@ -330,6 +338,11 @@ export function createLive(d: LiveDeps): Live {
         stalled = undefined;
         schedule();
       }
+      return agent;
+    },
+    async chooseModel(id, model) {
+      const agent = await d.connect.chooseModel(id, model);
+      log('model', { agent: id, model });
       return agent;
     },
     async computer() {
@@ -386,6 +399,8 @@ export function createLive(d: LiveDeps): Live {
       const roadmap = roadmapOrNull();
       if (!roadmap || d.state.read().approved !== roadmap.course) return null;
       const progress = core.progress(ws, roadmap.course);
+      // The clock, not a learner action, made this review due, so nothing else would start its exercise (core §7).
+      if (progress.next.kind === 'author' && progress.next.review) schedule();
       const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
       const jobs = new Set([...running.keys()].map((k) => k.replace(`:${roadmap.course}`, '')));
       const view = courseView(progress, core.listLessons(ws, roadmap.course), state, jobs);
@@ -461,9 +476,9 @@ export function createLive(d: LiveDeps): Live {
       }
     },
 
-    async tryIt(activityId) {
+    async tryIt(activityId, run) {
       try {
-        return tryView(await whenDockerReady(() => core.testExercise(ws, activityId)));
+        return tryView(await whenDockerReady(() => core.testExercise(ws, activityId, undefined, progressOf(run))));
       } catch (e) {
         const reason = notCounted(e);
         if (reason) {
@@ -474,9 +489,9 @@ export function createLive(d: LiveDeps): Live {
       }
     },
 
-    async check(activityId) {
+    async check(activityId, run) {
       try {
-        const view = await whenDockerReady(() => core.checkExercise(ws, activityId));
+        const view = await whenDockerReady(() => core.checkExercise(ws, activityId, undefined, progressOf(run)));
         const concepts = core.listExercises(ws).find((e) => e.exercise === activityId)?.concepts ?? [];
         const state = core.progress(ws).concepts.find((c) => concepts.includes(c.id));
         // A graded check can move the course on: the next topic's lesson and activity.
@@ -534,8 +549,9 @@ export function createLive(d: LiveDeps): Live {
       await core.cleanupLeftovers().catch(() => undefined);
     },
   };
-  // Every call: a damaged record says so, with core's guidance.
+  // Every call: a damaged record says so, with core's guidance. (onCheckProgress subscribes; it isn't a call.)
   for (const name of Object.keys(api) as (keyof Live)[]) {
+    if (name === 'onCheckProgress') continue;
     const call = api[name] as (...args: unknown[]) => Promise<unknown>;
     (api as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => call.apply(api, args).catch((e: unknown) => Promise.reject(repairable(e)));
   }

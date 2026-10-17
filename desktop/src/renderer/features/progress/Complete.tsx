@@ -21,6 +21,13 @@ export function Complete({ course }: { course: CourseView }) {
             </li>
           ))}
         </ul>
+        {course.topics.some((t) => t.reviewIn) && (
+          <ul className="soon" style={{ listStyle: 'none', margin: 0, padding: 0 }} aria-label="Reviews">
+            {course.topics.filter((t) => t.reviewIn).map((t) => (
+              <li key={t.id}>{t.title}: {t.reviewIn === 1 ? 'Review tomorrow' : `Review in ${t.reviewIn} days`}</li>
+            ))}
+          </ul>
+        )}
         <Button size="lg" className="a-up" style={stagger(0, 1500)} onClick={() => go({ to: 'goal' })}>Learn something new</Button>
       </div>
     </main>

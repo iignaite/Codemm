@@ -28,6 +28,30 @@ case "$1" in
   image) echo "sha256:fake null" ;;
   events) if [ "$FAKE_DOCKER" = oom ]; then echo oom; fi ;;
   run)
+    # streams: a working io driver. One case frame per input in the mounted tests folder, a beat apart,
+    # so a test can watch progress arrive while the container is still running.
+    if [ "$FAKE_DOCKER" = streams ]; then
+      tests=""
+      build=""
+      for a in "$@"; do case "$a" in *target=/work/tests,*) tests="${a#*source=}"; tests="${tests%%,target=*}" ;; CODEMM_BUILD=*) build=1 ;; esac; done
+      if [ -n "$build" ]; then /bin/sleep 0.2; printf '\n@@codemm build build 0 0\n'; fi
+      found=""
+      for f in "$tests"/*.in; do
+        [ -e "$f" ] || continue
+        found=1
+        n="${f##*/}"; n="${n%.in}"
+        printf '\n@@codemm case %s 0 2\n0\n' "$n"
+        printf '\n@@codemm stderr %s 0 0\n' "$n"
+        /bin/sleep 0.2 # PATH holds only this fake in tests
+      done
+      # A unit set (no .in inputs): the runner reports once, at the end.
+      if [ -z "$found" ]; then
+        r='{"tests":[{"name":"t","status":"pass"}]}'
+        printf '\n@@codemm report report 0 %s\n%s' "${#r}" "$r"
+        printf '\n@@codemm log log 0 0\n'
+      fi
+      exit 0
+    fi
     # An outside kill can land after the driver already reported a case.
     case "$FAKE_DOCKER" in oom) exit 137 ;; killed) printf '\n@@codemm case 01 0 2\n3\n'; exit 137 ;; esac
     # One frame gets out, then the connection drops. With "stops" the daemon stays down.

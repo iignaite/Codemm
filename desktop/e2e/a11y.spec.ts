@@ -58,7 +58,7 @@ async function masterEverything(page: Page) {
       for (const l of now.lessons) await call('markRead', l.id);
       const { id, files } = await call('activity', now.id);
       await call('saveFile', id, files[0].path, 'count + 1', files[0].digest);
-      await call('check', id);
+      await call('check', id, 'e2e');
     }
   });
 }
@@ -90,6 +90,8 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await button(page, 'Connect an agent').click();
   await audit(page, 'connect');
   await page.getByRole('listitem', { name: 'Claude Code' }).getByRole('button', { name: 'Connect' }).click();
+  await expect(page.getByRole('combobox', { name: 'Model' })).toHaveValue('sonnet');
+  await audit(page, 'connect, connected, with the model choice');
   await button(page, 'Continue').click();
   await expect(page.getByText('This computer is ready.')).toBeVisible();
   await audit(page, 'check this computer');
@@ -259,7 +261,7 @@ test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', 
 });
 
 /** Presses Tab until the control named `name` has focus. Fails if it never does. */
-async function tabTo(page: Page, role: 'button' | 'textbox' | 'menuitem', name: string | RegExp) {
+async function tabTo(page: Page, role: 'button' | 'textbox' | 'menuitem' | 'combobox', name: string | RegExp) {
   const target = page.getByRole(role, { name, exact: typeof name === 'string' }).first();
   for (let i = 0; i < 120; i++) {
     // count() first: evaluate() on a missing element would wait forever.
@@ -287,6 +289,8 @@ test('the journey works with the keyboard alone', async () => {
   await press(page, 'Connect an agent');
   await press(page, 'Connect');
   await expect(page.getByRole('listitem', { name: 'Claude Code' }).getByText('Connected')).toBeVisible();
+  // The model choice is reachable by keyboard.
+  await tabTo(page, 'combobox', 'Model');
   await press(page, 'Continue');
   await expect(page.getByText('This computer is ready.')).toBeVisible();
   await press(page, 'Continue');

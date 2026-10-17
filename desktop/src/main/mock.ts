@@ -2,7 +2,7 @@
 // development (CODEMM_MOCK). Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner replaced the starter's
 // placeholder, and reports hidden results as statuses only.
-import {
+import { type CheckProgress,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
@@ -22,7 +22,7 @@ import {
   type TestView,
   type Track,
 } from '../shared/api';
-import models from '../shared/models.json';
+import { modelChoices, modelFor } from '../shared/models';
 import { addTopic } from '../shared/roadmap';
 
 type Docker = 'missing' | 'stopped' | 'starting' | 'windows-containers' | 'no-sandbox' | 'ready';
@@ -75,9 +75,9 @@ const DOCKER_DOWN: Record<Exclude<Docker, 'ready'>, string> = {
 };
 
 const AGENTS: Omit<Agent, 'state' | 'untested'>[] = [
-  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', recommended: models.claude, experimental: false },
-  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', recommended: models.codex, experimental: false },
-  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', recommended: models.cursor, experimental: true },
+  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', models: modelChoices('claude'), model: modelFor('claude'), experimental: false },
+  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', models: modelChoices('codex'), model: modelFor('codex'), experimental: false },
+  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', models: modelChoices('cursor'), model: modelFor('cursor'), experimental: true },
 ];
 
 const TOPICS: [string, string[]][] = [
@@ -249,6 +249,12 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     unlock(now.id);
   }
 
+  // Progress as a real check reports it: each test, as counts only.
+  const progressListeners = new Set<(p: CheckProgress) => void>();
+  const progress = (run: string | undefined, phase: CheckProgress['phase'], total: number) => {
+    for (let done = 0; done <= total; done++) progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
+  };
+
   return {
     async agents() {
       return agents.map((a) => ({
@@ -256,6 +262,18 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         state: a.state === 'connected' && options.agentProblem === 'signed-out' ? 'signed-out' : a.state,
         untested: Boolean(options.untested) && a.state !== 'missing',
       }));
+    },
+
+    onCheckProgress(listener) {
+      progressListeners.add(listener);
+      return () => void progressListeners.delete(listener);
+    },
+
+    async chooseModel(id, model) {
+      const agent = agents.find((a) => a.id === id)!;
+      if (!agent.models.some((m) => m.id === model)) throw new Error(`${model} isn't a tested model for ${agent.name}.`);
+      agent.model = model;
+      return { ...agent, untested: Boolean(options.untested) && agent.state !== 'missing' };
     },
 
     // Connecting runs the agent's sign-in check. Passing it also ends a
@@ -376,9 +394,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       return file.digest;
     },
 
-    async tryIt(activityId) {
+    async tryIt(activityId, run) {
       const { activity } = find(activities, activityId);
       if (docker() !== 'ready') return notCounted();
+      progress(run, 'visible', activity.visibleTests.length);
       const done = !activity.files[0].text.includes(PLACEHOLDER);
       const tests: TestView[] = activity.visibleTests.map((t, i) => ({
         hidden: false,
@@ -389,10 +408,12 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       return { kind: 'ran', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests };
     },
 
-    async check(activityId): Promise<CheckResult> {
+    async check(activityId, run): Promise<CheckResult> {
       const record = find(activities, activityId);
       if (docker() !== 'ready') return notCounted();
       if (++checks === 1) happen('check');
+      progress(run, 'visible', 2);
+      progress(run, 'hidden', 0);
       deferred.delete(record.activity.concept);
       const text = record.activity.files[0].text;
       const done = !text.includes(PLACEHOLDER);

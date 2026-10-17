@@ -33,6 +33,10 @@ export function fakeCore() {
     /** The concept core says the learner is stuck on. */
     stuck: undefined as string | undefined,
     current: undefined as string | undefined,
+    /** A mastered concept due for review, on this exercise (core §7). */
+    review: undefined as undefined | { concept: string; exercise: string },
+    /** A mastered concept due for review with no unused exercise: core asks for one (author, review: true). */
+    reviewWithout: undefined as string | undefined,
     install: async (_ref: string, _digest: string): Promise<unknown> => {
       c.tracks.push('react@1');
       return {};
@@ -43,6 +47,8 @@ export function fakeCore() {
   const next = (): CoreNextStep => {
     const r = c.roadmap!;
     if (!c.tracks.includes(r.track)) return { kind: 'setup', track: r.track };
+    if (c.review) return { kind: 'review', concept: c.review.concept, difficulty: c.wanted, exercise: c.review.exercise };
+    if (c.reviewWithout) return { kind: 'author', concept: c.reviewWithout, difficulty: c.wanted, review: true };
     const concept = r.concepts.find((x) => !c.mastered.has(x.id) && x.requires.every((q) => c.mastered.has(q)));
     if (!concept) return { kind: 'done' };
     if (c.stuck === concept.id) return { kind: 'stuck', concept: concept.id };
@@ -91,12 +97,15 @@ export function fakeCore() {
       c.current = slug;
       return { course: c.roadmap!.course, exercise: slug!, path: '/Users/me/Codemm/exercises/x', style: 'io', concepts: [c.exercises.get(slug!)!.concept], difficulty: 1, files: ['main.c'], statement: '# Count up\n\nPrint one.', visibleTests: [{ name: 'prints one', input: '', expected: '1' }] };
     },
-    testExercise: async (_ws, slug) => {
+    testExercise: async (_ws, slug, _bound, onProgress) => {
       if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
+      onProgress?.({ phase: 'visible', done: 1, total: 1 });
       return view(slug!, 1, false);
     },
-    checkExercise: async (_ws, slug) => {
+    checkExercise: async (_ws, slug, _bound, onProgress) => {
       if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
+      onProgress?.({ phase: 'visible', done: 1, total: 1 });
+      onProgress?.({ phase: 'hidden', done: 1, total: 2 });
       c.checks.push(slug!);
       const done = c.exercises.get(slug!)!.file.includes('count + 1');
       if (done) c.mastered.add(c.exercises.get(slug!)!.concept);

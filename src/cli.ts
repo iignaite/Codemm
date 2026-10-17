@@ -67,8 +67,9 @@ function describeStep(step: app.NextStep): string {
   switch (step.kind) {
     case "setup": return `Ask your agent to set up ${step.track}.`;
     case "practice": return `Practice "${step.exercise}" (${step.concept}, difficulty ${step.difficulty}).`;
-    case "author": return `Ask your agent for a new ${step.concept} exercise (difficulty ${step.difficulty}).`;
+    case "author": return `Ask your agent for a new ${step.concept} ${step.review ? "review " : ""}exercise (difficulty ${step.difficulty}).`;
     case "stuck": return `You're stuck on ${step.concept}. Ask your agent to re-teach it.`;
+    case "review": return `Review ${step.concept}: check "${step.exercise}" to keep it.`;
     case "done": return "Every concept is mastered.";
   }
 }
