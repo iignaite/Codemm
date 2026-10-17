@@ -1,4 +1,0 @@
-{"ms":7192,"type":"session","id":"1c5600bb-6823-403d-a01e-30b1e060a1b8"}
-{"ms":8786,"type":"tool_call","id":"toolu_01EiYv4LRfW2XUX5f9Vjh6xp","name":"codemm.list_tracks"}
-{"ms":11231,"code":143,"cancelled":true,"stopped":true}
-{"leftoverProcesses":0}

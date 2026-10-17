@@ -1,13 +1,13 @@
 # Codemm beta plan
 
-A private beta with 5 to 10 learners, one course each, runs before the public 1.0 (DESIGN §1, D28). It checks whether real learners can go from installing the app to passing activities on their own, with their own agent.
+A private beta with 5 to 10 learners, one course each, runs before the public 1.0 (DESIGN §1, D20). It checks whether real learners can go from installing the app to passing activities on their own, with their own agent.
 
 ## Who
 
 5 to 10 self-learners, selected so that the group includes:
 
 - each verified agent (Claude Code and Codex), and Cursor if it is verified by then;
-- macOS, plus Windows and Linux if O3 makes them supported;
+- macOS (Apple Silicon and Intel) and Windows;
 - a mix of complete beginners and people learning a second language or framework.
 
 **Screening form.** The form opens with how the answers are handled: only the owner reads them; they're used only to choose participants; people not chosen have their answers deleted within 30 days; and the contact address for access or deletion is the owner's, given on the form.
@@ -27,7 +27,7 @@ A private beta with 5 to 10 learners, one course each, runs before the public 1.
 Each participant agrees in writing to a plain-language form before installing. The form says:
 
 - **Codemm collects nothing automatically.** It has no telemetry. We learn only from what you tell us and from what you choose to share.
-- **What you may share:** your survey answers; notes from our calls; and, if you choose, your usage figures (DESIGN §3.4) and your course progress. You can review anything before sending it.
+- **What you may share:** your survey answers; notes from our calls; and, if you choose, your course progress. You can review anything before sending it.
 - **Recordings** of calls need a separate yes, and you can withdraw that yes at any time.
 - **Costs.** Codemm uses your own agent and your own plan or account. Lessons and activities use some of it.
 - **The builds are unsigned test builds.** Opening them needs an extra step on macOS and Windows, which we show you.
@@ -52,7 +52,7 @@ We send a one-page guide covering:
 | T2 | Connect your agent | the app turns to color |
 | T3 | Start learning something new: pick a goal, change one topic in the roadmap, and approve the setup | the first lesson opens |
 | T4 | Finish one topic: read its lessons and pass its activity | the topic shows as mastered, or the activity passes |
-| T5 | Optional: when you're stuck, use one of the help options | you used Reread, Try an easier one, or Let Codemm edit |
+| T5 | Optional: when you're stuck, use one of the help options | you used Reread the lesson, Try an easier one, or Come back later |
 | T6 | Come back at least a day later and continue | you pick up where you left off |
 
 **Schedule:**
@@ -69,10 +69,10 @@ We send a one-page guide covering:
 - **Whether a check was ever counted wrongly**: an infrastructure problem recorded as an attempt, or the reverse.
 - **Whether the agent ever showed** a solution, a hidden test or anything held back by the reply filter. Any case is a blocker.
 - **Lost work**: edits that disappeared, or files overwritten.
-- **Usage per topic** (DESIGN §3.4), and whether it felt acceptable.
+- **How much of their agent plan** a topic seemed to use, and whether that felt acceptable (they tell us; Codemm doesn't measure it).
 - **Accessibility**: keyboard use, reduced motion, readability.
 
-## Exit criteria (D28)
+## Exit criteria (D20)
 
 During the beta, every leak, lost work or wrongly counted check is fixed with a regression test. Before the public 1.0 comes a final validation window: a release candidate used by at least 3 beta learners for at least 3 days. Then all of these must hold:
 

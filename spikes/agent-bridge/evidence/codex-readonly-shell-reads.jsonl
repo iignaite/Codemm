@@ -1,1 +1,0 @@
-{"type":"command_execution","command":"/bin/zsh -lc 'cat <tmp>/iso/home/secret.txt'","exit_code":0,"output":"CANARY-7731\n"}

@@ -9,8 +9,8 @@ The code is in [`spikes/agent-bridge/`](../../spikes/agent-bridge/):
 - `agents.mjs` holds the per-agent launch arguments, stream parsers and sign-in checks.
 - `bridge.mjs` handles spawn, line streaming, cancellation and sign-in.
 - `spike.mjs` drives real runs.
-- `evidence/` holds the event logs from the runs below.
-- 19 unit tests run on recorded fixtures and fake agents: `node --test spikes/agent-bridge/*.test.mjs`. They double as contract tests for the stream formats (DESIGN §3.3).
+- `fixtures/` holds the recorded streams the contract tests parse. The run logs behind the results below were removed to keep the repo small; the tables keep their results.
+- 18 unit tests run on recorded fixtures and fake agents: `node --test spikes/agent-bridge/*.test.mjs`. They double as contract tests for the stream formats (DESIGN §3.3).
 
 ## Setup
 
@@ -32,14 +32,14 @@ The code is in [`spikes/agent-bridge/`](../../spikes/agent-bridge/):
 | Check | Claude Code | Codex | Cursor |
 |---|---|---|---|
 | Headless start with the Codemm MCP server | yes: `--mcp-config <json string> --strict-mcp-config --tools ""`; init reports `codemm` as `connected` | yes: `-c mcp_servers.codemm.*` overrides, with only the job's tools in `enabled_tools` | not run: no `--mcp-config` flag; it reads `<ws>/.cursor/mcp.json` and needs the server approved |
-| Stream parsed into events | yes (`claude-1.jsonl`) | yes (`codex-1.jsonl`) | not verified |
+| Stream parsed into events | yes | yes | not verified |
 | Codemm tool calls | `list_tracks` succeeded; `progress` gave the expected "no course" error and was reported as an error | same | not verified |
 | Follow-up turn (resume) | yes, `--resume <session_id>` in the same folder | yes, `codex exec resume <thread_id>` in the same folder | not verified |
 | Cancellation | process group killed, exit 143, no leftover processes | process group killed, exit 0, no leftover processes | not verified |
-| Isolation (canary file outside the workspace) | only Codemm tools exist; canary not read (`claude-isolation.jsonl`) | not confined: the read-only sandbox lets the shell read the canary (`codex-readonly-shell-reads.jsonl`); with the shell off it wasn't read, but code mode remains (`codex-isolation.jsonl`) | not verified |
+| Isolation (canary file outside the workspace) | only Codemm tools exist; canary not read | not confined: the read-only sandbox lets the shell read the canary; with the shell off it wasn't read, but code mode remains | not verified |
 | Sign-in detection | `claude auth status --json`, field `loggedIn` | `codex login status`, exit 0 and "Logged in using ChatGPT" | `cursor-agent status` prints "Not logged in" with exit 0. A headless run exits 1 with "Authentication required". |
 
-Timings come from the final runs in `evidence/`, one run each, so they are indicative only:
+Timings come from the final runs, one each, so they are indicative only:
 
 | Run | Claude Code | Codex |
 |---|---|---|
@@ -57,7 +57,7 @@ Timings come from the final runs in `evidence/`, one run each, so they are indic
 6. **The agent's own config can break headless runs.** The owner's Codex default model (`gpt-6.1-sol`) was rejected for a ChatGPT sign-in (`turn.failed`, fixture `codex-model-rejected.jsonl`). The app must show this as "Codemm couldn't finish that" with a way to the connect screen. Open decision O6 covers whether to add a model setting.
 7. **Isolation differs by agent.** Each agent was asked to list its tools and quote a canary file outside the workspace.
    - **Claude Code** with `--tools ""` reported only the eight Codemm tools and couldn't read the file. Built-in tools, user settings and permissive allow rules no longer matter. The server-side `--tools` filter (DESIGN §4.8) then narrows the Codemm tools to the job's own.
-   - **Codex: read-only doesn't mean no reads.** With the shell on and `sandbox_mode="read-only"`, `cat` of the canary succeeded with exit 0 (`codex-readonly-shell-reads.jsonl`). The shell features must be off.
+   - **Codex: read-only doesn't mean no reads.** With the shell on and `sandbox_mode="read-only"`, `cat` of the canary succeeded with exit 0. The shell features must be off.
    - **Codex: user config adds tools.** With the shell off, the owner's own computer-use MCP server (`cua_repl`, from their Codex config) still loaded, even with `computer_use` disabled. `--ignore-user-config` removed it, and sign-in still worked.
    - **Codex: code mode can't go.** With `code_mode_host` disabled, `functions.exec` and `view_image` failed closed, but the Codemm tools vanished too, because Codex calls MCP tools through code mode. With code mode on and the model asked to read the canary through `functions.exec`, it declined to make the call. Whether code mode can read files is therefore unproven.
    - **Codex: what remains.** Under the final flags (`--ignore-user-config`, shell, unified exec, browser, computer use, apps and `multi_agent` off, read-only sandbox, `enabled_tools`), what's left is code mode, `request_user_input`, a clock, and collaboration tools whose subagents are off. No run read the canary, but Codex isn't proven confined (DESIGN O8).
@@ -71,7 +71,7 @@ Timings come from the final runs in `evidence/`, one run each, so they are indic
 - Headless mode: `cursor-agent -p --output-format stream-json`, `--approve-mcps` for MCP servers, `--mode ask` for read-only, `--resume [chatId]`, `--workspace <path>`.
 - MCP servers come only from `.cursor/mcp.json` (project or home), so the app must write `<ws>/.cursor/mcp.json`. `cursor-agent mcp list-tools codemm` refused with "has not been approved".
 - The spike didn't run `cursor-agent mcp enable`, because it changes the owner's Cursor settings.
-- To verify: sign in, then run the same five checks and record a fixture for the parser (DESIGN D16).
+- To verify: sign in, then run the same five checks and record a fixture for the parser (DESIGN D19).
 12. **Codex has a web tool by default** (`web__run` in its tool list), which the research job can use. The spike didn't exercise web search for either agent.
-13. **Usage comes from the final event.** Claude Code's `result` event carries `total_cost_usd`, an API-equivalent estimate: $0.024 for a two-tool-call turn on Haiku, even on a plan. Codex's `turn.completed` carries `input_tokens`, `cached_input_tokens` and `output_tokens`: 55,885, 36,736 and 126 for the same turn (`claude-1.jsonl`, `codex-1.jsonl`). Neither reports plan spend. The parser keeps only well-formed numbers, on failed results too (`error_max_turns` can carry a cost). A resumed Claude Code session reports a running total, so the app records the difference per run (DESIGN §3.4).
+13. **Usage comes from the final event.** Claude Code's `result` event carries `total_cost_usd`, an API-equivalent estimate: $0.024 for a two-tool-call turn on Haiku, even on a plan. Codex's `turn.completed` carries token counts. Neither reports plan spend. A usage display is deferred (DESIGN §12), so the spike no longer parses these fields.
 14. **Versions parse from `--version`.** The outputs are `2.1.283 (Claude Code)`, `codex-cli 0.156.1` and `2026.01.23-916f423` (Cursor). The parser keeps the whole version token, so a prerelease such as `0.156.1-alpha.1` doesn't match a tested `0.156.1`. `spike.mjs status` flags any version that isn't in `TESTED` (DESIGN §3.3).

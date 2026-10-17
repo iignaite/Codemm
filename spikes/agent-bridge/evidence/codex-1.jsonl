@@ -1,8 +1,0 @@
-{"ms":1689,"type":"session","id":"01a14a5c-7606-70b0-8e4e-c24b093b0686"}
-{"ms":7779,"type":"tool_call","id":"item_0","name":"codemm.list_tracks"}
-{"ms":7787,"type":"tool_result","id":"item_0","error":false}
-{"ms":7792,"type":"tool_call","id":"item_1","name":"codemm.progress"}
-{"ms":7795,"type":"tool_result","id":"item_1","error":true}
-{"ms":9988,"type":"text","text":"`list_tracks` returned no tracks; `progress` said there’s no course in this workspace yet and suggested planning a roadmap."}
-{"ms":10028,"type":"done","ok":true,"usage":{"inputTokens":55885,"cachedInputTokens":36736,"outputTokens":126}}
-{"ms":10801,"code":0,"cancelled":false}

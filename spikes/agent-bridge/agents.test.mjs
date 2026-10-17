@@ -16,15 +16,13 @@ test("claude: a recorded run becomes session, tool, text and done events", () =>
     { type: "tool_call", id: "toolu_01NfoeX7ahYrG2GZ1kmsnnnP", name: "codemm.list_tracks" },
     { type: "tool_result", id: "toolu_01NfoeX7ahYrG2GZ1kmsnnnP", error: false },
     { type: "text", text: "0" },
-    { type: "done", ok: true, usage: { costUsd: 0.034289 } },
+    { type: "done", ok: true },
   ]);
 });
 
-test("claude: a failed result is done with ok false, keeping any reported usage", () => {
+test("claude: a failed result is done with ok false", () => {
   const line = JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true, result: "boom" });
   assert.deepEqual(agents.claude.parse(line), [{ type: "done", ok: false, error: "boom" }]);
-  const maxTurns = JSON.stringify({ type: "result", subtype: "error_max_turns", is_error: true, total_cost_usd: 0.25 });
-  assert.deepEqual(agents.claude.parse(maxTurns), [{ type: "done", ok: false, error: "error_max_turns", usage: { costUsd: 0.25 } }]);
 });
 
 test("codex: a recorded run becomes session, tool, text and done events", () => {
@@ -34,7 +32,7 @@ test("codex: a recorded run becomes session, tool, text and done events", () => 
     { type: "tool_call", id: "item_1", name: "codemm.list_tracks" },
     { type: "tool_result", id: "item_1", error: false },
     { type: "text", text: "0" },
-    { type: "done", ok: true, usage: { inputTokens: 65870, cachedInputTokens: 43392, outputTokens: 100 } },
+    { type: "done", ok: true },
   ]);
 });
 
@@ -118,11 +116,6 @@ test("sign-in: each agent's own status command is read for a yes or no only", ()
   assert.deepEqual(agents.cursor.signIn.args, ["status"]);
   assert.equal(agents.cursor.signIn.read({ code: 0, output: "\u001b[2K Not logged in\n" }), false);
   assert.equal(agents.cursor.signIn.read({ code: 0, output: "Logged in as someone\n" }), true);
-});
-
-test("usage is reported only from well-formed numbers", () => {
-  assert.deepEqual(agents.claude.parse('{"type":"result","subtype":"success","is_error":false,"total_cost_usd":"0.03"}'), [{ type: "done", ok: true }]);
-  assert.deepEqual(agents.codex.parse('{"type":"turn.completed","usage":{"input_tokens":"lots"}}'), [{ type: "done", ok: true }]);
 });
 
 test("versions: each agent's --version output is read, and untested versions are flagged", () => {
