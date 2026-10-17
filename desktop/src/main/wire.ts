@@ -12,6 +12,7 @@ import { connector } from './connect';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
 import type { Log } from './log';
+import { codemmServer } from './server';
 import { desktopState, workspaceOf } from './state';
 
 const RUNTIME_INFO = ['info', '--format', '{{.ServerVersion}}|{{.OSType}}'];
@@ -64,11 +65,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     runtime,
     log,
     dockerReady: () => waitWhileStarting(computer, () => new Promise((r) => setTimeout(r, 3000))),
-    server: (course, tools) => ({
-      command: runtime,
-      args: [join(coreDir, 'dist', 'cli.mjs'), 'mcp', '--workspace', ws, ...(course ? ['--course', course] : []), '--tools', tools.join(','), '--desktop'],
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-    }),
+    server: codemmServer({ runtime, coreDir, ws, env: process.env }),
   });
 }
 
