@@ -1,63 +1,44 @@
-# Security Notes (Codemm-Desktop)
+# Security
 
-## Threat Model (Practical)
+Codemm runs code that an AI agent wrote and code that a learner wrote. This page says what Codemm protects, how, and where it stops.
 
-- Renderer is untrusted content relative to the OS.
-- Codemm runs/grades untrusted user code; **Docker is the sandbox boundary**.
-- The Electron app must not become a path to local code execution outside Docker.
+## What Codemm protects
 
-## Electron Hardening Checklist
+**Your machine.** Agent-written and learner code runs only in containers, started by one function (`src/sandbox.ts`) with the same isolation every time:
 
-- BrowserWindow:
-  - `nodeIntegration: false`
-  - `contextIsolation: true`
-  - no `remote` module
-- Navigation control:
-  - only load the local frontend URL
-  - block unexpected navigations/new windows
-  - mitigate localhost port hijacking by verifying the frontend health token before loading
-- IPC:
-  - use `preload` with minimal surface area
-  - validate all inputs
-  - do not expose filesystem/network primitives directly to the renderer
+| Setting | Why |
+|---|---|
+| `--network none` | No network access while checking |
+| `--read-only`, plus a 256 MB `/tmp` tmpfs (`nosuid`, `nodev`) | Nothing else in the container is writable |
+| Inputs bind-mounted read-only | Code can't change the files it's graded on |
+| `--memory` (equal swap, at most 2 GB), `--cpus 2`, `--pids-limit 256` | Memory balloons, CPU hogs and fork bombs stay contained |
+| `--security-opt no-new-privileges`, `--cap-drop ALL`, your own uid | No root and no Linux capabilities |
+| `--entrypoint /bin/sh`, `--no-healthcheck` | The image can't hijack how Codemm runs it |
+| `--log-opt max-size=1m`, a 4 MB stream cap, 64 KB per case | Output can't fill your disk or memory |
+| `timeout -s KILL` per case, a host deadline per set, labelled containers | Hung code is killed and cleaned up |
 
-## Secrets
+`codemm doctor` proves the network is blocked. It first checks that an ordinary container can reach a test server on your machine, then that the sandbox can't.
 
-- Avoid storing provider API keys in the renderer.
-- Current: Electron main stores keys locally using `safeStorage` and exposes only a minimal preload bridge.
-- Target: OS keychain integration (macOS Keychain) with per-workspace overrides.
+**Hidden tests from your agent's tools.** Hidden inputs, expected outputs and test names never appear in tool output, CLI output or gate diagnostics. Hidden results show an index and a status only, and visible tests run in a separate container that can't read hidden ones.
 
-Local model option:
+**Your files.** Author input is limited to 256 files and 1 MB, with relative paths only and no symlinks, FIFOs or devices. Codemm writes its own data atomically. In your workspace it only creates missing files, never overwrites your edits, and refuses to write through symlinks.
 
-- Ollama runs on localhost and requires no API key, but it is still a local network boundary.
-- Codemm only calls the Ollama endpoint from the engine process (renderer does not receive model credentials).
+## Trust boundaries
 
-## Docker Boundary
+- **Installing a track runs agent-written code with network access.** That's the Dockerfile build, much like running `npm install` from someone else's project.
+  - **The trust point** is you approving the `save_track` call in your agent, or running `codemm track add` yourself. `codemm init` never pre-approves it.
+  - **The build** gets only the track's own files: no secrets, SSH agent or Docker socket.
+  - **Time limit:** 10 minutes.
+  - **Not limited:** build CPU, memory and disk use.
+- **Codemm never handles credentials.** It doesn't call models; your agent does, on your own plan.
 
-- All compilation/execution/judging remains in Docker.
-- The app should never run submitted code directly via `child_process` outside Docker.
-- Docker is invoked via `spawn()` with argument arrays (no shell command strings) to reduce injection surface and improve cross-platform behavior.
+## Known limitations
 
-Sandbox flags (injected for every container at the single `runDocker` choke point — see `apps/backend/src/judge/docker.ts`):
+- **Grading is on the honor system.** Code inside the sandbox runs as the same user as Codemm's driver script, so it can read the tests mounted for its own set and could write forged result frames. This doesn't weaken host isolation. Tamper-proof grading would need a separate trusted grader; Codemm 1.0 is for self-learners.
+- **The practice hook is advisory.** It blocks Claude Code's edit tools only, not edits made through shell commands, and Codex and Cursor have no hook yet.
+- **Symlink race.** Node has no directory-anchored, no-follow traversal. Codemm checks ancestors with `realpath` and writes with `O_NOFOLLOW` and `O_EXCL`. A local process that swaps a parent folder for a symlink in the instant between check and write could redirect one write, but it already has your permissions.
+- **Build resource use isn't limited** (see above).
 
-- `--network none` and a read-only root filesystem, with scratch confined to a size-capped `mode=1777` tmpfs.
-- Resource limits: `--pids-limit 256`, `--memory 1g` (swap capped equal), `--cpus 2` — verified to contain a fork bomb on a live judge.
-- `--security-opt no-new-privileges` everywhere.
-- On POSIX hosts, untrusted code runs as the invoking user (`--user uid:gid`) with **every Linux capability dropped** (`--cap-drop ALL`); matching the host uid keeps the 0700 bind-mounted workspaces readable and Java's read-write compile mount writable. Windows has no uid mapping, so containers there keep the image default user plus the flags above.
-- Wall-clock timeouts and output-size kills apply on top (`spawnCapture`).
+## Reporting a problem
 
-## Localhost Port Hijacking (Transitional)
-
-Codemm-Desktop currently serves the renderer UI from a local Next.js server (127.0.0.1).
-
-Threat:
-
-- If the IDE loads an unexpected page (wrong port, hijacked port, unrelated local service), that page would still be running inside the Electron renderer and could call the preload bridge.
-
-Mitigation (current):
-
-- Electron main verifies it is talking to the frontend server it started by polling `GET /codemm/health` and checking an ephemeral token set via `CODEMM_FRONTEND_TOKEN`.
-
-Target (final):
-
-- Remove localhost serving entirely (embed assets via custom protocol / file-based loading).
+Please report security issues privately to the maintainers of `iignaite/Codemm` rather than in a public issue.
