@@ -1,4 +1,7 @@
 import { _electron as electron, expect, test } from '@playwright/test';
+import { mkdtempSync, readFileSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // Launches the built app with the mock (CODEMM_MOCK) and walks the main journey.
 test('connect, computer check, goal, course, lesson and practice', async () => {
@@ -124,4 +127,15 @@ test('errors cross IPC as their own message', async () => {
   });
   expect(messages).toEqual(['Unknown call', 'Bad input']);
   await app.close();
+});
+
+// A separate profile (--user-data-dir) keeps its log too, so runs with one never write to the learner's log.
+test('logs live under a given user-data-dir', async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-profile-')));
+  const app = await electron.launch({ args: ['.', `--user-data-dir=${dir}`], env: { ...process.env, CODEMM_MOCK: '' } });
+  const page = await app.firstWindow();
+  await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
+  expect(await app.evaluate(({ app: a }) => a.getPath('logs'))).toBe(join(dir, 'logs'));
+  await app.close();
+  expect(readFileSync(join(dir, 'logs', 'codemm.log'), 'utf8')).toContain(' start ');
 });

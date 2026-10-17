@@ -160,6 +160,33 @@ describe('background work that stopped', () => {
   });
 });
 
+describe('stalled work beside a lesson', () => {
+  it('shows the banner on the lesson page, and Try again clears it', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse({ stalled: 'failed' });
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Codemm couldn't finish that.");
+    await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('keeps looking while the activity is being written, so a stall shows up while reading', async () => {
+    const options: MockOptions = {};
+    const { api } = await mockWithCourse(options);
+    const course = api.course;
+    api.course = async () => {
+      const c = (await course())!;
+      return { ...c, topics: c.topics.map((t) => (t.state === 'now' ? { ...t, activity: 'writing' as const } : t)) };
+    };
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+    await screen.findByRole('heading', { name: 'useState', level: 1 });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    options.stalled = 'failed';
+    expect(await screen.findByRole('alert')).toHaveTextContent("Codemm couldn't finish that.");
+  });
+});
+
 describe('lessons', () => {
   it('reads a static lesson, keeps a note, and moves on to the activity once both lessons are read', async () => {
     const user = userEvent.setup();

@@ -19,6 +19,8 @@ const appWindows = new Set<WebContents>();
 // The real core and the learner's agent. In development only, CODEMM_MOCK=<scenario>
 // runs the in-memory mock instead, to click through environment states (mock.ts).
 // ~/Library/Logs/Codemm on macOS, %APPDATA%\Codemm\logs on Windows (HANDOFF.md).
+// A separate profile (--user-data-dir) keeps its own log, so runs with one never write to the learner's.
+if (app.commandLine.hasSwitch('user-data-dir')) app.setAppLogsPath(join(app.getPath('userData'), 'logs'));
 const log = createLog(app.getPath('logs'));
 log('start', { version: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged });
 process.on('uncaughtExceptionMonitor', (e) => log('error', { where: 'main', ...errorFields(e) }));
