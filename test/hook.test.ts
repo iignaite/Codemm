@@ -1,4 +1,4 @@
-import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -38,6 +38,16 @@ describe("claudeHook", () => {
     symlinkSync(ws, alias);
     expect(claudeHook(ws, input("Edit", join(alias, "exercises/c/sum/main.c"))).exit).toBe(2);
     expect(claudeHook(alias, input("Edit", join(ws, "exercises/c/sum/main.c"))).exit).toBe(2);
+  });
+
+  it("sees through other spellings of the same folder (case on macOS and Windows, short names on Windows)", () => {
+    mkdirSync(join(ws, "exercises", "c"), { recursive: true });
+    const native = realpathSync.native(ws);
+    expect(claudeHook(ws, input("Edit", join(native, "exercises/c/sum/main.c"))).exit).toBe(2);
+    expect(claudeHook(native, input("Edit", join(ws, "exercises/c/sum/main.c"))).exit).toBe(2);
+    // Only where the disk is case-insensitive is EXERCISES the same folder.
+    if (existsSync(join(ws, "EXERCISES"))) expect(claudeHook(ws, input("Edit", join(ws, "EXERCISES/C/sum/main.c"))).exit).toBe(2);
+    else expect(claudeHook(ws, input("Edit", join(ws, "EXERCISES/C/sum/main.c"))).exit).toBe(0);
   });
 
   it("treats names that start with dots as ordinary names, not as a step out", () => {

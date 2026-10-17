@@ -55,7 +55,8 @@ describe("readFileMap", () => {
     expect(readFileMap(dir)).toEqual({ "README.md": "hi", "solution/main.c": "x" });
   });
 
-  it("refuses FIFOs and other special files without reading them", () => {
+  // Windows has no FIFOs (Git for Windows' mkfifo makes a plain file).
+  it.skipIf(process.platform === "win32")("refuses FIFOs and other special files without reading them", () => {
     const dir = mkdtempSync(join(tmpdir(), "codemm-files-"));
     execFileSync("mkfifo", [join(dir, "pipe")]);
     expect(() => readFileMap(dir)).toThrow(/regular file/i);

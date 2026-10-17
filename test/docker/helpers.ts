@@ -2,13 +2,17 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type FileMap, readFileMap, subMap } from "../../src/files.js";
-import { buildImage } from "../../src/sandbox.js";
+import { buildImage, RUNTIME_INFO, runtimeProblem } from "../../src/sandbox.js";
 import { parseTrackYaml } from "../../src/schemas.js";
 
 export const FIXTURES = join(import.meta.dirname, "..", "fixtures");
 
-/** Docker tests run when a runtime is up. CI sets CODEMM_REQUIRE_DOCKER=1 so they can never be skipped there. */
-export const dockerUp = spawnSync(process.env.CODEMM_CONTAINER_CLI ?? "docker", ["info"], { stdio: "ignore" }).status === 0;
+/**
+ * Docker tests run when a runtime that runs Linux containers is up (GitHub's Windows runners have
+ * Docker with Windows containers only). CI sets CODEMM_REQUIRE_DOCKER=1 so they can never be skipped there.
+ */
+const info = spawnSync(process.env.CODEMM_CONTAINER_CLI ?? "docker", RUNTIME_INFO, { encoding: "utf8" });
+export const dockerUp = runtimeProblem({ exit: info.status ?? -1, output: `${info.stdout}${info.stderr}` }) === undefined;
 if (!dockerUp && process.env.CODEMM_REQUIRE_DOCKER === "1") throw new Error("CODEMM_REQUIRE_DOCKER=1 but no container runtime is running.");
 
 export function fixtureTrack(name: string) {
