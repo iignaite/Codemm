@@ -30,8 +30,11 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
     let agentState: Agent['state'] = 'missing';
     if (exe) {
       if (!versions.has(id)) versions.set(id, await lookup.version(id, exe));
+      const chosen = state.read().agent === id;
+      // The agent chosen before: check its sign-in once this launch, so a relaunch doesn't ask to connect again.
+      if (chosen && !signedIn.has(id)) signedIn.set(id, await lookup.signedIn(id, exe));
       const known = signedIn.get(id);
-      agentState = known === false ? 'signed-out' : state.read().agent === id && known ? 'connected' : 'not-connected';
+      agentState = known === false ? 'signed-out' : chosen && known ? 'connected' : 'not-connected';
     }
     const version = versions.get(id);
     const model = modelFor(id, state.read().models?.[id]);
