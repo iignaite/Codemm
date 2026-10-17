@@ -100,9 +100,11 @@ describe('bridge (D5)', () => {
     expect(survived).toBe(true);
   });
 
-  it('a parent that already exited: POSIX confirms through its group; Windows cannot check the tree, so it is unconfirmed', async () => {
+  // On Windows a grandchild doesn't keep Node's output pipe open, so this run ends before the cancel and can't
+  // stage the case; there, a parent that already exited is unconfirmed by one branch in killTree.
+  it.skipIf(process.platform === 'win32')('a parent that already exited: its group still confirms the cancel', async () => {
     const { result } = await cancelAfterFirstEvent(withGrandchild(false, true), 500);
-    expect(result).toMatchObject({ cancelled: true, stopped: process.platform !== 'win32' });
+    expect(result).toMatchObject({ cancelled: true, stopped: true });
   });
 
   it.skipIf(process.platform === 'win32')('a cancel asked for by the last line, as the agent exits, still waits for its group', async () => {
