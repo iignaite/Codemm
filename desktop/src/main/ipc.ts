@@ -34,7 +34,7 @@ const path: Valid = (v) => typeof v === 'string' && v.length <= 512 && v.split('
 /** The renderer's id for one Try it or Check, echoed in its progress events. */
 const runId: Valid = (v) => typeof v === 'string' && /^[a-z0-9-]{1,64}$/.test(v);
 const digest: Valid = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
-const goal = shape({ topic: text(200, 1), known: text(500) });
+const goal = shape({ topic: text(200, 1), known: text(500), depth: oneOf('overview', 'standard', 'in-depth') });
 const concept = shape({ id, title: text(200, 1), requires: list(id, 200) });
 const concepts = list(concept, 200, 1);
 const place: Valid = (v) => shape({ lessonId: id })(v) || shape({ activityId: id })(v);

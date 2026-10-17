@@ -12,7 +12,7 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress'>, unknown[]> = {
   chooseModel: ['claude', 'opus'],
   computer: [],
   tracks: [],
-  research: [{ topic: 'React', known: 'Python' }],
+  research: [{ topic: 'React', known: 'Python', depth: 'standard' }],
   reviseRoadmap: [concepts, 'Add testing'],
   approve: [concepts],
   course: [],
@@ -63,7 +63,11 @@ describe('dispatch', () => {
   });
 
   it('rejects goals and roadmaps with the wrong shape', () => {
-    expect(() => dispatch(echo, 'research', [{ topic: '', known: '' }])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'research', [{ topic: '', known: '', depth: 'standard' }])).toThrow('Bad input');
+    // How deep the roadmap goes: one of three presets, always given.
+    for (const depth of ['overview', 'standard', 'in-depth']) expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', depth }])).not.toThrow();
+    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', depth: 'bottomless' }])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '' }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'research', [{ topic: 'React' }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', extra: 1 }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', constructor: 1 }])).toThrow('Bad input');

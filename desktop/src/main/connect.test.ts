@@ -90,4 +90,17 @@ describe('connect (§3.1, §3.3)', () => {
     expect(await c.recheck('claude', { path: '/bin/claude', js: false })).toBe(false);
     await expect(c.chosen()).rejects.toThrow(SIGNED_OUT);
   });
+
+  it('a relaunched app shows the agent chosen before as connected, after checking its sign-in', async () => {
+    const s = state();
+    await connector(lookup(), s).connect('claude');
+    // A new launch: a fresh connector over the same desktop.json.
+    const checked: string[] = [];
+    const relaunched = connector(lookup({ signedIn: async (id) => (checked.push(id), true) }), s);
+    expect((await relaunched.agents()).find((a) => a.id === 'claude')?.state).toBe('connected');
+    expect(checked).toEqual(['claude']);
+    // Signed out since: shown as such, not as "not connected".
+    const signedOut = connector(lookup({ signedIn: async () => false }), s);
+    expect((await signedOut.agents()).find((a) => a.id === 'claude')?.state).toBe('signed-out');
+  });
 });

@@ -7,7 +7,7 @@ import { HELD_BACK } from './views';
 describe('live CodemmApi', () => {
   it('needs a connected agent before research', async () => {
     const t = live();
-    await expect(t.api.research({ topic: 'React', known: '' })).rejects.toThrow('codemm:no-agent');
+    await expect(t.api.research({ topic: 'React', known: '', depth: 'standard' })).rejects.toThrow('codemm:no-agent');
   });
 
   it('researches a new course on a server bound to it, then shows the roadmap', async () => {

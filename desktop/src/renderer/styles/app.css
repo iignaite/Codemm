@@ -91,6 +91,12 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 
 /* ---------- Goal and research ---------- */
 .goal-box { display: flex; align-items: center; height: 64px; padding: 0 10px 0 18px; border-radius: 12px; border: 2px solid var(--green-ink); background: #fff; }
+.depth { display: flex; align-items: center; gap: 8px; }
+.depth-q { margin-right: 6px; font-size: 14px; font-weight: 600; color: var(--muted); }
+.depth .opt { position: relative; padding: 9px 16px; border-radius: 10px; border: 1px solid var(--ctl); background: #fff; font-size: 14px; font-weight: 500; color: var(--ink); cursor: pointer; }
+.depth .opt.on { border-color: var(--green-ink); box-shadow: inset 0 0 0 1px var(--green-ink); color: var(--green-ink); }
+.depth .opt:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.depth input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
 .goal-box input { flex: 1; min-width: 0; height: 100%; border: none; background: transparent; font-size: 22px; outline: none; }
 .goal-box:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
 .info { padding: 14px 18px; display: flex; align-items: center; gap: 14px; font-size: 15px; }

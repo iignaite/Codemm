@@ -221,10 +221,10 @@ export async function until(api: CodemmApi, done: (c: CourseView) => boolean) {
 
 export async function researched(t: ReturnType<typeof live>) {
   await t.api.connect('claude');
-  let r = await t.api.research({ topic: 'React', known: '' });
+  let r = await t.api.research({ topic: 'React', known: '', depth: 'standard' });
   for (let i = 0; i < 20 && r.state === 'running'; i++) {
     await new Promise((res) => setTimeout(res, 5));
-    r = await t.api.research({ topic: 'React', known: '' });
+    r = await t.api.research({ topic: 'React', known: '', depth: 'standard' });
   }
   return r;
 }
