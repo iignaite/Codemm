@@ -7,7 +7,7 @@
  */
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { parse as parseToml } from "smol-toml";
 import type { AgentRun, HostAdapter, HostRun } from "./lib/agent.ts";
@@ -15,7 +15,7 @@ import { emptyRun } from "./lib/agent.ts";
 import { accessFindings, codeBlocks, isLeak, leaks, learnerView, workspaceDiff } from "./lib/checks.ts";
 import { claude } from "./lib/claude.ts";
 import { codex } from "./lib/codex.ts";
-import { cleanupImages, labelingCli, snapshot, tagForTrackYaml } from "./lib/docker.ts";
+import { cleanupImages, recordingCli, snapshot, tagForTrackYaml } from "./lib/docker.ts";
 import { type Evidence, type FileMap, readEvidence, type StoredExercise } from "./lib/evidence.ts";
 import { authorPrompt, SUBJECTS, TUTOR_PROMPT } from "./lib/journeys.ts";
 import { type JourneyResult, journeyResult, saveStats, type Violations } from "./lib/metrics.ts";
@@ -47,9 +47,8 @@ mkdirSync(logs, { recursive: true });
 const root = mkdtempSync(join(tmpdir(), "codemm-bench-"));
 const ws = join(root, "ws");
 const home = join(root, "home");
-// Every image this run's Codemm builds carries the run's label, so cleanup removes only what the run provably built.
-const runId = `${cell}-${basename(root)}`.replace(/[^\w.-]/g, "-");
-const containerCli = labelingCli(root, runId);
+// Codemm builds through a wrapper that records each image ID, so cleanup removes only what this run built.
+const containerCli = recordingCli(root);
 const codemmEnv = () => cleanEnv({ CODEMM_HOME: home, CODEMM_CONTAINER_CLI: containerCli });
 mkdirSync(ws);
 mkdirSync(home);
@@ -176,7 +175,7 @@ try {
 } finally {
   ev = readEvidence(home, ws);
   try {
-    result.cleanup = cleanupImages(tags, runId, baseline);
+    result.cleanup = cleanupImages(tags, root, baseline);
   } catch (e) {
     // Without a full picture of Docker's images nothing is removed; say so and clean up the rest.
     result.cleanup = [`skipped: ${(e as Error).message}`];

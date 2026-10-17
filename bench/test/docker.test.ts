@@ -1,68 +1,52 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { cleanupPlan, labelingCli, OWNER_LABEL, type Snapshot, tagForTrackYaml } from "../lib/docker.ts";
+import { builtImages, cleanupPlan, recordingCli, type Snapshot, tagForTrackYaml } from "../lib/docker.ts";
 
 const snap = (tags: Record<string, string>, ids: string[]): Snapshot => ({ tags: new Map(Object.entries(tags)), ids: new Set(ids) });
-const owned = (...ids: string[]) => new Set(ids);
+const built = (...ids: string[]) => new Set(ids);
 
 describe("cleanupPlan", () => {
-  it("restores a replaced tag and removes the run's own image", () => {
-    const before = snap({ "codemm-track-c:1": "A" }, ["A", "B"]);
-    const after = snap({ "codemm-track-c:1": "N" }, ["A", "B", "N"]);
-    expect(cleanupPlan(["codemm-track-c:1"], owned("N"), before, after)).toEqual([["tag", "A", "codemm-track-c:1"], ["rmi", "--no-prune", "N"]]);
+  it("removes the run's own images by ID, never by tag", () => {
+    const before = snap({ "codemm-track-c:1": "A" }, ["A"]);
+    const after = snap({ "codemm-track-c:1": "N", "codemm-track-d:1": "M" }, ["A", "N", "M"]);
+    expect(cleanupPlan(["codemm-track-c:1", "codemm-track-d:1"], built("N", "M"), before, after)).toEqual([["rmi", "--no-prune", "N"], ["rmi", "--no-prune", "M"]]);
   });
 
-  it("never touches an image another session built under a tag this run tried", () => {
-    // This run's install of codemm-track-c:2 failed; meanwhile another session built that tag (image X, not ours).
-    const after = snap({ "codemm-track-c:2": "X" }, ["X"]);
-    expect(cleanupPlan(["codemm-track-c:2"], owned(), snap({}, []), after)).toEqual([]);
-    // Same when this run had replaced an older image under the tag: the other session's image stays as it is.
-    expect(cleanupPlan(["codemm-track-c:2"], owned(), snap({ "codemm-track-c:2": "A" }, ["A"]), after)).toEqual([]);
+  it("never touches an image another session built under a tag this run tried, or one built FROM the run's image", () => {
+    // This run's install of codemm-track-c:2 failed; another session built that tag (X), maybe FROM a run image.
+    const after = snap({ "codemm-track-c:2": "X" }, ["X", "N"]);
+    expect(cleanupPlan(["codemm-track-c:2"], built("N"), snap({}, []), after)).toEqual([["rmi", "--no-prune", "N"]]);
   });
 
-  it("never removes an image that existed before the run", () => {
-    const before = snap({ "codemm-track-x:1": "A", "codemm-track-y:1": "B" }, ["A", "B"]);
-    const after = snap({ "codemm-track-x:1": "B", "codemm-track-y:1": "B" }, ["A", "B"]);
-    expect(cleanupPlan(["codemm-track-x:1"], owned("B"), before, after)).toEqual([]);
+  it("never removes an image that existed before the run, or one already gone", () => {
+    expect(cleanupPlan([], built("B", "G"), snap({}, ["B"]), snap({}, ["B"]))).toEqual([]);
   });
 
-  it("untags the run's new tag, which removes its image, and leaves other tags alone", () => {
-    const before = snap({ "codemm-track-shell-io:1": "S" }, ["S"]);
-    const after = snap({ "codemm-track-shell-io:1": "S", "codemm-track-python:1": "P" }, ["S", "P"]);
-    expect(cleanupPlan(["codemm-track-python:1", "codemm-track-shell-io:1"], owned("P"), before, after)).toEqual([["rmi", "--no-prune", "codemm-track-python:1"]]);
-  });
-
-  it("restores tags before untagging, so a run image shared by both is removed", () => {
-    const before = snap({ "codemm-track-old:1": "A" }, ["A"]);
-    const after = snap({ "codemm-track-new:1": "B", "codemm-track-old:1": "B" }, ["A", "B"]);
-    expect(cleanupPlan(["codemm-track-new:1", "codemm-track-old:1"], owned("B"), before, after)).toEqual([
-      ["tag", "A", "codemm-track-old:1"],
-      ["rmi", "--no-prune", "codemm-track-new:1"],
-    ]);
-  });
-
-  it("keeps a run image that something else tagged during the run", () => {
+  it("keeps a run image that a tag the run didn't try points at", () => {
     const after = snap({ "codemm-track-c:1": "N", "someone/else:latest": "N" }, ["N"]);
-    expect(cleanupPlan(["codemm-track-c:1"], owned("N"), snap({}, []), after)).toEqual([["rmi", "--no-prune", "codemm-track-c:1"]]);
-  });
-
-  it("removes the run's untagged images, such as failed installs", () => {
-    expect(cleanupPlan([], owned("U"), snap({}, []), snap({}, ["U"]))).toEqual([["rmi", "--no-prune", "U"]]);
+    expect(cleanupPlan(["codemm-track-c:1"], built("N"), snap({}, []), after)).toEqual([]);
   });
 });
 
-describe("labelingCli", () => {
-  it.runIf(process.platform !== "win32")("labels every build with the run's id and passes other commands through", () => {
-    const dir = mkdtempSync(join(tmpdir(), "codemm-bench-cli-"));
-    const fake = join(dir, "fake-docker");
-    writeFileSync(fake, '#!/bin/sh\nprintf "%s\\n" "$@"\n');
+describe("recordingCli", () => {
+  it.runIf(process.platform !== "win32")("records each build's image ID with plain progress and passes other commands through", () => {
+    const dir = mkdtempSync(join(tmpdir(), "codemm bench-cli-"));
+    const fake = join(dir, "fake docker");
+    // A fake docker that prints its arguments and, like docker, writes the --iidfile.
+    writeFileSync(fake, '#!/bin/sh\nprintf "%s\\n" "$@"\nwhile [ $# -gt 0 ]; do [ "$1" = --iidfile ] && printf "sha256:new" > "$2"; shift; done\n');
     chmodSync(fake, 0o755);
-    const cli = labelingCli(dir, "run-123", fake);
+    const cli = recordingCli(dir, fake);
     const out = (args: string[]) => spawnSync(cli, args, { encoding: "utf8" }).stdout.trim().split("\n");
-    expect(out(["build", "-t", "codemm-track-c:1", "."])).toEqual(["build", "--label", `${OWNER_LABEL}=run-123`, "-t", "codemm-track-c:1", "."]);
+    const build = out(["build", "-t", "codemm-track-c:1", "."]);
+    expect(build.slice(0, 3)).toEqual(["build", "--progress", "plain"]);
+    expect(build[3]).toBe("--iidfile");
+    expect(build[4]!.startsWith(join(dir, "iid."))).toBe(true);
+    expect(build.slice(5)).toEqual(["-t", "codemm-track-c:1", "."]);
+    expect(readFileSync(build[4]!, "utf8")).toBe("sha256:new");
+    expect(builtImages(dir)).toEqual(new Set(["sha256:new"]));
     expect(out(["info", "--format", "{{.OSType}}"])).toEqual(["info", "--format", "{{.OSType}}"]);
   });
 });
