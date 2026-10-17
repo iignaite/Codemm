@@ -7,7 +7,7 @@
 - `docs/desktop/DESIGN.md` is the desktop 1.0 spec: scope, architecture, the agent bridge, core additions, failure states, platforms, packaging, cross-model robustness, D1 to D20, tests, a "Delete or simplify" list, the deferred list and open decisions O1 to O7.
 - `docs/desktop/agent-bridge.md` has the spike findings for Claude Code and Codex. Cursor is unverified.
 - `spikes/agent-bridge/` holds the proof scripts, recorded fixtures, run evidence and 17 unit tests.
-- At the owner's request, the four mentions of another product's name are gone from README.md, CHANGELOG.md, docs/DESIGN.md and package.json (commit f72742e). This is the only change outside `docs/desktop/` and `spikes/`.
+- At the owner's request, this branch also removed another product's name from README.md, CHANGELOG.md, docs/DESIGN.md and package.json. Main made the same change in #13, so after merging main nothing outside `docs/desktop/` and `spikes/` differs.
 
 ### How it was verified
 
