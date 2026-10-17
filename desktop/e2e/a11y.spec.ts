@@ -17,8 +17,20 @@ async function launch(scenario = ''): Promise<{ app: ElectronApplication; page: 
   return { app, page };
 }
 
-/** Fails with every WCAG A and AA violation on the screen as it is now. */
+/** Elements still animating or transitioning. With reduced motion there must be none. */
+const moving = (page: Page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('*')]
+      .filter((el) => {
+        const s = getComputedStyle(el);
+        return s.animationName !== 'none' || s.transitionDuration.split(',').some((d) => parseFloat(d) > 0);
+      })
+      .map((el) => `${el.tagName.toLowerCase()}.${el.className}`),
+  );
+
+/** Fails with every WCAG A and AA violation on the screen as it is now, or anything that moves under reduced motion. */
 async function audit(page: Page, screen: string) {
+  expect(await moving(page), `${screen}: animates under reduced motion`).toEqual([]);
   // Legacy mode runs axe in the page itself: Electron can't open the extra page the default mode needs.
   const { violations } = await new AxeBuilder({ page }).withTags(AA).setLegacyMode().analyze();
   expect(violations.map((v) => `${screen}: ${v.id} on ${v.nodes.map((n) => `${n.target.join(' ')} (${n.failureSummary?.split('\n')[1]?.trim()})`).join(', ')}`)).toEqual([]);
@@ -124,11 +136,20 @@ test('every screen of the journey passes WCAG AA checks', async () => {
 });
 
 test('failure and environment screens pass WCAG AA checks', async () => {
-  for (const scenario of ['no-agent', 'signed-out', 'untested-version']) {
+  for (const scenario of ['no-agent', 'untested-version']) {
     const { app, page } = await launch(scenario);
     await button(page, 'Connect an agent').click();
     await expect(page.getByRole('listitem', { name: 'Claude Code' })).toBeVisible();
     await audit(page, `connect, ${scenario}`);
+    await app.close();
+  }
+  {
+    const { app, page } = await launch('signed-out');
+    await button(page, 'Connect an agent').click();
+    const claude = page.getByRole('listitem', { name: 'Claude Code' });
+    await claude.getByRole('button', { name: 'Connect' }).click();
+    await expect(claude.getByText('Sign in to Claude Code, then try again.')).toBeVisible();
+    await audit(page, 'connect, signed out');
     await app.close();
   }
   for (const scenario of ['no-docker', 'docker-stopped', 'docker-starting', 'windows-containers']) {
@@ -139,12 +160,14 @@ test('failure and environment screens pass WCAG AA checks', async () => {
     await audit(page, `check this computer, ${scenario}`);
     await app.close();
   }
-  for (const scenario of ['offline-setup', 'low-disk', 'setup-gates']) {
+  for (const [scenario, title] of [['offline-setup', "You're offline."], ['low-disk', 'Not enough disk space.'], ['setup-gates', "Couldn't set up React"]]) {
     const { app, page } = await launch(scenario);
     await toRoadmap(page);
     await button(page, 'Approve').click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Set up', exact: true }).click();
-    await expect(page.getByRole('alert').or(page.getByRole('dialog'))).toBeVisible({ timeout: 15_000 });
+    const consent = page.getByRole('dialog', { name: 'Set up React on this computer?' });
+    await consent.getByRole('button', { name: 'Set up', exact: true }).click();
+    await expect(consent).toBeHidden({ timeout: 15_000 });
+    await expect(heading(page, title)).toBeVisible({ timeout: 15_000 });
     await audit(page, `setup, ${scenario}`);
     await app.close();
   }
@@ -232,67 +255,87 @@ test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', 
   await app.close();
 });
 
-/** Presses Tab until the control named `name` has focus, then returns it. Fails if it never does. */
-async function tabTo(page: Page, role: 'button' | 'textbox' | 'link', name: string) {
-  const target = page.getByRole(role, { name, exact: true }).first();
-  for (let i = 0; i < 80; i++) {
+/** Presses Tab until the control named `name` has focus. Fails if it never does. */
+async function tabTo(page: Page, role: 'button' | 'textbox' | 'menuitem', name: string | RegExp) {
+  const target = page.getByRole(role, { name, exact: typeof name === 'string' }).first();
+  for (let i = 0; i < 120; i++) {
     if (await target.evaluate((el) => el === document.activeElement).catch(() => false)) return;
     await page.keyboard.press('Tab');
   }
   throw new Error(`Tab never reached ${role} "${name}"`);
 }
 
-async function press(page: Page, name: string) {
+async function press(page: Page, name: string | RegExp) {
   await tabTo(page, 'button', name);
   await page.keyboard.press('Enter');
+}
+
+async function typeInto(page: Page, name: string, text: string) {
+  await tabTo(page, 'textbox', name);
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type(text);
 }
 
 test('the journey works with the keyboard alone', async () => {
   const { app, page } = await launch();
   await press(page, 'Connect an agent');
-  const claude = page.getByRole('listitem', { name: 'Claude Code' });
-  await tabTo(page, 'button', 'Connect');
-  await page.keyboard.press('Enter');
-  await expect(claude.getByText('Connected')).toBeVisible();
+  await press(page, 'Connect');
+  await expect(page.getByRole('listitem', { name: 'Claude Code' }).getByText('Connected')).toBeVisible();
   await press(page, 'Continue');
   await expect(page.getByText('This computer is ready.')).toBeVisible();
   await press(page, 'Continue');
   await press(page, 'Start learning');
-  await tabTo(page, 'textbox', 'What do you want to learn?');
-  await page.keyboard.type('React');
+  await typeInto(page, 'What do you want to learn?', 'React');
   await press(page, 'Start');
   await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });
+
+  // Edit the roadmap: rename the last topic, then move it with the Move menu.
+  const topics = page.getByRole('list').last().getByRole('listitem');
+  const last = (await topics.last().getAttribute('aria-label'))!;
+  await press(page, `Rename ${last}`);
+  await page.keyboard.press('ControlOrMeta+A');
+  await page.keyboard.type('Testing basics');
+  await page.keyboard.press('Enter');
+  await expect(topics.last()).toHaveAttribute('aria-label', 'Testing basics');
+  await press(page, 'Move Testing basics');
+  await expect(page.getByRole('menu', { name: 'Move Testing basics' })).toBeVisible();
+  await tabTo(page, 'menuitem', 'Move up');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('menu')).toBeHidden();
+
   await press(page, 'Approve');
-  // The dialog moves focus to its first action; Set up is one Tab away.
   await press(page, 'Set up');
   await expect(button(page, 'Read What javascript basics is')).toBeVisible({ timeout: 15_000 });
   await press(page, 'Read What javascript basics is');
+
+  // A lesson note.
+  await press(page, 'Add a note');
+  await page.keyboard.type('The setter replaces the value.');
+  await press(page, 'Save');
+  await expect(page.getByText('The setter replaces the value.')).toBeVisible();
   await press(page, 'Next');
   await press(page, 'Next');
   await expect(heading(page, 'Click Counter')).toBeVisible();
-  await tabTo(page, 'textbox', 'Counter.jsx');
-  await page.keyboard.press('ControlOrMeta+A');
-  await page.keyboard.type('// my answer');
-  await press(page, 'Check');
-  await expect(page.getByRole('region', { name: 'Results' }).getByRole('heading', { name: '4 of 4 passed' })).toBeVisible();
-  await app.close();
-});
 
-test('with reduced motion, nothing animates', async () => {
-  const { app, page } = await launch();
-  const moving = () =>
-    page.evaluate(() =>
-      [...document.querySelectorAll('*')]
-        .filter((el) => {
-          const s = getComputedStyle(el);
-          return s.animationName !== 'none' || s.transitionDuration.split(',').some((d) => parseFloat(d) > 0);
-        })
-        .map((el) => `${el.tagName.toLowerCase()}.${el.className}`),
-    );
-  expect(await moving()).toEqual([]);
-  await toRoadmap(page);
-  expect(await moving()).toEqual([]);
-  await button(page, 'Approve').click();
-  expect(await moving()).toEqual([]);
+  // A failing check, until stuck, then skip ("Come back later") to the course view.
+  const results = page.getByRole('region', { name: 'Results' });
+  await typeInto(page, 'Counter.jsx', 'wrong /* your code */');
+  for (let i = 0; i < 3; i++) {
+    await press(page, 'Check');
+    await expect(results.getByRole('heading', { name: /passed|Try another way/ })).toBeVisible();
+  }
+  await press(page, 'Come back later');
+  await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();
+
+  // The next topic, through to a passing check.
+  await press(page, 'Continue');
+  await press(page, /^Read /);
+  for (let i = 0; i < 6 && !(await heading(page, 'Click Counter').isVisible()); i++) await press(page, 'Next');
+  await expect(heading(page, 'Click Counter')).toBeVisible();
+  await typeInto(page, 'Counter.jsx', '// my answer');
+  await press(page, 'Check');
+  await expect(results.getByRole('heading', { name: '4 of 4 passed' })).toBeVisible();
+  await press(page, 'Continue');
+  await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();
   await app.close();
 });
