@@ -1,5 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 
 /**
@@ -237,17 +240,24 @@ export function buildProblem(log: string): string | undefined {
 
 /**
  * Builds a track image from a staged folder. Networked; this is the separate trust boundary in DESIGN §4.4.
- * `problem` is set when the build failed for a reason outside the track (runtime, network or disk).
+ * `imageId` is the image this build produced (`--iidfile`), so another build of the same tag in the meantime can't
+ * swap it. `problem` is set when the build failed for a reason outside the track (runtime, network or disk).
  */
-export async function buildImage(contextDir: string, tag: string, timeoutMs = 600_000): Promise<{ ok: boolean; log: string; problem?: string }> {
-  const args = ["build", "-t", tag];
-  if (containerCli() === "docker") args.push("--progress", "plain");
-  args.push(contextDir);
-  const r = await cli(args, timeoutMs);
-  const log = r.output.slice(-8000);
-  if (r.exit === 0) return { ok: true, log };
-  const problem = (await runtimeDown()) ?? buildProblem(log);
-  return { ok: false, log, ...(problem ? { problem } : {}) };
+export async function buildImage(contextDir: string, tag: string, timeoutMs = 600_000): Promise<{ ok: boolean; log: string; imageId?: string; problem?: string }> {
+  const out = mkdtempSync(join(tmpdir(), "codemm-iid-"));
+  try {
+    const args = ["build", "-t", tag, "--iidfile", join(out, "iid")];
+    if (containerCli() === "docker") args.push("--progress", "plain");
+    args.push(contextDir);
+    const r = await cli(args, timeoutMs);
+    const log = r.output.slice(-8000);
+    const imageId = existsSync(join(out, "iid")) ? readFileSync(join(out, "iid"), "utf8").trim() : "";
+    if (r.exit === 0 && imageId) return { ok: true, log, imageId };
+    const problem = (await runtimeDown()) ?? buildProblem(log);
+    return { ok: false, log, ...(problem ? { problem } : {}) };
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
 }
 
 export async function inspectImage(tag: string): Promise<{ id: string; hasVolumes: boolean } | undefined> {

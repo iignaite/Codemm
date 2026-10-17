@@ -32,21 +32,32 @@ describe("cleanupPlan", () => {
 });
 
 describe("recordingCli", () => {
-  it.runIf(process.platform !== "win32")("records each build's image ID with plain progress and passes other commands through", () => {
+  const setup = () => {
     const dir = mkdtempSync(join(tmpdir(), "codemm bench-cli-"));
     const fake = join(dir, "fake docker");
     // A fake docker that prints its arguments and, like docker, writes the --iidfile.
     writeFileSync(fake, '#!/bin/sh\nprintf "%s\\n" "$@"\nwhile [ $# -gt 0 ]; do [ "$1" = --iidfile ] && printf "sha256:new" > "$2"; shift; done\n');
     chmodSync(fake, 0o755);
     const cli = recordingCli(dir, fake);
-    const out = (args: string[]) => spawnSync(cli, args, { encoding: "utf8" }).stdout.trim().split("\n");
-    const build = out(["build", "-t", "codemm-track-c:1", "."]);
+    return { dir, out: (args: string[]) => spawnSync(cli, args, { encoding: "utf8" }).stdout.trim().split("\n") };
+  };
+
+  it.runIf(process.platform !== "win32")("keeps the ID from Codemm's own --iidfile, labels the build and prints plain progress", () => {
+    const { dir, out } = setup();
+    const theirs = join(dir, "codemm-iid");
+    const build = out(["build", "-t", "codemm-track-c:1", "--iidfile", theirs, "."]);
     expect(build.slice(0, 4)).toEqual(["build", "--progress", "plain", "--label"]);
     // A label unique to the run, so an identical build by another session gets a different image ID.
     expect(build[4]).toMatch(new RegExp(`^${OWNER_LABEL}=[0-9a-f]{16}$`));
+    expect(build.slice(5)).toEqual(["-t", "codemm-track-c:1", "--iidfile", theirs, "."]);
+    expect(builtImages(dir)).toEqual(new Set(["sha256:new"]));
+  });
+
+  it.runIf(process.platform !== "win32")("adds its own --iidfile when the build has none, and passes other commands through", () => {
+    const { dir, out } = setup();
+    const build = out(["build", "-t", "codemm-track-c:1", "."]);
     expect(build[5]).toBe("--iidfile");
     expect(build[6]!.startsWith(join(dir, "iid."))).toBe(true);
-    expect(build.slice(7)).toEqual(["-t", "codemm-track-c:1", "."]);
     expect(readFileSync(build[6]!, "utf8")).toBe("sha256:new");
     expect(builtImages(dir)).toEqual(new Set(["sha256:new"]));
     expect(out(["info", "--format", "{{.OSType}}"])).toEqual(["info", "--format", "{{.OSType}}"]);

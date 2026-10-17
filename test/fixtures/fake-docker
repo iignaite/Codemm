@@ -13,6 +13,11 @@ case "$1" in
     if [ "$FAKE_DOCKER" = down ] || [ -e "$0.stopped" ]; then echo "$daemon_down" >&2; echo "|"; else echo "27.4.0|linux"; fi ;;
   build)
     echo "#1 [internal] load build definition from Dockerfile"
+    # builds: the build succeeds and writes its image ID where --iidfile says, as docker does.
+    if [ "$FAKE_DOCKER" = builds ]; then
+      while [ $# -gt 0 ]; do if [ "$1" = --iidfile ]; then printf 'sha256:built' > "$2"; fi; shift; done
+      exit 0
+    fi
     case "$FAKE_DOCKER" in
       down) echo "ERROR: $daemon_down" >&2 ;;
       offline) echo "ERROR: failed to solve: alpine:3.20: failed to resolve source metadata for docker.io/library/alpine:3.20: dial tcp: lookup registry-1.docker.io: no such host" >&2 ;;

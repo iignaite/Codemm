@@ -1,8 +1,8 @@
 /**
  * Docker housekeeping. Track tags are global, and other sessions may build the same tags at the same time, so a
- * run records the exact image ID of every build it makes: Codemm runs Docker through a wrapper that adds
- * `--iidfile`, plus a label unique to the run so no other session's build can share an ID with it. Cleanup removes
- * only those IDs, by ID and never by tag, so it can't touch another session's image.
+ * run records the exact image ID of every build it makes: Codemm runs Docker through a wrapper that keeps each
+ * build's `--iidfile` output and adds a label unique to the run, so no other session's build can share an ID with
+ * it. Cleanup removes only those IDs, by ID and never by tag, so it can't touch another session's image.
  */
 import { randomBytes } from "node:crypto";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -14,16 +14,29 @@ export const OWNER_LABEL = "codemm.bench.run";
 
 /**
  * Writes a container CLI for Codemm (CODEMM_CONTAINER_CLI) into `dir`, which must be the run's own folder. Every
- * `build` also gets the run's label (so its image ID is the run's alone), writes that ID to `dir/iid.*` and prints
- * plain progress (as Codemm asks of `docker`); every other command passes straight through. Returns the wrapper's path.
+ * `build` also gets the run's label (so its image ID is the run's alone) and plain progress (as Codemm asks of
+ * `docker`), and its image ID is copied to `dir/iid.*`: from the `--iidfile` Codemm passes, or from one the wrapper
+ * adds. Every other command passes straight through. Returns the wrapper's path.
  */
 export function recordingCli(dir: string, docker = capture("sh", ["-c", "command -v docker"]).out.trim()): string {
   if (!docker) throw new Error("recordingCli needs a docker executable.");
   const q = (text: string) => `'${text.replace(/'/g, "'\\''")}'`;
   const path = join(dir, "docker-recorded");
   const run = randomBytes(8).toString("hex");
-  const build = `${q(docker)} build --progress plain --label ${OWNER_LABEL}=${run} --iidfile ${q(dir)}/iid.$$`;
-  writeFileSync(path, `#!/bin/sh\nif [ "$1" = build ]; then shift; exec ${build} "$@"; fi\nexec ${q(docker)} "$@"\n`, { mode: 0o755 });
+  const script = [
+    "#!/bin/sh",
+    `[ "$1" = build ] || exec ${q(docker)} "$@"`,
+    "shift",
+    'iid=""; prev=""',
+    'for a in "$@"; do [ "$prev" = --iidfile ] && iid=$a; prev=$a; done',
+    `own=${q(dir)}/iid.$$`,
+    `if [ -n "$iid" ]; then ${q(docker)} build --progress plain --label ${OWNER_LABEL}=${run} "$@"; else ${q(docker)} build --progress plain --label ${OWNER_LABEL}=${run} --iidfile "$own" "$@"; fi`,
+    "c=$?",
+    'if [ -n "$iid" ] && [ -f "$iid" ]; then cat "$iid" > "$own"; fi',
+    'exit "$c"',
+    "",
+  ].join("\n");
+  writeFileSync(path, script, { mode: 0o755 });
   return path;
 }
 

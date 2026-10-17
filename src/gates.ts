@@ -118,16 +118,19 @@ export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec:
 
   const image = tag ?? imageTag(spec);
   const context = mkdtempSync(join(tmpdir(), "codemm-build-"));
+  let builtId = "";
   try {
     writeFileMap(context, files);
     const built = await buildImage(context, image);
+    builtId = built.imageId ?? "";
     // Offline, out of disk or no runtime isn't the track's fault, so it's no gate failure.
     if (built.problem) throw new CodemmError(built.problem);
     if (!built.ok) throw new GateError("build", `the image didn't build:\n${built.log}`);
   } finally {
     rmSync(context, { recursive: true, force: true });
   }
-  const info = await inspectImage(image);
+  // Inspect the image this build produced, not the shared tag, which another build may have moved since.
+  const info = await inspectImage(builtId);
   if (!info) throw new GateError("build", "the built image can't be found.");
   if (info.hasVolumes) throw new GateError("build", "the image declares a VOLUME. Remove it; checks may only write to /tmp.");
 
