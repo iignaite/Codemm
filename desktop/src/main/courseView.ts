@@ -39,7 +39,9 @@ export function courseView(
     // Stuck: the activity stays open beside the ways forward (§3.2).
     else if (isCurrent && next.kind === 'stuck') activity = 'open';
     else if (isCurrent) activity = 'writing';
-    const reviewIn = !review && c.reviewDue ? Math.max(1, Math.ceil((Date.parse(c.reviewDue) - now) / 86_400_000)) : undefined;
+    // Only future reviews count down; an overdue one waits its turn behind the review core offers now.
+    const left = c.reviewDue ? Date.parse(c.reviewDue) - now : 0;
+    const reviewIn = !review && left > 0 ? Math.ceil(left / 86_400_000) : undefined;
     return {
       id: c.id, title: c.title, state: c.mastered ? 'mastered' : isCurrent ? 'now' : 'later', mastery: c.mastery, stuck: c.stuck, lessons: own, activity,
       ...(review ? { review } : {}), ...(reviewIn ? { reviewIn } : {}),

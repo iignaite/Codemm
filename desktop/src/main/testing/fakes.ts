@@ -35,6 +35,8 @@ export function fakeCore() {
     current: undefined as string | undefined,
     /** A mastered concept due for review, on this exercise (core §7). */
     review: undefined as undefined | { concept: string; exercise: string },
+    /** A mastered concept due for review with no unused exercise: core asks for one (author, review: true). */
+    reviewWithout: undefined as string | undefined,
     install: async (_ref: string, _digest: string): Promise<unknown> => {
       c.tracks.push('react@1');
       return {};
@@ -46,6 +48,7 @@ export function fakeCore() {
     const r = c.roadmap!;
     if (!c.tracks.includes(r.track)) return { kind: 'setup', track: r.track };
     if (c.review) return { kind: 'review', concept: c.review.concept, difficulty: c.wanted, exercise: c.review.exercise };
+    if (c.reviewWithout) return { kind: 'author', concept: c.reviewWithout, difficulty: c.wanted, review: true };
     const concept = r.concepts.find((x) => !c.mastered.has(x.id) && x.requires.every((q) => c.mastered.has(q)));
     if (!concept) return { kind: 'done' };
     if (c.stuck === concept.id) return { kind: 'stuck', concept: concept.id };

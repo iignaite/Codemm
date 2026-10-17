@@ -207,6 +207,17 @@ describe('live CodemmApi', () => {
     expect((await t.api.activity('values')).id).toBe(activity.id);
   });
 
+  it('starts writing a review exercise when a review comes due while the app is open', async () => {
+    const t = live();
+    await practising(t);
+    t.c.mastered.add('values');
+    const authors = () => t.jobs.ran.filter((j) => j.kind === 'author').length;
+    const before = authors();
+    t.c.reviewWithout = 'values';
+    expect((await t.api.course())!.topics[0]).toMatchObject({ review: 'writing' });
+    await until(t.api, () => authors() === before + 1);
+  });
+
   it('reopens a mastered topic for its due review, on the exercise core names', async () => {
     const t = live();
     const activity = await practising(t);

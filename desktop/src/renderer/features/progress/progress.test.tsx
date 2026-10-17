@@ -51,6 +51,16 @@ describe('course map', () => {
     expect(await screen.findByText('Review', { selector: '.pill' })).toBeInTheDocument();
   });
 
+  it('keeps the review schedule on a finished course', async () => {
+    const { api, course } = await mockWithCourse();
+    await master(api, course.topics.length);
+    const real = (await api.course())!;
+    api.course = async () => ({ ...real, topics: real.topics.map((t, i) => (i === 0 ? { ...t, reviewIn: 1 } : t)) });
+    renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('heading', { name: 'React complete' })).toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: 'Reviews' })).getByText(/Review tomorrow/)).toBeInTheDocument();
+  });
+
   it('celebrates a finished course, then offers something new', async () => {
     const user = userEvent.setup();
     const { api, course } = await mockWithCourse();

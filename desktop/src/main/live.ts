@@ -390,6 +390,8 @@ export function createLive(d: LiveDeps): Live {
       const roadmap = roadmapOrNull();
       if (!roadmap || d.state.read().approved !== roadmap.course) return null;
       const progress = core.progress(ws, roadmap.course);
+      // The clock, not a learner action, made this review due, so nothing else would start its exercise (core §7).
+      if (progress.next.kind === 'author' && progress.next.review) schedule();
       const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
       const jobs = new Set([...running.keys()].map((k) => k.replace(`:${roadmap.course}`, '')));
       const view = courseView(progress, core.listLessons(ws, roadmap.course), state, jobs);
