@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
+import { readFileMap } from "../src/files.js";
+import { parseTrackYaml } from "../src/schemas.js";
 import type { LearnerEvent } from "../src/learner.js";
 import * as store from "../src/store.js";
+import { fakeDocker } from "./fake-docker.js";
 
 /** Use cases that need no container runtime: tracks and exercises are written straight into the store. */
 
@@ -211,5 +214,54 @@ describe("learner files", () => {
     symlinkSync(outside, file());
     await expect(app.writeLearnerFile(ws, "e1", "main.sh", "echo 3\n", sha("echo todo\n"))).rejects.toThrow(/symlink/);
     expect(readFileSync(outside, "utf8")).toBe("echo todo\n");
+  });
+});
+
+describe("setup proposals", () => {
+  const track = () => readFileMap(join(import.meta.dirname, "fixtures", "tracks", "shell-io"));
+  const proposed = { proposed: "shell-io@1", note: "The learner decides in Codemm. End your turn." };
+
+  // With no docker on PATH, anything that tried to build would fail differently.
+  beforeEach(() => fakeDocker("missing"));
+
+  it("stores a proposal and builds nothing; approving a roadmap builds nothing either", async () => {
+    expect(await app.proposeTrack(track())).toEqual(proposed);
+    await app.saveRoadmap(ws, "shell", roadmap());
+    expect(app.listTracks()).toEqual([]);
+    const [p] = app.listProposals();
+    expect(p).toMatchObject({ track: "shell-io@1", digest: expect.stringMatching(/^[0-9a-f]{64}$/), files: track() });
+  });
+
+  it("replaces an older proposal for the same track", async () => {
+    await app.proposeTrack(track());
+    const first = app.listProposals()[0]!.digest;
+    await app.proposeTrack({ ...track(), Dockerfile: `${track().Dockerfile}# again\n` });
+    expect(app.listProposals().map((p) => p.digest)).not.toContain(first);
+    expect(app.listProposals()).toHaveLength(1);
+    await expect(app.installProposal("shell-io@1", first)).rejects.toThrow(/changed or is gone/);
+  });
+
+  it("refuses to install files that changed after the learner saw them", async () => {
+    await app.proposeTrack(track());
+    const { digest } = app.listProposals()[0]!;
+    writeFileSync(join(process.env.CODEMM_HOME!, "proposals", "shell-io@1", digest, "Dockerfile"), "FROM evil\n");
+    await expect(app.installProposal("shell-io@1", digest)).rejects.toThrow(/changed or is gone/);
+    await expect(app.installProposal("shell-io@1", "0".repeat(64))).rejects.toThrow(/changed or is gone/);
+  });
+
+  it("reports an identical installed track, and refuses a different one under the same version", async () => {
+    const spec = parseTrackYaml(track()["track.yaml"]!);
+    store.commitFolder(store.trackDir("shell-io@1"), track(), {
+      "track.json": { format_version: 1, ...spec, image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
+    });
+    expect(await app.proposeTrack(track())).toEqual({ installed: "shell-io@1", unchanged: true });
+    await expect(app.proposeTrack({ ...track(), Dockerfile: "FROM other\n" })).rejects.toThrow(/already installed/);
+    expect(app.listProposals()).toEqual([]);
+  });
+
+  it("drops a track's proposals", async () => {
+    await app.proposeTrack(track());
+    await app.dropProposal("shell-io@1");
+    expect(app.listProposals()).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 import {
   closeSync, constants, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
-  readFileSync, realpathSync, renameSync, rmSync, truncateSync, unlinkSync, writeFileSync,
+  readFileSync, realpathSync, renameSync, rmSync, statfsSync, truncateSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
@@ -8,7 +8,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { CodemmError } from "./errors.js";
 import { assertId, assertRelativePath, type FileMap, readFileMap, validateFileMap, writeFileMap } from "./files.js";
 import type { LearnerEvent } from "./learner.js";
-import { CourseRecord, ExerciseRecord, LearnerEventSchema, LessonRecord, TrackRecord, WorkspaceConfig } from "./schemas.js";
+import { CourseRecord, ExerciseRecord, LearnerEventSchema, LessonRecord, ProposalRecord, TrackRecord, WorkspaceConfig } from "./schemas.js";
 
 /** Persistence for everything under $CODEMM_HOME and the workspace's codemm.json. */
 
@@ -197,6 +197,66 @@ export function listTracks(): TrackRecord[] {
     .filter((n) => n.includes("@") && !n.startsWith("."))
     .sort()
     .flatMap((ref) => readTrack(ref) ?? []);
+}
+
+// ---------- proposals ----------
+//
+// A track the agent proposed in the desktop app, kept until the learner consents. Each proposal is an
+// immutable folder named by the digest of its files, so consent binds exactly the files the learner saw.
+
+const proposalsDir = (ref: string) => {
+  parseTrackRef(ref);
+  return join(codemmHome(), "proposals", ref);
+};
+const byCodeUnit = ([a]: [string, string], [b]: [string, string]) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** SHA-256 over the canonical file map: entries sorted by path. */
+export const fileMapDigest = (files: FileMap) => digestText(JSON.stringify(Object.entries(files).sort(byCodeUnit)));
+
+/** Renames a folder aside, then deletes it, so a half-deleted folder is never read as a proposal. */
+function discard(dir: string): void {
+  if (!existsSync(dir)) return;
+  const aside = join(dirname(dir), `.discard-${randomBytes(4).toString("hex")}`);
+  renameSync(dir, aside);
+  rmSync(aside, { recursive: true, force: true });
+}
+
+/** Stores a proposal and drops older ones for the same track. Call while holding the track lock. */
+export function writeProposal(ref: string, files: FileMap): void {
+  const digest = fileMapDigest(files);
+  const dir = proposalsDir(ref);
+  if (!existsSync(join(dir, digest))) {
+    commitFolder(join(dir, digest), files, { "proposal.json": { format_version: 1, track: ref, digest, created: new Date().toISOString() } });
+  }
+  for (const other of readdirSync(dir)) if (!other.startsWith(".") && other !== digest) discard(join(dir, other));
+}
+
+export function listProposals(): ProposalRecord[] {
+  const root = join(codemmHome(), "proposals");
+  if (!existsSync(root)) return [];
+  return readdirSync(root)
+    .filter((ref) => !ref.startsWith("."))
+    .sort()
+    .flatMap((ref) => readdirSync(join(root, ref)).filter((d) => !d.startsWith(".")).map((d) => parseRecord(ProposalRecord, join(root, ref, d, "proposal.json"))));
+}
+
+/** The proposal's files, or undefined if no proposal has that digest. */
+export function readProposal(ref: string, digest: string): FileMap | undefined {
+  if (!/^[0-9a-f]{64}$/.test(digest)) return undefined;
+  const dir = join(proposalsDir(ref), digest);
+  return existsSync(dir) ? readFileMap(dir, ["proposal.json"]) : undefined;
+}
+
+export const dropProposals = (ref: string) => discard(proposalsDir(ref));
+
+/** Setup needs room for an image: refuse to build when the volume holding `dir` is nearly full. */
+export const MIN_FREE_BYTES = 5 * 1024 ** 3;
+export function assertFreeSpace(dir: string, min = MIN_FREE_BYTES): void {
+  mkdirSync(dir, { recursive: true });
+  const { bavail, bsize } = statfsSync(dir);
+  if (bavail * bsize < min) {
+    throw new CodemmError(`Not enough disk space. Setup needs ${Math.round(min / 1024 ** 3)} GB free where Codemm keeps its data (${dir}). Free some space, then try again.`);
+  }
 }
 
 // ---------- courses and exercises ----------

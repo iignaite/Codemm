@@ -48,7 +48,6 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   });
 
   it("enforces roadmap rules", async () => {
-    await expect(app.saveRoadmap(ws, "shell", roadmap("shell-io").replace("shell-io@1", "rust@1"))).rejects.toThrow(/not installed/);
     await expect(app.saveRoadmap(ws, "shell", roadmap("shell-io").replace("style: io", "style: unit"))).rejects.toThrow(/style/);
     expect(await app.saveRoadmap(ws, "shell", roadmap("shell-io"))).toEqual({ course: "shell", concepts: 2 });
     expect(JSON.parse(readFileSync(join(ws, "codemm.json"), "utf8"))).toMatchObject({ course: "shell" });
@@ -182,5 +181,17 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
 
     expect(await app.rebuildTrack("shell-io@1")).toEqual({ rebuilt: "shell-io@1", exercises: 2 });
     expect((await app.checkExercise(ws, "max-of-line")).recorded).toBe(true);
+  });
+
+  it("installs a consented proposal, exactly once, and drops it", async () => {
+    const t = appTrack();
+    const files = { ...t, "track.yaml": t["track.yaml"]!.replace("id: shell-io", "id: shell-consent"), Dockerfile: `${t.Dockerfile}LABEL codemm.test=consent\n` };
+    expect(await app.proposeTrack(files)).toMatchObject({ proposed: "shell-consent@1" });
+    expect(app.listTracks().map((x) => x.track)).not.toContain("shell-consent@1");
+    const { digest } = app.listProposals().find((p) => p.track === "shell-consent@1")!;
+    expect(await app.installProposal("shell-consent@1", digest)).toEqual({ installed: "shell-consent@1" });
+    expect(app.listTracks().map((x) => x.track)).toContain("shell-consent@1");
+    expect(app.listProposals()).toEqual([]);
+    await cli(["image", "rm", "-f", "codemm-track-shell-consent:1"]);
   });
 });

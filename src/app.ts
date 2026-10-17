@@ -46,26 +46,81 @@ export function listTracks() {
   return store.listTracks().map((t) => ({ track: `${t.id}@${t.version}`, styles: t.styles, files: t.files }));
 }
 
-export async function saveTrack(files: FileMap): Promise<{ installed: string; unchanged?: true; warning?: string }> {
+/** Track gate 1, part one: the files are valid and name an id@version. */
+function readTrackSpec(files: FileMap) {
   assertPortablePaths(validateFileMap(files));
   if (!files["track.yaml"]) throw new CodemmError("A track needs a track.yaml file.");
   const spec = parseTrackYaml(files["track.yaml"]);
-  const ref = `${spec.id}@${spec.version}`;
+  return { spec, ref: `${spec.id}@${spec.version}` };
+}
+
+/** Track gate 1, part two, under the track lock: true when these files are installed, an error when others are. */
+function alreadyInstalled(ref: string, version: number, files: FileMap): boolean {
+  if (!store.readTrack(ref)) return false;
+  if (JSON.stringify(sorted(store.readTrackFiles(ref))) === JSON.stringify(sorted(files))) return true;
+  throw new CodemmError(`${ref} is already installed with different files. Save your changes as version ${version + 1}.`);
+}
+
+/** Gates 2 to 5, then an atomic install. Call while holding the track lock. */
+async function install(ref: string, files: FileMap): Promise<{ installed: string; warning?: string }> {
+  const verified = await verifyTrack(files);
+  const record: TrackRecord = {
+    format_version: 1, ...verified.spec, image: verified.image, imageId: verified.imageId, installedAt: new Date().toISOString(),
+  };
+  store.commitFolder(store.trackDir(ref), files, { "track.json": record });
+  return { installed: ref, ...(verified.warning ? { warning: verified.warning } : {}) };
+}
+
+export async function saveTrack(files: FileMap): Promise<{ installed: string; unchanged?: true; warning?: string }> {
+  const { spec, ref } = readTrackSpec(files);
   return store.withLock(store.trackLockPath(spec.id), async () => {
-    if (store.readTrack(ref)) {
-      if (JSON.stringify(sorted(store.readTrackFiles(ref))) === JSON.stringify(sorted(files))) return { installed: ref, unchanged: true };
-      throw new CodemmError(`${ref} is already installed with different files. Save your changes as version ${spec.version + 1}.`);
-    }
-    const verified = await verifyTrack(files);
-    const record: TrackRecord = {
-      format_version: 1, ...verified.spec, image: verified.image, imageId: verified.imageId, installedAt: new Date().toISOString(),
-    };
-    store.commitFolder(store.trackDir(ref), files, { "track.json": record });
-    return { installed: ref, ...(verified.warning ? { warning: verified.warning } : {}) };
+    if (alreadyInstalled(ref, spec.version, files)) return { installed: ref, unchanged: true as const };
+    return install(ref, files);
   });
 }
 
 const sorted = (map: FileMap) => Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)));
+
+// ---------- setup proposals (desktop) ----------
+//
+// In the desktop app, save_track only proposes. The learner consents in Codemm, and installProposal
+// builds exactly the files they were shown, identified by digest.
+
+export async function proposeTrack(files: FileMap): Promise<{ installed: string; unchanged: true } | { proposed: string; note: string }> {
+  const { spec, ref } = readTrackSpec(files);
+  return store.withLock(store.trackLockPath(spec.id), async () => {
+    if (alreadyInstalled(ref, spec.version, files)) return { installed: ref, unchanged: true as const };
+    store.writeProposal(ref, files);
+    return { proposed: ref, note: "The learner decides in Codemm. End your turn." };
+  });
+}
+
+export function listProposals() {
+  return store.listProposals().map((p) => ({ track: p.track, digest: p.digest, created: p.created, files: store.readProposal(p.track, p.digest) ?? {} }));
+}
+
+/** Installs a proposal only if its files still have the digest the learner consented to. */
+export async function installProposal(ref: string, digest: string): Promise<{ installed: string; unchanged?: true; warning?: string }> {
+  const { id, version } = store.parseTrackRef(ref);
+  return store.withLock(store.trackLockPath(id), async () => {
+    const files = store.readProposal(ref, digest);
+    if (!files || store.fileMapDigest(files) !== digest || readTrackSpec(files).ref !== ref) {
+      throw new CodemmError(`The proposal for ${ref} changed or is gone, so it needs the learner's consent again.`);
+    }
+    if (alreadyInstalled(ref, version, files)) {
+      store.dropProposals(ref);
+      return { installed: ref, unchanged: true as const };
+    }
+    store.assertFreeSpace(store.codemmHome());
+    const result = await install(ref, files);
+    store.dropProposals(ref);
+    return result;
+  });
+}
+
+export async function dropProposal(ref: string): Promise<void> {
+  await store.withLock(store.trackLockPath(store.parseTrackRef(ref).id), async () => store.dropProposals(ref));
+}
 
 /** Rebuilds a pruned or changed image and re-runs every gate before trusting it (DESIGN §4.4). */
 export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exercises: number }> {

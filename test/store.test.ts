@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { appendEvent, materialize, readEvents, withLock, withWorkspaceLock } from "../src/store.js";
+import { appendEvent, assertFreeSpace, materialize, readEvents, withLock, withWorkspaceLock } from "../src/store.js";
 
 let home: string;
 beforeEach(() => {
@@ -136,5 +136,12 @@ describe("generated records", () => {
     const loaded = readExercise("demo", "big");
     expect(Object.keys(loaded.files)).toHaveLength(256);
     expect(loaded.record.slug).toBe("big");
+  });
+});
+
+describe("assertFreeSpace", () => {
+  it("refuses when the volume has less free space than setup needs", () => {
+    expect(() => assertFreeSpace(home, Number.MAX_SAFE_INTEGER)).toThrow(/Not enough disk space/);
+    expect(() => assertFreeSpace(home, 1)).not.toThrow();
   });
 });
