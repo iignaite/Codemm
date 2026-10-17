@@ -71,3 +71,42 @@ test('no Docker: install steps, a link and a re-check', async () => {
   await expect(page.getByRole('heading', { name: 'Ready when you are.' })).toBeVisible();
   await app.close();
 });
+
+// D2: the window is the app's own origin under the spec's CSP, with no Node, no remote requests,
+// no frames, no navigation and no new windows.
+test('renderer security', async () => {
+  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: '' } });
+  const page = await app.firstWindow();
+  await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
+  expect(page.url()).toBe('app://codemm/index.html');
+  expect(await page.evaluate(() => [typeof (window as unknown as { require?: unknown }).require, typeof (window as unknown as { process?: unknown }).process])).toEqual(['undefined', 'undefined']);
+
+  // A request CSP blocks still shows as a request; it must fail as blocked and get no response.
+  const responses: string[] = [];
+  const failures: string[] = [];
+  page.on('response', (r) => r.url().startsWith('app:') || responses.push(r.url()));
+  page.on('requestfailed', (r) => failures.push(r.failure()?.errorText ?? ''));
+  const blocked = await page.evaluate(async () => {
+    const seen: string[] = [];
+    document.addEventListener('securitypolicyviolation', (e) => seen.push(e.effectiveDirective));
+    const img = Object.assign(document.createElement('img'), { src: 'https://example.com/pixel.png' });
+    const frame = Object.assign(document.createElement('iframe'), { src: 'https://example.com/' });
+    const style = Object.assign(document.createElement('style'), { textContent: 'body { color: red; }' });
+    document.body.append(img, frame);
+    document.head.append(style);
+    await new Promise((r) => setTimeout(r, 500));
+    return seen.sort();
+  });
+  expect(blocked).toEqual(expect.arrayContaining(['frame-src', 'img-src', 'style-src-elem']));
+  expect(responses).toEqual([]);
+  expect(failures.every((f) => f === 'csp')).toBe(true);
+
+  expect(await page.evaluate(() => window.open('https://example.com/') === null)).toBe(true);
+  await page.evaluate(() => {
+    location.href = 'https://example.com/';
+  });
+  await page.waitForTimeout(500);
+  // The navigation was cancelled: the same document still shows the app.
+  expect(await page.evaluate(() => [location.href, document.body.innerText.includes('Connect an agent')])).toEqual(['app://codemm/index.html', true]);
+  await app.close();
+});
