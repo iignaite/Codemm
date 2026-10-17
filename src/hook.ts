@@ -4,7 +4,11 @@ import { readWorkspace } from "./store.js";
 
 const WARN = "Codemm hook: couldn't read the file path from the hook input; allowing the edit.";
 
-/** Resolves symlinks and aliases (e.g. /tmp vs /private/tmp) through the deepest existing ancestor. */
+/**
+ * Resolves symlinks and aliases (e.g. /tmp vs /private/tmp) through the deepest existing ancestor.
+ * The OS's own realpath also returns the on-disk spelling, so case on macOS and Windows
+ * and Windows short names (RUNNER~1) can't hide a path from the check.
+ */
 function canonical(path: string): string {
   let existing = path;
   const rest: string[] = [];
@@ -14,7 +18,7 @@ function canonical(path: string): string {
     rest.unshift(basename(existing));
     existing = parent;
   }
-  return join(realpathSync(existing), ...rest);
+  return join(realpathSync.native(existing), ...rest);
 }
 
 /**

@@ -29,11 +29,36 @@ export function containerCli(): string {
   for (const cli of ["docker", "podman"]) {
     if (spawnSync(cli, ["--version"], { stdio: "ignore" }).status === 0) return cli;
   }
-  throw new CodemmError("No container runtime found. Install Docker Desktop (or Podman), start it and retry.");
+  throw new CodemmError(`No container runtime found. ${runtimeHelp()}`);
+}
+
+/** What to install and start on this OS. Codemm needs an engine that runs Linux containers. */
+export function runtimeHelp(platform: NodeJS.Platform = process.platform): string {
+  if (platform === "darwin") return "Install Docker Desktop for Mac (or Podman, experimental), start it and retry.";
+  if (platform === "win32") {
+    return "Install Docker Desktop for Windows with the WSL 2 backend (run `wsl --install` first if WSL 2 is missing), " +
+      "make sure it's set to Linux containers, start it and retry. Podman is experimental.";
+  }
+  return "Install Docker Engine (or Podman, experimental), start it (for example `sudo systemctl start docker`) " +
+    "and make sure your user may use it (the docker group, or rootless mode), then retry.";
+}
+
+/** Asks the engine for its version and the kind of containers it runs. */
+export const RUNTIME_INFO = ["info", "--format", "{{.ServerVersion}}|{{.OSType}}"];
+
+/**
+ * Reads the RUNTIME_INFO answer. `docker info` exits 0 even when the daemon is down, so a running
+ * engine is one that reported a version.
+ */
+export function runtimeProblem(r: { exit: number; output: string }, platform: NodeJS.Platform = process.platform): string | undefined {
+  const m = /^(\S+)\|(\w+)\s*$/m.exec(r.output);
+  if (r.exit !== 0 || !m) return `The container runtime isn't running. ${runtimeHelp(platform)}`;
+  if (m[2] === "windows") return "Docker is running Windows containers. Switch Docker Desktop to Linux containers and retry.";
+  return undefined;
 }
 
 /** The full `run` argument list. Pure, so the isolation flags are easy to test. */
-export function sandboxArgs(run: SandboxRun, name: string, user = posixUser()): string[] {
+export function sandboxArgs(run: SandboxRun, name: string, user = hostUser()): string[] {
   const args = [
     "run", "--rm", "--name", name, "--label", OWNER_LABEL, "--label", `codemm.pid=${process.pid}`,
     "--network", "none",
@@ -45,16 +70,17 @@ export function sandboxArgs(run: SandboxRun, name: string, user = posixUser()): 
     "--no-healthcheck", "--log-opt", "max-size=1m",
     "--entrypoint", "/bin/sh", "--workdir", "/work/src",
     "-e", "HOME=/tmp",
+    "--user", user,
   ];
-  if (user) args.push("--user", user);
   for (const [k, v] of Object.entries(run.env)) args.push("-e", `${k}=${v}`);
   for (const m of run.mounts) args.push("--mount", `type=bind,source=${m.host},target=${m.container},readonly`);
   args.push(run.image, "-c", run.script);
   return args;
 }
 
-function posixUser(): string | undefined {
-  return typeof process.getuid === "function" && typeof process.getgid === "function" ? `${process.getuid()}:${process.getgid()}` : undefined;
+/** The host user on POSIX. Windows has no uid, so there the code runs as the conventional unprivileged "nobody". */
+function hostUser(): string {
+  return typeof process.getuid === "function" && typeof process.getgid === "function" ? `${process.getuid()}:${process.getgid()}` : "65534:65534";
 }
 
 export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
@@ -147,8 +173,8 @@ export function cli(args: string[], timeoutMs = 60_000): Promise<{ exit: number;
 }
 
 export async function assertRuntime(): Promise<void> {
-  const r = await cli(["info", "--format", "{{.ServerVersion}}"], 20_000);
-  if (r.exit !== 0) throw new CodemmError("The container runtime isn't running. Start Docker Desktop (or Podman) and retry.");
+  const problem = runtimeProblem(await cli(RUNTIME_INFO, 20_000));
+  if (problem) throw new CodemmError(problem);
 }
 
 /** Builds a track image from a staged folder. Networked; this is the separate trust boundary in DESIGN §4.4. */
