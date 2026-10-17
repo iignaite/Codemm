@@ -25,20 +25,23 @@ const SLACK_MS = 30_000;
 const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
 
 // The driver is PID 1. Program output only leaves the container inside a length-framed
-// record, and `kill -9 -1` clears leftover processes between cases.
-const EMIT = `emit() { n=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$n"; cat "$4"; }
+// record, and `kill -9 -1` clears leftover processes between cases. Every command the track or learner
+// supplies starts with $OOM, which makes it the out-of-memory killer's first choice (raising
+// oom_score_adj needs no privilege), so a program that exhausts memory dies instead of the driver.
+const EMIT = `OOM='{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null; '
+emit() { n=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$n"; cat "$4"; }
 for u in timeout head wc cat basename; do command -v "$u" >/dev/null 2>&1 || { echo "the image has no '$u'" > /tmp/m; emit fatal tools 1 /tmp/m; exit 0; }; done`;
 
 const IO_DRIVER = `${EMIT}
 if [ -n "\${CODEMM_BUILD:-}" ]; then
-  timeout -s KILL ${BUILD_SECONDS} sh -c "$CODEMM_BUILD" > /tmp/b 2>&1; c=$?
+  timeout -s KILL ${BUILD_SECONDS} sh -c "$OOM$CODEMM_BUILD" > /tmp/b 2>&1; c=$?
   head -c 16384 /tmp/b > /tmp/bc; emit build build "$c" /tmp/bc
   [ "$c" = 0 ] || exit 0
 fi
 for f in /work/tests/*.in; do
   [ -e "$f" ] || continue
   n=$(basename "$f" .in)
-  timeout -s KILL "$CODEMM_TIME_S" sh -c "$CODEMM_RUN" < "$f" > /tmp/o 2> /tmp/e; c=$?
+  timeout -s KILL "$CODEMM_TIME_S" sh -c "$OOM$CODEMM_RUN" < "$f" > /tmp/o 2> /tmp/e; c=$?
   kill -9 -1 2>/dev/null
   head -c 4096 /tmp/e > /tmp/ec
   if [ $(($(wc -c < /tmp/o))) -gt 65536 ]; then : > /tmp/oc; emit big "$n" "$c" /tmp/oc; else emit case "$n" "$c" /tmp/o; fi
@@ -46,7 +49,7 @@ for f in /work/tests/*.in; do
 done`;
 
 const UNIT_DRIVER = `${EMIT}
-TESTS=/work/tests OUT=/tmp/report.json timeout -s KILL "$CODEMM_TIME_S" sh -c "$CODEMM_TEST" > /tmp/o 2>&1; c=$?
+TESTS=/work/tests OUT=/tmp/report.json timeout -s KILL "$CODEMM_TIME_S" sh -c "$OOM$CODEMM_TEST" > /tmp/o 2>&1; c=$?
 kill -9 -1 2>/dev/null
 if [ -f /tmp/report.json ] && [ $(($(wc -c < /tmp/report.json))) -le 1048576 ]; then emit report report "$c" /tmp/report.json; else : > /tmp/r; emit report report "$c" /tmp/r; fi
 head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc`;
