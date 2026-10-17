@@ -90,6 +90,7 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
   return (
     <div className="ws">
       <section className="stmt" aria-labelledby="activity-title">
+        {topic?.review === 'due' && <span className="pill" style={{ alignSelf: 'flex-start' }}>Review</span>}
         <h1 className="h2" id="activity-title">{activity.title}</h1>
         <Markdown text={activity.statement} />
       </section>

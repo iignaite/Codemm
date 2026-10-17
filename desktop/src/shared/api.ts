@@ -138,6 +138,10 @@ export interface TopicView {
   stuck: boolean;
   lessons: { id: string; title: string; state: LessonState }[];
   activity: ActivityState;
+  /** A mastered topic due for review: its review activity is open, or being written. */
+  review?: 'due' | 'writing';
+  /** Whole days until a mastered topic's next review, when one is scheduled and not yet due. */
+  reviewIn?: number;
 }
 
 export interface CourseView {

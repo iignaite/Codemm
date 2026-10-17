@@ -19,7 +19,7 @@ function continueRoute(topic: TopicView): Route {
 /** Lessons, then an activity, per topic, with mastery so far. */
 export function CourseMap() {
   const api = useApi();
-  const { data: course, error, reload } = useLoad(() => api.course(), [], settled);
+  const { data: course, error, reload } = useLoad(() => api.course(), [], settled, undefined, true);
   if (error) return <Failed error={error} retry={reload} />;
   if (course === undefined) return null;
   if (course === null) return <Goal />;
@@ -49,7 +49,16 @@ function MapItem({ topic, index, course }: { topic: TopicView; index: number; co
         {index < course.topics.length - 1 && <span className={`lb${topic.state === 'mastered' ? ' g' : ''}`} />}
         <span className={topic.state === 'mastered' ? 'a-pop' : undefined} style={stagger(index, 100)} role="img" aria-label={STATE_LABEL[topic.state]}>{icon}</span>
       </div>
-      {topic.state === 'now' ? (
+      {topic.review ? (
+        <div className="card now-card a-up" style={stagger(0, 500)}>
+          <b>{topic.title}</b>
+          {topic.review === 'due' ? (
+            <Button onClick={() => go({ to: 'practice', concept: topic.id })}>Review</Button>
+          ) : (
+            <span className="shim" style={{ width: 96 }} role="img" aria-label="Writing the review" />
+          )}
+        </div>
+      ) : topic.state === 'now' ? (
         <div className="card now-card a-up" style={stagger(0, 500)}>
           <b>{topic.title}</b>
           {topic.lessons.every((l) => l.state === 'read') && <span className="done"><Icon name="check" color="#0E7C35" size={14} />Lessons</span>}
@@ -74,6 +83,7 @@ function Aside({ course }: { course: CourseView }) {
             <div className="bar" role="img" aria-label={`${t.title}: ${t.state === 'mastered' ? 'mastered' : 'in progress'}`}>
               <i style={{ width: `${Math.round(t.mastery * 100)}%`, ...stagger(0, 500 + i * 100) }} />
             </div>
+            {t.reviewIn && <span className="soon">{t.reviewIn === 1 ? 'Review tomorrow' : `Review in ${t.reviewIn} days`}</span>}
           </div>
         ))}
       </section>

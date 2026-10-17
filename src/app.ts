@@ -309,7 +309,7 @@ function trackContract(track: TrackRecord, style: string): TrackContract {
 }
 
 const pickFor = (course: CourseRecord) =>
-  pickNext(course, store.listExercises(course.course), store.readEvents(course.course), store.listLessons(course.course));
+  pickNext(course, store.listExercises(course.course), store.readEvents(course.course), store.listLessons(course.course), new Date().toISOString());
 
 export function nextStep(ws: string, bound?: string): NextStep {
   const course = activeCourse(ws, bound);
@@ -545,6 +545,7 @@ export function progress(ws: string, bound?: string) {
       return {
         id: c.id, title: c.title, requires: c.requires, mastery: Math.round(mastery * 1000) / 1000,
         mastered: mastery >= MASTERED, difficulty: s?.difficulty ?? 1, attempts: s?.attempts ?? 0, stuck: s?.stuck ?? false,
+        ...(s?.review ? { reviewDue: s.review.due } : {}),
       };
     }),
     next: nextStep(ws, bound),
