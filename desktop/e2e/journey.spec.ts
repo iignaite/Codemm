@@ -220,7 +220,7 @@ async function toActivity(): Promise<string> {
         if (++retries > 2) throw new Error(`Still stalled after 2 tries: ${(await page.getByRole('alert').innerText()).replace(/\s+/g, ' ')}`);
         appendFileSync(join(dir!, 'results.jsonl'), `${JSON.stringify({ label, step: 'stall-try-again', ok: true, s: 0, note: (await page.getByRole('alert').innerText()).replace(/\s+/g, ' ') })}\n`);
         await stalled.click();
-      } else if ((await visible(button('Next'))) && (await button('Next').isEnabled())) await tap(button('Next'));
+      } else if ((await visible(button('Next'))) && (await button('Next').isEnabled({ timeout: 1000 }).catch(() => false))) await tap(button('Next'));
       else if (await visible(button(/^(Start|Again)$/))) await tap(button(/^(Start|Again)$/).first());
       else if (await visible(button(/^Read /))) await tap(button(/^Read /).first());
       return false;
@@ -595,7 +595,7 @@ test(`journey: ${label}`, async () => {
         const read = button(/^Read /).first();
         const title = (await read.getAttribute('aria-label'))!.replace(/^Read /, '');
         await read.click();
-        await expect(heading(title)).toBeVisible();
+        await expect(page.getByRole('heading', { level: 1, name: title, exact: true })).toBeVisible();
         await button('Add a note').click();
         await page.getByRole('textbox', { name: 'My note' }).fill('My own words: the key idea.');
         await button('Save').click();
