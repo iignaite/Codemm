@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { CodemmApi } from '../../../shared/api';
+import { timing } from '../../app/useLoad';
 import { mockWithCourse, renderApp } from '../../test-utils';
 
 async function master(api: CodemmApi, topics: number) {
@@ -67,6 +68,23 @@ describe('course map', () => {
     window.dispatchEvent(new Event('focus'));
     expect(await screen.findByRole('button', { name: 'Review' })).toBeInTheDocument();
     expect(reads).toBeGreaterThan(before);
+  });
+
+  it('re-reads a settled course now and then, so a review that comes due while the screen stays open shows up', async () => {
+    const idle = timing.idleMs;
+    timing.idleMs = 30;
+    try {
+      const { api } = await mockWithCourse();
+      const real = (await api.course())!;
+      let due = false;
+      api.course = async () => (due ? { ...real, topics: real.topics.map((t, i) => (i === 0 ? { ...t, state: 'mastered' as const, review: 'due' as const, activity: 'open' as const } : t)) } : real);
+      renderApp({ to: 'learn' }, api);
+      await screen.findByRole('list', { name: 'Topics' });
+      due = true;
+      expect(await screen.findByRole('button', { name: 'Review' })).toBeInTheDocument();
+    } finally {
+      timing.idleMs = idle;
+    }
   });
 
   it('keeps the review schedule on a finished course', async () => {
