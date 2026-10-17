@@ -6,6 +6,16 @@ import type { JobKind } from './jobs';
 /** Learner code given to the tutor, at most this many characters. */
 const CODE_MAX = 64 * 1024;
 
+/** What the author job writes: the exact next_step target, and the installed track's learner files. */
+export interface AuthorTarget {
+  concept: string;
+  title: string;
+  difficulty: number;
+  style: string;
+  track: string;
+  files: string[];
+}
+
 export function briefsFrom(base: Record<JobKind, string>) {
   const brief = (kind: JobKind, ...details: (string | false | undefined)[]) => [base[kind], ...details.filter(Boolean)].join('\n\n');
   return {
@@ -15,7 +25,8 @@ export function briefsFrom(base: Record<JobKind, string>) {
     easier: (concept: string, title: string) => brief('roadmap', `Make "${title}" (${concept}) easier: add one smaller topic that it requires.`),
     setup: (track: string, problem?: string) => brief('setup', `Track: ${track}`, problem && `The last proposal failed its checks: ${problem}`),
     lesson: (concept: string, title: string) => brief('lesson', `Concept: ${concept} (${title})`),
-    author: () => brief('author'),
+    author: (t: AuthorTarget) =>
+      brief('author', `Concept: \`${t.concept}\` (${t.title}), difficulty ${t.difficulty}`, `Track: \`${t.track}\`, style \`${t.style}\``, `Learner files: ${t.files.map((f) => `\`${f}\``).join(', ')}`),
     tutor: (place: string, question: string, files?: Record<string, string>) => {
       const code = files && Object.entries(files).map(([path, text]) => `${path}:\n\`\`\`\n${text}\n\`\`\``).join('\n\n').slice(0, CODE_MAX);
       return brief('tutor', `The learner is on ${place}.`, code && `Their code:\n\n${code}`, `They ask: ${question}`);

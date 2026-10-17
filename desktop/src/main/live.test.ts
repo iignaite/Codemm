@@ -250,4 +250,26 @@ describe('live CodemmApi', () => {
     await new Promise((res) => setTimeout(res, 10));
     expect(t.jobs.ran).toHaveLength(ran);
   });
+
+  it('an author job is done only by a new exercise for the requested concept and difficulty', async () => {
+    const t = live();
+    t.c.wanted = 2;
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(proposal!.digest);
+    // The author writes difficulty 1 when 2 was asked for: not done, so the work stalls instead of looping.
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'failed' });
+    for (let i = 0; i < 3; i++) await t.api.course();
+    expect(t.jobs.ran.filter((j) => j.kind === 'author')).toHaveLength(1);
+  });
+
+  it("gives the author the exact target and the track's learner files", async () => {
+    const t = live();
+    await practising(t);
+    const brief = t.jobs.ran.find((j) => j.kind === 'author')!.brief;
+    expect(brief).toContain('Concept: `values` (Values), difficulty 1');
+    expect(brief).toContain('Track: `react@1`, style `io`');
+    expect(brief).toContain('Learner files: `main.c`');
+  });
 });

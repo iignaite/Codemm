@@ -212,9 +212,14 @@ export function createLive(d: LiveDeps): Live {
       background(`lesson:${course}:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), course, () => lessons() > 0, lane);
     }
     if (ready && progress.next.kind === 'author') {
-      const exercises = () => core.listExercises(ws, course).filter((e) => e.concepts.includes(concept.id)).length;
-      const before = exercises();
-      background(`author:${course}:${concept.id}`, 'author', briefs.author(), course, () => exercises() > before);
+      // Done only by a new exercise for this concept at the requested difficulty (§3.2).
+      const { difficulty } = progress.next;
+      const roadmap = core.getRoadmap(ws, course);
+      const files = core.listTracks().find((t) => t.track === roadmap.track)?.files ?? [];
+      const before = new Set(core.listExercises(ws, course).map((e) => e.exercise));
+      const made = () => core.listExercises(ws, course).some((e) => !before.has(e.exercise) && e.concepts.includes(concept.id) && e.difficulty === difficulty);
+      const target = { concept: concept.id, title: concept.title, difficulty, style: roadmap.style, track: roadmap.track, files };
+      background(`author:${course}:${concept.id}:${difficulty}`, 'author', briefs.author(target), course, made);
     }
   }
 
