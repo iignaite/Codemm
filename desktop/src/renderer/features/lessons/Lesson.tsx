@@ -31,9 +31,6 @@ function neighbours(topic: TopicView, lessonId: string): { prev: Route; next: (c
   };
 }
 
-/** The title is shown above the lesson, so a leading top-level heading would repeat it. */
-const withoutTitle = (markdown: string) => markdown.replace(/^#\s[^\n]*\n+/, '');
-
 interface View {
   lesson: LessonData;
   course: CourseView;
@@ -115,7 +112,7 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
           )}
         </div>
         <div className="a-up">
-          {lessonParts(withoutTitle(lesson.markdown)).map((part, i) =>
+          {lessonParts(lesson.markdown, true).map((part, i) =>
             'example' in part ? <Example key={i} lesson={lesson} index={part.example} /> : <div key={i} className="md" dangerouslySetInnerHTML={{ __html: part.html }} />,
           )}
         </div>

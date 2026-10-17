@@ -56,6 +56,13 @@ describe('lessonParts', () => {
     expect(lessonParts(text as string).flatMap((p) => ('example' in p ? [p.example] : []))).toEqual(refs);
   });
 
+  it('drops a leading title without touching what follows it', () => {
+    expect(lessonParts('#\n```example\n1\n```', true).flatMap((p) => ('example' in p ? [p.example] : []))).toEqual([1]);
+    const [first] = lessonParts('# Title\n\nText', true);
+    expect((first as { html: string }).html).not.toContain('Title');
+    expect((first as { html: string }).html).toContain('Text');
+  });
+
   it('shows, never runs, an example fence inside another fence or indented', () => {
     const parts = lessonParts(`\`\`\`\`md\n${fence(1)}\n\`\`\`\`\n\n    \`\`\`example\n    2\n    \`\`\`\n`);
     expect(parts.every((p) => 'html' in p)).toBe(true);

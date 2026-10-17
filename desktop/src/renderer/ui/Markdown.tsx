@@ -26,11 +26,13 @@ export type LessonPart = { html: string } | { example: number };
 /**
  * A lesson rendered in one pass, cut at each example block: an unindented top-level fence (``` or ~~~) whose info
  * string is `example`, then one line holding N, then the closing fence, exactly as core finds them (core DESIGN §5).
- * Links and other references keep their definitions from anywhere in the lesson.
+ * Links and other references keep their definitions from anywhere in the lesson. With `dropTitle`, a leading
+ * top-level heading is left out (the page shows the title above the lesson).
  */
-export function lessonParts(text: string): LessonPart[] {
+export function lessonParts(text: string, dropTitle = false): LessonPart[] {
   const env = {};
-  const tokens = md.parse(text, env);
+  let tokens = md.parse(text, env);
+  if (dropTitle && tokens[0]?.type === 'heading_open' && tokens[0].tag === 'h1') tokens = tokens.slice(tokens.findIndex((t) => t.type === 'heading_close') + 1);
   const lines = text.split(/\r\n?|\n/);
   const parts: LessonPart[] = [];
   let chunk: typeof tokens = [];
