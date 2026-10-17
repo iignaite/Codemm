@@ -34,7 +34,7 @@ export function tagForTrackYaml(yaml: string): string | undefined {
 /**
  * The docker commands that undo a run: re-tag every tag that existed before to its old image, untag the run's
  * new tags, then remove the run's images by ID. An image ID that existed before the run is never removed, and
- * neither is a new image that would still carry a tag the run didn't make.
+ * neither is a new image that would still carry a tag the run didn't make. `--no-prune` keeps untagged parents.
  */
 export function cleanupPlan(attempted: string[], storeIds: string[], before: Snapshot, after: Snapshot): string[][] {
   const plan: string[][] = [];
@@ -45,12 +45,12 @@ export function cleanupPlan(attempted: string[], storeIds: string[], before: Sna
     if (now && !before.ids.has(now)) created.add(now);
     if (old && now !== old) plan.push(["tag", old, tag]);
     // Untagging the last tag of an image deletes it, so leave a new tag that points at a pre-existing image.
-    else if (!old && now && created.has(now)) plan.push(["rmi", tag]);
+    else if (!old && now && created.has(now)) plan.push(["rmi", "--no-prune", tag]);
   }
   for (const id of storeIds) if (!before.ids.has(id)) created.add(id);
   const ours = new Set(attempted);
   const kept = (id: string) => [...after.tags].some(([tag, tid]) => tid === id && !ours.has(tag));
-  for (const id of created) if (!kept(id)) plan.push(["rmi", id]);
+  for (const id of created) if (!kept(id)) plan.push(["rmi", "--no-prune", id]);
   return plan;
 }
 

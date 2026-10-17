@@ -7,7 +7,7 @@ describe("cleanupPlan", () => {
   it("restores a replaced tag and removes only the run's new image", () => {
     const before = snap({ "codemm-track-c:1": "A" }, ["A", "B"]);
     const after = snap({ "codemm-track-c:1": "N" }, ["A", "B", "N"]);
-    expect(cleanupPlan(["codemm-track-c:1"], ["N"], before, after)).toEqual([["tag", "A", "codemm-track-c:1"], ["rmi", "N"]]);
+    expect(cleanupPlan(["codemm-track-c:1"], ["N"], before, after)).toEqual([["tag", "A", "codemm-track-c:1"], ["rmi", "--no-prune", "N"]]);
   });
 
   it("never removes an image ID that existed before the run, even if the run pointed a tag at it", () => {
@@ -20,7 +20,7 @@ describe("cleanupPlan", () => {
   it("untags a new tag and removes its image, and leaves unchanged tags alone", () => {
     const before = snap({ "codemm-track-shell-io:1": "S" }, ["S"]);
     const after = snap({ "codemm-track-shell-io:1": "S", "codemm-track-python:1": "P" }, ["S", "P"]);
-    expect(cleanupPlan(["codemm-track-python:1", "codemm-track-shell-io:1"], ["P", "S"], before, after)).toEqual([["rmi", "codemm-track-python:1"], ["rmi", "P"]]);
+    expect(cleanupPlan(["codemm-track-python:1", "codemm-track-shell-io:1"], ["P", "S"], before, after)).toEqual([["rmi", "--no-prune", "codemm-track-python:1"], ["rmi", "--no-prune", "P"]]);
   });
 
   it("leaves a new tag that points at a pre-existing image, since untagging could delete that image", () => {
@@ -31,12 +31,12 @@ describe("cleanupPlan", () => {
 
   it("keeps a new image that something else tagged during the run", () => {
     const after = snap({ "codemm-track-c:1": "N", "someone/else:latest": "N" }, ["N"]);
-    expect(cleanupPlan(["codemm-track-c:1"], ["N"], snap({}, []), after)).toEqual([["rmi", "codemm-track-c:1"]]);
+    expect(cleanupPlan(["codemm-track-c:1"], ["N"], snap({}, []), after)).toEqual([["rmi", "--no-prune", "codemm-track-c:1"]]);
   });
 
   it("removes images of failed installs that were never recorded in the store", () => {
     const after = snap({ "codemm-track-c:2": "F" }, ["F"]);
-    expect(cleanupPlan(["codemm-track-c:2", "codemm-track-c:3"], [], snap({}, []), after)).toEqual([["rmi", "codemm-track-c:2"], ["rmi", "F"]]);
+    expect(cleanupPlan(["codemm-track-c:2", "codemm-track-c:3"], [], snap({}, []), after)).toEqual([["rmi", "--no-prune", "codemm-track-c:2"], ["rmi", "--no-prune", "F"]]);
   });
 });
 
