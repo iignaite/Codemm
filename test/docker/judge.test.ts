@@ -35,6 +35,22 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
     expect(err).toBe("error waiting for container\n");
   });
 
+  it("Run: an exit code of 138 or 124 from the program is not a timeout", async () => {
+    for (const code of [124, 137, 138]) {
+      const run = runProgram(ioTrack, { "main.sh": `exit ${code}\n` }, () => undefined);
+      expect(await run.done).toMatchObject({ exit: code, stage: "run", timedOut: false });
+    }
+  });
+
+  it("Run: the time limit stops a program that ignores signals, and its children, in the build or the run", async () => {
+    const stubborn = "trap '' TERM USR1 INT; sleep 30 & while :; do sleep 1; done\n";
+    const run = runProgram(ioTrack, { "main.sh": stubborn }, () => undefined, { limitMs: 1_000 });
+    expect(await run.done).toMatchObject({ stage: "run", timedOut: true });
+    const build = runProgram({ ...ioTrack, build: "sleep 30" }, { "main.sh": "echo hi\n" }, () => undefined, { buildLimitMs: 1_000 });
+    expect(await build.done).toMatchObject({ stage: "build", timedOut: true });
+    await expect.poll(() => ownedContainers(), { timeout: 10_000 }).toEqual([]);
+  });
+
   it("Run: stops a program at its time limit and leaves no container", async () => {
     const run = runProgram(ioTrack, { "main.sh": "read -r n\n" }, () => undefined, { limitMs: 1_000 });
     expect(await run.done).toMatchObject({ stage: "run", timedOut: true });

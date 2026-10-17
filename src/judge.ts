@@ -24,7 +24,7 @@ export type UnitRun = { report: { exit: number; body: string; log: string }; flo
 
 const BUILD_SECONDS = 60;
 const SLACK_MS = 30_000;
-/** `timeout` takes seconds; busybox and coreutils both accept decimals. */
+/** `timeout` and `sleep` take seconds; busybox and coreutils both accept decimals. */
 const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
 
 // The driver is PID 1. Program output only leaves the container inside a length-framed
@@ -108,20 +108,27 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
 /** How long Run lets a program wait for typing and run: a person types, so longer than a test case gets. */
 export const RUN_LIMIT_MS = 120_000;
 
-// The shell stays PID 1 (no exec), so timeout's signal reaches the program; a kill aimed at PID 1 from inside is
-// ignored. At the limit, timeout sends SIGUSR1 (exit 138: the driver's own sign of a timeout), then SIGKILL a second
-// later for a program that ignores it. `kill -9 -1` clears what the program left behind. Markers on stderr say when
-// each stage starts and how it ended, then the driver exits 0: an end marker means the driver finished, whatever the
-// program printed or returned.
+// Each stage runs in the foreground, so it keeps the typed stdin, with a watchdog beside it. At the limit the
+// watchdog says so first (a timeout marker), then `kill -9 -1` stops everything but the driver: the shell stays
+// PID 1 (no exec), and a kill aimed at PID 1 from inside is ignored. So a timeout is the driver's own statement, never
+// read from an exit code or from timing, and it needs no `timeout` tool. Markers on stderr say when each stage starts
+// and how it ended, then the driver exits 0: an end marker means the driver finished, whatever the program printed or
+// returned. A program can print a marker too, but the driver's end marker comes last, and a forged timeout only
+// mislabels the program's own unrecorded run.
 const PROGRAM_DRIVER = `mark() { printf '\\n@@codemm-run %s\\n' "$*" >&2; }
+limited() {
+  ( sleep "$2"; mark timeout "$1"; kill -9 -1 2>/dev/null ) &
+  w=$!
+  sh -c "$3"; c=$?
+  kill -9 "$w" 2>/dev/null; kill -9 -1 2>/dev/null
+}
 if [ -n "\${CODEMM_BUILD:-}" ]; then
   mark start build
-  timeout -s USR1 -k 1 "$CODEMM_BUILD_S" sh -c "$CODEMM_BUILD"; c=$?
-  if [ "$c" != 0 ]; then kill -9 -1 2>/dev/null; mark end build "$c"; exit 0; fi
+  limited build "$CODEMM_BUILD_S" "$CODEMM_BUILD"
+  if [ "$c" != 0 ]; then mark end build "$c"; exit 0; fi
 fi
 mark start run
-timeout -s USR1 -k 1 "$CODEMM_TIME_S" sh -c "$CODEMM_RUN"; c=$?
-kill -9 -1 2>/dev/null
+limited run "$CODEMM_TIME_S" "$CODEMM_RUN"
 mark end run "$c"
 exit 0`;
 
@@ -145,11 +152,13 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
   const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
   const say = (stream: "stdout" | "stderr", text: string) => text && output(text, stream);
   let ended: { stage: "build" | "run"; code: number } | undefined;
+  let timedOutIn: "build" | "run" | undefined;
   const markers = runMarkers(
     (text) => say("stderr", text),
     ([what, stage, code]) => {
       if (stage !== "build" && stage !== "run") return;
       if (what === "end" && code !== undefined && /^\d+$/.test(code)) ended = { stage, code: Number(code) };
+      if (what === "timeout") timedOutIn = stage;
     },
   );
   let stopped = false;
@@ -183,9 +192,10 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       // What Codemm stopped first: the learner, the host deadline or the output cap.
       if (stopped || r.timedOut || r.flooded) return { exit: r.exit, timedOut: r.timedOut, flooded: r.flooded, ...(stopped ? { stopped } : {}) };
       if (ended) {
-        // 138 is the driver's timeout signal. A 137 may be the memory limit killing the program while the driver went on.
-        const memory = ended.code === 137 && (await started.hadOomKill()) ? { outOfMemory: true } : {};
-        return { exit: ended.code, stage: ended.stage, timedOut: ended.code === TIMED_OUT, flooded: false, ...memory };
+        // The watchdog's marker says the stage timed out. Otherwise a 137 may be the memory limit killing the program while the driver went on.
+        const timedOut = timedOutIn === ended.stage;
+        const memory = !timedOut && ended.code === 137 && (await started.hadOomKill()) ? { outOfMemory: true } : {};
+        return { exit: ended.code, stage: ended.stage, timedOut, flooded: false, ...memory };
       }
       // No end marker: the driver itself was killed. Only a memory-limit kill is the program's doing.
       if (r.oomKilled) return { exit: 137, timedOut: false, flooded: false, outOfMemory: true };
@@ -203,8 +213,6 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
 }
 
 const MARK = "\n@@codemm-run ";
-/** 128 + SIGUSR1 (10 on Linux): the run driver's timeout signal. */
-const TIMED_OUT = 138;
 
 /**
  * Splits the driver's markers ("\n@@codemm-run <fields>\n") out of Run's stderr as it streams. The program's own

@@ -61,13 +61,14 @@ describe.runIf(posix)("interactive run", () => {
     expect(await run.done).toMatchObject({ timedOut: true });
   });
 
-  it("knows a timeout from the driver's own signal, not from timing: build or run", async () => {
+  it("knows a timeout from the driver's deadline marker, not from timing or an exit code: build or run", async () => {
     const ws = await installedExercise();
     const result = async (scenario: Parameters<typeof fakeDocker>[0]) => {
       fakeDocker(scenario);
       return (await app.runInteractive(ws, undefined, undefined, () => undefined)).done;
     };
     expect(await result("quickkill")).toMatchObject({ exit: 137, stage: "run", timedOut: false });
+    expect(await result("exits138")).toMatchObject({ exit: 138, stage: "run", timedOut: false });
     expect(await result("timesout")).toMatchObject({ stage: "run", timedOut: true });
     expect(await result("buildtimesout")).toMatchObject({ stage: "build", timedOut: true });
   });
@@ -134,9 +135,10 @@ describe.runIf(posix)("interactive run", () => {
 
   it("leaves no temporary folder behind, whatever happens", async () => {
     const ws = await installedExercise();
-    // Only folders this test made count: an earlier test's run may still be finishing its own cleanup.
-    const runs = () => new Set(readdirSync(tmpdir()).filter((f) => f.startsWith("codemm-run-")));
-    const before = runs();
+    // A temp folder of its own: other test runs on the machine make codemm-run- folders too.
+    const own = mkdtempSync(join(tmpdir(), "codemm-test-tmp-"));
+    for (const name of ["TMPDIR", "TMP", "TEMP"]) vi.stubEnv(name, own);
+    const runs = () => readdirSync(own).filter((f) => f.startsWith("codemm-run-"));
     fakeDocker("interactive");
     const ok = await app.runInteractive(ws, undefined, undefined, () => undefined);
     ok.write("Ada\n");
@@ -145,7 +147,7 @@ describe.runIf(posix)("interactive run", () => {
     await (await app.runInteractive(ws, undefined, undefined, () => undefined)).done.catch(() => undefined);
     fakeDocker("missing");
     expect(() => runProgram({ image: "img", run: "sh main.sh", limits: { time_ms: 1000, memory_mb: 64 } }, { "main.sh": "" }, () => undefined)).toThrow();
-    expect([...runs()].filter((f) => !before.has(f))).toEqual([]);
+    expect(runs()).toEqual([]);
   });
 
   it("isn't offered for a track with no run command", async () => {

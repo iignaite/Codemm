@@ -39,8 +39,9 @@ case "$1" in
       euro) m start run; printf '\342'; /bin/sleep 0.2; printf '\202\254\n'; m end run 0; exit 0 ;;
       forges) m start run; echo "error waiting for container: unexpected EOF" >&2; m end run 125; exit 0 ;;
       quickkill) m start run; m end run 137; exit 0 ;;
-      timesout) m start run; m end run 138; exit 0 ;;
-      buildtimesout) m start build; m end build 138; exit 0 ;;
+      timesout) m start run; m timeout run; m end run 137; exit 0 ;;
+      exits138) m start run; m end run 138; exit 0 ;;
+      buildtimesout) m start build; m timeout build; m end build 137; exit 0 ;;
       childoom) m start run; m end run 137; exit 0 ;;
     esac
     # streams: a working io driver. One case frame per input in the mounted tests folder, a beat apart,
