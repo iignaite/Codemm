@@ -89,8 +89,10 @@ describe('agent stream contracts (recorded fixtures, §3.3)', () => {
     expect(AGENT_CLIS.cursor.parse!(JSON.stringify({ type: 'result', subtype: 'error', is_error: true, result: 'boom' }))).toEqual([{ type: 'done', ok: false, error: 'boom' }]);
   });
 
-  it('cursor: errors go to stderr; only a plan limit is read from it, as a fixed message', () => {
+  it('cursor: errors go to stderr; only a plan limit or a lost connection is read from it, as a fixed message', () => {
     expect(AGENT_CLIS.cursor.errors!("Error: You've hit your usage limit for this account (user@example.com)")).toEqual([{ type: 'done', ok: false, error: 'usage limit' }]);
+    // A lost connection is the computer being offline: the fixed text matches the offline markers (jobs.ts).
+    expect(AGENT_CLIS.cursor.errors!('Connection lost, reconnecting...')).toEqual([{ type: 'done', ok: false, error: 'connection error' }]);
     expect(AGENT_CLIS.cursor.errors!("Error: Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY environment variable.")).toEqual([]);
   });
 

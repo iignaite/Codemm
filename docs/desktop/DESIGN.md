@@ -122,7 +122,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor i
     - The learner's own `~/.cursor/mcp.json` servers also load, and `--approve-mcps` approves them. Their tools run only where the learner's own allow list permits.
     - Web search has no permission rule.
     - Hidden data is protected by the reply filter and the honor system.
-  - Errors go to stderr, which is drained; only a plan limit is read from it, as a fixed message.
+  - Errors go to stderr, which is drained; only a plan limit or a lost connection is read from it, as a fixed message.
 - **The invariant.** Codemm never runs agent-written code on the host, and runs untrusted code only through `sandbox.ts`. What the agent's own tools do happens under the agent's own sandbox, exactly as in a terminal. Turning those tools off is defense in depth.
 
 **Running processes.**

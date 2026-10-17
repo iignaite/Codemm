@@ -228,7 +228,12 @@ const cursor: AgentCli = {
     const failure = cursorFailure(result);
     return [failure === null ? { type: 'tool_result', id: e.call_id, error: false } : { type: 'tool_result', id: e.call_id, error: true, text: failure }];
   },
-  errors: (line) => (PLAN_LIMIT.test(line) ? [{ type: 'done', ok: false, error: 'usage limit' }] : []),
+  errors: (line) =>
+    PLAN_LIMIT.test(line)
+      ? [{ type: 'done', ok: false, error: 'usage limit' }]
+      : /connection lost|ENOTFOUND|EAI_AGAIN|network is unreachable/i.test(line)
+        ? [{ type: 'done', ok: false, error: 'connection error' }]
+        : [],
   version: { args: ['--version'], read: versionRead(/^(\d{4}\.\d{2}\.\d{2}-\S+)/m) },
   signIn: {
     args: ['status'],
