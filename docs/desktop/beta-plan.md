@@ -10,6 +10,8 @@ A private beta with 5 to 10 learners, one course each, runs before the public 1.
 - macOS, plus Windows and Linux if O3 makes them supported;
 - a mix of complete beginners and people learning a second language or framework.
 
+**Screening form.** The form opens with how the answers are handled: only the owner reads them; they're used only to choose participants; people not chosen have their answers deleted within 30 days; and the contact address for access or deletion is the owner's, given on the form.
+
 **Screening questions:**
 
 1. Which computer and OS will you use?
@@ -29,14 +31,16 @@ Each participant agrees in writing to a plain-language form before installing. T
 - **Recordings** of calls need a separate yes, and you can withdraw that yes at any time.
 - **Costs.** Codemm uses your own agent and your own plan or account. Lessons and activities use some of it.
 - **The builds are unsigned test builds.** Opening them needs an extra step on macOS and Windows, which we show you.
-- **You can stop at any time without giving a reason.** We delete what you shared within 30 days after the beta ends, unless you ask us to delete it sooner.
+- **Who sees it.** Only the owner and the people building Codemm. Write to the owner's contact address on this form to see or delete what you shared.
+- **What gets published.** Only totals across all participants, with no names and nothing that could identify one of so few people. A quotation or a screenshot of yours is published only with a separate yes for that item.
+- **You can stop at any time without giving a reason.** We delete what you shared within 30 days after the beta ends, or sooner if you ask. Published totals can't be taken back, because nothing in them is yours alone.
 
 ## Setup
 
 We send a one-page guide covering:
 
 - the installer for your OS;
-- the unsigned-build step: on macOS, right-click and choose Open; on Windows, choose More info, then Run anyway;
+- the unsigned-build step: on macOS 15 and later, open the app once, then choose System Settings, Privacy & Security, Open Anyway; on Windows, choose More info, then Run anyway. The owner checks these steps on a downloaded beta build before sending the guide;
 - "Check this computer" (DESIGN §6.1);
 - connecting your agent.
 
@@ -70,15 +74,14 @@ We send a one-page guide covering:
 
 ## Exit criteria (D28)
 
-The public 1.0 waits until all of these hold:
+During the beta, every leak, lost work or wrongly counted check is fixed with a regression test. Before the public 1.0 comes a final validation window: a release candidate used by at least 3 beta learners for at least 3 days. Then all of these must hold:
 
 1. At least 5 learners finish T1 to T4, and at least 70% of those who start do.
-2. No hidden-data leak and no lost learner work was seen.
-3. No infrastructure failure was recorded as an attempt.
-4. Every issue rated blocker is fixed and retested with the learner who hit it, or with the owner if that learner isn't available.
-5. The median time from install to the first lesson is 30 minutes or less.
+2. In the validation window, no hidden-data leak, lost learner work, or infrastructure failure recorded as an attempt was seen.
+3. Every issue found during the beta and rated blocker is fixed, its regression test passes, and it was retested with the learner who hit it, or with the owner if that learner isn't available.
+4. The median time from install to the first lesson is 30 minutes or less.
 
-The results go in the release notes, without names.
+The release notes get only totals across all participants (see Consent).
 
 ## Exit survey
 

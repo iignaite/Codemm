@@ -20,9 +20,11 @@ test("claude: a recorded run becomes session, tool, text and done events", () =>
   ]);
 });
 
-test("claude: a failed result is done with ok false", () => {
+test("claude: a failed result is done with ok false, keeping any reported usage", () => {
   const line = JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true, result: "boom" });
   assert.deepEqual(agents.claude.parse(line), [{ type: "done", ok: false, error: "boom" }]);
+  const maxTurns = JSON.stringify({ type: "result", subtype: "error_max_turns", is_error: true, total_cost_usd: 0.25 });
+  assert.deepEqual(agents.claude.parse(maxTurns), [{ type: "done", ok: false, error: "error_max_turns", usage: { costUsd: 0.25 } }]);
 });
 
 test("codex: a recorded run becomes session, tool, text and done events", () => {
@@ -131,5 +133,8 @@ test("versions: each agent's --version output is read, and untested versions are
   assert.equal(agents.claude.version.read({ code: 1, output: "2.1.283" }), null);
   assert.equal(isTested("claude", "2.1.283"), true);
   assert.equal(isTested("codex", "0.157.0"), false);
+  assert.equal(agents.codex.version.read({ code: 0, output: "codex-cli 0.156.1-alpha.1\n" }), "0.156.1-alpha.1");
+  assert.equal(agents.claude.version.read({ code: 0, output: "2.1.283-beta.2 (Claude Code)\n" }), "2.1.283-beta.2");
+  assert.equal(isTested("codex", "0.156.1-alpha.1"), false, "a prerelease of a tested version is not tested");
   assert.equal(isTested("cursor", "2026.01.23-916f423"), false, "Cursor is unverified");
 });

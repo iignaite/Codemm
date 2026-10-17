@@ -55,7 +55,8 @@ const claude = {
     if (!e) return [];
     if (e.type === "system" && e.subtype === "init") return str(e.session_id) ? [{ type: "session", id: e.session_id }] : [];
     if (e.type === "result") {
-      return [e.is_error || e.subtype !== "success" ? { type: "done", ok: false, error: String(e.result ?? e.subtype) } : { type: "done", ok: true, ...usage({ costUsd: e.total_cost_usd }) }];
+      const ok = !e.is_error && e.subtype === "success";
+      return [{ type: "done", ok, ...(ok ? {} : { error: String(e.result ?? e.subtype) }), ...usage({ costUsd: e.total_cost_usd }) }];
     }
     if (e.type !== "assistant" && e.type !== "user") return [];
     const content = e.message?.content;
@@ -67,7 +68,7 @@ const claude = {
       return [];
     });
   },
-  version: { command: "claude", args: ["--version"], read: versionRead(/^(\d+\.\d+\.\d+)/m) },
+  version: { command: "claude", args: ["--version"], read: versionRead(/^(\d+\.\d+\.\d+\S*)/m) },
   signIn: {
     command: "claude",
     args: ["auth", "status", "--json"],
@@ -112,7 +113,7 @@ const codex = {
     }
     return [];
   },
-  version: { command: "codex", args: ["--version"], read: versionRead(/^codex-cli (\d+\.\d+\.\d+)/m) },
+  version: { command: "codex", args: ["--version"], read: versionRead(/^codex-cli (\d+\.\d+\.\d+\S*)/m) },
   signIn: {
     command: "codex",
     args: ["login", "status"],
@@ -122,7 +123,7 @@ const codex = {
 
 /** Cursor is unverified here (not signed in), so only version and sign-in detection are implemented. */
 const cursor = {
-  version: { command: "cursor-agent", args: ["--version"], read: versionRead(/^(\d{4}\.\d{2}\.\d{2}-[0-9a-f]+)/m) },
+  version: { command: "cursor-agent", args: ["--version"], read: versionRead(/^(\d{4}\.\d{2}\.\d{2}-\S+)/m) },
   signIn: {
     command: "cursor-agent",
     args: ["status"],

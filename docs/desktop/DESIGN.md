@@ -13,7 +13,7 @@ Status: revised after Astra's review and re-check, with the owner's approved add
 | 5 | Each agent run is one job. A job has a short brief, a Codemm server bound to its course that exposes only that job's tools, the narrowest built-in tools the agent allows, a deadline, a retry bound and a check for whether it worked. Authoring runs in its own process and is never streamed. |
 | 6 | Installing a track stays its own decision. In the app, `save_track` only proposes a track. Codemm builds exactly the files the learner approved, after they click Set up, and never on roadmap approval. |
 | 7 | New core features are the smallest needed: lessons with sandbox-checked runnable examples, roadmap read, research sources, a `setup` step, honest skip, install progress events, per-job servers and learner file saves. Review scheduling is deferred. |
-| 8 | Installers are built with electron-builder. They stay unsigned for the beta. Signing and auto-update come once the owner has the accounts (§7.1). |
+| 8 | Installers are built with electron-builder. Beta builds are unsigned. The public 1.0 is signed and auto-updates (§7.1), unless the owner waives that under O9. |
 | 9 | A private beta with 5 to 10 learners comes before the public 1.0 ([beta-plan.md](beta-plan.md)). |
 
 ## 1. Scope
@@ -193,11 +193,17 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor i
 
 ### 3.4 Usage
 
-- **Recording.** After every agent run, main appends one record to `<userData>/usage/<course>.jsonl`: `{ format_version, at, job, concept, lesson?, exercise?, agent, costUsd?, inputTokens?, cachedInputTokens?, outputTokens? }`.
-  - The numbers are what the CLI reported in its `done` event. Claude Code reports `total_cost_usd`, an API-equivalent estimate even on a plan. Codex reports token counts.
+- **Recording.** When an agent process exits, however it exits, main appends exactly one record to `<userData>/usage/<course>.jsonl`: `{ format_version, at, job, concept, lesson?, exercise?, agent, session?, costUsd?, inputTokens?, cachedInputTokens?, outputTokens? }`.
+  - The numbers are what the CLI reported in its `done` event, success or failure. Claude Code reports `total_cost_usd`, an API-equivalent estimate even on a plan. Codex reports token counts per turn.
+  - A run that ends without a `done` event, such as a cancel or a crash, is still recorded, with no numbers.
+  - **Resumed tutor sessions.** A resumed Claude Code session reports a total that includes earlier turns. For a resumed session, `costUsd` is the reported total minus the last total recorded for the same `session`, or the reported total if that would be negative. The live contract test (§3.3) checks this on each tested version.
   - Each record is one agent run, so relaunches and tutor turns count. The number of runs per lesson or activity is the record count.
   - The file is append-only, and a torn last line is ignored, as with core's event log.
-- **Showing it.** The course view shows a rough figure per topic: "About $0.40 of agent use" when costs were reported, otherwise "About 120k tokens". Figures are rounded to two significant digits. Codemm keeps no price table.
+- **Showing it.** The course view shows rough figures per topic, rounded to two significant digits:
+  - "About $0.40 of agent use" for reported costs;
+  - "About 120k tokens" for reported tokens. Both appear when a topic used both agents, because costs and tokens can't be added up honestly.
+  - "At least" goes before the figure when any run on the topic reported nothing.
+  - Codemm keeps no price table.
 - **Caching.** Saved lessons are read from the course store. Reopening a lesson, or going back to an activity, starts no agent job.
 
 ## 4. New core capabilities
@@ -226,7 +232,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 - **Draft before setup.**
   - `save_roadmap` accepts a track that isn't installed yet, if it is a valid `id@version`.
   - `next_step` returns `{ kind: "setup", track }` until it is installed.
-  - Re-saving may change `track` while the course has no exercises, so a failed setup can move to another track. Before that save, main cancels the old track's setup and author jobs and drops its proposals. Lessons stay: they are static text the learner can edit, and nothing in them runs or is graded.
+  - Re-saving may change `track` while the course has no exercises and no lesson with runnable examples, so a failed setup can move to another track. Before that save, main cancels the old track's setup and author jobs and drops its proposals. Lessons without runnable examples stay, because they are static text the learner can edit. A course that has a lesson with runnable examples can't change track, because those examples were checked on the old one.
   - `save_exercise`, `get_exercise` and `check` still need the installed track.
   - If the installed track doesn't offer the roadmap's style, `next_step` fails with "Edit the roadmap's style".
 - **Reading.** `get_roadmap` (tool) and `app.getRoadmap(ws)` return `{ course, goal, track, style, concepts: [{ id, title, requires }], sources }`.
@@ -279,9 +285,11 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 - **The lesson gate.** It covers only examples the agent marks runnable:
   - **Marking.** A fenced block with the info string `run` holds the example. An optional `stdin` block may follow it. An `output` block must come next, holding what the lesson says it prints.
   - **What it runs on.** The body becomes the track's single learner file, so runnable examples need an installed track with one learner file and the `io` style. Otherwise `save_lesson` rejects runnable blocks ("Set up the track first, or mark no example runnable"). The first lesson, written while setup runs, therefore has no runnable examples.
-  - **Running.** A lesson may hold at most 5 runnable examples. They run as io cases in one sandbox container through the judge, with every §4.3 flag and the track's limits. The output is compared with core's io normalization.
+  - **Running.** A lesson may hold at most 5 runnable examples. Each one is a different program, so each runs separately through the judge as a one-case io run: its own build, its own container, every §4.3 flag and the track's limits. The output is compared with core's io normalization.
+  - **Locking.** A lesson with runnable examples holds the track lock, then the course lock (the order `save_exercise` uses), from validation through commit. A rebuild therefore can't swap the image between the check and the save.
   - **Results.** If an example fails to build, errors, times out or prints something other than its `output` block, `save_lesson` saves nothing. It returns which example failed, with the expected and actual output, since lesson examples are public. The lesson job retries within its bound (§3.2), then fails into §5. An infrastructure failure saves nothing and is reported as one.
   - **Rebuilds.** `track rebuild` re-runs every saved lesson's runnable examples along with the exercises, and fails, listing the lessons, if any output changed.
+  - **Track changes.** Once a course has a lesson with runnable examples, its track can no longer change (§4.2).
   - **Not covered.** Prose and non-runnable code are checked for structure only, and a learner's edits aren't re-run. The learner can edit a lesson or tell Codemm when it reads wrong.
 
 ### 4.5 Honest skip and retry
@@ -363,25 +371,25 @@ The first run, and every Docker failure in §5, opens "Check this computer". It 
 | The sandbox works | doctor's network check passes | "Codemm couldn't confirm the sandbox. Restart Docker and check again." |
 
 - Only the first failing row shows its fix.
-- The screen re-checks by itself every 5 seconds, and when the window regains focus. It stops once every row passes, and Continue unlocks.
+- Only one check runs at a time. The next one starts 5 seconds after the last finishes, or at once when the window regains focus and no check is running. Re-checking stops once every row passes, and Continue unlocks.
 - Colima, and Podman on macOS, are deferred until after 1.0 (§12).
 
 ## 7. Packaging
 
 - **Installers.** electron-builder produces a dmg and zip on macOS (arm64 and x64), NSIS on Windows (x64), and AppImage and deb on Linux (x64).
 - **Bundled core.** The core is bundled under resources (unpacked from asar) for the MCP server.
-- **Unsigned for 1.0.**
-  - macOS needs a right-click and Open, or removing the quarantine attribute.
+- **Unsigned for the beta.**
+  - On macOS 15 and later: open the app once, then choose System Settings, Privacy & Security, Open Anyway. Right-click and Open no longer works for unnotarized apps.
   - Windows SmartScreen needs More info, then Run anyway.
-  - The README states both.
+  - The beta guide states both ([beta-plan.md](beta-plan.md)).
 - **CI.** CI builds installers on all three OSes and keeps them as artifacts. Nothing is published.
 
 ### 7.1 Signing and auto-update (decision)
 
-**Decision.** Builds stay unsigned for the beta. Before the public 1.0, sign and notarize the macOS build and sign the Windows build. Then turn on auto-update with electron-updater, publishing to GitHub Releases. Auto-update stays off until builds are signed:
+**Decision.** Beta builds stay unsigned. The public 1.0 is gated on D29: the macOS build signed and notarized, and the Windows build signed. Only the owner can waive that gate (O9). Then turn on auto-update with electron-updater, publishing to GitHub Releases. Auto-update stays off until builds are signed:
 
 - macOS updates (Squirrel.Mac) work only for signed apps.
-- An unsigned Windows update would keep showing SmartScreen warnings.
+- An unsigned Windows update shows SmartScreen warnings. Signing doesn't remove them at once, because reputation builds over time, but it is the requirement for building it.
 - Signing all three platforms at once keeps the update path the same everywhere.
 
 **Why it waits.** Signing needs accounts only the owner can hold:
@@ -411,7 +419,7 @@ The flow must work from weak to strong models.
 - **No subagents needed.** The app runs authoring as its own process. Hosts or models that handle subagents poorly still get isolation.
 - **Specific errors and bounded retries.** Tool inputs are validated with specific messages that the agent can act on. Retries are bounded (§3.2), and each job's done check reads core records.
 - **Bench.** The cross-model bench (`bench/`) supplies evidence per model.
-- **Minimum model.** `desktop/src/shared/models.json` holds a recommended minimum model per agent, filled from the bench results in `docs/bench`. When it is set, the agent's connect row shows "Works best with ‹model› or newer". Because Codex jobs ignore the learner's config (§3.1), the app also passes that model with `-m`. Claude Code jobs keep the learner's default.
+- **Minimum model.** `desktop/src/shared/models.json` holds a recommended minimum model per agent, filled from the bench results in `docs/bench`. When it is set, the agent's connect row shows "Recommended: ‹model›". Because Codex jobs ignore the learner's config (§3.1), the app passes exactly that model with `-m`. Claude Code jobs keep the learner's default.
   **Placeholder:** both entries are `null` until the bench results land. Until then the row shows nothing, and Codex uses its default model.
 
 ## 9. Acceptance criteria
@@ -420,14 +428,14 @@ Each item is verified by an automated test unless marked *journey*.
 
 | # | Requirement |
 |---|---|
-| D1 | CI builds unsigned installers on macOS (dmg), Windows (NSIS) and Linux (AppImage, deb). On each OS, the packaged build, with no system Node on `PATH`: (a) launches to the welcome screen; (b) starts its own MCP server through `ELECTRON_RUN_AS_NODE`, which a test client calls `list_tracks` on; and (c) launches a fake JavaScript agent the same way (on Windows, through an npm `.cmd` shim). |
+| D1 | CI builds installers on macOS (dmg), Windows (NSIS) and Linux (AppImage, deb), unsigned for the beta. On each OS, the packaged build, with no system Node on `PATH`: (a) launches to the welcome screen; (b) starts its own MCP server through `ELECTRON_RUN_AS_NODE`, which a test client calls `list_tracks` on; and (c) launches a fake JavaScript agent the same way (on Windows, through an npm `.cmd` shim). |
 | D2 | Renderer security: the window has `contextIsolation`, `sandbox`, no `nodeIntegration` and the §2.1 CSP. In the renderer, `require` and `process` are undefined, a remote image in a lesson makes no request, and navigation and new windows are denied. IPC from any frame other than the main window's top frame is rejected. |
 | D3 | Every IPC channel is declared in `shared/api.ts`. Each handler validates its input and calls one function. Unknown channels and bad input are rejected. |
 | D4 | Canary test: an exercise whose solution, mutants, hidden tests and expected outputs hold canary strings is authored through a recorded author stream. Every IPC handler is driven, and every renderer-bound payload and the app log are checked: none holds a canary. A tutor reply that quotes a canary line is held back. |
 | D5 | The bridge, for Claude Code and Codex: launch arguments match §3.1. Recorded streams parse to the expected events, and malformed lines produce none. A cancelled job reports `stopped: true` only after its whole process group is gone, including a child that ignores SIGTERM; a surviving group reports `stopped: false`. A job cancelled before it starts never spawns. Lines over the cap are dropped, with or without a newline. Sign-in answers at its deadline even when a child holds the pipe, and reads no more than its cap. No stdin, no shell. |
 | D6 | Credentials: no desktop code reads agent credential files or credential environment variables. Sign-in returns a boolean only, and status output (for example, an email address) never reaches IPC or logs. |
 | D7 | Install consent: with `--desktop`, `save_track` stores a proposal and builds nothing. Only `installProposal` builds, and only when the digest matches; a proposal whose files changed after the learner saw them is refused. Approving a roadmap never calls it. |
-| D8 | Roadmap: `get_roadmap` round-trips. App edits keep ids. A move is refused when a topic would come before one it requires. Removing a required topic, or one used by an exercise, event or lesson, is refused. An uninstalled track gives `setup`. The track can change until the course has exercises, and the change cancels the old track's jobs and proposals. Adding a prerequisite to a stuck concept records `retry`. Sources are validated, stored and returned. |
+| D8 | Roadmap: `get_roadmap` round-trips. App edits keep ids. A move is refused when a topic would come before one it requires. Removing a required topic, or one used by an exercise, event or lesson, is refused. An uninstalled track gives `setup`. The track can change until the course has exercises or a lesson with runnable examples, and the change cancels the old track's jobs and proposals. Adding a prerequisite to a stuck concept records `retry`. Sources are validated, stored and returned. |
 | D9 | Lessons: save, get, edit and notes work. `get_lesson` records nothing, and only `mark_lesson_read` records a read. A new agent save never overwrites a learner edit. The `lesson` field on `practice` and `author` steps is `null`, the earliest unread id, or absent, as §4.4 says. Writes are locked, atomic and versioned. |
 | D10 | Skip and retry: skip defers without changing mastery and never satisfies a prerequisite. With every candidate deferred, the earliest is chosen. `done` needs every concept mastered. After `retry`, a concept that was stuck isn't stuck, and its mastery is unchanged. |
 | D11 | `installProposal` emits ordered progress events without diagnostics. |
@@ -442,13 +450,13 @@ Each item is verified by an automated test unless marked *journey*.
 | D20 | Failure states: each row in §5 maps to a tested screen state. A check with no runtime records nothing and shows "wasn't counted". |
 | D21 | Jobs: switching the active course during an author job doesn't redirect its save. Each job's done check reads core records created after it started. A job whose save committed before a crash isn't relaunched. Cancelling during a check leaves no owned container behind. |
 | D22 | `codemm mcp --tools a,b` lists and accepts only `a` and `b`. `--course` scopes course tools to that course. |
-| D23 | Lesson gate: with the fixture track, a lesson whose runnable example prints its `output` block saves. A wrong output, a build error, a timeout or a sixth runnable block saves nothing and names the example. Runnable blocks are rejected before setup and on multi-file or unit-only tracks. A rebuild that changes an example's output fails and lists the lesson. Docker down saves nothing. |
-| D24 | Usage: recorded `done` events produce one usage record per agent run, with only the numbers the CLI gave. The per-topic figure rounds as §3.4 says. Reopening a saved lesson or activity starts no agent process. A torn last line is ignored. |
-| D25 | CLI versions: `--version` output for each tested version parses, and an untested one shows the warning without blocking. CI parses every tested version's recorded streams. The live contract test exists and checks a tool-call turn, a resume and a cancel. |
-| D26 | Minimum model: with `models.json` entries set, the connect row shows the recommendation and Codex launches with `-m`. With `null`, neither happens. |
-| D27 | Check this computer: with a fake runtime, a missing CLI, a stopped daemon and a failed network check each show only their row's fix, per OS. Fixing the fake makes the screen pass on its own within one re-check. |
+| D23 | Lesson gate: with the fixture track, a lesson whose two runnable examples have different source and output saves, each example running separately. A wrong output, a build error, a timeout or a sixth runnable block saves nothing and names the example. Runnable blocks are rejected before setup and on multi-file or unit-only tracks. A rebuild that changes an example's output fails and lists the lesson. A save racing a rebuild is checked on the image it is saved against. A course with runnable lessons can't change track. Docker down saves nothing. |
+| D24 | Usage: every agent process exit produces exactly one usage record, with only the numbers the CLI gave, including failed and cancelled runs. A recorded resumed session is counted by difference. A topic that used both agents shows dollars and tokens separately, and "At least" when a run reported nothing. Reopening a saved lesson or activity starts no agent process. A torn last line is ignored. |
+| D25 | CLI versions: `--version` output for each tested version parses to its full version token, and an untested one, including a prerelease of a tested version, shows the warning without blocking. CI parses every tested version's recorded streams. The live contract test exists and checks a tool-call turn, a resume and a cancel. |
+| D26 | Minimum model: with `models.json` entries set, the connect row shows "Recommended: ‹model›" and Codex launches with `-m` and exactly that model. With `null`, neither happens. |
+| D27 | Check this computer: with a fake runtime, a missing CLI, a stopped daemon and a failed network check each show only their row's fix, per OS. Fixing the fake makes the screen pass on its own within one re-check. With a slow probe, repeated focus events never start a second check. |
 | D28 | *Beta*: the exit criteria in [beta-plan.md](beta-plan.md) pass before the public 1.0, and the results go in the release notes. |
-| D29 | *Once signing is enabled* (§7.1): the macOS build is notarized, the Windows installer is signed, and electron-updater updates N to N+1 on each OS. Auto-update is off in unsigned builds. |
+| D29 | *Public release gate* (§7.1, waived only by the owner under O9): the macOS build is notarized, the Windows installer is signed, and electron-updater updates N to N+1 on each OS. Auto-update is off in unsigned builds (automated test). |
 
 ## 10. Test strategy
 
@@ -514,10 +522,10 @@ The MCP server, `doctor`, `track add`, `track rebuild` and `tracks` stay either 
 | O3 | Windows and Linux: verified journeys before 1.0, or experimental as in core | Run D15 on real machines if available; otherwise experimental. |
 | O4 | Lessons before activities for terminal users too (`next_step` changes for everyone) | Yes: one learner model, and `get_lesson` records reads in both. |
 | O5 | Default workspace folder | `~/Codemm`, changeable in settings. A switch moves nothing: the new folder gets its own `codemm.json`, learner files are re-created there on demand (core §6), the old folder stays as it is, and tutor sessions start fresh. |
-| O6 | Model choice. Codex jobs ignore the learner's Codex config (§3.1), so they use Codex's default model; Claude Code jobs use the learner's default. Add a model setting? | No for 1.0. The bench (§8) checks the defaults, and a failure shows "Check your agent". |
+| O6 | Model choice. Codex jobs use the bench's recommended model when one is set, and Codex's default otherwise (§8). Claude Code jobs use the learner's default. Add a model setting? | No for 1.0. The bench picks the Codex model and checks the defaults, and a failure shows "Check your agent". |
 | O7 | Keep the terminal path (`init`, the Claude hook, the author subagent, the learner CLI) in 1.0, or make the app the only way in and delete it (§11) | Keep it for 1.0: it is built, tested and journey-verified (A9 to A16), and the app shares its `app` functions. Revisit after D14. |
 | O8 | **Required before approval.** Codex can't be proven confined (§3.1), and Astra rejects shipping it under the current invariant wording. Choose: (a) clarify the invariant in `AGENTS.md` and core §1 to "hidden data never leaves Codemm through Codemm's own outputs (tools, CLI, IPC and diagnostics); an agent with file access can read Codemm's files, and Codemm removes that access where the agent allows", then ship Codex with the reply filter; or (b) keep the wording and mark Codex experimental in the app until confinement is verified. | (a). The terminal path in core 1.0 already lets every agent read `~/.codemm`, so (a) states what 1.0 already accepts, and the app narrows it: no file tools for Claude Code, and no shell for Codex. |
-| O9 | Sign before the public 1.0 (§7.1), or ship it unsigned and sign later | Sign before it. Unsigned installers need workarounds that most learners won't follow, and auto-update needs signing on macOS. |
+| O9 | Confirm the D29 gate (signed public 1.0), or waive it and ship the public 1.0 unsigned | Confirm it. Unsigned installers need workarounds that most learners won't follow, and auto-update needs signing on macOS. |
 
 ## 14. Review log
 
@@ -558,3 +566,21 @@ The MCP server, `doctor`, `track add`, `track rebuild` and `tracks` stay either 
 | N2 track switch with lessons | §4.2 the switch cancels old-track jobs and proposals. Lessons are kept rather than blocking the switch: they are editable static text that nothing runs or grades, and blocking would force a new course after any failed setup. |
 | N3 practice-hook caveat | §11 keeps the terminal Codex and Cursor limitation; §12 |
 | O5 workspace switch | §13 O5 defines it |
+
+**Astra review of the owner-approved additions, 17 Oct 2026.** Verdict: "revise before implementation". All 13 findings were accepted:
+
+| Finding | Resolution |
+|---|---|
+| A1 examples share one build | §4.4 each runnable example runs separately; D23 tests two different examples |
+| A2 track switch with runnable lessons | §4.2 and §4.4: no track change once a runnable lesson exists; D8, D23 |
+| A3 lesson save racing a rebuild | §4.4 track lock, then course lock, from validation through commit; D23 |
+| A4 resumed Claude cost double-counted | §3.4 per-session difference, checked by the live contract test; D24 |
+| A5 failed results dropped usage | spike keeps usage on failed results (test) |
+| A6 runs with no `done`; mixed agents | §3.4 one record per process exit, recorded even with no numbers; dollars and tokens shown separately; "At least"; D24 |
+| A7 contradictory signing rule | Decision 8, §7, §7.1: unsigned beta, D29 gates the public 1.0, waivable only under O9; D1 scoped to the beta |
+| A8 beta consent and publication | beta-plan: handling stated before screening, an access and deletion contact, only aggregated publication, separate yes for quotations and screenshots |
+| A9 prerelease versions | spike parses full version tokens (test); D25 |
+| A10 overlapping checks | §6.1 one check at a time; D27 slow-probe test |
+| A11 forced Codex model vs O6 | §8 "Recommended: ‹model›" and the exact `-m`; O6 rewritten; D26 |
+| A12 exit criteria could never pass | beta-plan: a fixed-and-tested rule during the beta, plus a final validation window |
+| A13 macOS 15 Gatekeeper | §7 and beta-plan: System Settings, Privacy & Security, Open Anyway, checked on a downloaded build |
