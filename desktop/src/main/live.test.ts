@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { CHANGED, PLAN_LIMIT } from '../shared/api';
+import { CHANGED, PLAN_LIMIT, REPAIR } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
 import { HELD_BACK } from './views';
 
@@ -249,5 +249,21 @@ describe('live CodemmApi', () => {
     await t.api.course();
     await new Promise((res) => setTimeout(res, 10));
     expect(t.jobs.ran).toHaveLength(ran);
+  });
+
+  it("says Codemm's records need a repair, with core's guidance, when a record is damaged", async () => {
+    const t = live();
+    await practising(t);
+    const guidance = "Codemm's record /h/courses/react/course.json is damaged. Restore it from a backup, or remove that track, course or exercise.";
+    const damaged = Object.assign(new Error(guidance), { name: 'CodemmError' });
+    t.app.progress = () => {
+      throw damaged;
+    };
+    const failure = await t.api.course().catch((e: Error) => e);
+    expect(failure).toMatchObject({ name: 'CodemmError', message: `${REPAIR}\n${guidance}` });
+    t.app.progress = () => {
+      throw Object.assign(new Error('The learning log /h/courses/react/events.jsonl has an invalid entry on line 3. Fix or remove that line, then retry.'), { name: 'CodemmError' });
+    };
+    await expect(t.api.check('values-easy-1')).rejects.toThrow(/^codemm:repair\nThe learning log/);
   });
 });

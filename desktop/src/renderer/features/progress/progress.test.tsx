@@ -42,4 +42,14 @@ describe('course map', () => {
     await user.click(screen.getByRole('button', { name: 'Learn something new' }));
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
   });
+
+  it("says Codemm's records need a repair, and how", async () => {
+    const { api } = await mockWithCourse();
+    api.course = () => Promise.reject(new Error("codemm:repair\nThe learning log /h/events.jsonl has an invalid entry on line 3. Fix or remove that line, then retry."));
+    renderApp({ to: 'learn' }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Codemm's records need a repair.");
+    expect(alert).toHaveTextContent('The learning log /h/events.jsonl has an invalid entry on line 3. Fix or remove that line, then retry.');
+    expect(alert).not.toHaveTextContent('codemm:repair');
+  });
 });

@@ -5,7 +5,7 @@ import { hueColor } from '../ui/Emm';
 import { Icon, type IconName } from '../ui/Icon';
 import { Logo, Mark } from '../ui/Mark';
 import { useApi } from './api';
-import { SAY, problemOf } from './errors';
+import { SAY, problemOf, repairDetail } from './errors';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
 
@@ -118,6 +118,7 @@ export function Failed({ error, retry }: { error: unknown; retry: () => void }) 
     <main className="center">
       <div className="stack" role="alert">
         <p className="sub">{problem === 'other' ? "Couldn't reach Codemm." : SAY[problem]}</p>
+        {problem === 'repair' && <p className="sub">{repairDetail(error)}</p>}
         <Button variant="ghost" onClick={retry}>Try again</Button>
       </div>
     </main>
