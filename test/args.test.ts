@@ -19,6 +19,8 @@ describe("parseCli", () => {
     [["skip"], /skip needs 1 argument/],
     [["doctor", "--fix=yes"], /--fix doesn't take a value/],
     [["frobnicate"], /Unknown command/],
+    [["--version", "--bogus"], /Unknown option --bogus/],
+    [["--help", "extra"], /help takes no arguments/],
   ])("rejects %j", (argv, error) => {
     expect(() => parseCli(argv as string[])).toThrow(error);
   });

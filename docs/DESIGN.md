@@ -361,6 +361,13 @@ The MCP tools and CLI commands are thin calls into one application module.
 | New: truncated output false pass | §4.2 output over 64 KB is an error |
 | New: hidden tests leaking through visible diagnostics | §4.2 separate containers per set and a disclosure policy |
 
+**Astra final review, 17 Oct 2026.** No correctness or security blockers; CI green on the exact head commit. Two acceptance gaps were fixed:
+
+- **A9:** the `--version` and `--help` aliases are now validated like other commands.
+- **A15:** the recorded journey now includes `codemm test`.
+
+The independent statement review of six agent-written exercises found five consistent and one minor gap in an example. Evidence: `docs/release-evidence-1.0.md`.
+
 **Astra entry-point and integration reviews, 17 Oct 2026.** Resolved:
 
 - unexpected-error and record-error sanitizing;

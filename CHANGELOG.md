@@ -58,7 +58,9 @@ Codemm 1.0 is a rewrite. The v1 desktop app is replaced by a small, open-source 
 - **Host round trips (A16).** Each was started by the host's own CLI on its own signed-in plan, with API-key variables removed.
   - **Claude Code:** the tutor called `next_step` and delegated to the `codemm-author` subagent. The subagent saved `sum-and-difference` (`c.io`, difficulty 1, 5 hidden cases including overflow) through every gate. The tutor then called `get_exercise` and replied with only the id and title. 5 turns, 70 s.
   - **Codex** (gpt-6-astra, with Codemm's tools approved for the run): the tutor spawned a subagent that saved `report-number` (`c.io`, difficulty 1) through every gate, then called `get_exercise` and replied with only the id and title.
-  - **Statement checks:** the statements and tests of all six exercises were checked against each other by the release agent (Claude), not yet by a person.
+  - **Statement checks:** the statements and tests of all six exercises were checked independently by Astra. Five are consistent; one example has a minor gap (unstated integer bounds) that doesn't affect its tests. A person should spot-check them before publishing.
+- **Recorded learner journey (A15).** `get_exercise`, then `codemm test` (visible only, nothing recorded), then a failing `check` and a passing `check`, both recorded. Mastery went 0.5 → 0.35 → 0.545, and `next_step` updated.
+- **Full traces:** [docs/release-evidence-1.0.md](docs/release-evidence-1.0.md).
 - **Reviews:** the design and the implementation were reviewed by Astra (gpt-6-astra) over several rounds, and every blocker and major finding was resolved (see [docs/DESIGN.md §13](docs/DESIGN.md)).
 - **Rollback:** verified. At commit `5e3f3a7`, v1's `npm ci`, build and 84 unit tests pass.
 

@@ -25,9 +25,10 @@ export type Parsed = { command: string; args: string[]; options: Record<string, 
 /** Strict per-command parsing: unknown options, missing values and wrong argument counts are errors. */
 export function parseCli(argv: string[]): Parsed {
   if (argv.length === 0) return { command: "help", args: [], options: {} };
-  if (argv[0] === "--version" || argv[0] === "-v") return { command: "version", args: [], options: {} };
-  if (argv[0] === "--help" || argv[0] === "-h") return { command: "help", args: [], options: {} };
-  const [command, ...rest] = argv as [string, ...string[]];
+  // Aliases become ordinary commands, so the rest of the line is still validated.
+  const aliases: Record<string, string> = { "--version": "version", "-v": "version", "--help": "help", "-h": "help" };
+  const [first, ...rest] = argv as [string, ...string[]];
+  const command = aliases[first] ?? first;
   const spec = COMMANDS[command];
   if (!spec) throw new CodemmError(`Unknown command "${command}". Run codemm help.`);
 
