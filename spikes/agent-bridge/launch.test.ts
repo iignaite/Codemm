@@ -18,6 +18,7 @@ test("claude: headless stream-json, only Codemm's MCP server, no built-in tools,
   assert.deepEqual(JSON.parse(after(args, "--mcp-config")!), { mcpServers: { codemm: mcp } });
   assert.ok(args.includes("--strict-mcp-config"));
   assert.equal(after(args, "--tools"), "");
+  assert.equal(after(args, "--setting-sources"), "");
   assert.equal(after(args, "--allowedTools"), "mcp__codemm__list_tracks,mcp__codemm__progress");
   assert.ok(!args.includes("--resume"));
 });
@@ -61,11 +62,13 @@ test("codex: resume puts the thread id right after exec resume", () => {
   assert.equal(args.at(-1), "-");
 });
 
-test("signedIn reads only the status the agent reports", () => {
-  assert.equal(signedIn("claude", { exit: 0, output: JSON.stringify({ loggedIn: true, email: "x" }) }), true);
+test("signedIn means signed in with a subscription, read only from the agent's own status", () => {
+  assert.equal(signedIn("claude", { exit: 0, output: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", email: "x" }) }), true);
+  assert.equal(signedIn("claude", { exit: 0, output: JSON.stringify({ loggedIn: true, authMethod: "api_key" }) }), false);
   assert.equal(signedIn("claude", { exit: 1, output: JSON.stringify({ loggedIn: false }) }), false);
   assert.equal(signedIn("claude", { exit: 0, output: "not json" }), false);
   assert.equal(signedIn("codex", { exit: 0, output: "Logged in using ChatGPT\n" }), true);
+  assert.equal(signedIn("codex", { exit: 0, output: "Logged in using an API key - sk-***\n" }), false);
   assert.equal(signedIn("codex", { exit: 1, output: "Not logged in\n" }), false);
   assert.equal(signedIn("cursor", { exit: 0, output: "Checking authentication status...\n Not logged in\n" }), false);
   assert.equal(signedIn("cursor", { exit: 0, output: "Logged in as someone\n" }), true);

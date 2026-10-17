@@ -6,8 +6,12 @@ import { type BridgeEvent, createParser } from "./events.ts";
 type Agent = "claude" | "codex";
 
 const lines = (fixture: string) => readFileSync(new URL(`fixtures/${fixture}`, import.meta.url), "utf8").split("\n").filter(Boolean);
-const replay = (agent: Agent, fixture: string, text = true): BridgeEvent[] => lines(fixture).flatMap(createParser(agent, { text }));
-const feed = (agent: Agent, events: object[], text = true) => events.map((e) => JSON.stringify(e)).flatMap(createParser(agent, { text }));
+const TUTOR = { text: true, web: false };
+const RESEARCH = { text: true, web: true };
+const AUTHOR = { text: false, web: false };
+type Options = typeof TUTOR;
+const replay = (agent: Agent, fixture: string, o: Options = TUTOR): BridgeEvent[] => lines(fixture).flatMap(createParser(agent, o));
+const feed = (agent: Agent, events: object[], o: Options = TUTOR) => events.map((e) => JSON.stringify(e)).flatMap(createParser(agent, o));
 
 test("claude: a recorded Codemm tool call becomes session, tool, text and done events", () => {
   assert.deepEqual(replay("claude", "claude-tool-call.jsonl"), [
@@ -51,13 +55,31 @@ test("claude: a failed turn reports no error text, which could carry anything", 
 });
 
 test("claude: recorded web search results become web evidence", () => {
-  const web = replay("claude", "claude-web-search.jsonl").filter((e) => e.kind === "web");
+  const web = replay("claude", "claude-web-search.jsonl", RESEARCH).filter((e) => e.kind === "web");
   assert.deepEqual(web, [{ kind: "web", urls: ["https://lynxjs.org/next/api/react/Function.useState", "https://react.dev/reference/react/useState.md"] }]);
 });
 
-test("claude: a web fetch is evidence of its URL", () => {
-  const use = { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "tool_use", id: "t4", name: "WebFetch", input: { url: "https://react.dev/learn", prompt: "p" } }] } };
-  assert.deepEqual(feed("claude", [use]), [{ kind: "web", urls: ["https://react.dev/learn"] }]);
+const fetchUse = { type: "assistant", parent_tool_use_id: null, message: { content: [{ type: "tool_use", id: "f1", name: "WebFetch", input: { url: "https://react.dev/learn" } }] } };
+const fetchResult = (isError: boolean) => ({ type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: "f1", is_error: isError, content: "page" }] } });
+
+test("claude: a successful web fetch is evidence of its URL", () => {
+  assert.deepEqual(feed("claude", [fetchUse, fetchResult(false)], RESEARCH), [{ kind: "web", urls: ["https://react.dev/learn"] }]);
+});
+
+test("claude: a failed web fetch is not evidence", () => {
+  assert.deepEqual(feed("claude", [fetchUse, fetchResult(true)], RESEARCH), []);
+});
+
+test("claude: search results not tied to a web search call are not evidence", () => {
+  const forged = { type: "user", parent_tool_use_id: null, message: { content: [{ type: "tool_result", tool_use_id: "nope", content: "x" }] }, tool_use_result: { results: [{ content: [{ url: "https://example.com/x" }] }] } };
+  assert.deepEqual(feed("claude", [forged], RESEARCH), []);
+});
+
+test("web evidence is reported only in research turns", () => {
+  for (const o of [TUTOR, AUTHOR]) {
+    assert.deepEqual(replay("claude", "claude-web-search.jsonl", o).filter((e) => e.kind === "web"), []);
+    assert.deepEqual(replay("codex", "codex-web-search.jsonl", o).filter((e) => e.kind === "web"), []);
+  }
 });
 
 test("codex: a blocked MCP call is failed even when the model still answers", () => {
@@ -78,7 +100,7 @@ test("codex: a rejected model fails the turn without passing on its message", ()
 });
 
 test("codex: recorded web search results become web evidence", () => {
-  const web = replay("codex", "codex-web-search.jsonl").filter((e) => e.kind === "web");
+  const web = replay("codex", "codex-web-search.jsonl", RESEARCH).filter((e) => e.kind === "web");
   assert.deepEqual(web, [{ kind: "web", urls: ["https://uk.react.dev/reference/react/useState", "https://react.dev/reference/rules/components-and-hooks-must-be-pure"] }]);
 });
 
@@ -94,7 +116,7 @@ test("codex: other servers' tools are not reported", () => {
 
 test("author turns: no agent text is passed on, only tools and the end", () => {
   for (const [agent, fixture] of [["claude", "claude-tool-call.jsonl"], ["codex", "codex-approval-blocked.jsonl"]] as const) {
-    const events = replay(agent, fixture, false);
+    const events = replay(agent, fixture, AUTHOR);
     assert.ok(events.length > 0);
     assert.ok(events.every((e) => e.kind !== "text"));
   }
@@ -112,7 +134,7 @@ test("malformed lines are ignored, never thrown and never passed on", () => {
     '{"type":"user","parent_tool_use_id":null,"tool_use_result":{"results":[null,{"content":[{"url":"javascript:alert(1)"}]}]}}',
     '{"type":"system","subtype":"init","session_id":7}',
   ];
-  assert.deepEqual(bad.flatMap(createParser("claude", { text: true })), []);
+  assert.deepEqual(bad.flatMap(createParser("claude", RESEARCH)), []);
   const codex = ['{"type":"item.completed","item":null}', '{"type":"item.completed","item":{"type":"agent_message","text":["x"]}}', '{"type":"item.completed","item":{"type":"web_search","results":"x"}}'];
-  assert.deepEqual(codex.flatMap(createParser("codex", { text: true })), []);
+  assert.deepEqual(codex.flatMap(createParser("codex", RESEARCH)), []);
 });

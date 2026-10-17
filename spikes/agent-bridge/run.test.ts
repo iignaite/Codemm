@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { startTurn } from "./run.ts";
+import { members, startTurn } from "./run.ts";
 
 const agent = fileURLToPath(new URL("fixtures/stubborn-agent.mjs", import.meta.url));
 const start = (mode: string) => {
@@ -31,4 +31,14 @@ test("cancelling escalates to SIGKILL and leaves nothing running", async () => {
   assert.equal(result.atCancel, 2);
   assert.equal(result.signal, "SIGKILL");
   assert.equal(result.leftover, 0);
+});
+
+test("a group that can't be inspected is an error, never an empty group", () => {
+  const path = process.env.PATH;
+  process.env.PATH = "";
+  try {
+    assert.throws(() => members(process.pid), /inspect/);
+  } finally {
+    process.env.PATH = path;
+  }
 });

@@ -8,10 +8,9 @@ Status: revised after Astra's review (§15). This file extends `docs/DESIGN.md` 
 2. **The desktop drives the journey, and the agent does one small job per turn.** The app decides what happens next from Codemm's state. Each agent turn has a short prompt, a few tools, and a success check against Codemm's state, never against the agent's text. This is what makes weak models usable (§9).
 3. **The app launches the learner's own agent CLI headless**: Claude Code, Codex, or Cursor. It gives the agent Codemm's MCP server and streams the replies into the Codemm panel.
 4. **The invariant "Codemm never calls a model" now means:** Codemm launches the learner's agent, and never calls a model API itself. The second half, "never handles credentials", now means it never reads, stores or forwards them:
-   - Codemm removes known API-key variables from the agent's environment, so the agent uses the learner's own sign-in and plan (O3);
-   - sign-in state comes only from the agent's own status command;
+   - Codemm accepts only a subscription sign-in, as reported by the agent's own status command (O3). It also removes known API-key variables from the agent's environment and loads none of the user's agent settings (which could hold key helpers), so turns use the learner's own plan;
    - the core package (`src/`) still never starts an agent. Only `desktop/` does.
-5. **Agents get only what a turn needs.** Every turn runs with Codemm's MCP server alone, none of the agent's file, shell or plugin tools, and only the Codemm tools for that turn. The two exceptions: research turns also get web search, and assist turns get editing. This is enforced through each agent's own controls and verified for Claude Code and Codex (§3.4).
+5. **Agents get only what a turn needs.** Every turn runs with Codemm's MCP server alone, none of the agent's file, shell or plugin tools, no user settings or hooks, and only the Codemm tools for that turn. The two exceptions: research turns also get web search, and assist turns get editing. This is enforced through each agent's own controls and verified for Claude Code and Codex (§3.4).
 6. **Author work runs in separate, unseen agent sessions.** Installing a track and writing an exercise or lesson each run in a fresh session. The bridge drops that session's text, and only tool statuses and gate progress reach the screen. The tutor session never sees author work.
 7. **The renderer is learner-safe by construction.** It receives only view types built in one main-process module. Solutions, mutants, hidden tests, expected hidden outputs, author text and agent error text never cross the preload bridge.
 8. **Installing is its own decision.** Approving a roadmap never installs anything. The MCP server can install only the approved track, and only after the learner says yes (§5.4).
@@ -106,7 +105,7 @@ Proven in `spikes/agent-bridge/`; the findings are in `agent-bridge.md`.
 
 | Agent | A turn | Restrictions (verified) | Next turn in the same session |
 |---|---|---|---|
-| Claude Code | `claude -p --output-format stream-json --verbose --mcp-config <json> --strict-mcp-config` | `--tools ""` (no built-in tools; `WebSearch,WebFetch` in research), `--allowedTools` set to that turn's Codemm tools | `--resume <session_id>` |
+| Claude Code | `claude -p --output-format stream-json --verbose --mcp-config <json> --strict-mcp-config` | `--setting-sources ""` (no user hooks, plugins or key helpers); `--tools ""` (no built-in tools; `WebSearch,WebFetch` in research); `--allowedTools` set to that turn's Codemm tools | `--resume <session_id>` |
 | Codex | `codex exec --json --skip-git-repo-check --ignore-user-config -c mcp_servers.codemm.*=… -` | `--disable` `shell_tool`, `unified_exec`, `apps`, `plugins`, `browser_use`, `computer_use`, `multi_agent` and `image_generation`; `sandbox_mode="read-only"`; `web_search="disabled"` (`"live"` in research); `enabled_tools=[…]` with `default_tools_approval_mode="approve"` | `codex exec resume <thread_id> …` |
 | Cursor | `cursor-agent -p --output-format stream-json --approve-mcps`, with `.cursor/mcp.json` | `--mode ask` (unverified) | `--resume <chatId>` (unverified) |
 
@@ -115,7 +114,7 @@ Proven in `spikes/agent-bridge/`; the findings are in `agent-bridge.md`.
 - `session`: the session id;
 - `text`: top-level assistant text, in tutor turns only;
 - `tool`: a Codemm tool's name with `started`, `ok` or `failed`;
-- `web`: the `https:` URLs that a web search or fetch returned;
+- `web`: the `https:` URLs returned by a web search or fetch that succeeded. These come from research turns only, which carry no hidden data;
 - `done`: success or failure, with no error text.
 
 Tool inputs and results, thinking, subagent messages, other tools and the agent's error text are all dropped. A failure is shown as a §8 state. Up to 4 KB of the agent's stderr goes to a local log, never to the screen, and raw stdout is never logged.
@@ -124,11 +123,12 @@ Tool inputs and results, thinking, subagent messages, other tools and the agent'
 
 - cancelling sends SIGTERM, then SIGKILL after 5 s;
 - when the agent exits, for any reason, whatever is left in its group is killed. That covers an MCP server or child that ignores SIGTERM, which a test proves with a fake agent;
+- the group is inspected by group id. If inspection fails, that is reported as a cleanup failure, never as an empty group;
 - after a cancelled or failed turn, the app runs `doctor`'s owner-aware container cleanup, so judge or build containers whose `codemm mcp` owner is gone are removed (§5.8);
 - Windows uses `taskkill /T /F` (unverified);
 - every turn has a wall-clock limit (§9).
 
-**Sign-in** is read from the agents' own status commands (`claude auth status`, `codex login status`, `cursor-agent status`), and only the signed-in yes/no is kept. Codemm never opens the agents' credential files or keychain entries.
+**Sign-in** is read from the agents' own status commands (`claude auth status`, `codex login status`, `cursor-agent status`). Only one yes/no is kept: signed in with a subscription. That means Claude's `authMethod: "claude.ai"` and Codex's "Logged in using ChatGPT"; Cursor's form is unverified. Codemm never opens the agents' credential files or keychain entries. A Claude turn whose init event reports an API-key source is stopped and failed (spec-level; not in the spike).
 
 **Connected** means a real handshake: one turn in which the agent calls `list_tracks` and the bridge sees the call succeed. It runs on Connect and after a failure, not on every launch. The Connect screen shows configured, signed in, connected and sandbox ready (`doctor`) as separate states.
 
@@ -141,7 +141,7 @@ Tool inputs and results, thinking, subagent messages, other tools and the agent'
 | revise | tutor | "Ask Codemm for changes" | `draft_roadmap` | none | the draft changed |
 | setup | author | the learner says yes to setup | `list_tracks`, `save_track` (bound by `--install`) | none | the approved track is installed |
 | lesson | author | a concept needs a lesson (§3.5) | `save_lesson` | none | a new lesson for that concept |
-| exercise | author | `next_step` is `author`, or §3.5 asks for one | `list_tracks`, `save_exercise` | none | `next_step` now returns `practice` for that concept (or, for §3.5 jobs, a new exercise with the requested concept and difficulty) |
+| exercise | author | `next_step` is `author`, or §3.5 asks for one | `list_tracks`, `save_exercise` | none | a new exercise with the requested concept, difficulty and style exists, and (for `author` jobs) `next_step` now returns `practice` with it |
 | chat | tutor | the learner sends a message | `progress`, `get_roadmap` | none | none |
 | assist | tutor | the learner says yes to "Let Codemm edit" | `get_exercise` | editing, limited to the exercise folder where the agent supports it: Claude's `Edit` and `Write` with a path rule; Codex's `workspace-write` sandbox with its shell still disabled (both unverified) | the turn ends |
 
@@ -174,14 +174,15 @@ All of them go through `schemas`, `store` and `app`, hold the course lock when m
 
 ### 5.1 Lessons
 
+- **Every lesson operation names its course.** The MCP tools take `course?` (defaulting to the active course) and the app functions take `course` explicitly. So a lesson for an approved draft can be saved, read, finished, edited and annotated before the course exists.
 - **`save_lesson`** `{ course?, concept, title, body, predict? }` → `{ lesson: <slug> }`.
-  - `course` defaults to the active one. The concept must exist in that course or in its approved draft, so lessons can be written while setup runs.
+  - The concept must exist in that course or in its approved draft, so lessons can be written while setup runs.
   - `body` is Markdown, up to 20 KB.
   - `predict` is optional: `{ question, choices (2 to 4), answer (index), explain }`, a static "predict first, then see it" question.
   - Codemm makes the slug (`<concept>-<n>`), so the agent never has to invent one.
-- **`get_lesson`** `{ lesson }` returns the lesson with the learner's edits and note applied. It records nothing.
-- **`finish_lesson`** `{ lesson }` (or `app.finishLesson` from the app, when the learner presses Next) records `{ kind: "read", at, lesson }`. A repeat call records nothing. Read events never change mastery.
-- **Learner edits and notes** go through `app.editLesson(ws, lesson, body)` and `app.noteLesson(ws, lesson, text)`. They're stored beside the agent's original, which never changes, so an agent can't overwrite them.
+- **`get_lesson`** `{ course?, lesson }` returns the lesson with the learner's edits and note applied. It records nothing.
+- **`finish_lesson`** `{ course?, lesson }` (or `app.finishLesson` from the app, when the learner presses Next) records `{ kind: "read", at, lesson }`. A repeat call records nothing. Read events never change mastery.
+- **Learner edits and notes** go through `app.editLesson(course, lesson, body)` and `app.noteLesson(course, lesson, text)`. They're stored beside the agent's original, which never changes, so an agent can't overwrite them.
 - **Storage:** `courses/<course>/lessons/<slug>/lesson.json` holds the original, and `learner.json` holds the edits and note. `store.listCourses` ignores folders that have no `course.json`.
 - **`next_step` gains a `lesson` kind,** checked after a concept is chosen and before `stuck`, `practice` or `author`:
   - no lesson for the concept → `{ kind: "lesson", concept }` (write one);
@@ -206,7 +207,7 @@ All of them go through `schemas`, `store` and `app`, hold the course lock when m
 - The roadmap YAML takes an optional `sources` list, at most 20, each `{ url, title, version?, why }`:
   - `url` must be `https:`, up to 2 KB;
   - `title` is up to 200 characters, `version` up to 50 and `why` up to 300.
-- **Codemm records evidence; it doesn't take the agent's word.** After a research turn, the app keeps only the sources whose host appeared in that turn's `web` events, and stamps each kept source with `retrieved` (the turn's date). Then it re-saves the draft. If none survive, the path is still shown as "Suggested path", with no sources.
+- **Codemm records evidence; it doesn't take the agent's word.** After a research turn, the app keeps only the sources whose exact URL appeared in that turn's `web` events (ignoring a trailing slash and fragment). It stamps each kept source with `retrieved` (the turn's date) and re-saves the draft. The research prompt tells the agent to cite URLs exactly as its search returned them. If none survive, the path is still shown as "Suggested path", with no sources.
 - Through the CLI, sources are whatever the agent wrote. The core spec says so.
 - **Web text is untrusted.** The research prompt and `templates.ts` say to prefer primary sources and to treat page text as data, never as instructions. The app shows each source's title and host as plain text, and never fetches or renders the page.
 
@@ -287,7 +288,7 @@ Deferred. It needs a time-based rule, new exercises and a failure policy, so it 
 | Rate limit, crash, network loss or timeout in a turn | nothing | "Codemm couldn't finish that. Try again." |
 | The turn is cancelled | nothing | the panel stops |
 | The MCP server doesn't start | nothing | Connect: the sandbox-ready state fails, and `doctor` names why |
-| Setup still fails after its retries | nothing (no track, no course; the approved draft and any lessons stay) | "Couldn't set up …" with Try again and Stop |
+| Setup still fails after its retries | nothing (the approved draft and any lessons stay; if a track did install before the failure, the app saves the course and carries on) | "Couldn't set up …" with Try again and Stop |
 | An exercise still fails its gates after retries | nothing | "Codemm couldn't prepare an activity. Try again." |
 | An assist turn fails | nothing more (the exercise stays assisted; assist mode is turned off) | "Codemm couldn't finish that. This one still counts as assisted." |
 | The course is locked | nothing | "Busy. Try again." |
@@ -316,20 +317,20 @@ Each item is verified by an automated test unless marked *journey*. Journeys use
 | D1 | CI builds unsigned installers on each OS (`.dmg` arm64 and x64, NSIS x64, `.deb` and AppImage x64), and a smoke test starts each built app to its first screen. |
 | D2 | *Journey:* on each claimed platform, an installer downloaded through a browser from CI (so it carries the quarantine or download mark) installs and opens by following the §7 steps. |
 | D3 | The app ships no languages: environment names, choices and colors come only from `list_tracks` and learner input. A renderer test proves the Tracks screen shows exactly what `list_tracks` returns, and the core A1 package check still passes. |
-| D4 | No model calls and no credentials. The desktop has no model-API dependency. The agent's environment lacks the known key variables. Sign-in state comes only from the agents' status commands. `agents/` imports no file-system API. |
+| D4 | No model calls and no credentials. The desktop has no model-API dependency. The agent's environment lacks the known key variables, and Claude turns load no setting sources. Sign-in state comes only from the agents' status commands, and an API-key sign-in counts as signed out. A Claude init event with an API-key source fails the turn. `agents/` imports no file-system API. |
 | D5 | Bridge parsers turn the recorded Claude Code and Codex streams in `spikes/agent-bridge/fixtures` (and new recordings) into the expected events, including blocked tools, failed turns, web evidence and malformed lines. |
-| D6 | Canary test: in a scripted journey, a fake agent puts a canary string in solutions, mutants, hidden tests, subagent text, author-turn text, tool inputs and results, and its error output. No IPC payload or agent event contains the canary. |
+| D6 | Canary test: in a scripted journey, a fake agent puts a canary string in solutions, mutants, hidden tests, subagent text, author-turn text, tool inputs and results, web results outside research turns, and its error output. No IPC payload or agent event contains the canary. |
 | D7 | Window security: context isolation, sandbox, no Node integration, a strict CSP, and blocked navigation and `window.open`, checked from the created window's settings. |
 | D8 | Tool restriction. For every turn kind, an argument test pins the agent flags in §3.4. *Journey,* per verified agent: in a tutor turn the agent can't write a file, can't run a shell command and can't reach another MCP server, but can call its Codemm tools. |
 | D9 | Lessons: `save_lesson`, `get_lesson` and `finish_lesson` schemas and gates. `get_lesson` records nothing. `finish_lesson` records one `read` event and repeats record nothing. Agent re-saves never overwrite learner edits or notes. `next_step` returns `lesson` before `practice` or `author`, and orders unread lessons. Lessons for an approved draft's concepts are accepted. |
 | D10 | Roadmap edits keep ids. Moves above a prerequisite, and removals of required or used concepts, are refused. Every edit goes through the `save_roadmap` parser. `get_roadmap` returns the saved roadmap. Drafts don't need an installed track, are never active, and only the app approves them. |
-| D11 | Sources: only `https:` URLs within the limits are accepted. After a research turn, only sources whose host appeared in its `web` events are kept, stamped with the turn's date. A research turn without `web` events fails its check. The renderer shows sources as text and opens them only through the system browser. |
+| D11 | Sources: only `https:` URLs within the limits are accepted. After a research turn, only sources whose exact URL appeared in its `web` events (from successful calls) are kept, stamped with the turn's date. A research turn without `web` events fails its check. The renderer shows sources as text and opens them only through the system browser. |
 | D12 | Install consent. Without `--tools`, every tool is registered; with it, only the listed ones. `--install` rejects any other track and a fourth build attempt before building. A test over every turn kind proves `save_track` appears only in setup turns, and that approving a roadmap alone never installs. |
 | D13 | Skip defers without mastery. Dependents stay locked. Deferred concepts come last and return when nothing else is left. A recorded check of the concept clears the deferral. |
 | D14 | Gate progress events arrive in order for a track install, an exercise save and a check, and never contain test names, messages, inputs or output (Docker test). |
 | D15 | Failures. With Docker stopped, a missing image, or the agent missing, signed out, crashing, timing out or cancelled, the failure itself records nothing. Each case runs both before and after a commit point (an exercise saved, a track installed, an assist event), and afterwards the app continues from the committed state. `events.jsonl` changes only by what was committed. |
-| D16 | Cleanup. When a turn ends or is cancelled, nothing is left in its process group, even a child that ignores SIGTERM (fake-agent test). Cancelling during a gate leaves no `codemm=1` container once cleanup runs (Docker test). |
-| D17 | Flow rules (§3.5): an exercise job succeeds only when `next_step` selects its result, or when a requested concept and difficulty match. Try an easier one yields a difficulty-1 exercise whose perfect check clears `stuck`. An assisted pass is followed by an exercise for the same concept and difficulty. Unit tests on `flow.ts` with core fakes. |
+| D16 | Cleanup. When a turn ends or is cancelled, nothing is left in its process group, even a child that ignores SIGTERM (fake-agent test). A group that can't be inspected is a failure, not an empty group. Cancelling during a gate leaves no `codemm=1` container once cleanup runs (Docker test; not yet verified). |
+| D17 | Flow rules (§3.5): an exercise job succeeds only when its result has the requested concept, difficulty and style, and, for `author` jobs, `next_step` selects it. Try an easier one yields a difficulty-1 exercise whose perfect check clears `stuck`. An assisted pass is followed by an exercise for the same concept and difficulty. Unit tests on `flow.ts` with core fakes. |
 | D18 | Practice protection: only assist turns get editing; `setAssist(on)` happens before an assist turn starts, and `setAssist(off)` follows it on every exit path. |
 | D19 | Agent names appear only on the Connect screen; the tutor is "Codemm" everywhere else (a test over renderer strings). |
 | D20 | Learner files: `getExercise` returns only the exercise's learner files. Saves accept only those files, refuse symlinks and replace files atomically. |
@@ -385,8 +386,8 @@ Test-first throughout: write the failing test, make it pass simply, then refacto
 |---|---|---|
 | O1 | Setup consent wording | Add one plain line to the dialog: "Setup runs your agent's install steps with internet access." The prototype's "Downloads once. Graded runs are offline." alone understates it. |
 | O2 | How many tries one "yes" covers | One setup job: a turn plus one automatic retry, with at most 3 builds each. Try again asks again. |
-| O3 | Credential variables in the agent's environment | Remove the known API-key variables (as specified), so the agent always uses the learner's sign-in and plan. The cost: an agent configured only through an API-key variable shows as signed out. The other option is to pass them through, which would bill the learner's API account. |
-| O4 | The learner's own agent settings | Tool restrictions apply either way. The remaining question is whether tutor turns also skip the learner's own hooks and global instructions. The spike saw the owner's Claude hooks run inside turns; Codex skips its user config. Recommendation: keep Claude's settings, because it's the learner's agent, and revisit if the bench shows interference. |
+| O3 | Subscription only | As specified: accept only subscription sign-ins and strip key variables, so "uses your plan" is true and there are no surprise API bills. The cost: learners who use their agent only through an API key can't connect in 1.0. |
+| O4 | The learner's own agent settings | As specified: turns load no user settings, hooks or plugins (Claude `--setting-sources ""`, Codex `--ignore-user-config`). This closes the host-execution path through hooks and makes turns faster (the spike's Claude first event dropped from 3 to 14 s to 1.3 to 3.4 s). The cost: the learner's custom agent setup doesn't apply inside Codemm. |
 | O5 | The model when a handshake fails while signed in | Show "choose another model" on Connect. Use the agent's own list where one exists (`cursor-agent --list-models`), and free text otherwise. |
 | O6 | Workspace location | `~/Codemm`, which the learner can change at first run. |
 | O7 | Windows support claim | Experimental unless someone runs D22 on a Windows machine before release. |
@@ -420,3 +421,18 @@ Test-first throughout: write the failing test, make it pass simply, then refacto
 | 15 | Wrong macOS unsigned-app steps; CI artifacts aren't downloaded installers | §7 Open Anyway steps; D2 downloaded-installer journey. |
 
 Astra also judged its earlier prototype findings 1 to 8 partly resolved. The rows above, plus the §2 wording changes (monochrome until connected, reuse of research and lessons), complete them.
+
+**Astra re-check, 17 Oct 2026.** 8 resolved (2, 4, 6, 7, 11, 14, 15) and 7 partly resolved, plus one new major issue. Resolutions:
+
+| Item | Resolution |
+|---|---|
+| 1 Claude hooks still execute | §3.4 `--setting-sources ""` (verified live: no hook events, sign-in unaffected); O4 decided |
+| 3 Draft lessons had no course identity for read, finish and edit | §5.1: every lesson operation names its course |
+| 5 Style not validated | §3.4 and D17: success also requires the requested style |
+| 8 Setup-failure row asserted "no track" | §8 row now depends on reconciliation |
+| 9 Failed process inspection read as zero survivors | Spike `members` throws unless pgrep says "none" (test); §3.4 and D16. Container cleanup on cancel stays unverified (D16 Docker test). |
+| 10 and new: web URLs leaked in author mode, uncorrelated | Spike parser: `web` events only when research is on, and only from successful WebSearch and WebFetch calls matched by id (tests, including a forged result and a failed fetch); D6 |
+| 12 Host matching allowed invented paths | §5.3 exact URL match; D11 |
+| 13 Stored API auth and key helpers | §1.4 subscription-only sign-in (spike `signedIn`, tests), no user settings, and the init-event check (spec-level); O3 |
+
+Astra's sandbox couldn't run `pgrep`, so its run of the cancellation test failed there. The test passes here, and `members` now reports that situation as an error.

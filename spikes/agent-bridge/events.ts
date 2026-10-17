@@ -1,9 +1,9 @@
 /**
  * Turns an agent CLI's JSON-lines stream into the few events the app needs. Allowlist only:
  * - `session`: the id used to resume;
- * - `text`: top-level assistant text, only in turns that show text (author turns pass `text: false`);
+ * - `text`: top-level assistant text, only when `text` is on (tutor turns; author turns turn it off);
  * - `tool`: a Codemm tool's name and status, never its input or result;
- * - `web`: the https URLs a web search or fetch returned, the evidence behind research sources;
+ * - `web`: https URLs a successful web search or fetch returned, only when `web` is on (research turns);
  * - `done`: whether the turn succeeded. Error text is never passed on, because it can quote anything.
  * Thinking, subagent messages, other tools and malformed lines are dropped; the parser never throws.
  */
@@ -14,6 +14,8 @@ export type BridgeEvent =
   | { kind: "tool"; tool: string; state: "started" | "ok" | "failed" }
   | { kind: "web"; urls: string[] }
   | { kind: "done"; ok: boolean };
+
+export type ParserOptions = { text: boolean; web: boolean };
 
 type Json = Record<string, unknown>;
 
@@ -38,30 +40,39 @@ function https(urls: unknown[]): string[] {
 const web = (urls: string[]): BridgeEvent[] => (urls.length > 0 ? [{ kind: "web", urls }] : []);
 
 function claudeParser(): (e: Json) => BridgeEvent[] {
-  const names = new Map<string, string>();
+  // Calls by id: Codemm tools by name, and web calls with the URL a fetch asked for.
+  const codemm = new Map<string, string>();
+  const searches = new Set<string>();
+  const fetches = new Map<string, string>();
   return (e) => {
     const id = str(e.session_id);
     if (e.type === "system" && e.subtype === "init") return id ? [{ kind: "session", id }] : [];
     if (e.type === "result") return [{ kind: "done", ok: e.subtype === "success" && e.is_error !== true }];
     if ((e.type !== "assistant" && e.type !== "user") || e.parent_tool_use_id) return [];
     const out: BridgeEvent[] = [];
-    if (e.type === "user") {
-      // Web search results arrive as structured data beside the tool result.
-      const found = arr(obj(e.tool_use_result)?.results).flatMap((r) => arr(obj(r)?.content).map((c) => obj(c)?.url));
-      out.push(...web(https(found)));
-    }
     for (const block of arr(obj(e.message)?.content).map(obj)) {
       if (!block) continue;
       const name = str(block.name);
+      const callId = str(block.id);
       if (e.type === "assistant" && block.type === "text" && str(block.text)) out.push({ kind: "text", text: block.text as string });
-      if (e.type === "assistant" && block.type === "tool_use" && name?.startsWith(CLAUDE_PREFIX) && str(block.id)) {
-        const tool = name.slice(CLAUDE_PREFIX.length);
-        names.set(block.id as string, tool);
-        out.push({ kind: "tool", tool, state: "started" });
+      if (e.type === "assistant" && block.type === "tool_use" && callId) {
+        if (name?.startsWith(CLAUDE_PREFIX)) {
+          codemm.set(callId, name.slice(CLAUDE_PREFIX.length));
+          out.push({ kind: "tool", tool: name.slice(CLAUDE_PREFIX.length), state: "started" });
+        }
+        if (name === "WebSearch") searches.add(callId);
+        const url = https([obj(block.input)?.url])[0];
+        if (name === "WebFetch" && url) fetches.set(callId, url);
       }
-      if (e.type === "assistant" && block.type === "tool_use" && name === "WebFetch") out.push(...web(https([obj(block.input)?.url])));
-      const tool = names.get(str(block.tool_use_id) ?? "");
-      if (e.type === "user" && block.type === "tool_result" && tool) out.push({ kind: "tool", tool, state: block.is_error === true ? "failed" : "ok" });
+      if (e.type !== "user" || block.type !== "tool_result") continue;
+      const resultId = str(block.tool_use_id) ?? "";
+      const failed = block.is_error === true;
+      const tool = codemm.get(resultId);
+      if (tool) out.push({ kind: "tool", tool, state: failed ? "failed" : "ok" });
+      if (failed) continue;
+      // A search's links arrive as structured data beside its tool result.
+      if (searches.has(resultId)) out.push(...web(https(arr(obj(e.tool_use_result)?.results).flatMap((r) => arr(obj(r)?.content).map((c) => obj(c)?.url)))));
+      if (fetches.has(resultId)) out.push(...web([fetches.get(resultId)!]));
     }
     return out;
   };
@@ -87,7 +98,7 @@ function codexParser(): (e: Json) => BridgeEvent[] {
 }
 
 /** One parser per turn: Claude pairs tool results with earlier tool calls. */
-export function createParser(agent: "claude" | "codex", options: { text: boolean }): (line: string) => BridgeEvent[] {
+export function createParser(agent: "claude" | "codex", options: ParserOptions): (line: string) => BridgeEvent[] {
   const parse = agent === "claude" ? claudeParser() : codexParser();
   return (line) => {
     let value: unknown;
@@ -97,7 +108,6 @@ export function createParser(agent: "claude" | "codex", options: { text: boolean
       return [];
     }
     const e = obj(value);
-    const events = e ? parse(e) : [];
-    return options.text ? events : events.filter((ev) => ev.kind !== "text");
+    return (e ? parse(e) : []).filter((ev) => (ev.kind !== "text" || options.text) && (ev.kind !== "web" || options.web));
   };
 }

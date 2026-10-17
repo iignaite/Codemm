@@ -19,8 +19,16 @@ export type TurnOptions = {
   graceMs?: number;
 };
 
-/** Processes still in a group, found by group id rather than by command line, so descendants count too. */
-const members = (group: number) => spawnSync("pgrep", ["-g", String(group)], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean).length;
+/**
+ * Processes still in a group, found by group id rather than by command line, so descendants count too.
+ * pgrep exits 1 for "none"; anything else that isn't a match means the group couldn't be inspected.
+ */
+export function members(group: number): number {
+  const r = spawnSync("pgrep", ["-g", String(group)], { encoding: "utf8" });
+  if (r.status === 1) return 0;
+  if (r.status !== 0) throw new Error(`Couldn't inspect process group ${group}.`);
+  return r.stdout.trim().split("\n").filter(Boolean).length;
+}
 
 function killGroup(group: number, signal: NodeJS.Signals): void {
   try {

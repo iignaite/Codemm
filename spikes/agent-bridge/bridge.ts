@@ -41,7 +41,7 @@ async function turn(agent: "claude" | "codex", prompt: string, o: TurnFlags): Pr
   const tools = (o.tools ?? "list_tracks").split(",").filter(Boolean);
   const args = turnArgs(agent, { mcp, tools, web: o.web === true, ...(o.model ? { model: o.model } : {}), ...(o.resume ? { resume: o.resume } : {}) });
 
-  const parse = createParser(agent, { text: o.author !== true });
+  const parse = createParser(agent, { text: o.author !== true, web: o.web === true });
   const run = startTurn({ command: BINARY[agent], args, cwd: ws, env, input: prompt, onLine: (line) => parse(line).forEach(print) });
   const cancelAfter = Number(o["cancel-after"] ?? 0);
   if (cancelAfter > 0) setTimeout(() => (print({ kind: "cancel" }), run.cancel()), cancelAfter).unref();

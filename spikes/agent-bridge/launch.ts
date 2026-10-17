@@ -3,8 +3,8 @@
  * Pure: builds argument arrays only. The prompt always goes on stdin, which avoids option parsing
  * surprises and the Windows command-line length limit.
  *
- * Every turn gets only Codemm's MCP server and none of the agent's own file, shell or plugin tools,
- * so a tutor can't edit the learner's code (practice protection is enforced, not advisory).
+ * Every turn gets only Codemm's MCP server and none of the agent's own file, shell or plugin tools, and no user
+ * settings (hooks, key helpers) or user config, so a tutor can't edit the learner's code or run host commands.
  */
 
 export type Agent = "claude" | "codex" | "cursor";
@@ -24,16 +24,19 @@ export function cleanEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(env).filter(([k]) => !CREDENTIAL_ENV.includes(k)));
 }
 
+/** Signed in with a subscription, so turns use the learner's plan. An API-key sign-in counts as not signed in. */
 export function signedIn(agent: Agent, status: { exit: number; output: string }): boolean {
   if (agent === "claude") {
     try {
-      return JSON.parse(status.output).loggedIn === true;
+      const s = JSON.parse(status.output);
+      return s.loggedIn === true && s.authMethod === "claude.ai";
     } catch {
       return false;
     }
   }
-  if (/not logged in/i.test(status.output)) return false;
-  return status.exit === 0 && /logged in/i.test(status.output);
+  if (agent === "codex") return status.exit === 0 && /logged in using chatgpt/i.test(status.output);
+  // Cursor's status doesn't say how it signed in; unverified while it is signed out here.
+  return status.exit === 0 && !/not logged in/i.test(status.output) && /logged in/i.test(status.output);
 }
 
 // A JSON string literal is also a valid TOML basic string.
@@ -48,7 +51,7 @@ export function turnArgs(agent: "claude" | "codex", turn: Turn): string[] {
   if (agent === "claude") {
     return [
       "-p", "--output-format", "stream-json", "--verbose",
-      "--mcp-config", JSON.stringify({ mcpServers: { codemm: turn.mcp } }), "--strict-mcp-config",
+      "--mcp-config", JSON.stringify({ mcpServers: { codemm: turn.mcp } }), "--strict-mcp-config", "--setting-sources", "",
       "--tools", turn.web ? CLAUDE_WEB.join(",") : "",
       "--allowedTools", [...turn.tools.map((t) => `mcp__codemm__${t}`), ...(turn.web ? CLAUDE_WEB : [])].join(","),
       ...(turn.model ? ["--model", turn.model] : []),
