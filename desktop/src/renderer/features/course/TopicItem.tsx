@@ -11,13 +11,15 @@ interface Props {
   onEdit: () => void;
   onRename: (title: string) => void;
   onRemove?: () => void;
+  /** Asks Codemm to split this topic into the smaller skills it needs. */
+  onDeeper?: () => void;
   onMove?: (to: number) => void;
   onDragStart?: () => void;
   onDrop?: () => void;
 }
 
 /** One topic in the course editor. Dragging works, and so does the Move menu. */
-export function TopicItem({ index, count, title, editing, onEdit, onRename, onRemove, onMove, onDragStart, onDrop }: Props) {
+export function TopicItem({ index, count, title, editing, onEdit, onRename, onRemove, onDeeper, onMove, onDragStart, onDrop }: Props) {
   const [name, setName] = useState(title);
   const [menu, setMenu] = useState(false);
   const grip = useRef<HTMLButtonElement>(null);
@@ -77,6 +79,11 @@ export function TopicItem({ index, count, title, editing, onEdit, onRename, onRe
       ) : (
         <>
           <span className="name">{title}</span>
+          {onDeeper && (
+            <button className="ibtn" type="button" aria-label={`Go deeper on ${title}`} title="Go deeper" onClick={onDeeper}>
+              <Icon name="layers" color="#5B6A84" size={17} />
+            </button>
+          )}
           <button className="ibtn" type="button" aria-label={`Rename ${title}`} onClick={onEdit}>
             <Icon name="pencil" color="#5B6A84" size={17} />
           </button>
