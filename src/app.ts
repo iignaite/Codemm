@@ -62,7 +62,11 @@ function alreadyInstalled(ref: string, version: number, files: FileMap): boolean
 
 /** Gates 2 to 5, then an atomic install. Call while holding the track lock. */
 async function install(ref: string, files: FileMap): Promise<{ installed: string; warning?: string }> {
+  // Before building, and again before committing. Roadmap saves check styles under this same track lock,
+  // so no course can change style in between.
+  assertCoursesFit(ref, readTrackSpec(files).spec.styles);
   const verified = await verifyTrack(files);
+  assertCoursesFit(ref, verified.spec.styles);
   const record: TrackRecord = {
     format_version: 1, ...verified.spec, image: verified.image, imageId: verified.imageId, installedAt: new Date().toISOString(),
   };
@@ -71,19 +75,20 @@ async function install(ref: string, files: FileMap): Promise<{ installed: string
 }
 
 /**
- * A job bound to a course installs or proposes that course's track, so the track must offer the course's style:
- * otherwise the course could never continue. The agent gets a save it can fix.
+ * Every course pinned to `ref` must find its style in the track, or it could never continue. A course's roadmap
+ * may name a track before it's installed (DESIGN §5), so this is checked at install, and early when proposing.
  */
-function assertFitsCourse(ref: string, styles: string[], bound?: string): void {
-  const course = bound ? store.readCourse(bound) : undefined;
-  if (course && course.track === ref && !styles.includes(course.style)) {
-    throw new CodemmError(`This course needs style "${course.style}", but ${ref} offers ${styles.join(", ")}. Add ${course.style} to the track's styles, with its probes.`);
+function assertCoursesFit(ref: string, styles: string[]): void {
+  for (const id of store.listCourses()) {
+    const course = store.readCourse(id);
+    if (course?.track === ref && !styles.includes(course.style)) {
+      throw new CodemmError(`Course "${id}" needs style "${course.style}", but ${ref} offers ${styles.join(", ")}. Add ${course.style} to the track's styles, with its probes.`);
+    }
   }
 }
 
-export async function saveTrack(files: FileMap, bound?: string): Promise<{ installed: string; unchanged?: true; warning?: string }> {
+export async function saveTrack(files: FileMap): Promise<{ installed: string; unchanged?: true; warning?: string }> {
   const { spec, ref } = readTrackSpec(files);
-  assertFitsCourse(ref, spec.styles, bound);
   return store.withLock(store.trackLockPath(spec.id), async () => {
     if (alreadyInstalled(ref, spec.version, files)) return { installed: ref, unchanged: true as const };
     return install(ref, files);
@@ -97,9 +102,9 @@ const sorted = (map: FileMap) => Object.fromEntries(Object.entries(map).sort(([a
 // In the desktop app, save_track only proposes. The learner consents in Codemm, and installProposal
 // builds exactly the files they were shown, identified by digest.
 
-export async function proposeTrack(files: FileMap, bound?: string): Promise<{ installed: string; unchanged: true } | { proposed: string; note: string }> {
+export async function proposeTrack(files: FileMap): Promise<{ installed: string; unchanged: true } | { proposed: string; note: string }> {
   const { spec, ref } = readTrackSpec(files);
-  assertFitsCourse(ref, spec.styles, bound);
+  assertCoursesFit(ref, spec.styles);
   return store.withLock(store.trackLockPath(spec.id), async () => {
     if (alreadyInstalled(ref, spec.version, files)) return { installed: ref, unchanged: true as const };
     store.writeProposal(ref, files);
@@ -184,10 +189,11 @@ const eventConcepts = (e: LearnerEvent): string[] => (e.kind === "check" ? e.con
 export async function saveRoadmap(ws: string, course: string, yaml: string, bound?: string): Promise<{ course: string; concepts: number }> {
   if (bound && course !== bound) throw new CodemmError(`This job saves only course "${bound}".`);
   const roadmap = parseRoadmapYaml(yaml);
-  const track = store.readTrack(roadmap.track);
-  if (track && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
   const record: CourseRecord = { format_version: 1, course, ...roadmap };
-  await store.withLock(store.courseLockPath(course), async () => {
+  // Course lock, then the track's lock (as saveExercise does), so an install can't land between this check and the save.
+  await store.withLock(store.courseLockPath(course), () => store.withLock(store.trackLockPath(store.parseTrackRef(roadmap.track).id), async () => {
+    const track = store.readTrack(roadmap.track);
+    if (track && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
     let retries: string[] = [];
     const existing = store.readCourse(course);
     if (existing) {
@@ -214,7 +220,7 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
     // The roadmap goes first: if appending fails, the concept stays stuck rather than restarting without its prerequisite.
     store.writeCourse(record);
     for (const concept of retries) store.appendEvent(course, { format_version: 1, kind: "retry", at: new Date().toISOString(), concept });
-  });
+  }));
   await store.updateWorkspace(ws, (config) => ({ ...config, course, current: config.course === course ? config.current : undefined }));
   return { course, concepts: roadmap.concepts.length };
 }

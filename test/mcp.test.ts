@@ -120,7 +120,7 @@ describe("--desktop with --course", () => {
     fakeDocker("missing");
     await app.saveRoadmap(ws, "first", roadmap("First"));
     const { call } = await connect({ course: "first", desktop: true });
-    await expect(call("save_track", { files: unitOnly() })).rejects.toThrow(/course needs style "io".*offers unit/);
+    await expect(call("save_track", { files: unitOnly() })).rejects.toThrow(/Course "first" needs style "io".*offers unit/);
     expect(app.listProposals()).toEqual([]);
     expect(await call("save_track", { files: readFileMap(join(tracks, "shell-io")) })).toMatchObject({ proposed: "shell-io@1" });
   });

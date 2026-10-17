@@ -69,7 +69,7 @@ export function createServer(ws: string, version: string, { course, tools, deskt
             "Codemm then runs the probes with the network off and installs the track only if every gate passes; otherwise it returns what failed.",
           inputSchema: { files },
         },
-    ({ files: f }) => respond(() => (desktop ? app.proposeTrack(f, course) : app.saveTrack(f, course))),
+    ({ files: f }) => respond(() => (desktop ? app.proposeTrack(f) : app.saveTrack(f))),
   );
 
   if (want("save_roadmap")) server.registerTool(
