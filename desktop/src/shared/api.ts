@@ -15,6 +15,8 @@ export const NO_AGENT = 'codemm:no-agent';
 export const PLAN_LIMIT = 'codemm:plan-limit';
 /** An agent job failed or wasn't done by its check (§5). */
 export const AGENT_FAILED = 'codemm:agent-failed';
+/** A damaged Codemm record. The message's next lines are core's repair guidance (§5). */
+export const REPAIR = 'codemm:repair';
 /** A learner file changed outside Codemm since the editor loaded it (§4.5). */
 export const CHANGED = 'codemm:changed';
 

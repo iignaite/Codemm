@@ -5,6 +5,7 @@ import {
   AGENT_FAILED,
   CHANGED,
   PLAN_LIMIT,
+  REPAIR,
   SIGNED_OUT,
   type CodemmApi,
   type Computer,
@@ -65,6 +66,13 @@ function notCounted(error: unknown): string | null {
   if (/image for .* is missing or changed/i.test(message)) return 'This environment needs a rebuild. Rebuild it under Tracks.';
   const kind = infra(message);
   return kind ? NOT_COUNTED[kind] : null;
+}
+
+/** core store.ts's damaged-record errors: the learner repairs them; a retry can't (§5). */
+const DAMAGED = /^Codemm's record .* is damaged|^The learning log .* has an invalid entry/;
+function repairable(e: unknown): unknown {
+  if (e instanceof Error && e.name === 'CodemmError' && DAMAGED.test(e.message)) e.message = `${REPAIR}\n${e.message}`;
+  return e;
 }
 
 interface Running {
@@ -279,7 +287,7 @@ export function createLive(d: LiveDeps): Live {
   // Work the course still needs when the app starts.
   queueMicrotask(schedule);
 
-  return {
+  const api: Live = {
     async agents() {
       const agents = await d.connect.agents();
       log('agents', Object.fromEntries(agents.map((a) => [a.id, a.untested ? `${a.state}-untested` : a.state])));
@@ -498,4 +506,10 @@ export function createLive(d: LiveDeps): Live {
       await core.cleanupLeftovers().catch(() => undefined);
     },
   };
+  // Every call: a damaged record says so, with core's guidance.
+  for (const name of Object.keys(api) as (keyof Live)[]) {
+    const call = api[name] as (...args: unknown[]) => Promise<unknown>;
+    (api as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => call.apply(api, args).catch((e: unknown) => Promise.reject(repairable(e)));
+  }
+  return api;
 }
