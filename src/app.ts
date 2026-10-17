@@ -259,10 +259,10 @@ function learnerFiles(record: ExerciseRecord, files: FileMap, track: TrackRecord
   return out;
 }
 
-function loadExercise(ws: string, slug?: string) {
-  const course = activeCourse(ws);
+function loadExercise(ws: string, slug?: string, bound?: string) {
+  const course = activeCourse(ws, bound);
   const config = store.readWorkspace(ws);
-  const preferred = slug ?? config.current;
+  const preferred = slug ?? (config.course === course.course ? config.current : undefined);
   const next = preferred ? undefined : pickFor(course);
   const chosen = preferred ?? (next?.kind === "practice" ? next.exercise : undefined);
   if (!chosen) throw new CodemmError("No exercise to practice yet. Ask your agent for the next step (next_step).");
@@ -303,6 +303,22 @@ export async function getExercise(ws: string, slug?: string) {
           })
         : Object.keys(visible).sort().map((name) => ({ name })),
   };
+}
+
+/** The learner's editable files for an exercise, each with the digest a later save must name. */
+export function readLearnerFiles(ws: string, slug: string, bound?: string): Record<string, { text: string; digest: string }> {
+  const { record, files, track, rel } = loadExercise(ws, slug, bound);
+  store.materialize(ws, rel, learnerFiles(record, files, track));
+  const src = store.readLearnerFiles(ws, rel, track.files);
+  return Object.fromEntries(Object.entries(src).map(([path, text]) => [path, { text, digest: store.digestText(text) }]));
+}
+
+/** Saves one learner file, refusing it if the file changed since the editor loaded `digest`. */
+export async function writeLearnerFile(ws: string, slug: string, path: string, text: string, digest: string, bound?: string): Promise<{ digest: string }> {
+  const { track, rel } = loadExercise(ws, slug, bound);
+  if (!track.files.includes(path)) throw new CodemmError(`"${path}" isn't one of this exercise's files (${track.files.join(", ")}).`);
+  validateFileMap({ [path]: text });
+  return store.withWorkspaceLock(ws, async () => ({ digest: store.replaceLearnerFile(ws, rel, path, text, digest) }));
 }
 
 export type CheckView = {

@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -169,5 +170,46 @@ describe("lessons", () => {
   it("keeps a concept a lesson uses in the roadmap", async () => {
     await app.saveLesson(ws, lesson("loops", "sh.loops"));
     await expect(app.saveRoadmap(ws, "shell", roadmap("  - { id: sh.basics, title: Basics, requires: [] }\n"))).rejects.toThrow(/sh\.loops/);
+  });
+});
+
+describe("learner files", () => {
+  const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+  const file = () => join(ws, "exercises", "shell", "e1", "main.sh");
+
+  beforeEach(async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    addExercise("shell", "e1", "sh.basics");
+  });
+
+  it("reads only the exercise's track files, with digests", () => {
+    const files = app.readLearnerFiles(ws, "e1");
+    expect(files).toEqual({ "main.sh": { text: "echo todo\n", digest: sha("echo todo\n") } });
+    expect(JSON.stringify(files)).not.toMatch(/SECRET|HIDDEN/);
+  });
+
+  it("saves a file loaded with the current digest, and refuses a stale one", async () => {
+    const { digest } = app.readLearnerFiles(ws, "e1")["main.sh"]!;
+    expect(await app.writeLearnerFile(ws, "e1", "main.sh", "echo 3\n", digest)).toEqual({ digest: sha("echo 3\n") });
+    expect(readFileSync(file(), "utf8")).toBe("echo 3\n");
+    await expect(app.writeLearnerFile(ws, "e1", "main.sh", "echo 4\n", digest)).rejects.toThrow(/Changed outside Codemm/);
+    expect(readFileSync(file(), "utf8")).toBe("echo 3\n");
+  });
+
+  it("refuses files that aren't the exercise's track files", async () => {
+    app.readLearnerFiles(ws, "e1");
+    await expect(app.writeLearnerFile(ws, "e1", "README.md", "x", sha("Print the max."))).rejects.toThrow(/isn't one of/);
+    await expect(app.writeLearnerFile(ws, "e1", "../e2/main.sh", "x", sha("x"))).rejects.toThrow(/isn't one of/);
+  });
+
+  it.runIf(process.platform !== "win32")("refuses to write through a symlink", async () => {
+    app.readLearnerFiles(ws, "e1");
+    const outside = join(mkdtempSync(join(tmpdir(), "codemm-outside-")), "target.sh");
+    writeFileSync(outside, "echo todo\n");
+    rmSync(file());
+    symlinkSync(outside, file());
+    await expect(app.writeLearnerFile(ws, "e1", "main.sh", "echo 3\n", sha("echo todo\n"))).rejects.toThrow(/symlink/);
+    expect(readFileSync(outside, "utf8")).toBe("echo todo\n");
   });
 });

@@ -347,6 +347,18 @@ function assertInside(root: string, path: string): void {
   if (rel === ".." || rel.startsWith(`..${sep}`) || rel.startsWith(sep)) throw new CodemmError(`Refusing to follow a symlink out of ${root}.`);
 }
 
+/** The absolute path of `ws/rel`, refusing it if any existing component is a symlink. */
+function refuseSymlinks(ws: string, rel: string): string {
+  let current = ws;
+  for (const part of rel.split("/")) {
+    current = join(current, part);
+    if (existsSync(current) && lstatSync(current).isSymbolicLink()) {
+      throw new CodemmError(`Refusing to write through the symlink at ${current}. Remove it and retry.`);
+    }
+  }
+  return current;
+}
+
 /**
  * Writes learner-side files under `ws/rel`, creating only what's missing.
  * Never overwrites the learner's edits and never writes through a symlink.
@@ -355,14 +367,7 @@ export function materialize(ws: string, rel: string, files: FileMap): void {
   // Generated from already-validated data, so only paths are checked, not author size limits.
   for (const path of Object.keys(files)) assertRelativePath(path);
   for (const [path, contents] of Object.entries(files)) {
-    const parts = `${rel}/${path}`.split("/");
-    let current = ws;
-    for (const part of parts) {
-      current = join(current, part);
-      if (existsSync(current) && lstatSync(current).isSymbolicLink()) {
-        throw new CodemmError(`Refusing to write through the symlink at ${current}. Remove it and retry.`);
-      }
-    }
+    const current = refuseSymlinks(ws, `${rel}/${path}`);
     if (existsSync(current)) continue;
     mkdirSync(dirname(current), { recursive: true });
     assertInside(ws, dirname(current));
@@ -383,6 +388,33 @@ export function materialize(ws: string, rel: string, files: FileMap): void {
       unlinkSync(tmp);
     }
   }
+}
+
+export const digestText = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/**
+ * Replaces one learner file through a temp file and a rename, but only if it still has the `digest` the
+ * editor loaded. Never writes through a symlink. Call while holding the workspace lock.
+ */
+export function replaceLearnerFile(ws: string, rel: string, name: string, text: string, digest: string): string {
+  assertRelativePath(name);
+  const path = refuseSymlinks(ws, `${rel}/${name}`);
+  const current = existsSync(path) ? readLearnerFiles(ws, rel, [name])[name] : undefined;
+  if (current === undefined || digestText(current) !== digest) throw new CodemmError(`Changed outside Codemm. Reload ${name}.`);
+  const tmp = join(dirname(path), `.codemm-${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
+  const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+  try {
+    writeFileSync(fd, text);
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    renameSync(tmp, path);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
+  return digestText(text);
 }
 
 /** Reads the learner's files for an exercise; refuses missing files and symlinks. */
