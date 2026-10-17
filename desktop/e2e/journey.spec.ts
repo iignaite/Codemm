@@ -1,5 +1,6 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 // D17: the learning journey on an installed app with a REAL agent, run by hand
@@ -22,6 +23,21 @@ const MIN = 60_000;
 
 test.skip(!dir || !exe, 'set CODEMM_JOURNEY and CODEMM_APP to run the real-agent journey');
 test.setTimeout(150 * MIN);
+
+/** The learner's real Codemm folders, which a journey must never touch. */
+const REAL = [join(homedir(), '.codemm'), join(homedir(), 'Codemm')];
+
+/** Every path under the real folders, with file sizes: any write shows up as a difference. */
+function snapshot(): string[] {
+  const walk = (dir: string): string[] =>
+    existsSync(dir)
+      ? readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+          const path = join(dir, e.name);
+          return e.isDirectory() ? [`${path}/`, ...walk(path)] : [`${path} ${statSync(path).size}`];
+        })
+      : [`${dir} (absent)`];
+  return REAL.flatMap(walk).sort();
+}
 
 let app: ElectronApplication;
 let page: Page;
@@ -248,6 +264,7 @@ async function activity(skipAfter: boolean) {
 test(`journey: ${label}`, async () => {
   const env: Record<string, string> = { ...(process.env as Record<string, string>), CODEMM_HOME: join(dir!, 'home'), PATH: `${join(dir!, 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin` };
   for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ELECTRON_RUN_AS_NODE', 'CODEMM_JOURNEY', 'CODEMM_APP', 'NODE_OPTIONS']) delete env[key];
+  const untouched = snapshot();
   app = await electron.launch({ executablePath: exe!, args: [`--user-data-dir=${join(dir!, 'userData')}`], env, cwd: dir! });
   page = await app.firstWindow();
   expect(await app.evaluate(({ app: a }) => a.getPath('userData'))).toBe(join(dir!, 'userData'));
@@ -332,4 +349,6 @@ test(`journey: ${label}`, async () => {
   }
 
   await app.close();
+  // Isolation: the run used temp folders only. Anything that wrote to the real ones is a bug.
+  expect(snapshot(), "the run changed the learner's real ~/.codemm or ~/Codemm").toEqual(untouched);
 });
