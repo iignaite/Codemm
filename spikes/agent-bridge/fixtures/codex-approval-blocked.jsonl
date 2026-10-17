@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"01a14a22-3f70-75e1-b5b4-805b61957090"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"mcp_tool_call","server":"codemm","tool":"list_tracks","arguments":{},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"mcp_tool_call","server":"codemm","tool":"list_tracks","arguments":{},"result":null,"error":{"message":"MCP tool call requires approval, but approval policy is never"},"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"0"}}
+{"type":"turn.completed"}
