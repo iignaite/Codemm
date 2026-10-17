@@ -3,7 +3,7 @@ import { CHANGED, NO_AGENT, PLAN_LIMIT, SIGNED_OUT, type CodemmApi, type CourseV
 import { isSafeLink } from './links';
 import { createMock, scenario, SCENARIOS, type MockOptions } from './mock';
 
-const goal = { topic: 'React', known: 'Python' };
+const goal = { topic: 'React', known: 'Python', depth: 'standard' as const };
 
 async function roadmapped(options?: MockOptions) {
   const api = createMock(options);

@@ -370,7 +370,7 @@ export function createLive(d: LiveDeps): Live {
         await d.connect.chosen();
         // A new course, on a server that saves only it (§4.6).
         const course = courseId(goal.topic, Date.now());
-        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known), course, () => roadmapOrNull()?.course === course)
+        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course)
           .then((o) => outcomes.set(key, o))
           .catch((e: Error) => outcomes.set(key, { ok: false, problem: e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed', text: [] }));
       }
