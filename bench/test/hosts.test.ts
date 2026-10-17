@@ -95,6 +95,19 @@ describe("parseCodex", () => {
     ]);
   });
 
+  it("exposes what subagents returned to the tutor", () => {
+    const run = parseCodex(
+      lines(
+        { type: "item.completed", item: { type: "collab_tool_call", tool: "spawn_agent", prompt: "author it", agents_states: { a: { status: "pending_init", message: null } } } },
+        { type: "item.completed", item: { type: "collab_tool_call", tool: "wait", prompt: null, agents_states: { a: { status: "completed", message: "def solve(): return 42" } } } },
+        { type: "item.completed", item: { type: "agent_message", text: "Here it is." } },
+        { type: "turn.completed", usage: {} },
+      ),
+    );
+    expect(run.exposedText).toBe("def solve(): return 42\nHere it is.");
+    expect(run.tools.map((t) => [t.kind, t.name])).toEqual([["agent", "spawn_agent"], ["agent", "wait"]]);
+  });
+
   it("reports a failed turn", () => {
     expect(parseCodex(lines({ type: "turn.started" }, { type: "turn.failed", error: { message: "usage limit" } }))).toMatchObject({ ok: false, error: "usage limit" });
   });

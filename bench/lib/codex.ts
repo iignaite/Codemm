@@ -17,9 +17,11 @@ function toolUses(item: any): ToolUse[] {
       return [{ kind: "shell", name: "shell", input: String(item.command ?? ""), sub: false, isError: item.exit_code !== 0, result: String(item.aggregated_output ?? "").slice(0, 20_000) }];
     case "file_change":
       return (item.changes ?? []).map((c: any) => ({ kind: "edit", name: `file_change:${c.kind ?? "update"}`, input: String(c.path ?? ""), sub: false, isError: item.status === "failed" }));
-    case "collab_tool_call":
-    case "collab_agent_tool_call":
-      return [{ kind: "agent", name: item.tool ?? item.type, input: String(item.prompt ?? ""), sub: false }];
+    case "collab_tool_call": {
+      // A subagent's reply comes back to the tutor in agents_states[*].message.
+      const replies = Object.values(item.agents_states ?? {}).map((a: any) => a?.message).filter((m): m is string => typeof m === "string");
+      return [{ kind: "agent", name: item.tool ?? item.type, input: String(item.prompt ?? ""), sub: false, result: replies.join("\n") }];
+    }
     default:
       return [];
   }
@@ -37,7 +39,9 @@ export function parseCodex(stdout: string): AgentRun {
         said.push(e.item.text ?? "");
         run.finalText = e.item.text ?? "";
       } else {
-        tools.push(...toolUses(e.item));
+        const uses = toolUses(e.item);
+        tools.push(...uses);
+        for (const u of uses) if (u.kind === "agent" && u.result) said.push(u.result);
       }
     } else if (e.type === "turn.completed") {
       turns += 1;

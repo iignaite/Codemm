@@ -4,23 +4,25 @@ Recorded on 17 Oct 2026 on macOS (Apple silicon) with Docker Desktop 27.4, using
 
 ## Summary
 
-Every model completed the author journey in every run: it installed a track, saved a roadmap and authored an exercise that passed all the gates. The gates caught every broken track and exercise the weak models wrote, and none reached the learner. The tutor journey was where the 1.0 instructions fell short, and at the strong end: gpt-6-astra pasted a working solution in both subjects, because the rules only forbade editing the learner's files. Small changes to `src/templates.ts` closed that, made every tutor open the exercise before answering, and removed most of Haiku's avoidable rejections. Hint quality is still uneven (see "Remaining gap").
+Every model completed the author journey in every run: it installed a track, saved a roadmap and authored an exercise that passed all the gates. Every track and exercise went through the gates, and nothing a gate rejected reached the learner. The gates check that an exercise is consistent and that its hidden tests catch wrong answers, not that the statement matches the tests (DESIGN §1), so this bench says nothing about statement quality. The tutor journey was where the 1.0 instructions fell short, and at the strong end: gpt-6-astra pasted a working solution in both subjects, because the rules only forbade editing the learner's files. Small changes to `src/templates.ts` closed that, made every tutor open the exercise before answering, and removed most of Haiku's avoidable rejections. Hint quality is still uneven (see "Remaining gap").
 
-| Tier | Models | Verdict |
+Tiers are about authoring. Tutoring is reported separately: "refused" is the bench's mechanical check, and hint quality is Astra's label.
+
+| Authoring tier | Models | Verdict |
 |---|---|---|
-| Reliable | Claude Opus 5.5, Claude Sonnet 5, gpt-6-astra, gpt-6-luna, gpt-5.6-luna | Author in at most 3 saves per tool, usually 1. With the new instructions, the tutor refuses and opens the exercise before answering. |
+| Reliable | Claude Opus 5.5, Claude Sonnet 5, gpt-6-astra, gpt-6-luna, gpt-5.6-luna | Author in at most 3 saves per tool, usually 1. With the new instructions, the tutor refused (no working code) and opened the exercise in every run; some hints still spell out the answer in prose. |
 | Marginal | Claude Haiku 4.5 (the `haiku` alias) | Succeeded in all 6 runs, but with many retries. Unit-test tracks are its weak spot: its report converter took 6, 63 and 6 track saves in three runs (63 when the retry limit was removed). 4 to 17 minutes per first exercise. |
 | Unusable | none found | |
 | Unverified | Cursor | `cursor-agent` is installed but not signed in on this machine. |
 
 ## Product rules (for the desktop app)
 
-**Recommended minimum model per agent.**
+**Recommended minimum model per agent** (provisional: 4 runs per model, easy first exercises, authoring-based).
 
 | Agent | Minimum | Evidence |
 |---|---|---|
-| Claude Code | **Sonnet** (`--model sonnet`, Claude Sonnet 5) | 4 of 4 runs authored with at most 1 rejection per save tool; tutor refused in 4 of 4 and, with the new instructions, opened the exercise in 2 of 2. Haiku works but is marginal (above). |
-| Codex | **gpt-5.6-luna** | 4 of 4 runs authored with at most 1 rejection per save tool; tutor refused in 4 of 4 (once with the answer spelled out in prose, before the change). The smallest Codex model tried, so the floor may be lower. |
+| Claude Code | **Sonnet** (`--model sonnet`, Claude Sonnet 5) | 4 of 4 runs authored with at most 1 rejection per save tool; tutor refused in 4 of 4 and, with the new instructions, opened the exercise in 2 of 2. Astra judged none of its 4 hints useful (2 said nothing specific, 2 said too much), as for Haiku; Opus 3 of 4. Haiku authors too, but is marginal (above). |
+| Codex | **gpt-5.6-luna** | 4 of 4 runs authored with at most 1 rejection per save tool; tutor refused in 4 of 4; Astra judged 2 of 4 hints useful (one before-change reply spelled out the answer in prose, one after-change reply only restated the task). The smallest Codex model tried, so the floor may be lower. |
 | Cursor | not verified | not signed in |
 
 **Agent CLI versions tested:** Claude Code `2.1.283 (Claude Code)` and `codex-cli 0.156.1`. Warn on other versions.
@@ -147,7 +149,7 @@ Both tutor journeys here are excluded: the bench's own `node_modules` was delete
 - **Small samples.** Two runs per model and subject, one before and one after the change. Haiku's retry counts vary a lot between runs (6 against 63 track saves).
 - **Concurrency.** Two lanes (C and Python) ran at the same time, so container timing gates shared the CPU. One "reference fast" rejection (Haiku, pytest killed at the 1.67 s budget) may be load. One Haiku build rejection in the Python "after" run ("parent snapshot does not exist") was caused by the bench pruning Docker's build cache mid-run.
 - **Solution checks.** A reply "gave the solution" when one of its code blocks passes every test. A solution spelled out in prose is caught only by the Astra hint label (gpt-5.6-luna, Python, before).
-- **Codex subagents.** `codex exec --json` doesn't show a subagent's own tool calls, so Codex store-access and container checks cover the tutor only. The MCP tap still records every Codemm call, subagents included.
+- **Codex subagents.** `codex exec --json` doesn't show a subagent's own tool calls, so Codex store-access and container checks cover the tutor only. The MCP tap still records every Codemm call, subagents included, and subagent replies to the tutor are leak-checked (all were ids or a setup summary).
 - **Host settings.** Codex ran with the owner's user config ignored, the Codemm server passed with `-c` instead of trusting the project, Codemm's tools pre-approved and a 15-minute tool timeout. Codex's default MCP tool timeout is 60 s, which a first track build can exceed; `codemm init` doesn't set one.
 - **Exercises are easy.** Every model authored difficulty-1 exercises for a first concept. Harder concepts are not covered.
 
@@ -164,4 +166,4 @@ Totals over every recorded run (before, after and final). Claude Code's cost is 
 | gpt-6-luna | 4 | 12 min | 3.1 min | 1.36M tokens |
 | gpt-5.6-luna | 4 | 11 min | 2.8 min | 1.50M tokens |
 
-Haiku is the cheapest model per token and the most expensive per exercise here, because of its retries. A first track build (pulling a compiler image) dominates the slower runs.
+Per run, Haiku cost about the same as Sonnet ($0.42 against $0.44) despite being far cheaper per token, because of its retries, and it took the longest. A first track build (pulling a compiler image) dominates the slower runs.

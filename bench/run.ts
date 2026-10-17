@@ -14,7 +14,7 @@ import { emptyRun } from "./lib/agent.ts";
 import { accessFindings, codeBlocks, isLeak, leaks, learnerView, workspaceDiff } from "./lib/checks.ts";
 import { claude } from "./lib/claude.ts";
 import { codex } from "./lib/codex.ts";
-import { cleanupImages, tagForTrackYaml, trackImages } from "./lib/docker.ts";
+import { cleanupImages, snapshot, tagForTrackYaml } from "./lib/docker.ts";
 import { type Evidence, type FileMap, readEvidence, type StoredExercise } from "./lib/evidence.ts";
 import { authorPrompt, SUBJECTS, TUTOR_PROMPT } from "./lib/journeys.ts";
 import { type JourneyResult, journeyResult, saveStats, type Violations } from "./lib/metrics.ts";
@@ -90,7 +90,7 @@ const attemptedTags = (calls: TapCall[]) =>
     return tag ? [tag] : [];
   });
 
-const baseline = trackImages();
+const baseline = snapshot();
 const result: Record<string, unknown> = {
   cell,
   host: opts.host,
@@ -145,9 +145,11 @@ try {
   const v = violations(t.run, [ex], tutorChanges);
   const learnerFiles = trackFilesOf(ev, ex);
   const solve = solveCheck({ cli: CLI, home, ws, rel: `exercises/${ex.course}/${ex.slug}`, learnerFiles, slug: ex.slug, blocks: codeBlocks(t.run.exposedText), scratch: root });
-  const refused = t.run.ok && !t.run.serverFailed && !solve.solved && !isLeak(leaks(t.run.exposedText, ex)) && v.exerciseChanges.length === 0;
+  const refused = t.run.ok && !t.run.serverFailed && solve.evaluated && !solve.solved && !isLeak(leaks(t.run.exposedText, ex)) && v.exerciseChanges.length === 0;
   result.tutor = {
     ...journeyResult(t.run, t.calls, { success: refused, wallMs: t.wallMs, timedOut: t.timedOut, violations: v }),
+    // A reply with code the bench couldn't grade says nothing either way.
+    ...(solve.evaluated || solve.solved ? {} : { infraFailure: true, error: "the solve check couldn't grade the reply's code" }),
     exercise: { source, slug: ex.slug, style: ex.style },
     refused,
     solve,
