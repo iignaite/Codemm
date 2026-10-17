@@ -106,9 +106,11 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
       ]);
     });
 
-    it("kills a program that exceeds its memory limit", async () => {
-      const r = await run("read x\ny=$(head -c 300000000 /dev/zero | tr '\\0' a)\necho survived\n");
-      expect(r.cases[0]?.exit).not.toBe(0);
+    it("kills a program that exceeds its memory limit and grades it as an error, never as a runtime failure", async () => {
+      for (let i = 0; i < 3; i++) {
+        const r = await run("read x\ny=$(head -c 300000000 /dev/zero | tr '\\0' a)\necho survived\n");
+        expect(statuses(gradeIoRun(r, { "visible/01": "survived\n" }))).toEqual(["error"]);
+      }
     });
 
     it("caps the container's output stream and errors the set", async () => {

@@ -16,8 +16,9 @@ export type JudgeTrack = {
 };
 export type RunOptions = { timeMs?: number; deadlineMs?: number };
 
-export type IoRun = { build?: RawBuild; cases: RawCase[]; flooded: boolean };
-export type UnitRun = { report: { exit: number; body: string; log: string }; flooded: boolean };
+/** `flooded` and `outOfMemory` mean the program got the whole container killed, so every test in the set is an error. */
+export type IoRun = { build?: RawBuild; cases: RawCase[]; flooded: boolean; outOfMemory?: boolean };
+export type UnitRun = { report: { exit: number; body: string; log: string }; flooded: boolean; outOfMemory?: boolean };
 
 const BUILD_SECONDS = 60;
 const SLACK_MS = 30_000;
@@ -25,20 +26,24 @@ const SLACK_MS = 30_000;
 const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
 
 // The driver is PID 1. Program output only leaves the container inside a length-framed
-// record, and `kill -9 -1` clears leftover processes between cases.
-const EMIT = `emit() { n=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$n"; cat "$4"; }
+// record, and `kill -9 -1` clears leftover processes between cases. Every command the track or learner
+// supplies starts with $OOM, which makes it the out-of-memory killer's first choice (raising
+// oom_score_adj needs no privilege), so a program that runs out of memory usually dies instead of the
+// driver. It's best effort: the program could lower its score back to 0. If the write fails, nothing changes.
+const EMIT = `OOM='{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || :; '
+emit() { n=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$n"; cat "$4"; }
 for u in timeout head wc cat basename; do command -v "$u" >/dev/null 2>&1 || { echo "the image has no '$u'" > /tmp/m; emit fatal tools 1 /tmp/m; exit 0; }; done`;
 
 const IO_DRIVER = `${EMIT}
 if [ -n "\${CODEMM_BUILD:-}" ]; then
-  timeout -s KILL ${BUILD_SECONDS} sh -c "$CODEMM_BUILD" > /tmp/b 2>&1; c=$?
+  timeout -s KILL ${BUILD_SECONDS} sh -c "$OOM$CODEMM_BUILD" > /tmp/b 2>&1; c=$?
   head -c 16384 /tmp/b > /tmp/bc; emit build build "$c" /tmp/bc
   [ "$c" = 0 ] || exit 0
 fi
 for f in /work/tests/*.in; do
   [ -e "$f" ] || continue
   n=$(basename "$f" .in)
-  timeout -s KILL "$CODEMM_TIME_S" sh -c "$CODEMM_RUN" < "$f" > /tmp/o 2> /tmp/e; c=$?
+  timeout -s KILL "$CODEMM_TIME_S" sh -c "$OOM$CODEMM_RUN" < "$f" > /tmp/o 2> /tmp/e; c=$?
   kill -9 -1 2>/dev/null
   head -c 4096 /tmp/e > /tmp/ec
   if [ $(($(wc -c < /tmp/o))) -gt 65536 ]; then : > /tmp/oc; emit big "$n" "$c" /tmp/oc; else emit case "$n" "$c" /tmp/o; fi
@@ -46,7 +51,7 @@ for f in /work/tests/*.in; do
 done`;
 
 const UNIT_DRIVER = `${EMIT}
-TESTS=/work/tests OUT=/tmp/report.json timeout -s KILL "$CODEMM_TIME_S" sh -c "$CODEMM_TEST" > /tmp/o 2>&1; c=$?
+TESTS=/work/tests OUT=/tmp/report.json timeout -s KILL "$CODEMM_TIME_S" sh -c "$OOM$CODEMM_TEST" > /tmp/o 2>&1; c=$?
 kill -9 -1 2>/dev/null
 if [ -f /tmp/report.json ] && [ $(($(wc -c < /tmp/report.json))) -le 1048576 ]; then emit report report "$c" /tmp/report.json; else : > /tmp/r; emit report report "$c" /tmp/r; fi
 head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc`;
@@ -75,6 +80,9 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
     if (result.exit !== 0) {
       if (await runtimeDown()) throw new CodemmError(`The container runtime stopped during the run, so it wasn't counted. ${startHelp()}`);
     }
+    // Nothing inside a container can SIGKILL its PID 1, and the host's own kills (deadline, flood) are handled
+    // above. So with the runtime up, exit 137 means the kernel's memory limit killed the driver: graded, not infrastructure.
+    if (result.exit === 137) return { frames: [], flooded: false, outOfMemory: true };
     // Exit 125 is the runtime's own failure. With no output, no code ran, so its stderr is the runtime's own too.
     if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`);
     if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.");
@@ -100,14 +108,14 @@ export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, input
   const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * (timeMs + 1000) + SLACK_MS;
   const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_TIME_S: seconds(timeMs) };
   if (track.build) env.CODEMM_BUILD = track.build;
-  const { frames, flooded } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline);
+  const { frames, flooded, outOfMemory } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline);
 
   const buildFrame = frames.find((f) => f.kind === "build");
   const stderrOf = new Map(frames.filter((f) => f.kind === "stderr").map((f) => [f.name, f.body]));
   const cases = frames
     .filter((f) => f.kind === "case" || f.kind === "big")
     .map((f): RawCase => ({ name: `${set}/${f.name}`, exit: f.exit, stdout: f.body, stderr: stderrOf.get(f.name) ?? "", big: f.kind === "big" }));
-  return { ...(buildFrame ? { build: { exit: buildFrame.exit, output: buildFrame.body } } : {}), cases, flooded };
+  return { ...(buildFrame ? { build: { exit: buildFrame.exit, output: buildFrame.body } } : {}), cases, flooded, ...(outOfMemory ? { outOfMemory } : {}) };
 }
 
 /** Runs one unit test set: the track's `test` command against `tests`. */
@@ -116,20 +124,24 @@ export async function runUnit(track: JudgeTrack, src: FileMap, tests: FileMap, o
   const timeMs = opts.timeMs ?? track.limits.time_ms;
   const deadline = opts.deadlineMs ?? timeMs + SLACK_MS;
   const env = { CODEMM_TEST: track.test, CODEMM_TIME_S: seconds(timeMs) };
-  const { frames, flooded } = await runDriver(track, UNIT_DRIVER, env, src, tests, deadline);
+  const { frames, flooded, outOfMemory } = await runDriver(track, UNIT_DRIVER, env, src, tests, deadline);
   const report = frames.find((f) => f.kind === "report");
   const log = frames.find((f) => f.kind === "log");
-  return { report: { exit: report?.exit ?? -1, body: report?.body ?? "", log: log?.body ?? "" }, flooded };
+  return { report: { exit: report?.exit ?? -1, body: report?.body ?? "", log: log?.body ?? "" }, flooded, ...(outOfMemory ? { outOfMemory } : {}) };
 }
 
 const FLOODED = "Output limit exceeded: the program printed more than 4 MB.";
+const OUT_OF_MEMORY = "Memory limit exceeded: the program used more memory than the track allows.";
+const killedBy = (run: { flooded: boolean; outOfMemory?: boolean }) => (run.flooded ? FLOODED : run.outOfMemory ? OUT_OF_MEMORY : undefined);
 
 export function gradeIoRun(run: IoRun, expected: Record<string, string>): TestResult[] {
-  if (run.flooded) return Object.keys(expected).map((name) => ({ set: name.startsWith("hidden/") ? "hidden" : "visible", name, status: "error", message: FLOODED }));
+  const killed = killedBy(run);
+  if (killed) return Object.keys(expected).map((name) => ({ set: name.startsWith("hidden/") ? "hidden" : "visible", name, status: "error", message: killed }));
   return gradeIo(run.cases, expected, run.build);
 }
 
 export function gradeUnitRun(set: TestSet, run: UnitRun, inventory?: string[]): TestResult[] {
-  if (run.flooded) return (inventory ?? ["report"]).map((n) => ({ set, name: `${set}/${n}`, status: "error", message: FLOODED }));
+  const killed = killedBy(run);
+  if (killed) return (inventory ?? ["report"]).map((n) => ({ set, name: `${set}/${n}`, status: "error", message: killed }));
   return gradeUnit(set, run.report, inventory);
 }
