@@ -12,7 +12,7 @@ import { connector } from './connect';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
 import type { Log } from './log';
-import { desktopState } from './state';
+import { desktopState, workspaceOf } from './state';
 
 const RUNTIME_INFO = ['info', '--format', '{{.ServerVersion}}|{{.OSType}}'];
 
@@ -26,9 +26,9 @@ export interface Places {
 export function liveApi({ coreDir, userData, log }: Places): Live {
   // The bundled core (scripts/bundle-core.mjs), loaded in-process.
   const core = require(join(coreDir, 'dist', 'app.cjs')) as CoreApp;
-  const ws = join(homedir(), 'Codemm');
-  mkdirSync(ws, { recursive: true });
   const state = desktopState(userData);
+  const ws = workspaceOf(state.read(), homedir());
+  mkdirSync(ws, { recursive: true });
   const runtime = process.execPath;
 
   const connect = connector(
