@@ -8,7 +8,10 @@ export type AgentEvent =
   | { type: 'session'; id: string }
   | { type: 'text'; text: string }
   | { type: 'tool_call'; id: string; name: string }
-  | { type: 'tool_result'; id: string; error: boolean }
+  /** A failed result keeps a little of its text, only to tell infrastructure failures apart (§6.1). */
+  | { type: 'tool_result'; id: string; error: boolean; text?: string }
+  /** The Codemm server failed to start. */
+  | { type: 'server'; ok: false }
   | { type: 'done'; ok: boolean; error?: string };
 
 /** How an agent starts Codemm's MCP server for one job. */
@@ -28,6 +31,8 @@ export interface Turn {
   resume?: string;
   /** Built-in tools the job may use; only the research job gets web search and fetch (§3.2). */
   web?: boolean;
+  /** How long one Codemm tool call may run: the job's deadline. */
+  toolTimeoutSec?: number;
 }
 
 /** A command the agent CLI runs; `command` is resolved to an executable later. */
@@ -63,6 +68,10 @@ function json(line: string): Record<string, unknown> | null {
 }
 
 const str = (v: unknown): v is string => typeof v === 'string';
+const TEXT_MAX = 2000;
+/** The text of a tool result's content: a string, or text parts. */
+const textOf = (content: unknown): string =>
+  (str(content) ? content : Array.isArray(content) ? content.map((c) => (str(c?.text) ? c.text : '')).join('\n') : '').slice(0, TEXT_MAX);
 const plain = (text: string) => text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
 const toml = (value: unknown): string =>
   Array.isArray(value)
@@ -87,7 +96,10 @@ const claude: AgentCli = {
   parse(line) {
     const e = json(line);
     if (!e) return [];
-    if (e.type === 'system' && e.subtype === 'init') return str(e.session_id) ? [{ type: 'session', id: e.session_id }] : [];
+    if (e.type === 'system' && e.subtype === 'init') {
+      const failed = Array.isArray(e.mcp_servers) && e.mcp_servers.some((s: { name?: unknown; status?: unknown }) => s?.name === 'codemm' && s.status === 'failed');
+      return [...(str(e.session_id) ? [{ type: 'session' as const, id: e.session_id }] : []), ...(failed ? [{ type: 'server' as const, ok: false as const }] : [])];
+    }
     if (e.type === 'result') {
       const ok = !e.is_error && e.subtype === 'success';
       return [ok ? { type: 'done', ok } : { type: 'done', ok, error: String(e.result ?? e.subtype) }];
@@ -98,7 +110,9 @@ const claude: AgentCli = {
     return content.flatMap((c): AgentEvent[] => {
       if (c?.type === 'text' && str(c.text)) return [{ type: 'text', text: c.text }];
       if (c?.type === 'tool_use' && str(c.id) && str(c.name)) return [{ type: 'tool_call', id: c.id, name: c.name.replace(/^mcp__(.+?)__/, '$1.') }];
-      if (c?.type === 'tool_result' && str(c.tool_use_id)) return [{ type: 'tool_result', id: c.tool_use_id, error: c.is_error === true }];
+      if (c?.type === 'tool_result' && str(c.tool_use_id)) {
+        return [c.is_error === true ? { type: 'tool_result', id: c.tool_use_id, error: true, text: textOf(c.content) } : { type: 'tool_result', id: c.tool_use_id, error: false }];
+      }
       return [];
     });
   },
@@ -108,7 +122,7 @@ const claude: AgentCli = {
 
 const codex: AgentCli = {
   bin: 'codex',
-  launch({ prompt, server, tools, model, resume }) {
+  launch({ prompt, server, tools, model, resume, toolTimeoutSec }) {
     // --ignore-user-config drops the learner's own MCP servers and plugins; sign-in still comes from CODEX_HOME.
     const args = ['exec', '--json', '--skip-git-repo-check', '--ignore-user-config'];
     // No command execution, host automation or subagents. Code mode stays: Codex calls MCP tools through it (§3.1).
@@ -121,6 +135,10 @@ const codex: AgentCli = {
       `mcp_servers.codemm.enabled_tools=${toml(tools)}`,
       // Safe only because enabled_tools limits approval to the job's tools.
       'mcp_servers.codemm.default_tools_approval_mode="approve"',
+      // Without it, Codex runs on without tools when the server can't start.
+      'mcp_servers.codemm.required=true',
+      // Codex's default is 60 s, shorter than a build or the gates.
+      ...(toolTimeoutSec ? [`mcp_servers.codemm.tool_timeout_sec=${toolTimeoutSec}`] : []),
     ]) {
       args.push('-c', c);
     }
@@ -137,7 +155,11 @@ const codex: AgentCli = {
     if (item?.type === 'agent_message' && e.type === 'item.completed' && str(item.text)) return [{ type: 'text', text: item.text }];
     if (item?.type === 'mcp_tool_call' && str(item.id) && str(item.server) && str(item.tool)) {
       if (e.type === 'item.started') return [{ type: 'tool_call', id: item.id, name: `${item.server}.${item.tool}` }];
-      if (e.type === 'item.completed') return [{ type: 'tool_result', id: item.id, error: item.status !== 'completed' || item.error != null }];
+      if (e.type === 'item.completed') {
+        const error = item.status !== 'completed' || item.error != null;
+        const failure = (item.error as { message?: unknown } | null)?.message ?? (item.result as { content?: unknown } | null)?.content;
+        return [error ? { type: 'tool_result', id: item.id, error, text: textOf(failure) } : { type: 'tool_result', id: item.id, error }];
+      }
     }
     return [];
   },

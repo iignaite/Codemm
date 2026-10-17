@@ -32,6 +32,8 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
   const { files, edit, save } = useLearnerFiles(activity, onReloaded);
   const topic = course.topics.find((t) => t.id === activity.concept);
   const busy = shown.kind === 'busy';
+  // Codemm reads the saved files, so pending edits are saved before each question.
+  const ask = (text: string) => chat.ask(text, save);
 
   async function attempt(label: string, work: () => Promise<Shown>) {
     const before = shown;
@@ -93,10 +95,10 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
         />
         <Results shown={shown} name={course.track} topic={topic?.title ?? ''} visibleTests={activity.visibleTests} ways={ways} />
       </div>
-      <Rail messages={chat.messages} onAsk={chat.ask} name={course.track}>
+      <Rail messages={chat.messages} onAsk={ask} busy={chat.busy} name={course.track}>
         <div className="actions">
-          <Button variant="ghost" onClick={() => chat.ask('Give me a hint.')}>Hint</Button>
-          <Button variant="ghost" onClick={() => chat.ask('Show me where to look.')}>Show me</Button>
+          <Button variant="ghost" disabled={chat.busy} onClick={() => ask('Give me a hint.')}>Hint</Button>
+          <Button variant="ghost" disabled={chat.busy} onClick={() => ask('Show me where to look.')}>Show me</Button>
         </div>
       </Rail>
     </div>

@@ -104,6 +104,14 @@ describe('background work that stopped', () => {
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
 
+  it('says when Codemm could not stop the agent, with no way to retry until quitting', async () => {
+    const { api } = await mockWithCourse({ stalled: 'unstoppable' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Codemm couldn't stop your agent. Quit Codemm to stop it.");
+    expect(within(alert).queryByRole('button')).not.toBeInTheDocument();
+  });
+
   it('names a plan limit', async () => {
     const { api } = await mockWithCourse({ stalled: 'plan-limit' });
     renderApp({ to: 'learn' }, api);

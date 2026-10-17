@@ -119,7 +119,7 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
           <Button size="lg" onClick={onNext}>Next</Button>
         </div>
       </main>
-      <Rail messages={chat.messages} onAsk={chat.ask} name={course.track} />
+      <Rail messages={chat.messages} onAsk={(text) => chat.ask(text)} busy={chat.busy} name={course.track} />
     </div>
   );
 }

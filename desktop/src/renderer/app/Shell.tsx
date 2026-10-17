@@ -5,7 +5,7 @@ import { hueColor } from '../ui/Emm';
 import { Icon, type IconName } from '../ui/Icon';
 import { Logo, Mark } from '../ui/Mark';
 import { useApi } from './api';
-import { SAY, problemOf } from './errors';
+import { SAY, problemOf, repairDetail } from './errors';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
 
@@ -99,9 +99,10 @@ export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['s
 
   return (
     <div className="failed" role="alert">
-      {stalled === 'plan-limit' ? SAY['plan-limit'] : "Codemm couldn't finish that."}
+      {stalled === 'failed' ? "Codemm couldn't finish that." : SAY[stalled]}
       {stalled === 'failed' && <Button variant="text" onClick={() => go({ to: 'connect', then: route })}>Check your agent</Button>}
-      <Button variant="text" onClick={again}>Try again</Button>
+      {/* An agent Codemm couldn't stop is still running: only quitting stops it (§3.1). */}
+      {stalled !== 'unstoppable' && <Button variant="text" onClick={again}>Try again</Button>}
     </div>
   );
 }
@@ -117,7 +118,9 @@ export function Failed({ error, retry }: { error: unknown; retry: () => void }) 
   return (
     <main className="center">
       <div className="stack" role="alert">
-        <p className="sub">{problem === 'other' ? "Couldn't reach Codemm." : SAY[problem]}</p>
+        {/* Main lets only learner-safe messages through (errors.ts), so another failure shows its own. */}
+        <p className="sub">{problem === 'other' ? (error instanceof Error && error.message) || SAY.other : SAY[problem]}</p>
+        {problem === 'repair' && <p className="sub">{repairDetail(error)}</p>}
         <Button variant="ghost" onClick={retry}>Try again</Button>
       </div>
     </main>
