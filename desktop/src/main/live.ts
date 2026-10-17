@@ -20,6 +20,7 @@ import { briefsFrom, courseId } from './agent/briefs';
 import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type JobProblem } from './agent/jobs';
 import type { connector } from './connect';
 import { infra } from './core/failures';
+import { errorFields, SafeError } from './errors';
 import type { CoreApp, CoreProgress, CoreRoadmap } from './core/types';
 import { courseView, currentConcept, type Setup } from './courseView';
 import { noLog, type Log } from './log';
@@ -175,7 +176,7 @@ export function createLive(d: LiveDeps): Live {
         if (!o.ok && !controller?.signal.aborted) stalled ??= o.problem ?? 'failed';
       })
       .catch((e: Error) => {
-        log('job-error', { kind, message: e.message });
+        log('job-error', { job: kind, ...errorFields(e) });
         stalled ??= e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed';
       });
   }
@@ -319,7 +320,7 @@ export function createLive(d: LiveDeps): Live {
     async install(digest) {
       const ref = core.progress(ws).track;
       const proposal = setup.approved?.digest === digest ? setup.approved : latestProposal(ref);
-      if (!proposal || proposal.digest !== digest) throw new Error('The setup changed. Look at it again.');
+      if (!proposal || proposal.digest !== digest) throw new SafeError('The setup changed. Look at it again.');
       setup.approved = proposal;
       setup.problem = undefined;
       setup.installing = core
@@ -361,7 +362,7 @@ export function createLive(d: LiveDeps): Live {
     async activity(concept) {
       const course = core.getRoadmap(ws).course;
       const slug = exerciseFor(concept, course);
-      if (!slug) throw new Error('This activity isn’t ready yet.');
+      if (!slug) throw new SafeError('This activity isn’t ready yet.');
       const exercise = await core.getExercise(ws, slug, course);
       return activityView(exercise, core.readLearnerFiles(ws, slug, course), concept);
     },

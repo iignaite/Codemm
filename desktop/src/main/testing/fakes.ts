@@ -188,7 +188,7 @@ export function live(over: Partial<Record<Job['kind'], Act>> = {}) {
     runJob: jobs.runJob,
     log: createLog(dir),
   });
-  return { api, c, app, jobs, connect, logFile: join(dir, 'codemm.log') };
+  return { api, c, app, jobs, connect, dir, logFile: join(dir, 'codemm.log') };
 }
 
 export async function until(api: CodemmApi, done: (c: CourseView) => boolean) {
