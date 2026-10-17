@@ -16,7 +16,8 @@ import { join } from 'node:path';
 //   CODEMM_APP=<exe>        the installed app's executable
 //   JOURNEY_AGENT=claude|codex, JOURNEY_MODEL=<model id, chosen in the connect screen's Model select>,
 //   JOURNEY_LABEL=<name>
-//   JOURNEY_TOPIC=<goal>    what to learn (default "Python functions"); JOURNEY_KNOWN=<what's known>
+//   JOURNEY_TOPIC=<goal>    what to learn (default "Python functions"); JOURNEY_KNOWN=<what's known>;
+//   JOURNEY_DEPTH=Overview|Standard|In depth   chosen on the goal screen (default: leave Standard)
 //   JOURNEY_PART=full|setup|activity|no-agent|no-docker|docker-stop|docker-setup|low-disk|offline-setup|fake-research|fakes
 //                           (`fakes` runs on a set-up course with e2e/fake-claude.cjs as Claude Code)
 //   JOURNEY_FLOW=<comma list> extras for `full`: edits, reopen, show-me, stuck, pages, relaunch,
@@ -29,6 +30,7 @@ const model = process.env.JOURNEY_MODEL;
 const label = process.env.JOURNEY_LABEL ?? agent;
 const topic = process.env.JOURNEY_TOPIC ?? 'Python functions';
 const known = process.env.JOURNEY_KNOWN ?? 'variables and print';
+const depth = process.env.JOURNEY_DEPTH;
 const flow = new Set((process.env.JOURNEY_FLOW ?? '').split(',').filter(Boolean));
 const switchTo = [...flow].find((f) => f.startsWith('switch='))?.slice('switch='.length);
 const NAMES: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' };
@@ -484,10 +486,11 @@ test(`journey: ${label}`, async () => {
         await button('Start learning').click();
         await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill(topic);
         await page.getByRole('textbox', { name: 'I already know' }).fill(known);
+        if (depth) await page.getByRole('radiogroup', { name: 'How deep' }).getByRole('radio', { name: depth }).check();
         await button('Start').click();
         await until('the suggested path', () => visible(button('Approve')), 15 * MIN);
         const titles = await page.getByRole('button', { name: /^Rename / }).evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.replace(/^Rename /, '')));
-        return `${titles.length} topics: ${titles.join(' / ')}`.slice(0, 400);
+        return `${depth ?? 'Standard'}: ${titles.length} topics: ${titles.join(' / ')}`.slice(0, 600);
       });
       await step('edit-course', async () => {
         const did: string[] = [];
@@ -529,6 +532,12 @@ test(`journey: ${label}`, async () => {
           await button('Remove Practice review').click();
           did.push('added and removed a topic');
           await addRows('remove');
+          // Go deeper on the first topic: Codemm splits it into smaller skills.
+          const deeperBefore = await page.getByRole('button', { name: /^Rename / }).count();
+          await page.getByRole('button', { name: /^Go deeper on / }).first().click();
+          await until('the deeper roadmap', async () => (await page.getByRole('button', { name: /^Rename / }).count()) !== deeperBefore, 10 * MIN);
+          did.push(`went deeper on the first: ${deeperBefore} → ${await page.getByRole('button', { name: /^Rename / }).count()} topics`);
+          await addRows('go-deeper');
           // Ask Codemm for a change.
           const before = await page.getByRole('button', { name: /^Rename / }).count();
           await page.getByRole('textbox', { name: 'Ask Codemm for changes' }).fill('Add a short topic on docstrings at the end.');
