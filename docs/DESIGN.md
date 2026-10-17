@@ -290,7 +290,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `get_lesson` | `id` | `{ id, concept, title, markdown, notes }`; records nothing |
 | `mark_lesson_read` | `id` | ok; records a `read` event once |
 
-**Per-job servers.** `codemm mcp --course <course>` makes course-scoped tools use that course instead of the workspace's active one, and `save_roadmap` may save only that course. `--tools <a,b>` registers only the listed tools. With neither option the server behaves as above.
+**Per-job servers.** `codemm mcp --course <course>` makes course-scoped tools use that course instead of the workspace's active one, and `save_roadmap` may save only that course. `save_track` for that course's track is refused, as a failed save, if the track doesn't offer the course's style. `--tools <a,b>` registers only the listed tools. With neither option the server behaves as above.
 
 **App functions without tools** (the desktop app calls them in-process): `listLessons`, `saveNotes`, `listExercises`, `listProposals`, `installProposal`, `dropProposal`, `readLearnerFiles` and `writeLearnerFile`. `writeLearnerFile(ws, slug, path, text, digest)` accepts only the exercise's track files, holds the workspace lock, refuses symlinked paths, and replaces the file through a temp file and a rename only if its current digest is the one the editor loaded ("Changed outside Codemm").
 

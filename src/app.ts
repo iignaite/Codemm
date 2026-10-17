@@ -70,8 +70,20 @@ async function install(ref: string, files: FileMap): Promise<{ installed: string
   return { installed: ref, ...(verified.warning ? { warning: verified.warning } : {}) };
 }
 
-export async function saveTrack(files: FileMap): Promise<{ installed: string; unchanged?: true; warning?: string }> {
+/**
+ * A job bound to a course installs or proposes that course's track, so the track must offer the course's style:
+ * otherwise the course could never continue. The agent gets a save it can fix.
+ */
+function assertFitsCourse(ref: string, styles: string[], bound?: string): void {
+  const course = bound ? store.readCourse(bound) : undefined;
+  if (course && course.track === ref && !styles.includes(course.style)) {
+    throw new CodemmError(`This course needs style "${course.style}", but ${ref} offers ${styles.join(", ")}. Add ${course.style} to the track's styles, with its probes.`);
+  }
+}
+
+export async function saveTrack(files: FileMap, bound?: string): Promise<{ installed: string; unchanged?: true; warning?: string }> {
   const { spec, ref } = readTrackSpec(files);
+  assertFitsCourse(ref, spec.styles, bound);
   return store.withLock(store.trackLockPath(spec.id), async () => {
     if (alreadyInstalled(ref, spec.version, files)) return { installed: ref, unchanged: true as const };
     return install(ref, files);
@@ -85,8 +97,9 @@ const sorted = (map: FileMap) => Object.fromEntries(Object.entries(map).sort(([a
 // In the desktop app, save_track only proposes. The learner consents in Codemm, and installProposal
 // builds exactly the files they were shown, identified by digest.
 
-export async function proposeTrack(files: FileMap): Promise<{ installed: string; unchanged: true } | { proposed: string; note: string }> {
+export async function proposeTrack(files: FileMap, bound?: string): Promise<{ installed: string; unchanged: true } | { proposed: string; note: string }> {
   const { spec, ref } = readTrackSpec(files);
+  assertFitsCourse(ref, spec.styles, bound);
   return store.withLock(store.trackLockPath(spec.id), async () => {
     if (alreadyInstalled(ref, spec.version, files)) return { installed: ref, unchanged: true as const };
     store.writeProposal(ref, files);
