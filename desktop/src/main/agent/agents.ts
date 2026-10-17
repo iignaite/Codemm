@@ -38,6 +38,8 @@ export interface Turn {
 /** A command the agent CLI runs; `command` is resolved to an executable later. */
 export interface Invocation {
   args: string[];
+  /** Config the agent reads from its working directory, by relative path: the job runs in a folder holding only these. */
+  files?: Record<string, string>;
 }
 
 export interface StatusCommand<T> {
@@ -50,12 +52,14 @@ export interface AgentCli {
   bin: string;
   launch?: (turn: Turn) => Invocation;
   parse?: (line: string) => AgentEvent[];
+  /** Reads a stderr line for a known failure, keeping only a fixed message: stderr can carry account details. */
+  errors?: (line: string) => AgentEvent[];
   version: StatusCommand<string | null>;
   signIn: StatusCommand<boolean>;
 }
 
 /** The CLI versions the recorded fixtures come from (§3.3). */
-export const TESTED: Record<AgentId, string[]> = { claude: ['2.1.283'], codex: ['0.156.1'], cursor: [] };
+export const TESTED: Record<AgentId, string[]> = { claude: ['2.1.283'], codex: ['0.156.1'], cursor: ['2026.01.23-916f423'] };
 export const isTested = (agent: AgentId, version: string) => TESTED[agent].includes(version);
 
 function json(line: string): Record<string, unknown> | null {
@@ -68,6 +72,10 @@ function json(line: string): Record<string, unknown> | null {
 }
 
 const str = (v: unknown): v is string => typeof v === 'string';
+const obj = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined);
+
+/** Known plan-limit markers in an agent's error (§6.1). Unverified until each is recorded as a fixture. */
+export const PLAN_LIMIT = /usage limit|rate limit|\b429\b/i;
 const TEXT_MAX = 2000;
 /** The text of a tool result's content: a string, or text parts. */
 const textOf = (content: unknown): string =>
@@ -167,9 +175,60 @@ const codex: AgentCli = {
   signIn: { args: ['login', 'status'], read: ({ code, output }) => code === 0 && /^logged in/im.test(plain(output).trim()) },
 };
 
-/** Cursor is experimental: unverified headless runs, so only its version and sign-in are read (§3.1). */
+/** Why a Cursor MCP result failed: an error, a rejection, a denial or an unknown tool, or a success the tool marked as an error. */
+function cursorFailure(result: Record<string, unknown>): string | null {
+  const success = obj(result.success);
+  if (success) return success.isError === true ? textOf((success.content as { text?: { text?: unknown } }[] | undefined)?.map((c) => c?.text)) : null;
+  const failed = obj(result.error) ?? obj(result.rejected) ?? obj(result.permissionDenied) ?? obj(result.toolNotFound) ?? {};
+  const why = failed.error ?? failed.reason;
+  return str(why) ? why.slice(0, TEXT_MAX) : '';
+}
+
 const cursor: AgentCli = {
   bin: 'cursor-agent',
+  launch({ prompt, server, tools, model, resume, web }) {
+    // Cursor reads MCP servers and permissions from the working directory (and the learner's ~/.cursor, which stays
+    // untouched): the job folder holds only the codemm server, and allows only the job's tools. No --force (§3.1).
+    const permissions = {
+      allow: [...tools.map((t) => `Mcp(codemm:${t})`), ...(web ? ['WebFetch(*)'] : [])],
+      deny: ['Shell(*)', 'Read(**)', 'Read(/**)', 'Write(**)', 'Write(/**)', ...(web ? [] : ['WebFetch(*)'])],
+    };
+    const args = ['-p', '--output-format', 'stream-json', '--approve-mcps'];
+    if (model) args.push('--model', model);
+    if (resume) args.push('--resume', resume);
+    args.push(prompt);
+    return { args, files: { '.cursor/mcp.json': JSON.stringify({ mcpServers: { codemm: server } }), '.cursor/cli.json': JSON.stringify({ permissions }) } };
+  },
+  parse(line) {
+    const e = json(line);
+    if (!e) return [];
+    if (e.type === 'system' && e.subtype === 'init') return str(e.session_id) ? [{ type: 'session', id: e.session_id }] : [];
+    if (e.type === 'result') {
+      const ok = !e.is_error && e.subtype === 'success';
+      return [ok ? { type: 'done', ok } : { type: 'done', ok, error: String(e.result ?? e.subtype) }];
+    }
+    if (e.type === 'assistant') {
+      const content = obj(e.message)?.content;
+      return Array.isArray(content) ? content.flatMap((c): AgentEvent[] => (c?.type === 'text' && str(c.text) ? [{ type: 'text', text: c.text }] : [])) : [];
+    }
+    const call = obj(e.tool_call);
+    if (e.type !== 'tool_call' || !str(e.call_id) || !call) return [];
+    const [kind] = Object.keys(call);
+    if (!kind) return [];
+    const mcp = obj(call.mcpToolCall);
+    if (e.subtype === 'started') {
+      const args = obj(mcp?.args);
+      if (mcp) return args && str(args.providerIdentifier) && str(args.toolName) ? [{ type: 'tool_call', id: e.call_id, name: `${args.providerIdentifier}.${args.toolName}` }] : [];
+      return [{ type: 'tool_call', id: e.call_id, name: kind.replace(/ToolCall$/, '') }];
+    }
+    if (e.subtype !== 'completed') return [];
+    const result = obj(obj(call[kind])?.result);
+    if (!result) return [];
+    if (!mcp) return [{ type: 'tool_result', id: e.call_id, error: !('success' in result) }];
+    const failure = cursorFailure(result);
+    return [failure === null ? { type: 'tool_result', id: e.call_id, error: false } : { type: 'tool_result', id: e.call_id, error: true, text: failure }];
+  },
+  errors: (line) => (PLAN_LIMIT.test(line) ? [{ type: 'done', ok: false, error: 'usage limit' }] : []),
   version: { args: ['--version'], read: versionRead(/^(\d{4}\.\d{2}\.\d{2}-\S+)/m) },
   signIn: {
     args: ['status'],

@@ -40,6 +40,8 @@ export interface LiveDeps {
   server: (course: string | undefined, tools: string[]) => McpServer;
   /** The app's own executable, which runs Node-script agents. */
   runtime?: string;
+  /** A Codemm-owned folder for agents that read their config from the working directory (Cursor). */
+  agentDir?: string;
   runJob?: (job: Job) => Promise<JobOutcome>;
   /** Lifecycle and detection events only (log.ts). */
   log?: Log;
@@ -179,6 +181,7 @@ export function createLive(d: LiveDeps): Live {
         brief,
         server: (tools) => d.server(course, tools),
         cwd: ws,
+        agentDir: d.agentDir,
         // The learner's model choice, or the recommended one (O6), for every agent with choices.
         model,
         resume,

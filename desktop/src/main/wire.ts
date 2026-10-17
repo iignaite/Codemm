@@ -64,6 +64,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     state,
     ws,
     runtime,
+    agentDir: join(userData, 'agents'),
     log,
     dockerReady: () => waitWhileStarting(computer, () => new Promise((r) => setTimeout(r, 3000))),
     server: codemmServer({ runtime, coreDir, ws, env: process.env }),

@@ -1,12 +1,12 @@
 // @vitest-environment node
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { JOBS, runJob, type Job } from './jobs';
 
 /** A fake Claude Code: a Node script that replays stream-json lines, the way recorded fixtures do. */
-function fakeAgent(lines: object[], { exitCode = 0, hang = false } = {}) {
+function fakeAgent(lines: object[], { exitCode = 0, hang = false, stderr = [] as string[] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'codemm-agent-'));
   const script = join(dir, 'claude.js');
   writeFileSync(
@@ -14,7 +14,9 @@ function fakeAgent(lines: object[], { exitCode = 0, hang = false } = {}) {
     `#!/usr/bin/env node
 const fs = require('node:fs');
 fs.appendFileSync(${JSON.stringify(join(dir, 'runs'))}, JSON.stringify(process.argv.slice(2)) + '\\n');
+fs.appendFileSync(${JSON.stringify(join(dir, 'cwds'))}, process.cwd() + '\\n');
 for (const l of ${JSON.stringify(lines.map((l) => JSON.stringify(l)))}) console.log(l);
+for (const l of ${JSON.stringify(stderr)}) console.error(l);
 ${hang ? 'setInterval(() => {}, 1000);' : `process.exit(${exitCode});`}`,
   );
   const runs = () => {
@@ -25,7 +27,8 @@ ${hang ? 'setInterval(() => {}, 1000);' : `process.exit(${exitCode});`}`,
     }
   };
   const argv = () => JSON.parse(require('node:fs').readFileSync(join(dir, 'runs'), 'utf8').trim().split('\n')[0]) as string[];
-  return { exe: { path: script, js: true }, runs, argv };
+  const cwds = () => require('node:fs').readFileSync(join(dir, 'cwds'), 'utf8').trim().split('\n') as string[];
+  return { exe: { path: script, js: true }, runs, argv, cwds };
 }
 
 const init = { type: 'system', subtype: 'init', session_id: 's1' };
@@ -152,6 +155,31 @@ describe('jobs (§3.2)', () => {
     let blocked = false;
     const outcome = await runJob(job(agent.exe, { kind: 'lesson', done: () => false, blocked: () => blocked, signedIn: async () => ((blocked = true), true) }));
     expect(outcome).toMatchObject({ ok: false, problem: 'unstoppable' });
+    expect(agent.runs()).toBe(1);
+  });
+
+  it('cursor: runs in a Codemm-owned folder holding only its config, the same folder for the same config (so a chat resumes)', async () => {
+    const agentDir = mkdtempSync(join(tmpdir(), 'codemm-agents-'));
+    const ws = mkdtempSync(join(tmpdir(), 'codemm-ws-'));
+    const cursorInit = { type: 'system', subtype: 'init', session_id: 'chat-1' };
+    const agent = fakeAgent([cursorInit, success]);
+    expect(await runJob(job(agent.exe, { agent: 'cursor', cwd: ws, agentDir }))).toMatchObject({ ok: true, session: 'chat-1' });
+    await runJob(job(agent.exe, { agent: 'cursor', cwd: ws, agentDir, resume: 'chat-1' }));
+    const [first, second] = agent.cwds().map((d) => realpathSync(d));
+    expect(first).toBe(second);
+    expect(dirname(first)).toBe(realpathSync(agentDir));
+    expect(readdirSync(join(first, '.cursor')).sort()).toEqual(['cli.json', 'mcp.json']);
+    expect(JSON.parse(readFileSync(join(first, '.cursor', 'mcp.json'), 'utf8')).mcpServers.codemm.args).toContain(JOBS.tutor.tools.join(','));
+    // The workspace gets no agent config.
+    expect(readdirSync(ws)).toEqual([]);
+    await runJob(job(agent.exe, { agent: 'cursor', kind: 'lesson', cwd: ws, agentDir, done: () => true }));
+    expect(new Set(agent.cwds()).size).toBe(2);
+  });
+
+  it('cursor: a plan limit on stderr ends the job without a relaunch', async () => {
+    const agent = fakeAgent([{ type: 'system', subtype: 'init', session_id: 'chat-1' }], { exitCode: 1, stderr: ["Error: You've hit your usage limit"] });
+    const agentDir = mkdtempSync(join(tmpdir(), 'codemm-agents-'));
+    expect(await runJob(job(agent.exe, { agent: 'cursor', agentDir }))).toMatchObject({ ok: false, problem: 'plan-limit' });
     expect(agent.runs()).toBe(1);
   });
 

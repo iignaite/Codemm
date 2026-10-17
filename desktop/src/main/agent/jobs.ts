@@ -1,8 +1,11 @@
 // Agent jobs (DESIGN §3.2): each runs with a short brief, a Codemm server that
 // exposes only its tools, a deadline and a bound on failed saves, and is done
 // only when its check against core records passes, never on the agent's word.
+import { createHash } from 'node:crypto';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { AgentId } from '../../shared/api';
-import { AGENT_CLIS, type AgentEvent, type McpServer } from './agents';
+import { AGENT_CLIS, PLAN_LIMIT, type AgentEvent, type Invocation, type McpServer } from './agents';
 import { spendsNoRetry } from '../core/failures';
 import { run, type Executable } from './bridge';
 
@@ -29,9 +32,6 @@ export const JOBS: Record<JobKind, JobSpec> = {
 /** Failed saves that end a job (§3.2). */
 export const SAVE_BOUND = 3;
 
-/** Known plan-limit markers in an agent's `done` error (§6.1). Unverified until each is recorded as a fixture. */
-const PLAN_LIMIT = /usage limit|rate limit|\b429\b/i;
-
 /** `infra`: Docker, disk, network or the Codemm server failed: nothing is recorded and no attempt is spent (§6.1). `unstoppable`: a cancel the agent survived. */
 export type JobProblem = 'plan-limit' | 'signed-out' | 'failed' | 'infra' | 'unstoppable';
 
@@ -53,6 +53,8 @@ export interface Job {
   /** Builds the job's server for its tools. */
   server: (tools: string[]) => McpServer;
   cwd: string;
+  /** A Codemm-owned folder for agents that read their config from the working directory (Cursor). */
+  agentDir?: string;
   model?: string;
   resume?: string;
   signal?: AbortSignal;
@@ -74,6 +76,22 @@ interface Attempt {
   unstoppable: boolean;
   /** `server`: the Codemm server didn't start. `tool`: a Codemm tool hit Docker, disk or network. `unstarted`: the agent exited before it started. */
   infra?: 'server' | 'tool' | 'unstarted';
+}
+
+/**
+ * The folder an agent with config files runs in: named by its config, so the same job config gets the same folder
+ * (Cursor keeps chats per working directory, so a tutor turn resumes). Each file is written whole, then renamed.
+ */
+function jobFolder(agentDir: string, agent: AgentId, files: NonNullable<Invocation['files']>): string {
+  const folder = join(agentDir, `${agent}-${createHash('sha256').update(JSON.stringify(files)).digest('hex').slice(0, 16)}`);
+  for (const [path, text] of Object.entries(files)) {
+    const file = join(folder, path);
+    mkdirSync(dirname(file), { recursive: true });
+    const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(temp, text);
+    renameSync(temp, file);
+  }
+  return folder;
 }
 
 async function once(job: Job): Promise<Attempt> {
@@ -110,7 +128,10 @@ async function once(job: Job): Promise<Attempt> {
   };
   const turn = { prompt: job.brief, server: job.server(spec.tools), tools: spec.tools, model: job.model, resume: job.resume, web: spec.web, toolTimeoutSec: Math.ceil(deadlineMs / 1000) };
   try {
-    const result = await run(job.exe, cli.launch(turn).args, cli.parse, { onEvent, signal: stop.signal, cwd: job.cwd, runtime: job.runtime });
+    const { args, files } = cli.launch(turn);
+    if (files && !job.agentDir) throw new Error(`${job.agent} needs a folder for its config`);
+    const cwd = files ? jobFolder(job.agentDir!, job.agent, files) : job.cwd;
+    const result = await run(job.exe, args, cli.parse, { onEvent, signal: stop.signal, cwd, runtime: job.runtime, errors: cli.errors });
     if (!started && !result.cancelled && result.code !== 0) infra ??= 'unstarted';
     // A conversational success needs the agent's done event and a clean exit.
     const ok = !result.cancelled && result.code === 0 && done?.ok === true;
