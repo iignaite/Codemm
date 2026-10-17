@@ -22,7 +22,10 @@ export function fakeCore() {
     proposals: [] as { track: string; digest: string; created: string; files: Record<string, string> }[],
     lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string }[],
     reads: new Set<string>(),
-    exercises: new Map<string, { concept: string; file: string; digest: string; created: string }>(),
+    exercises: new Map<string, { concept: string; file: string; digest: string; created: string; difficulty?: number }>(),
+    /** The difficulty next_step asks the author for, and the one the fake author writes. */
+    wanted: 1,
+    writes: 1,
     /** The course argument each bound core call got. */
     bound: [] as (string | undefined)[],
     cleanups: 0,
@@ -47,7 +50,7 @@ export function fakeCore() {
     const lesson = own.length === 0 ? null : own.find((l) => !c.reads.has(l.id))?.id;
     const ex = [...c.exercises.entries()].find(([, e]) => e.concept === concept.id);
     const lessonField = lesson === undefined ? {} : { lesson };
-    return ex ? { kind: 'practice', exercise: ex[0], concept: concept.id, ...lessonField } : { kind: 'author', concept: concept.id, difficulty: 1, ...lessonField };
+    return ex ? { kind: 'practice', exercise: ex[0], concept: concept.id, ...lessonField } : { kind: 'author', concept: concept.id, difficulty: c.wanted, ...lessonField };
   };
   const view = (slug: string, passed: number, recorded: boolean): CoreCheckView => ({
     exercise: slug,
@@ -109,7 +112,7 @@ export function fakeCore() {
     installProposal: (ref, digest) => c.install(ref, digest),
     dropProposal: async () => void (c.proposals = []),
     getLesson: (_ws, id) => c.lessons.find((l) => l.id === id)!,
-    listExercises: (_ws, bound) => (c.bound.push(bound), [...c.exercises.entries()].map(([exercise, e]) => ({ exercise, concepts: [e.concept], difficulty: 1, created: e.created }))),
+    listExercises: (_ws, bound) => (c.bound.push(bound), [...c.exercises.entries()].map(([exercise, e]) => ({ exercise, concepts: [e.concept], difficulty: e.difficulty ?? 1, created: e.created }))),
     listLessons: (_ws, bound) => {
       c.bound.push(bound);
       return c.lessons.map((l) => ({ id: l.id, concept: l.concept, title: l.title, read: c.reads.has(l.id) }));
@@ -155,7 +158,7 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
     },
     author: () => {
       const concept = c.roadmap!.concepts.find((x) => !c.mastered.has(x.id))!.id;
-      c.exercises.set(`${concept}-easy-1`, { concept, file: 'int main() { /* yours */ }', digest: '0'.repeat(64), created: new Date().toISOString() });
+      c.exercises.set(`${concept}-${c.writes === 1 ? 'easy' : `d${c.writes}`}-1`, { concept, file: 'int main() { /* yours */ }', digest: '0'.repeat(64), created: new Date().toISOString(), difficulty: c.writes });
       return {};
     },
     tutor: () => ({ text: ['Look at what you add.'], session: 'session-1' }),
