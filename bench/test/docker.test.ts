@@ -3,7 +3,7 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { builtImages, cleanupPlan, recordingCli, type Snapshot, tagForTrackYaml } from "../lib/docker.ts";
+import { builtImages, cleanupPlan, OWNER_LABEL, recordingCli, type Snapshot, tagForTrackYaml } from "../lib/docker.ts";
 
 const snap = (tags: Record<string, string>, ids: string[]): Snapshot => ({ tags: new Map(Object.entries(tags)), ids: new Set(ids) });
 const built = (...ids: string[]) => new Set(ids);
@@ -41,11 +41,13 @@ describe("recordingCli", () => {
     const cli = recordingCli(dir, fake);
     const out = (args: string[]) => spawnSync(cli, args, { encoding: "utf8" }).stdout.trim().split("\n");
     const build = out(["build", "-t", "codemm-track-c:1", "."]);
-    expect(build.slice(0, 3)).toEqual(["build", "--progress", "plain"]);
-    expect(build[3]).toBe("--iidfile");
-    expect(build[4]!.startsWith(join(dir, "iid."))).toBe(true);
-    expect(build.slice(5)).toEqual(["-t", "codemm-track-c:1", "."]);
-    expect(readFileSync(build[4]!, "utf8")).toBe("sha256:new");
+    expect(build.slice(0, 4)).toEqual(["build", "--progress", "plain", "--label"]);
+    // A label unique to the run, so an identical build by another session gets a different image ID.
+    expect(build[4]).toMatch(new RegExp(`^${OWNER_LABEL}=[0-9a-f]{16}$`));
+    expect(build[5]).toBe("--iidfile");
+    expect(build[6]!.startsWith(join(dir, "iid."))).toBe(true);
+    expect(build.slice(7)).toEqual(["-t", "codemm-track-c:1", "."]);
+    expect(readFileSync(build[6]!, "utf8")).toBe("sha256:new");
     expect(builtImages(dir)).toEqual(new Set(["sha256:new"]));
     expect(out(["info", "--format", "{{.OSType}}"])).toEqual(["info", "--format", "{{.OSType}}"]);
   });
