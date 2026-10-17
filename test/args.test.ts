@@ -9,6 +9,9 @@ describe("parseCli", () => {
     expect(parseCli(["track", "add", "./c"]).args).toEqual(["add", "./c"]);
     expect(parseCli(["--version"]).command).toBe("version");
     expect(parseCli([]).command).toBe("help");
+    expect(parseCli(["mcp", "--course", "c", "--tools", "next_step,save_exercise", "--desktop"]).options).toEqual({
+      course: ["c"], tools: ["next_step,save_exercise"], desktop: ["true"],
+    });
   });
 
   it.each([

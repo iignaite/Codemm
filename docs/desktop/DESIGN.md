@@ -137,7 +137,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor i
 - Codemm never opens an agent's credential files or keychain entries.
 - Sign-in uses the agent's own status command. Only a yes or no leaves the bridge.
 - Signing in is the learner's job in their agent ("Not signed in. Sign in to Codex first." then Try again).
-- The agent gets the app's environment unchanged (open decision O1).
+- The agent gets the app's environment unchanged (decision O1).
 
 **Finding and launching agents.**
 
@@ -450,16 +450,16 @@ Also deferred:
 - Stronger hidden-data protection against agents with file access, which would need a separate grader account or encrypted storage.
 - Practice hooks for terminal Codex and Cursor; protection there stays advisory (core §2).
 
-## 13. Open decisions for the owner
+## 13. Owner decisions
 
-| # | Decision | Recommendation |
+| # | Decision | Decided |
 |---|---|---|
 | O1 | Pass the agent the app's environment unchanged, or remove API-key variables so runs always use the signed-in plan | Unchanged. Removing variables breaks learners who use keys on purpose, and Codemm stays out of credentials. The connect line then says "Codemm uses your agent and your account." |
 | O5 | Default workspace folder | `~/Codemm`, changeable in settings. A switch moves nothing: the new folder gets its own `codemm.json`, learner files are re-created on demand, and tutor sessions start fresh. |
 | O6 | Add a model setting? | No for 1.0. The bench picks the Codex model (§3.3), and a failure shows "Check your agent". |
 | O7 | Keep the terminal path in 1.0, or make the app the only way in (§11) | Keep it for 1.0: it is built, tested and journey-verified (A9 to A16). Revisit after D17. |
 
-Decided: O2 (the honest consent line, §4.1), O3 (macOS and Windows installers, Linux deferred), O4 (lessons before activities for everyone), O8 (decision 10) and O9 (decision 11).
+The owner accepted all four recommendations (the scope ledger, 17 Oct 2026). Also decided: O2 (the honest consent line, §4.1), O3 (macOS and Windows installers, Linux deferred), O4 (lessons before activities for everyone), O8 (decision 10) and O9 (decision 11).
 
 ## 14. Review log
 

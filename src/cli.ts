@@ -9,7 +9,7 @@ import { readFileMap } from "./files.js";
 import { claudeHook } from "./hook.js";
 import { parseCli } from "./args.js";
 import { type Host, HOSTS, init } from "./init.js";
-import { serveMcp } from "./mcp.js";
+import { parseToolList, serveMcp } from "./mcp.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const VERSION = (JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8")) as { version: string }).version;
@@ -22,12 +22,13 @@ Usage:
   codemm status                                  your progress and the next step
   codemm test [exercise]                         run the visible tests (not recorded)
   codemm check [exercise]                        run every test and record the attempt
-  codemm skip <concept>                          mark a concept you already know
+  codemm skip <concept>                          come back to a concept later
   codemm assist on|off                           let your agent edit exercise files (counts for less)
   codemm tracks                                  list installed tracks
   codemm track add <folder>                      install a track from a folder
   codemm track rebuild <id@version>              rebuild a track image and re-verify its exercises
   codemm mcp [--workspace <dir>]                 run the MCP server (your agent starts this)
+             [--course <c>] [--tools <a,b>] [--desktop]   bind it to one course, limit its tools, or propose tracks
   codemm hook claude [--workspace <dir>]         Claude Code practice hook (init sets this up)
 
 Options: --workspace <dir>. Learner commands (status, test, check, skip, assist) default to the nearest folder
@@ -60,7 +61,11 @@ function printCheck(r: app.CheckView): void {
 }
 
 function describeStep(step: app.NextStep): string {
+  if ((step.kind === "practice" || step.kind === "author") && step.lesson !== undefined) {
+    return step.lesson === null ? `Ask your agent for a lesson on ${step.concept}.` : `Read lesson "${step.lesson}" with your agent.`;
+  }
   switch (step.kind) {
+    case "setup": return `Ask your agent to set up ${step.track}.`;
     case "practice": return `Practice "${step.exercise}" (${step.concept}, difficulty ${step.difficulty}).`;
     case "author": return `Ask your agent for a new ${step.concept} exercise (difficulty ${step.difficulty}).`;
     case "stuck": return `You're stuck on ${step.concept}. Ask your agent to re-teach it.`;
@@ -104,7 +109,7 @@ async function main(argv: string[]): Promise<number> {
     }
     case "skip":
       await app.skip(ws, rest[0]!);
-      print(`Marked ${rest[0]} as known.`);
+      print(`Codemm will come back to ${rest[0]} later.`);
       return 0;
     case "assist":
       if (rest[0] !== "on" && rest[0] !== "off") throw new CodemmError("Use codemm assist on or codemm assist off.");
@@ -132,7 +137,11 @@ async function main(argv: string[]): Promise<number> {
       throw new CodemmError("Use codemm track add <folder> or codemm track rebuild <id@version>.");
     }
     case "mcp":
-      await serveMcp(ws, VERSION);
+      await serveMcp(ws, VERSION, {
+        course: options.course?.[0],
+        tools: options.tools ? parseToolList(options.tools[0]!) : undefined,
+        desktop: options.desktop !== undefined,
+      });
       return -1; // keep running
     case "hook": {
       if (rest[0] !== "claude") throw new CodemmError("Only `codemm hook claude` is supported.");

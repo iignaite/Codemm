@@ -30,8 +30,8 @@ Each item is verified by an automated test unless marked *journey*. Journeys run
 | A6 | The judge reports `pass`/`fail`/`error` per test for wrong output, crashes, timeouts, build failures, missing tests and malformed reports. Output is capped while running. |
 | A7 | Judge containers run through one function with every flag in §4.3 and are cleaned up on timeout. Adversarial tests prove: no network (with a positive control), no writes to mounted input, process and memory limits hold, output floods are capped, and no owned containers survive a timeout. |
 | A8 | Learner rules (§7) are pure functions of the event log, including repeated-pass, assistance and infrastructure-error rules. |
-| A9 | CLI: `init`, `doctor`, `track add`, `track rebuild`, `tracks`, `test`, `check`, `status`, `skip`, `assist on|off`, `mcp`, `hook claude`, `--version`. Parsing is strict per command: unknown options, missing values and wrong argument counts are errors. |
-| A10 | The MCP server (stdio) exposes `list_tracks`, `save_track`, `save_roadmap`, `next_step`, `save_exercise`, `get_exercise`, `check`, `progress`. A test spawns the **packed** CLI as a real stdio server and calls the tools. |
+| A9 | CLI: `init`, `doctor`, `track add`, `track rebuild`, `tracks`, `test`, `check`, `status`, `skip`, `assist on|off`, `mcp [--course] [--tools] [--desktop]`, `hook claude`, `--version`. Parsing is strict per command: unknown options, missing values and wrong argument counts are errors. |
+| A10 | The MCP server (stdio) exposes `list_tracks`, `save_track`, `save_roadmap`, `get_roadmap`, `next_step`, `save_exercise`, `get_exercise`, `check`, `progress`, `save_lesson`, `get_lesson` and `mark_lesson_read`. A test spawns the **packed** CLI as a real stdio server and calls the tools, with and without `--tools`. |
 | A11 | `codemm init [--host claude|codex|cursor]...` sets up the chosen hosts, all three by default (§9). It is idempotent and preserves unrelated config. |
 | A12 | Practice mode blocks Claude Code's `Edit`, `Write`, `MultiEdit` and `NotebookEdit` under `exercises/` unless assist mode is on. Elsewhere it is advisory, and the docs say so. |
 | A13 | v1 is removed, along with its config and conflicting docs. Build, type check and all tests pass locally and in CI. Version is `1.0.0`. README, migration guide (with tested v1 rollback steps) and release notes are updated. |
@@ -57,10 +57,12 @@ Each item is verified by an automated test unless marked *journey*. Journeys run
 ```
 $CODEMM_HOME (default ~/.codemm)
   tracks/<id>@<version>/            installed track files + track.json (image id, styles)
+  proposals/<id>@<version>/<digest>/  a track proposed in the desktop app, awaiting consent (§4.4) + proposal.json
   courses/<course>/
     course.json                     { format_version, goal, track, style, concepts }
     exercises/<slug>/               full exercise + exercise.json (inventory, expected io outputs)
-    events.jsonl                    append-only learner events (check, skip, assist)
+    lessons/<id>/                   lesson.json, lesson.md (never changed after saving), notes.md (the learner's)
+    events.jsonl                    append-only learner events (check, skip, assist, retry, read)
     .lock                           held while mutating this course
 
 <workspace>/                        --workspace if given; otherwise learner commands use the nearest folder with
@@ -70,7 +72,7 @@ $CODEMM_HOME (default ~/.codemm)
 ```
 
 - **Ids.** Track ids, versions, courses, slugs and concept ids match `^[a-z0-9][a-z0-9._-]{0,63}$`, and versions are positive integers. No path is ever built from an unvalidated id.
-- **Format versions.** Only the files Codemm writes (`course.json`, `exercise.json`, `track.json`, `events.jsonl` records, `codemm.json`) carry `format_version: 1`. Loaders reject unknown versions.
+- **Format versions.** Only the files Codemm writes (`course.json`, `exercise.json`, `track.json`, `lesson.json`, `proposal.json`, `events.jsonl` records, `codemm.json`) carry `format_version: 1`. Loaders reject unknown versions.
 - **File maps.** Author input is a file map: `{ "relative/path": "text" }` over MCP, or a directory for the CLI.
   - Paths must be relative, `/`-separated, with no `.` or `..` parts.
   - Track and exercise paths may not contain `:` or have a name ending in `.` or a space (`assertPortablePaths`). These are the cases that break a checkout on Windows; other names Windows rejects are not checked.
@@ -158,6 +160,7 @@ Other ceilings:
 **Building runs code the agent wrote, with network access**, much like running `npm install` from someone else's project.
 
 - **The trust point** is the learner approving the `save_track` call in their agent, or running `codemm track add` themselves. Codemm's tool description says this plainly, and `init` never pre-approves it.
+- **In the desktop app** (`codemm mcp --desktop`), `save_track` only proposes. It runs track gate 1 and stores the files as an immutable proposal named by their digest (SHA-256 over the file map sorted by path), replacing older proposals for the same `id@version`, and builds nothing. The learner consents in the app, and `installProposal(ref, digest)` re-reads the files under the track lock, refuses unless their digest is the one the learner was shown, checks that 5 GB is free under `$CODEMM_HOME`, and installs exactly like `save_track`. A failed install keeps the proposal, so retrying needs no new consent. Approving a roadmap never builds anything.
 - **The build context** is a fresh folder holding only the track's files. No secrets, SSH agent or Docker socket are forwarded.
 - **The build** times out after 10 minutes and the process is killed. Build resource limits are not enforced in 1.0 (a known limitation).
 - **Infrastructure failures.** A build that fails because the runtime is down, the network is unreachable or the disk is full is reported as that, not as a gate failure, and installs nothing. The agent retries the same files instead of rewriting a correct track.
@@ -170,7 +173,7 @@ Other ceilings:
 
 ```yaml
 goal: "Components and state in React"
-track: react@1              # an installed track, pinned by version
+track: react@1              # a track pinned by version; it may not be installed yet
 style: unit                 # the default style for new exercises; must be offered by the track
 concepts:
   - { id: react.jsx, title: "JSX", requires: [] }
@@ -178,10 +181,18 @@ concepts:
 ```
 
 - **First save** creates the course. Concept order in the file is the tie-break order.
-- **Re-saving** an existing course may change `goal`, titles and order, add concepts, and change `requires` while staying acyclic.
-- **Re-saving is rejected** if it changes `track` or removes a concept that an exercise or event uses.
+- **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is, and the style is checked once it is: `next_step` fails with "Edit the roadmap's style" if the installed track doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
+- **Re-saving** an existing course may change `goal`, titles and order, add concepts, and change `requires` while staying acyclic. Edits keep concept ids, so renaming changes only the title. It may change `track` while the course has no exercises.
+- **Re-saving is rejected** if it changes `track` after exercises exist, or removes a concept that an exercise, event or lesson uses.
+- **A fresh start.** When a re-save adds a prerequisite to a stuck concept, Codemm appends a `retry` event for it (§7).
 - **Saving makes it active:** it sets the course in `codemm.json` for the bound workspace.
 - Course ids are global within `$CODEMM_HOME`, so the same course can be opened from any workspace.
+
+### Lessons
+
+- **Saving.** `save_lesson { id, concept, title, markdown }`: the id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. Lessons are static text; nothing in them runs, and they are checked for structure only. A lesson needs the course, not an installed track.
+- **Storage.** `lesson.md` never changes after saving. The learner's `notes.md` (at most 64 KB) sits beside it. Writes are atomic and hold the course lock.
+- **Reading.** `get_lesson` returns the text and the notes and records nothing. Only an acknowledgement records a read: `mark_lesson_read` appends a `read` event the first time.
 
 ## 6. Exercises and gates
 
@@ -225,10 +236,12 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
 
 ## 7. Learner model
 
-`events.jsonl` is the only learner state. It holds `check` and `skip` events, and everything below is recomputed by replaying them in order.
+`events.jsonl` is the only learner state. It holds `check`, `skip`, `assist`, `retry` and `read` events, and everything below is recomputed by replaying them in order.
 
 - **`check` event:** `{ kind: "check", at, exercise, concepts, difficulty, passed, total, assisted }`. It is recorded only when grading completed. Infrastructure failures record nothing: no container runtime, a missing image, or a host-side kill of the whole check. Learner-caused outcomes are graded, as `error`: build failures, timeouts and output floods. A check whose learner files are byte-identical to the starter is graded and shown but no `check` event is recorded (`recorded: false`): it isn't an attempt, so it can't count toward the fail streak, lower mastery or take the first try. Assistance and the current exercise are still updated as for any check.
-- **`skip` event:** `{ kind: "skip", at, concept }`. It raises that concept's mastery to at least 0.85.
+- **`skip` event:** `{ kind: "skip", at, concept }`. "Come back later": it defers the concept until its next `check` and never changes mastery, so it never satisfies a prerequisite or finishes a course.
+- **`retry` event:** `{ kind: "retry", at, concept }`. It resets the concept's fail streak, so a stuck concept isn't stuck, and leaves mastery and difficulty unchanged (§5).
+- **`read` event:** `{ kind: "read", at, lesson, concept }`. The learner acknowledged a lesson. It never changes mastery.
 - **`assist` event:** `{ kind: "assist", at, exercise }`. It marks that exercise as assisted for good, in every workspace.
 
 For each `check`, in order, for each concept it lists:
@@ -244,12 +257,15 @@ For each `check`, in order, for each concept it lists:
 
 **Next step**, in order:
 
-1. Candidates are concepts that aren't mastered and whose prerequisites are all mastered, in topological order with ties broken by roadmap order.
-2. Take the lowest mastery; the first in order wins ties.
-3. If that concept is stuck, return `stuck`.
-4. Otherwise, if an exercise exists for that concept at its current difficulty with no perfect check, return `practice`. The earliest-created such exercise wins.
-5. Otherwise return `author` with the concept, difficulty and the course style.
-6. If there are no candidates, return `done`.
+1. If the roadmap's track isn't installed, return `setup` with the track.
+2. Candidates are concepts that aren't mastered and whose prerequisites are all mastered, in topological order with ties broken by roadmap order.
+3. Among candidates that aren't deferred, take the lowest mastery; the first in order wins ties. If every candidate is deferred, take the first in order.
+4. If that concept is stuck, return `stuck`.
+5. Otherwise, if an exercise exists for that concept at its current difficulty with no perfect check, return `practice`. The earliest-created such exercise wins.
+6. Otherwise return `author` with the concept, difficulty and the course style.
+7. If there are no candidates, return `done`.
+
+`practice` and `author` carry a `lesson` field: `null` when the concept has no lesson yet, the id of the earliest unread lesson, or absent once every lesson for the concept is read. The tutor teaches first until it is absent. Lessons never change mastery.
 
 **Corrupt log.** A truncated final line, from a crash mid-append, is ignored when reading. Before the next append, the log is backed up to `events.jsonl.bak-<time>` and the torn line is removed. Any other invalid line makes state-changing commands fail with the line number until it's repaired.
 
@@ -260,13 +276,21 @@ The MCP tools and CLI commands are thin calls into one application module.
 | Tool | Input | Output |
 |---|---|---|
 | `list_tracks` | — | installed tracks: id, version, styles |
-| `save_track` | `files` | `{ installed: "id@v", warning? }` or diagnostics |
+| `save_track` | `files` | `{ installed: "id@v", warning? }` or diagnostics; with `--desktop`, `{ proposed: "id@v", note }` (§4.4) |
 | `save_roadmap` | `course`, `roadmap` (YAML text) | ok or errors |
-| `next_step` | — | `practice` / `author` / `stuck` / `done` |
+| `get_roadmap` | — | `{ course, goal, track, style, concepts }` |
+| `next_step` | — | `setup` / `practice` / `author` / `stuck` / `done` |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
 | `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint |
 | `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |
 | `progress` | — | mastery and difficulty per concept, next step |
+| `save_lesson` | `id`, `concept`, `title`, `markdown` | `{ lesson: id }` or errors |
+| `get_lesson` | `id` | `{ id, concept, title, markdown, notes }`; records nothing |
+| `mark_lesson_read` | `id` | ok; records a `read` event once |
+
+**Per-job servers.** `codemm mcp --course <course>` makes course-scoped tools use that course instead of the workspace's active one, and `save_roadmap` may save only that course. `--tools <a,b>` registers only the listed tools. With neither option the server behaves as above.
+
+**App functions without tools** (the desktop app calls them in-process): `listLessons`, `saveNotes`, `listExercises`, `listProposals`, `installProposal`, `dropProposal`, `readLearnerFiles` and `writeLearnerFile`. `writeLearnerFile(ws, slug, path, text, digest)` accepts only the exercise's track files, holds the workspace lock, refuses symlinked paths, and replaces the file through a temp file and a rename only if its current digest is the one the editor loaded ("Changed outside Codemm").
 
 ## 9. Host setup (`codemm init`)
 

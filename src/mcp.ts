@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import * as app from "./app.js";
 import { CodemmError } from "./errors.js";
+import { assertId } from "./files.js";
 
 type Result = { content: { type: "text"; text: string }[]; isError?: boolean };
 
@@ -21,39 +22,82 @@ async function respond(work: () => unknown): Promise<Result> {
 
 const files = z.record(z.string(), z.string()).describe('File map: { "relative/path": "file contents" }');
 const slug = z.string().optional().describe("Exercise id. Defaults to the current exercise.");
+const lessonId = z.string().describe("Lesson id");
 
-export function createServer(ws: string, version: string): McpServer {
+export const TOOL_NAMES = [
+  "list_tracks", "save_track", "save_roadmap", "get_roadmap", "next_step", "save_exercise", "get_exercise", "check", "progress",
+  "save_lesson", "get_lesson", "mark_lesson_read",
+] as const;
+
+/** `--tools a,b`: the only tools this server registers. */
+export function parseToolList(text: string): string[] {
+  const names = text.split(",").map((t) => t.trim()).filter((t) => t !== "");
+  if (names.length === 0) throw new CodemmError("--tools needs at least one tool name.");
+  for (const name of names) {
+    if (!(TOOL_NAMES as readonly string[]).includes(name)) throw new CodemmError(`Unknown tool "${name}". Use: ${TOOL_NAMES.join(", ")}.`);
+  }
+  return names;
+}
+
+/**
+ * One server per agent job (docs/desktop/DESIGN.md §4.6): `course` replaces the workspace's active course,
+ * `tools` limits the registered tools, and `desktop` makes save_track only propose (the learner consents in the app).
+ */
+export type ServerOptions = { course?: string; tools?: string[]; desktop?: boolean };
+
+export function createServer(ws: string, version: string, { course, tools, desktop }: ServerOptions = {}): McpServer {
+  if (course !== undefined) assertId("course", course);
   const server = new McpServer({ name: "codemm", version });
+  const want = (name: (typeof TOOL_NAMES)[number]) => !tools || tools.includes(name);
 
-  server.registerTool("list_tracks", { description: "List installed tracks (language or framework environments) with their versions and test styles." }, () =>
+  if (want("list_tracks")) server.registerTool("list_tracks", { description: "List installed tracks (language or framework environments) with their versions and test styles." }, () =>
     respond(() => app.listTracks()),
   );
 
-  server.registerTool(
+  if (want("save_track")) server.registerTool(
     "save_track",
-    {
-      description:
-        "Install a track: track.yaml, Dockerfile and probe/ files. Building the image runs the Dockerfile WITH network access, so only install tracks the learner agrees to. " +
-        "Codemm then runs the probes with the network off and installs the track only if every gate passes; otherwise it returns what failed.",
-      inputSchema: { files },
-    },
-    ({ files: f }) => respond(() => app.saveTrack(f)),
+    desktop
+      ? {
+          description:
+            "Propose a track: track.yaml, Dockerfile and probe/ files. Codemm checks the files and asks the learner before building anything. " +
+            "It returns the proposed id@version; then end your turn.",
+          inputSchema: { files },
+        }
+      : {
+          description:
+            "Install a track: track.yaml, Dockerfile and probe/ files. Building the image runs the Dockerfile WITH network access, so only install tracks the learner agrees to. " +
+            "Codemm then runs the probes with the network off and installs the track only if every gate passes; otherwise it returns what failed.",
+          inputSchema: { files },
+        },
+    ({ files: f }) => respond(() => (desktop ? app.proposeTrack(f) : app.saveTrack(f))),
   );
 
-  server.registerTool(
+  if (want("save_roadmap")) server.registerTool(
     "save_roadmap",
     {
-      description: "Create or update the course roadmap and make it active in this workspace. YAML with goal, track (id@version), style (io|unit) and concepts [{id, title, requires}].",
+      description:
+        "Create or update the course roadmap and make it active in this workspace. YAML with goal, track (id@version, installed or not yet), style (io|unit) " +
+        "and concepts [{id, title, requires}]. Keep concept ids stable when you edit it.",
       inputSchema: { course: z.string().describe("Course id, e.g. c-pointers"), roadmap: z.string().describe("Roadmap YAML") },
     },
-    ({ course, roadmap }) => respond(() => app.saveRoadmap(ws, course, roadmap)),
+    ({ course: c, roadmap }) => respond(() => app.saveRoadmap(ws, c, roadmap, course)),
   );
 
-  server.registerTool("next_step", { description: "What to do next: practice an existing exercise, author a new one (concept, difficulty, style, track), stuck, or done." }, () =>
-    respond(() => app.nextStep(ws)),
+  if (want("get_roadmap")) server.registerTool("get_roadmap", { description: "The course roadmap: goal, track, style and concepts with their prerequisites." }, () =>
+    respond(() => app.getRoadmap(ws, course)),
   );
 
-  server.registerTool(
+  if (want("next_step")) server.registerTool(
+    "next_step",
+    {
+      description:
+        "What to do next: setup (install the track), practice an existing exercise, author a new one (concept, difficulty, style, track), stuck, or done. " +
+        "On practice and author, lesson is null when the concept needs a lesson first, or the id of a lesson the learner hasn't read yet; teach before the activity until it's gone.",
+    },
+    () => respond(() => app.nextStep(ws, course)),
+  );
+
+  if (want("save_exercise")) server.registerTool(
     "save_exercise",
     {
       description:
@@ -61,24 +105,43 @@ export function createServer(ws: string, version: string): McpServer {
         "Codemm runs every gate and stores it only if all pass. Returns only the exercise id; report nothing else to the tutor.",
       inputSchema: { files },
     },
-    ({ files: f }) => respond(() => app.saveExercise(ws, f)),
+    ({ files: f }) => respond(() => app.saveExercise(ws, f, course)),
   );
 
-  server.registerTool("get_exercise", { description: "Show an exercise to the learner: statement, the file(s) to edit, visible tests and hint.", inputSchema: { slug } }, ({ slug: s }) =>
-    respond(() => app.getExercise(ws, s)),
+  if (want("get_exercise")) server.registerTool("get_exercise", { description: "Show an exercise to the learner: statement, the file(s) to edit, visible tests and hint.", inputSchema: { slug } }, ({ slug: s }) =>
+    respond(() => app.getExercise(ws, s, course)),
   );
 
-  server.registerTool(
+  if (want("check")) server.registerTool(
     "check",
     { description: "Grade the learner's current code against all tests and record the attempt. Hidden tests report only pass or fail.", inputSchema: { slug } },
-    ({ slug: s }) => respond(() => app.checkExercise(ws, s)),
+    ({ slug: s }) => respond(() => app.checkExercise(ws, s, course)),
   );
 
-  server.registerTool("progress", { description: "Mastery and difficulty per concept, and the next step." }, () => respond(() => app.progress(ws)));
+  if (want("progress")) server.registerTool("progress", { description: "Mastery and difficulty per concept, and the next step." }, () => respond(() => app.progress(ws, course)));
+
+  if (want("save_lesson")) server.registerTool(
+    "save_lesson",
+    {
+      description: "Save a lesson for one roadmap concept: static Markdown (at most 64 KB) the learner reads before the activity. Nothing in it runs. The id must be new in the course.",
+      inputSchema: { id: lessonId, concept: z.string().describe("Concept id from the roadmap"), title: z.string(), markdown: z.string() },
+    },
+    (lesson) => respond(() => app.saveLesson(ws, lesson, course)),
+  );
+
+  if (want("get_lesson")) server.registerTool("get_lesson", { description: "Read a lesson and the learner's notes on it. Records nothing.", inputSchema: { id: lessonId } }, ({ id }) =>
+    respond(() => app.getLesson(ws, id, course)),
+  );
+
+  if (want("mark_lesson_read")) server.registerTool(
+    "mark_lesson_read",
+    { description: "Record that the learner has read a lesson. Call it only after the learner says they've read it.", inputSchema: { id: lessonId } },
+    ({ id }) => respond(() => app.markLessonRead(ws, id, course)),
+  );
 
   return server;
 }
 
-export async function serveMcp(ws: string, version: string): Promise<void> {
-  await createServer(ws, version).connect(new StdioServerTransport());
+export async function serveMcp(ws: string, version: string, options: ServerOptions = {}): Promise<void> {
+  await createServer(ws, version, options).connect(new StdioServerTransport());
 }

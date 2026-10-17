@@ -105,11 +105,16 @@ export function unpinnedBases(dockerfile: string): string[] {
 }
 
 /** Builds a track image and runs its probes (DESIGN §6, track gates 2-5). */
-export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec: TrackSpec; image: string; imageId: string; warning?: string }> {
+/** Track gate 1's file checks: track.yaml, a Dockerfile and complete probes, before anything is built. */
+export function checkTrackFiles(files: FileMap) {
   validateFileMap(files);
   if (!files["track.yaml"] || !files.Dockerfile) throw new GateError("valid", "A track needs track.yaml and a Dockerfile.");
   const spec = parseTrackYaml(files["track.yaml"]);
-  const probes = spec.styles.map((style) => ({ style, ...probe(files, spec, style) }));
+  return { spec, probes: spec.styles.map((style) => ({ style, ...probe(files, spec, style) })) };
+}
+
+export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec: TrackSpec; image: string; imageId: string; warning?: string }> {
+  const { spec, probes } = checkTrackFiles(files);
 
   const image = tag ?? imageTag(spec);
   const context = mkdtempSync(join(tmpdir(), "codemm-build-"));

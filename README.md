@@ -85,7 +85,7 @@ Open the folder in your agent and say what you want to learn.
 | `codemm status` | Your progress and the next step |
 | `codemm test [exercise]` | Run the visible tests (not recorded) |
 | `codemm check [exercise]` | Run every test and record the attempt |
-| `codemm skip <concept>` | Mark a concept you already know |
+| `codemm skip <concept>` | Come back to a concept later |
 | `codemm assist on\|off` | Let your agent edit exercise files (counts for less) |
 | `codemm tracks` | List installed tracks |
 | `codemm track add <folder>` | Install a track from a folder |

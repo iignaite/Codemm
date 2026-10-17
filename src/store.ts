@@ -1,6 +1,6 @@
 import {
   closeSync, constants, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
-  readFileSync, realpathSync, renameSync, rmSync, truncateSync, unlinkSync, writeFileSync,
+  readFileSync, realpathSync, renameSync, rmSync, statfsSync, truncateSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
@@ -8,7 +8,7 @@ import { dirname, join, relative, sep } from "node:path";
 import { CodemmError } from "./errors.js";
 import { assertId, assertRelativePath, type FileMap, readFileMap, validateFileMap, writeFileMap } from "./files.js";
 import type { LearnerEvent } from "./learner.js";
-import { CourseRecord, ExerciseRecord, LearnerEventSchema, TrackRecord, WorkspaceConfig } from "./schemas.js";
+import { CourseRecord, ExerciseRecord, LearnerEventSchema, LessonRecord, ProposalRecord, TrackRecord, WorkspaceConfig } from "./schemas.js";
 
 /** Persistence for everything under $CODEMM_HOME and the workspace's codemm.json. */
 
@@ -150,12 +150,14 @@ function parseRecord<T>(schema: { parse: (v: unknown) => T }, file: string): T {
 
 // ---------- atomic writes ----------
 
-function writeJsonAtomic(path: string, value: unknown): void {
+function writeTextAtomic(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;
-  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
+  writeFileSync(tmp, text);
   renameSync(tmp, path);
 }
+
+const writeJsonAtomic = (path: string, value: unknown) => writeTextAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
 
 /** Writes `files` (and optional JSON records) into a fresh folder, then renames it to `target`. */
 export function commitFolder(target: string, files: FileMap, records: Record<string, unknown> = {}): void {
@@ -197,6 +199,86 @@ export function listTracks(): TrackRecord[] {
     .flatMap((ref) => readTrack(ref) ?? []);
 }
 
+// ---------- proposals ----------
+//
+// A track the agent proposed in the desktop app, kept until the learner consents. Each proposal is an
+// immutable folder named by the digest of its files, so consent binds exactly the files the learner saw.
+
+const proposalsDir = (ref: string) => {
+  parseTrackRef(ref);
+  return join(codemmHome(), "proposals", ref);
+};
+const byCodeUnit = ([a]: [string, string], [b]: [string, string]) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** SHA-256 over the canonical file map: entries sorted by path. */
+export const fileMapDigest = (files: FileMap) => digestText(JSON.stringify(Object.entries(files).sort(byCodeUnit)));
+
+/** Renames a folder aside, then deletes it, so a half-deleted folder is never read as a proposal. */
+function discard(dir: string): void {
+  if (!existsSync(dir)) return;
+  const aside = join(dirname(dir), `.discard-${randomBytes(4).toString("hex")}`);
+  renameSync(dir, aside);
+  rmSync(aside, { recursive: true, force: true });
+}
+
+/** Stores a proposal and drops older ones for the same track. Call while holding the track lock. */
+export function writeProposal(ref: string, files: FileMap): void {
+  const digest = fileMapDigest(files);
+  const dir = proposalsDir(ref);
+  if (!existsSync(join(dir, digest))) {
+    // The files sit in their own folder, so no track file can collide with proposal.json.
+    const payload = Object.fromEntries(Object.entries(files).map(([path, text]) => [`files/${path}`, text]));
+    commitFolder(join(dir, digest), payload, { "proposal.json": { format_version: 1, track: ref, digest, created: new Date().toISOString() } });
+  }
+  for (const other of readdirSync(dir)) if (!other.startsWith(".") && other !== digest) discard(join(dir, other));
+}
+
+/** Every proposal with its files. One that another process removes while this reads it is left out. */
+export function listProposals(): { record: ProposalRecord; files: FileMap }[] {
+  const root = join(codemmHome(), "proposals");
+  if (!existsSync(root)) return [];
+  return readdirSync(root)
+    .filter((ref) => !ref.startsWith("."))
+    .sort()
+    .flatMap((ref) => {
+      let dirs: string[];
+      try {
+        dirs = readdirSync(join(root, ref)).filter((d) => !d.startsWith("."));
+      } catch (e) {
+        if (!existsSync(join(root, ref))) return [];
+        throw e;
+      }
+      return dirs.flatMap((d) => {
+        const dir = join(root, ref, d);
+        try {
+          return [{ record: parseRecord(ProposalRecord, join(dir, "proposal.json")), files: readFileMap(join(dir, "files")) }];
+        } catch (e) {
+          if (!existsSync(dir)) return [];
+          throw e;
+        }
+      });
+    });
+}
+
+/** The proposal's files, or undefined if no proposal has that digest. */
+export function readProposal(ref: string, digest: string): FileMap | undefined {
+  if (!/^[0-9a-f]{64}$/.test(digest)) return undefined;
+  const dir = join(proposalsDir(ref), digest, "files");
+  return existsSync(dir) ? readFileMap(dir) : undefined;
+}
+
+export const dropProposals = (ref: string) => discard(proposalsDir(ref));
+
+/** Setup needs room for an image: refuse to build when the volume holding `dir` is nearly full. */
+export const MIN_FREE_BYTES = 5 * 1024 ** 3;
+export function assertFreeSpace(dir: string, min = MIN_FREE_BYTES): void {
+  mkdirSync(dir, { recursive: true });
+  const { bavail, bsize } = statfsSync(dir);
+  if (bavail * bsize < min) {
+    throw new CodemmError(`Not enough disk space. Setup needs ${Math.round(min / 1024 ** 3)} GB free where Codemm keeps its data (${dir}). Free some space, then try again.`);
+  }
+}
+
 // ---------- courses and exercises ----------
 
 export function readCourse(course: string): CourseRecord | undefined {
@@ -236,6 +318,39 @@ export function readExercise(course: string, slug: string): { record: ExerciseRe
 
 export const writeExerciseRecord = (course: string, record: ExerciseRecord) =>
   writeJsonAtomic(join(exerciseDir(course, record.slug), "exercise.json"), record);
+
+// ---------- lessons ----------
+
+export const lessonDir = (course: string, id: string) => {
+  assertId("lesson id", id);
+  return join(courseDir(course), "lessons", id);
+};
+
+/** Lessons in the order they were saved. */
+export function listLessons(course: string): LessonRecord[] {
+  const dir = join(courseDir(course), "lessons");
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((n) => !n.startsWith("."))
+    .map((id) => parseRecord(LessonRecord, join(dir, id, "lesson.json")))
+    .sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
+}
+
+/** The agent's text never changes after saving; the learner's notes sit beside it. */
+export function readLesson(course: string, id: string): { record: LessonRecord; markdown: string; notes: string } {
+  const dir = lessonDir(course, id);
+  if (!existsSync(join(dir, "lesson.json"))) throw new CodemmError(`No lesson "${id}" in course "${course}".`);
+  return {
+    record: parseRecord(LessonRecord, join(dir, "lesson.json")),
+    markdown: readFileSync(join(dir, "lesson.md"), "utf8"),
+    notes: readFileSync(join(dir, "notes.md"), "utf8"),
+  };
+}
+
+export const writeLesson = (course: string, record: LessonRecord, markdown: string) =>
+  commitFolder(lessonDir(course, record.id), { "lesson.md": markdown, "notes.md": "" }, { "lesson.json": record });
+
+export const writeNotes = (course: string, id: string, text: string) => writeTextAtomic(join(lessonDir(course, id), "notes.md"), text);
 
 // ---------- events ----------
 
@@ -312,6 +427,18 @@ function assertInside(root: string, path: string): void {
   if (rel === ".." || rel.startsWith(`..${sep}`) || rel.startsWith(sep)) throw new CodemmError(`Refusing to follow a symlink out of ${root}.`);
 }
 
+/** The absolute path of `ws/rel`, refusing it if any existing component is a symlink. */
+function refuseSymlinks(ws: string, rel: string): string {
+  let current = ws;
+  for (const part of rel.split("/")) {
+    current = join(current, part);
+    if (existsSync(current) && lstatSync(current).isSymbolicLink()) {
+      throw new CodemmError(`Refusing to write through the symlink at ${current}. Remove it and retry.`);
+    }
+  }
+  return current;
+}
+
 /**
  * Writes learner-side files under `ws/rel`, creating only what's missing.
  * Never overwrites the learner's edits and never writes through a symlink.
@@ -320,14 +447,7 @@ export function materialize(ws: string, rel: string, files: FileMap): void {
   // Generated from already-validated data, so only paths are checked, not author size limits.
   for (const path of Object.keys(files)) assertRelativePath(path);
   for (const [path, contents] of Object.entries(files)) {
-    const parts = `${rel}/${path}`.split("/");
-    let current = ws;
-    for (const part of parts) {
-      current = join(current, part);
-      if (existsSync(current) && lstatSync(current).isSymbolicLink()) {
-        throw new CodemmError(`Refusing to write through the symlink at ${current}. Remove it and retry.`);
-      }
-    }
+    const current = refuseSymlinks(ws, `${rel}/${path}`);
     if (existsSync(current)) continue;
     mkdirSync(dirname(current), { recursive: true });
     assertInside(ws, dirname(current));
@@ -348,6 +468,33 @@ export function materialize(ws: string, rel: string, files: FileMap): void {
       unlinkSync(tmp);
     }
   }
+}
+
+export const digestText = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/**
+ * Replaces one learner file through a temp file and a rename, but only if it still has the `digest` the
+ * editor loaded. Never writes through a symlink. Call while holding the workspace lock.
+ */
+export function replaceLearnerFile(ws: string, rel: string, name: string, text: string, digest: string): string {
+  assertRelativePath(name);
+  const path = refuseSymlinks(ws, `${rel}/${name}`);
+  const current = existsSync(path) ? readLearnerFiles(ws, rel, [name])[name] : undefined;
+  if (current === undefined || digestText(current) !== digest) throw new CodemmError(`Changed outside Codemm. Reload ${name}.`);
+  const tmp = join(dirname(path), `.codemm-${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
+  const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+  try {
+    writeFileSync(fd, text);
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    renameSync(tmp, path);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
+  return digestText(text);
 }
 
 /** Reads the learner's files for an exercise; refuses missing files and symlinks. */

@@ -58,6 +58,15 @@ describe.runIf(posix)("installing a track", () => {
     await expect(failure).rejects.not.toThrow(/Gate/);
     expect(app.listTracks()).toEqual([]);
   });
+
+  it("keeps a proposal when its install fails offline, so Try again needs no new consent", async () => {
+    fakeDocker("offline");
+    await app.proposeTrack(track());
+    const { digest } = app.listProposals()[0]!;
+    await expect(app.installProposal("shell-io@1", digest)).rejects.toThrow(/couldn't reach the network/);
+    expect(app.listTracks()).toEqual([]);
+    expect(app.listProposals().map((p) => p.digest)).toEqual([digest]);
+  });
 });
 
 describe.runIf(posix)("a check that loses Docker mid-run", () => {

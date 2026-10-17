@@ -48,14 +48,13 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   });
 
   it("enforces roadmap rules", async () => {
-    await expect(app.saveRoadmap(ws, "shell", roadmap("shell-io").replace("shell-io@1", "rust@1"))).rejects.toThrow(/not installed/);
     await expect(app.saveRoadmap(ws, "shell", roadmap("shell-io").replace("style: io", "style: unit"))).rejects.toThrow(/style/);
     expect(await app.saveRoadmap(ws, "shell", roadmap("shell-io"))).toEqual({ course: "shell", concepts: 2 });
     expect(JSON.parse(readFileSync(join(ws, "codemm.json"), "utf8"))).toMatchObject({ course: "shell" });
   });
 
   it("asks for a first exercise", () => {
-    expect(app.nextStep(ws)).toEqual({ kind: "author", concept: "sh.basics", difficulty: 1, style: "io", track: "shell-io@1" });
+    expect(app.nextStep(ws)).toEqual({ kind: "author", concept: "sh.basics", difficulty: 1, lesson: null, style: "io", track: "shell-io@1" });
   });
 
   it("saves an exercise and writes only learner-side files to the workspace", async () => {
@@ -126,9 +125,9 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(events.at(-1)).toMatchObject({ kind: "check", assisted: true });
   });
 
-  it("skips a concept", async () => {
+  it("defers a skipped concept without marking it mastered", async () => {
     await app.skip(ws, "sh.basics");
-    expect(app.progress(ws).concepts[0]).toMatchObject({ mastered: true });
+    expect(app.progress(ws).concepts[0]).toMatchObject({ mastered: false });
     await expect(app.skip(ws, "sh.nope")).rejects.toThrow(/not in/);
   });
 
@@ -182,5 +181,28 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
 
     expect(await app.rebuildTrack("shell-io@1")).toEqual({ rebuilt: "shell-io@1", exercises: 2 });
     expect((await app.checkExercise(ws, "max-of-line")).recorded).toBe(true);
+  });
+
+  it("installs a consented proposal, exactly once, and drops it", async () => {
+    const t = appTrack();
+    const files = { ...t, "track.yaml": t["track.yaml"]!.replace("id: shell-io", "id: shell-consent"), Dockerfile: `${t.Dockerfile}LABEL codemm.test=consent\n` };
+    expect(await app.proposeTrack(files)).toMatchObject({ proposed: "shell-consent@1" });
+    expect(app.listTracks().map((x) => x.track)).not.toContain("shell-consent@1");
+    const { digest } = app.listProposals().find((p) => p.track === "shell-consent@1")!;
+    expect(await app.installProposal("shell-consent@1", digest)).toEqual({ installed: "shell-consent@1" });
+    expect(app.listTracks().map((x) => x.track)).toContain("shell-consent@1");
+    expect(app.listProposals()).toEqual([]);
+    await cli(["image", "rm", "-f", "codemm-track-shell-consent:1"]);
+  });
+
+  it("saves a bound author job's exercise to its own course, even if the learner switches mid-save", async () => {
+    const files = { ...exercise("io-max"), "exercise.yaml": exercise("io-max")["exercise.yaml"]!.replace("max-of-line", "bound-save").replace("sh.loops", "sh.basics") };
+    const pending = app.saveExercise(ws, files, "shell");
+    await app.saveRoadmap(ws, "shell-other", roadmap("shell-io"));
+    expect(await pending).toEqual({ exercise: "bound-save" });
+    expect(app.listExercises(ws, "shell").map((e) => e.exercise)).toContain("bound-save");
+    expect(app.listExercises(ws)).toEqual([]);
+    expect(existsSync(join(ws, "exercises", "shell", "bound-save", "main.sh"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(ws, "codemm.json"), "utf8")).course).toBe("shell-other");
   });
 });

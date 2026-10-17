@@ -20,10 +20,15 @@ export type CheckEvent = {
   total: number;
   assisted: boolean;
 };
+/** "Come back later": defers the concept until its next check. Never changes mastery. */
 export type SkipEvent = { format_version: 1; kind: "skip"; at: string; concept: string };
 /** Marks an exercise as assisted for good: every check of it counts as assisted. */
 export type AssistEvent = { format_version: 1; kind: "assist"; at: string; exercise: string };
-export type LearnerEvent = CheckEvent | SkipEvent | AssistEvent;
+/** A fresh start after a new prerequisite: resets the fail streak, leaves mastery alone. */
+export type RetryEvent = { format_version: 1; kind: "retry"; at: string; concept: string };
+/** The learner acknowledged reading a lesson. Never changes mastery. */
+export type ReadEvent = { format_version: 1; kind: "read"; at: string; lesson: string; concept: string };
+export type LearnerEvent = CheckEvent | SkipEvent | AssistEvent | RetryEvent | ReadEvent;
 
 export type ConceptState = {
   mastery: number;
@@ -31,18 +36,25 @@ export type ConceptState = {
   failStreak: number;
   attempts: number;
   stuck: boolean;
+  deferred: boolean;
 };
 
 export type RoadmapGraph = { concepts: { id: string; requires: string[] }[] };
 export type ExerciseSummary = { slug: string; concepts: string[]; difficulty: number };
+/** Lessons in the order they were saved. */
+export type LessonSummary = { id: string; concept: string };
 
+/**
+ * `lesson` on practice and author steps: null when the concept has no lesson yet, the earliest unread
+ * lesson's id, or absent once every lesson for the concept is read.
+ */
 export type Step =
-  | { kind: "practice"; exercise: string; concept: string; difficulty: number }
-  | { kind: "author"; concept: string; difficulty: number }
+  | { kind: "practice"; exercise: string; concept: string; difficulty: number; lesson?: string | null }
+  | { kind: "author"; concept: string; difficulty: number; lesson?: string | null }
   | { kind: "stuck"; concept: string }
   | { kind: "done" };
 
-const fresh = (): ConceptState => ({ mastery: PRIOR, difficulty: 1, failStreak: 0, attempts: 0, stuck: false });
+const fresh = (): ConceptState => ({ mastery: PRIOR, difficulty: 1, failStreak: 0, attempts: 0, stuck: false, deferred: false });
 
 const isPerfect = (e: CheckEvent) => e.total > 0 && e.passed === e.total;
 
@@ -58,18 +70,26 @@ export function replay(log: LearnerEvent[]): Map<string, ConceptState> {
 
   for (const a of log) {
     if (a.kind === "skip") {
+      get(a.concept).deferred = true;
+      continue;
+    }
+    if (a.kind === "retry") {
       const s = get(a.concept);
-      s.mastery = Math.max(s.mastery, MASTERED);
+      s.failStreak = 0;
+      s.stuck = false;
       continue;
     }
     if (a.kind === "assist") {
       assistedExercises.add(a.exercise);
       continue;
     }
+    if (a.kind === "read") continue;
     const score = a.total > 0 ? a.passed / a.total : 0;
     const previousBest = best.get(a.exercise);
     const firstTry = previousBest === undefined;
     const perfect = isPerfect(a);
+    // Any check ends a deferral, even one that earns nothing.
+    for (const concept of a.concepts) get(concept).deferred = false;
     // Re-checking an already solved exercise is feedback only, never new evidence.
     if (perfect && previousBest === 1) continue;
     // Mastery moves only on a first check or a better best score, so retrying the same partial answer adds nothing.
@@ -113,7 +133,7 @@ export function topoOrder(roadmap: RoadmapGraph): string[] {
   return order;
 }
 
-export function nextStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], log: LearnerEvent[]): Step {
+export function nextStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], log: LearnerEvent[], lessons: LessonSummary[]): Step {
   const states = replay(log);
   const state = (id: string) => states.get(id) ?? fresh();
   const mastered = (id: string) => state(id).mastery >= MASTERED;
@@ -123,13 +143,20 @@ export function nextStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], lo
   const candidates = order.filter((id) => !mastered(id) && (requires.get(id) ?? []).every(mastered));
   if (candidates.length === 0) return { kind: "done" };
 
+  // Deferred concepts wait while anything else is open; if all are deferred, the earliest comes back first.
   // Stable sort keeps topological order for ties.
-  const concept = [...candidates].sort((a, b) => state(a).mastery - state(b).mastery)[0]!;
+  const open = candidates.filter((id) => !state(id).deferred);
+  const concept = open.length > 0 ? [...open].sort((a, b) => state(a).mastery - state(b).mastery)[0]! : candidates[0]!;
   const s = state(concept);
   if (s.stuck) return { kind: "stuck", concept };
 
+  const read = new Set(log.flatMap((a) => (a.kind === "read" ? [a.lesson] : [])));
+  const own = lessons.filter((l) => l.concept === concept);
+  const unread = own.find((l) => !read.has(l.id));
+  const lesson = own.length === 0 ? { lesson: null } : unread ? { lesson: unread.id } : {};
+
   const passed = new Set(log.flatMap((a) => (a.kind === "check" && isPerfect(a) ? [a.exercise] : [])));
   const fit = exercises.find((e) => e.concepts.includes(concept) && e.difficulty === s.difficulty && !passed.has(e.slug));
-  if (fit) return { kind: "practice", exercise: fit.slug, concept, difficulty: s.difficulty };
-  return { kind: "author", concept, difficulty: s.difficulty };
+  if (fit) return { kind: "practice", exercise: fit.slug, concept, difficulty: s.difficulty, ...lesson };
+  return { kind: "author", concept, difficulty: s.difficulty, ...lesson };
 }
