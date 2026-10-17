@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from 'react';
 import type { Draft } from '../../../shared/api';
 import { useApi } from '../../app/api';
+import { cacheFor } from '../../app/cache';
 import { useRouter } from '../../app/router';
 import { Button } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
@@ -66,6 +67,8 @@ export function CourseEditor({ draft }: { draft: Draft }) {
     setConfirm(false);
     try {
       const course = await api.approve(current());
+      // A new course reuses lesson ids, so cached lessons belong to the old one.
+      cacheFor(api, 'lessons').clear();
       go({ to: 'topic', topicId: course.topics[0].id });
     } catch (err) {
       fail(err);

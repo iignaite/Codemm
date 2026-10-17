@@ -47,6 +47,17 @@ describe('check this computer', () => {
     expect(await screen.findByRole('heading', { name: 'Learn anything.' })).toBeInTheDocument();
   });
 
+  it('announces each change, and keeps focus when the focused step goes away', async () => {
+    const options: MockOptions = { docker: 'missing', platform: 'mac' };
+    open(options);
+    const link = await screen.findByRole('link', { name: 'Get Docker Desktop' });
+    expect(screen.getByRole('status')).toHaveTextContent("Docker isn't installed yet. Checking again every few seconds.");
+    link.focus();
+    options.docker = 'stopped';
+    expect(await screen.findByText("Docker isn't running yet. Checking again every few seconds.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check now' })).toHaveFocus();
+  });
+
   it('gives Linux the docker group step', async () => {
     open({ docker: 'no-access', platform: 'linux' });
     const access = await screen.findByRole('listitem', { name: 'Codemm can use Docker' });

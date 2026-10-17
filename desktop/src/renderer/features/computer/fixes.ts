@@ -11,6 +11,13 @@ export const CHECK_NAMES: Record<CheckId, string> = {
   'docker-access': 'Codemm can use Docker',
 };
 
+/** Said while a check needs a step. Never the learner's fault. */
+export const NOT_YET: Record<CheckId, string> = {
+  'docker-installed': "Docker isn't installed yet.",
+  'docker-running': "Docker isn't running yet.",
+  'docker-access': "Codemm can't use Docker yet.",
+};
+
 const DESKTOP_RUNNING: Fix = {
   steps: ['Open Docker Desktop.', 'Wait until it says Docker Desktop is running.'],
 };

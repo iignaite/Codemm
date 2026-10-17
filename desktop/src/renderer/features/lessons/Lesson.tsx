@@ -40,22 +40,29 @@ export function Lesson({ lessonId }: { lessonId: string }) {
   const api = useApi();
   const cache = cacheFor<View>(api, 'lessons');
   const { data, error, reload } = useLoad(async () => {
+    const version = cache.version();
     const lesson = await api.lesson(lessonId);
     const course = (await api.course())!;
     const view = { lesson, course, topic: course.topics.find((t) => t.id === lesson.topicId)! };
-    cache.set(lessonId, view);
+    cache.set(lessonId, view, version);
     return view;
   }, [lessonId]);
   const view = data ?? cache.get(lessonId);
-  if (view) return <><Sidebar slim /><Reader {...view} /></>;
+  // A saved note makes every cached copy stale; read again.
+  const onSaved = () => {
+    cache.clear();
+    reload();
+  };
+  if (view) return <><Sidebar slim /><Reader {...view} onSaved={onSaved} /></>;
   if (error) return <><Sidebar slim /><Failed retry={reload} /></>;
   return <Sidebar slim />;
 }
 
-function Reader({ lesson, course, topic }: { lesson: LessonData; course: Course; topic: Topic }) {
+function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void }) {
   const api = useApi();
   const { go, fail } = useRouter();
-  const [note, setNote] = useState(lesson.note);
+  const [saved, setSaved] = useState<string>();
+  const note = saved ?? lesson.note;
   const [editing, setEditing] = useState(false);
   const chat = useConversation({ lessonId: lesson.id }, 'Ask about anything here.');
   const { prev, next } = neighbours(topic, lesson.id);
@@ -63,8 +70,8 @@ function Reader({ lesson, course, topic }: { lesson: LessonData; course: Course;
   async function save(text: string) {
     try {
       await api.saveNote(lesson.id, text);
-      lesson.note = text; // keeps the cached copy current
-      setNote(text);
+      setSaved(text);
+      onSaved();
       setEditing(false);
     } catch (e) {
       fail(e);

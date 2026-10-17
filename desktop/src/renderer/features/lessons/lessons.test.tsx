@@ -65,12 +65,59 @@ describe('lessons', () => {
     expect(screen.getByRole('heading', { name: 'useState', level: 1 })).toBeInTheDocument();
   });
 
+  it('forgets cached lessons when a new course replaces the old one', async () => {
+    const user = userEvent.setup();
+    const api = await approved();
+    for (let i = 0; i < 3; i++) await api.course();
+    await api.saveNote('t1.2', 'Old course note');
+    const view = renderApp({ to: 'lesson', lessonId: 't1.2' }, api);
+    expect(await screen.findByText('Old course note')).toBeInTheDocument();
+    view.unmount();
+
+    renderApp({ to: 'course', draft: { title: 'New course', track: 'React', installed: true, runsPerTopic: 4, topics: ['State'] } }, api);
+    await user.click(await screen.findByRole('button', { name: 'Approve' }));
+    await user.click(await screen.findByRole('button', { name: 'Read What state is' }));
+    await user.click(await screen.findByRole('button', { name: 'Next' }));
+    await screen.findByRole('heading', { name: 'useState', level: 1 });
+    expect(screen.queryByText('Old course note')).not.toBeInTheDocument();
+  });
+
+  it('shows a saved note after reopening, even if an older read finishes later', async () => {
+    const user = userEvent.setup();
+    const api = await approved();
+    for (let i = 0; i < 3; i++) await api.course();
+    renderApp({ to: 'lesson', lessonId: 't1.2' }, api);
+    await screen.findByRole('heading', { name: 'useState', level: 1 });
+    await user.click(screen.getByRole('button', { name: 'What state is' }));
+    await screen.findByRole('heading', { name: 'What state is', level: 1 });
+
+    const lesson = api.lesson;
+    let late: () => void = () => {};
+    api.lesson = (id) => {
+      const stale = lesson(id);
+      return new Promise((done) => (late = () => done(stale)));
+    };
+    await user.click(screen.getByRole('button', { name: 'useState' }));
+    api.lesson = lesson;
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.type(screen.getByRole('textbox', { name: 'My note' }), 'Saved note');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Saved note')).toBeInTheDocument();
+    late();
+
+    await user.click(screen.getByRole('button', { name: 'What state is' }));
+    await screen.findByRole('heading', { name: 'What state is', level: 1 });
+    await user.click(screen.getByRole('button', { name: 'useState' }));
+    expect(await screen.findByText('Saved note')).toBeInTheDocument();
+  });
+
   it('says when setup failed, and retries', async () => {
     const user = userEvent.setup();
     const api = await approved({ setupFails: true });
     renderApp({ to: 'topic', topicId: 't1' }, api);
-    const alert = await screen.findByRole('alert');
-    expect(within(alert).getByRole('heading', { name: "Couldn't set up React" })).toBeInTheDocument();
+    const heading = await screen.findByRole('heading', { name: "Couldn't set up React" });
+    const alert = heading.closest<HTMLElement>('[role="alert"]')!;
+    expect(alert).toBeInTheDocument();
     await user.click(within(alert).getByRole('button', { name: 'Try now' }));
     expect(await screen.findByRole('heading', { name: 'State' })).toBeInTheDocument();
   });
