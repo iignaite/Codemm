@@ -294,12 +294,12 @@ function workspaceLock(ws: string): string {
   return join(codemmHome(), "locks", `ws-${createHash("sha256").update(id).digest("hex").slice(0, 16)}.lock`);
 }
 
-/** Read-modify-write of codemm.json, serialized across processes. */
 /** Serializes changes Codemm makes to one workspace (codemm.json, host setup). */
 export const withWorkspaceLock = <T>(ws: string, work: () => Promise<T>) => withLock(workspaceLock(ws), work);
 
+/** Read-modify-write of codemm.json, serialized across processes. */
 export async function updateWorkspace(ws: string, change: (config: WorkspaceConfig) => WorkspaceConfig): Promise<WorkspaceConfig> {
-  return withLock(workspaceLock(ws), async () => {
+  return withWorkspaceLock(ws, async () => {
     const next = change(readWorkspace(ws));
     writeJsonAtomic(workspaceFile(ws), next);
     return next;
