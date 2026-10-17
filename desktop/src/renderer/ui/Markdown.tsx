@@ -20,3 +20,34 @@ md.renderer.rules.link_open = (tokens, i, options, _env, self) => {
 export function Markdown({ text, className = 'md' }: { text: string; className?: string }) {
   return <div className={className} dangerouslySetInnerHTML={{ __html: md.render(text) }} />;
 }
+
+export type LessonPart = { html: string } | { example: number };
+
+/**
+ * A lesson rendered in one pass, cut at each example block: a top-level fence at the start of its line (``` or ~~~)
+ * whose info string is `example` and whose only line is N, as core finds them (core DESIGN §5). Links and other
+ * references keep their definitions from anywhere in the lesson.
+ */
+export function lessonParts(text: string): LessonPart[] {
+  const env = {};
+  const tokens = md.parse(text, env);
+  const lines = text.split(/\r?\n/);
+  const parts: LessonPart[] = [];
+  let chunk: typeof tokens = [];
+  const flush = () => {
+    if (chunk.length) parts.push({ html: md.renderer.render(chunk, md.options, env) });
+    chunk = [];
+  };
+  for (const token of tokens) {
+    const n = token.content.trim();
+    const atLineStart = token.map ? /^[`~]/.test(lines[token.map[0]] ?? '') : false;
+    if (token.type === 'fence' && token.level === 0 && atLineStart && token.info.trim() === 'example' && /^\d+$/.test(n)) {
+      flush();
+      parts.push({ example: Number(n) });
+    } else {
+      chunk.push(token);
+    }
+  }
+  flush();
+  return parts;
+}

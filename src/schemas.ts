@@ -195,15 +195,39 @@ const LessonInput = z
     examples: z
       .array(z.record(z.string(), z.string()).refine((m) => mapBytes(m) <= MAX_LESSON_BYTES, "an example is larger than 64 KB"))
       .max(5, "add at most 5 examples")
+      .refine((all) => all.reduce((n, m) => n + Object.keys(m).length, 0) <= 250, "examples hold at most 250 files in all")
       .optional(),
   })
   .strict()
   .refine((l) => Buffer.byteLength(l.markdown) <= MAX_LESSON_BYTES, { message: "markdown is larger than 64 KB", path: ["markdown"] });
 export type LessonInput = z.infer<typeof LessonInput>;
 
-/** Where the Markdown places example N: a fenced code block whose info string is `example` and whose content is N. */
-const EXAMPLE_FENCE = /^```example[ \t]*\r?\n[ \t]*(\d+)[ \t]*\r?\n```[ \t]*$/gm;
-export const exampleRefs = (markdown: string): number[] => [...markdown.matchAll(EXAMPLE_FENCE)].map((m) => Number(m[1]));
+/**
+ * Where the Markdown places example N: a fenced code block at the start of a line (``` or ~~~), not inside another
+ * fence, whose info string is `example` and whose only line is N. The app's renderer finds the same blocks.
+ */
+export function exampleRefs(markdown: string): number[] {
+  const lines = markdown.split(/\r?\n/);
+  const fenceAt = (i: number) => /^(`{3,}|~{3,})(.*)$/.exec(lines[i] ?? "");
+  const closes = (i: number, open: string) => {
+    const m = fenceAt(i);
+    return !!m && m[1]![0] === open[0] && m[1]!.length >= open.length && m[2]!.trim() === "";
+  };
+  const refs: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = fenceAt(i);
+    if (!m || (m[1]![0] === "`" && m[2]!.includes("`"))) continue;
+    const open = m[1]!;
+    if (m[2]!.trim() === "example" && /^\s*\d+\s*$/.test(lines[i + 1] ?? "") && closes(i + 2, open)) {
+      refs.push(Number(lines[i + 1]!.trim()));
+      i += 2;
+      continue;
+    }
+    // Skip the rest of this fence: anything inside it is shown, not run.
+    for (i++; i < lines.length && !closes(i, open); i++);
+  }
+  return refs;
+}
 
 /** A lesson as the agent saves it: static Markdown for one roadmap concept, and optional runnable examples. */
 export function parseLesson(input: unknown): LessonInput {
@@ -225,7 +249,11 @@ export function assertNotes(text: string): string {
   return text;
 }
 
-export const LessonRecord = z.object({ format_version: z.literal(1), id: Id, concept: Id, title: z.string(), created: z.string(), examples: z.number().int().nonnegative().optional() });
+/** With examples: how many, and the track and style they were checked with, which they always run with. */
+export const LessonRecord = z.object({
+  format_version: z.literal(1), id: Id, concept: Id, title: z.string(), created: z.string(),
+  examples: z.number().int().nonnegative().optional(), track: z.string().optional(), style: Style.optional(),
+});
 export type LessonRecord = z.infer<typeof LessonRecord>;
 
 /** A track the agent proposed in the desktop app, waiting for the learner's consent. */

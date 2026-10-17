@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { Markdown } from './Markdown';
+import { lessonParts, Markdown } from './Markdown';
 
 const html = (text: string) => render(<Markdown text={text} />).container;
 
@@ -32,5 +32,20 @@ describe('Markdown (§2.1)', () => {
     expect(links).toHaveLength(1);
     expect(links[0]).toHaveAttribute('target', '_blank');
     expect(links[0]).toHaveAttribute('rel', 'noreferrer');
+  });
+});
+
+describe('lessonParts', () => {
+  const fence = (n: number, mark = '```') => `${mark}example\n${n}\n${mark}`;
+
+  it('cuts the lesson at top-level example fences, tildes included, keeping links defined elsewhere', () => {
+    const parts = lessonParts(`See [docs][d].\n\n${fence(1)}\n\nThen\n\n${fence(2, '~~~')}\n\n[d]: https://example.com/docs\n`);
+    expect(parts.map((p) => ('example' in p ? p.example : 'html'))).toEqual(['html', 1, 'html', 2]);
+    expect((parts[0] as { html: string }).html).toContain('href="https://example.com/docs"');
+  });
+
+  it('shows, never runs, an example fence inside another fence or indented', () => {
+    const parts = lessonParts(`\`\`\`\`md\n${fence(1)}\n\`\`\`\`\n\n    \`\`\`example\n    2\n    \`\`\`\n`);
+    expect(parts.every((p) => 'html' in p)).toBe(true);
   });
 });

@@ -77,6 +77,12 @@ describe("lesson examples", () => {
     expect(exampleRefs("```sh\necho 1\n```")).toEqual([]);
   });
 
+  it("counts only top-level example fences: not one shown inside another fence or indented, and tildes work too", () => {
+    expect(exampleRefs("````md\n```example\n1\n```\n````\n")).toEqual([]);
+    expect(exampleRefs("    ```example\n    1\n    ```\n")).toEqual([]);
+    expect(exampleRefs("~~~example\n2\n~~~\n")).toEqual([2]);
+  });
+
   it("accepts examples that are each referenced", () => {
     expect(parseLesson(lesson(`See:\n\n${fence(1)}\n`, [ex])).examples).toEqual([ex]);
     expect(parseLesson(lesson("No examples")).examples).toBeUndefined();
@@ -87,6 +93,7 @@ describe("lesson examples", () => {
     ["an example the markdown never places", lesson("Text only", [ex]), /example 1/],
     ["more than 5 examples", lesson([1, 2, 3, 4, 5, 6].map(fence).join("\n\n"), Array(6).fill(ex)), /5/],
     ["an example over 64 KB", lesson(`${fence(1)}\n`, [{ "main.sh": "x".repeat(65_537) }]), /64 KB/],
+    ["more than 250 example files in all", lesson(`${fence(1)}\n\n${fence(2)}\n`, [1, 2].map((e) => Object.fromEntries(Array.from({ length: 128 }, (_, i) => [`tests/t${e}-${i}.sh`, "x"])))), /250 files/],
   ])("refuses %s", (_label, input, error) => {
     expect(() => parseLesson(input)).toThrow(error);
   });

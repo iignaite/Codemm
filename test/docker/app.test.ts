@@ -214,6 +214,8 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     const before = readEvents("shell").length;
     expect(await app.runExample(ws, "echo", 1, "shell")).toEqual({ exit: 0, output: "hello\n", errors: "" });
     await expect(app.runExample(ws, "echo", 2, "shell")).rejects.toThrow(/no example 2/);
+    // The example runs as it was checked: with that track and style, even if the roadmap's style changes later.
+    expect(JSON.parse(readFileSync(join(process.env.CODEMM_HOME!, "courses", "shell", "lessons", "echo", "lesson.json"), "utf8"))).toMatchObject({ examples: 1, track: "shell-io@1", style: "io" });
     expect(readEvents("shell")).toHaveLength(before);
   });
 });

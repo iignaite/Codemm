@@ -198,7 +198,8 @@ concepts:
 - **Saving.** `save_lesson { id, concept, title, markdown, examples? }`: the id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. The text is checked for structure only. A lesson without examples needs the course, not an installed track.
 - **Examples.** A lesson may carry up to 5 runnable examples, each a file map of at most 64 KB:
   - Each holds exactly the installed track's learner files; for a unit course, it adds test files under `tests/`.
-  - The Markdown places example N as a fenced code block whose info string is `example` and whose only line is N. Every example is placed, and every placement names an example.
+  - The Markdown places example N as a fenced code block (``` or ~~~) at the start of a line, not inside another fence, whose info string is `example` and whose only line is N. Every example is placed, and every placement names an example. Examples hold at most 250 files in all.
+  - The lesson records the track and style its examples were checked with, and they always run with those.
   - The gate: under the course lock, then the track lock, each example runs in the track's image exactly as a check runs code, with the same sandbox and limits. io runs the build and run commands once, with empty input; unit runs the test command on the example's tests. Each must exit 0 within the limits. A runtime failure is infrastructure and saves nothing.
   - Examples need the installed track, and `get_roadmap` over MCP includes the track's contract once it's installed.
 - **Running.** `runExample(ws, lesson, n)` runs a saved example the same way and returns its exit code, output (capped at 16 KB) and errors (capped at 4 KB). It is never recorded.

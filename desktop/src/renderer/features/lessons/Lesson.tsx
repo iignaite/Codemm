@@ -9,10 +9,9 @@ import { Failed, Sidebar, Stalled } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
-import { Markdown } from '../../ui/Markdown';
+import { lessonParts } from '../../ui/Markdown';
 import { stagger } from '../../ui/motion';
 import { Rail } from '../../ui/Rail';
-import { splitExamples } from '../../../shared/examples';
 import { Example } from './Example';
 import { NoteEditor } from './NoteEditor';
 import { Outline } from './Outline';
@@ -116,8 +115,8 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
           )}
         </div>
         <div className="a-up">
-          {splitExamples(withoutTitle(lesson.markdown)).map((part, i) =>
-            'example' in part ? <Example key={i} lesson={lesson} index={part.example} /> : <Markdown key={i} text={part.markdown} />,
+          {lessonParts(withoutTitle(lesson.markdown)).map((part, i) =>
+            'example' in part ? <Example key={i} lesson={lesson} index={part.example} /> : <div key={i} className="md" dangerouslySetInnerHTML={{ __html: part.html }} />,
           )}
         </div>
         {editing ? (

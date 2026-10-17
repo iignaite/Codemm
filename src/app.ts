@@ -254,7 +254,7 @@ const cap = (text: string, bytes: number) => (Buffer.byteLength(text) > bytes ? 
  */
 async function runOne(track: TrackRecord, style: string, files: FileMap): Promise<ExampleRun & { clean: boolean }> {
   const t = { ...track, image: track.imageId };
-  const learner = Object.fromEntries(track.files.map((f) => [f, files[f] ?? ""]));
+  const learner = Object.fromEntries(track.files.map((f) => [f, files[f]!]));
   if (style === "io") {
     const run = await runIo(t, "visible", learner, { "01.in": "" });
     if (run.flooded) return { exit: -1, output: "", errors: "Printed more than 4 MB.", clean: false };
@@ -294,7 +294,8 @@ export async function saveLesson(ws: string, input: unknown, bound?: string): Pr
       }
     }
     const { markdown, examples: _, ...meta } = lesson;
-    store.writeLesson(courseId, { format_version: 1, ...meta, created: new Date().toISOString(), ...(examples.length ? { examples: examples.length } : {}) }, markdown, examples);
+    const checked = examples.length ? { examples: examples.length, track: course.track, style: course.style } : {};
+    store.writeLesson(courseId, { format_version: 1, ...meta, created: new Date().toISOString(), ...checked }, markdown, examples);
   };
   // Examples run on the track's image, so hold its lock too (course, then track, as saveExercise does).
   await store.withLock(store.courseLockPath(courseId), async () => {
@@ -304,15 +305,15 @@ export async function saveLesson(ws: string, input: unknown, bound?: string): Pr
   return { lesson: lesson.id };
 }
 
-/** Runs a saved example in the sandbox, for the learner to see. Never recorded. */
+/** Runs a saved example in the sandbox, with the track and style it was checked with, for the learner to see. Never recorded. */
 export async function runExample(ws: string, lessonId: string, index: number, bound?: string): Promise<ExampleRun> {
-  const course = activeCourse(ws, bound);
-  const { examples } = store.readLesson(course.course, lessonId);
+  const { record, examples } = store.readLesson(activeCourse(ws, bound).course, lessonId);
   const files = Number.isInteger(index) ? examples[index - 1] : undefined;
-  if (!files) throw new CodemmError(`Lesson "${lessonId}" has no example ${index}.`);
-  const track = installedTrack(course.track);
+  if (!files || !record.track || !record.style) throw new CodemmError(`Lesson "${lessonId}" has no example ${index}.`);
+  const track = installedTrack(record.track);
+  assertExampleFits(index, files, track, record.style);
   await ensureImage(track);
-  const { exit, output, errors } = await runOne(track, course.style, files);
+  const { exit, output, errors } = await runOne(track, record.style, files);
   return { exit, output: cap(output, 16_384), errors: cap(errors, 4096) };
 }
 
