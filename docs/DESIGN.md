@@ -183,7 +183,7 @@ concepts:
 ```
 
 - **First save** creates the course. Concept order in the file is the tie-break order.
-- **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is, and the style is checked once it is: `next_step` fails with "Edit the roadmap's style" if the installed track doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
+- **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is. Proposing or installing a track that a course names but whose styles lack that course's style is refused, so a course can't be stranded; an install checks this under the track lock, which roadmap saves also take (after the course lock). `next_step` fails with "Edit the roadmap's style" if an installed track still doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
 - **Re-saving** an existing course may change `goal`, titles and order, add concepts, and change `requires` while staying acyclic. Edits keep concept ids, so renaming changes only the title. It may change `track` while the course has no exercises.
 - **Re-saving is rejected** if it changes `track` after exercises exist, or removes a concept that an exercise, event or lesson uses.
 - **A fresh start.** When a re-save adds a prerequisite to a stuck concept, Codemm appends a `retry` event for it (§7).

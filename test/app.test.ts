@@ -310,6 +310,27 @@ describe("setup proposals", () => {
     expect(app.listProposals()).toEqual([]);
   });
 
+  it("refuses to install a proposal for a course whose style changed after it was proposed", async () => {
+    await app.saveRoadmap(ws, "shell", roadmap());
+    await app.proposeTrack(track());
+    const { digest } = app.listProposals()[0]!;
+    await app.saveRoadmap(ws, "shell", roadmap().replace("style: io", "style: unit"));
+    await expect(app.installProposal("shell-io@1", digest)).rejects.toThrow(/Course "shell" needs style "unit", but shell-io@1 offers io/);
+    await expect(app.saveTrack(track())).rejects.toThrow(/needs style "unit"/);
+  });
+
+  it("makes a roadmap save wait for an install of its track to finish", async () => {
+    let saved = false;
+    let save: Promise<unknown> | undefined;
+    await store.withLock(store.trackLockPath("shell-io"), async () => {
+      save = app.saveRoadmap(ws, "shell", roadmap()).then(() => (saved = true));
+      await new Promise((r) => setTimeout(r, 300));
+      expect(saved).toBe(false);
+    });
+    await save;
+    expect(saved).toBe(true);
+  });
+
   it("drops a track's proposals", async () => {
     await app.proposeTrack(track());
     await app.dropProposal("shell-io@1");

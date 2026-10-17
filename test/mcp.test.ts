@@ -108,6 +108,24 @@ describe("--desktop", () => {
   });
 });
 
+describe("--desktop with --course", () => {
+  const tracks = join(import.meta.dirname, "fixtures", "tracks");
+  // shell-unit's files under the course's track id: the right id@version, but only the unit style.
+  const unitOnly = () => {
+    const t = readFileMap(join(tracks, "shell-unit"));
+    return { ...t, "track.yaml": t["track.yaml"]!.replace("id: shell-unit", "id: shell-io") };
+  };
+
+  it("refuses a proposal for the course's track that lacks the course's style, as a save the agent can fix", async () => {
+    fakeDocker("missing");
+    await app.saveRoadmap(ws, "first", roadmap("First"));
+    const { call } = await connect({ course: "first", desktop: true });
+    await expect(call("save_track", { files: unitOnly() })).rejects.toThrow(/Course "first" needs style "io".*offers unit/);
+    expect(app.listProposals()).toEqual([]);
+    expect(await call("save_track", { files: readFileMap(join(tracks, "shell-io")) })).toMatchObject({ proposed: "shell-io@1" });
+  });
+});
+
 describe("lesson tools", () => {
   it("saves, reads and acknowledges a lesson; reading records nothing", async () => {
     await app.saveRoadmap(ws, "first", roadmap("First"));
