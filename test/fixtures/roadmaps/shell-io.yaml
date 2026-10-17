@@ -1,0 +1,6 @@
+goal: Shell basics
+track: shell-io@1
+style: io
+concepts:
+  - { id: sh.basics, title: Basics, requires: [] }
+  - { id: sh.loops, title: Loops, requires: [sh.basics] }

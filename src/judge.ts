@@ -21,7 +21,8 @@ export type UnitRun = { report: { exit: number; body: string; log: string }; flo
 
 const BUILD_SECONDS = 60;
 const SLACK_MS = 30_000;
-const seconds = (ms: number) => Math.max(1, Math.ceil(ms / 1000));
+/** `timeout` takes seconds; busybox and coreutils both accept decimals. */
+const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
 
 // The driver is PID 1. Program output only leaves the container inside a length-framed
 // record, and `kill -9 -1` clears leftover processes between cases.
@@ -86,8 +87,8 @@ export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, input
   if (!track.run) throw new CodemmError("This track has no run command, so it can't run io exercises.");
   const timeMs = opts.timeMs ?? track.limits.time_ms;
   const caseCount = Object.keys(inputs).filter((p) => p.endsWith(".in")).length;
-  const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * seconds(timeMs) * 1000 + SLACK_MS;
-  const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_TIME_S: String(seconds(timeMs)) };
+  const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * (timeMs + 1000) + SLACK_MS;
+  const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_TIME_S: seconds(timeMs) };
   if (track.build) env.CODEMM_BUILD = track.build;
   const { frames, flooded } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline);
 
@@ -103,8 +104,8 @@ export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, input
 export async function runUnit(track: JudgeTrack, src: FileMap, tests: FileMap, opts: RunOptions = {}): Promise<UnitRun> {
   if (!track.test) throw new CodemmError("This track has no test command, so it can't run unit exercises.");
   const timeMs = opts.timeMs ?? track.limits.time_ms;
-  const deadline = opts.deadlineMs ?? seconds(timeMs) * 1000 + SLACK_MS;
-  const env = { CODEMM_TEST: track.test, CODEMM_TIME_S: String(seconds(timeMs)) };
+  const deadline = opts.deadlineMs ?? timeMs + SLACK_MS;
+  const env = { CODEMM_TEST: track.test, CODEMM_TIME_S: seconds(timeMs) };
   const { frames, flooded } = await runDriver(track, UNIT_DRIVER, env, src, tests, deadline);
   const report = frames.find((f) => f.kind === "report");
   const log = frames.find((f) => f.kind === "log");

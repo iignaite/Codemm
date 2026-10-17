@@ -1,0 +1,4 @@
+slug: max-of-line
+concepts: [sh.loops]
+difficulty: 1
+hint: "Compare each number with the largest one so far."
