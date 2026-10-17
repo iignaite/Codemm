@@ -30,8 +30,5 @@
   /* Focus rings: navy on light surfaces, green on navy; both above 3:1. */
   --focus: #0E2754;
   --focus-on-navy: #3DDB6C;
-  --sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --display: 'Poppins', 'IBM Plex Sans', system-ui, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
   --ease: cubic-bezier(.2, .75, .25, 1);
 }

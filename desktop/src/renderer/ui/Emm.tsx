@@ -58,8 +58,8 @@ function face(mood: Mood, dark: string): { eye: ReactNode; mouth: ReactNode; fro
         mouth: line('M170 113 Q 178 115 186 111', 3),
         front,
         extra: <>
-          <text className="zz" x="176" y="46" fontFamily="Poppins, sans-serif" fontSize="20" fontWeight="600" fill="#AFC0DD">z</text>
-          <text className="zz" style={{ animationDelay: '.8s' }} x="190" y="26" fontFamily="Poppins, sans-serif" fontSize="26" fontWeight="600" fill="#AFC0DD">Z</text>
+          <text className="zz" style={{ fontFamily: 'var(--display)' }} x="176" y="46" fontSize="20" fontWeight="600" fill="#AFC0DD">z</text>
+          <text className="zz" style={{ fontFamily: 'var(--display)', animationDelay: '.8s' }} x="190" y="26" fontSize="26" fontWeight="600" fill="#AFC0DD">Z</text>
         </>,
       };
     case 'wake':

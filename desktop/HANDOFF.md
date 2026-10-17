@@ -76,7 +76,7 @@ Astra reviewed the first commit and found seven real issues; all are fixed and c
 
 - **No router or state library.** A `Route` union in `app/router.ts` covers about ten screens.
 - **No code editor library.** A plain textarea with a line gutter. Syntax highlighting is language-specific, and Codemm ships no languages.
-- **Bundled fonts.** Fonts come from `@fontsource` (latin subsets only), so the app never fetches from Google.
+- **Bundled fonts.** All font choices live in `src/renderer/styles/fonts.css`: the bundled `@fontsource` files (latin subsets only) and the three families, `--display`, `--sans` and `--mono`. The app never fetches fonts, so it works offline. Swapping a family means editing that file and the matching `@fontsource` dev dependency.
 - **Real title bar.** The prototype's bar is a real one: `titleBarStyle: 'hidden'` plus a drag region, with window controls overlaid on Windows and Linux.
 - **Reordering.** Topics can be dragged. The grip button also opens a Move up/Move down menu, so dragging is never required.
 - **Assist.** "Let Codemm edit" turns assist on and then runs Check, matching the prototype's flow from assist to passed.
