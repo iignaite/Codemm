@@ -382,14 +382,14 @@ Each item is verified by an automated test unless marked *journey* or *release*.
 | D3 | **IPC contract.** Every IPC channel is declared in `shared/api.ts`. Each handler validates its input and calls one function. Unknown channels and bad input are rejected. |
 | D4 | **Learner-safe boundary.** An exercise whose solution, mutants, hidden tests and expected outputs hold canary strings is authored through a recorded author stream. Every IPC handler is driven, and no renderer-bound payload or app log holds a canary. A tutor reply that quotes a canary line is held back. |
 | D5 | **Agent bridge.** For Claude Code and Codex: launch arguments match §3.1, and recorded streams parse to the expected events, while malformed lines produce none. A cancelled job resolves only after its whole process group is gone, including a child that ignores SIGTERM, and a job cancelled before it starts never spawns. Overlong lines are dropped. Status commands stop at their deadline and cap. There is no stdin and no shell. No desktop code reads credential files or variables, and sign-in output (for example, an email address) never reaches IPC or logs. |
-| D6 | **Versions and the minimum model.** Each tested version's `--version` output parses to its full token. An untested version, including a prerelease, shows the warning and doesn't block. With `models.json` set, the connect row shows "Recommended: ‹model›" and Codex launches with exactly that `-m`; with `null`, neither happens. |
+| D6 | **Versions and the minimum model.** Each tested version's `--version` output parses to its full token. An untested version, including a prerelease, shows the warning and doesn't block. With `models.json` set, the connect row shows "Recommended: ‹model›" and Codex launches with exactly that `-m`; with `null` (development only), neither happens. *Release:* both entries are filled from the bench results before the beta. |
 | D7 | **One consent.** With `--desktop`, `save_track` stores a proposal and builds nothing. Only `installProposal` builds, and only when the digest matches; a proposal whose files changed after the learner saw them is refused. Approving a roadmap never builds. |
 | D8 | **Roadmap.** `get_roadmap` round-trips. Rename, add, move and remove keep ids. A move is refused when a topic would come before one it requires, and a remove is refused for a required topic or one used by an exercise, event or lesson. An uninstalled track gives `setup`. The track can change until the course has exercises, and the change cancels the old track's jobs and proposals. Adding a prerequisite to a stuck concept records `retry`. |
 | D9 | **Lessons.** Save, get and notes work, and writes are locked, atomic and versioned. `get_lesson` records nothing; only `mark_lesson_read` records a read. The `lesson` field on `practice` and `author` steps is `null`, the earliest unread id, or absent, as §4.3 says. Reopening a saved lesson or activity starts no agent process. |
 | D10 | **Skip.** Skip defers without changing mastery and never satisfies a prerequisite. With every candidate deferred, the earliest is chosen. `done` needs every concept mastered. After `retry`, a concept that was stuck isn't stuck, and its mastery is unchanged. |
-| D11 | **Activity.** A save with a stale digest is refused, and one through a symlinked path is refused. Try it records nothing, and Check records one attempt. Tutor turns launch with no edit tools. |
+| D11 | **Activity.** A save with a stale digest is refused, and one through a symlinked path is refused. Try it records nothing. Check of edited files that completes grading records one attempt; core §7's exceptions hold, so a check of unchanged starter files or an infrastructure failure records nothing. Tutor turns launch with no edit tools. |
 | D12 | **Jobs.** `codemm mcp --tools a,b` lists and accepts only `a` and `b`, and `--course` scopes course tools. Switching courses during an author job doesn't redirect its save. Done checks read records created after the job started, and a job whose save committed before a crash isn't relaunched. An author job is cancelled after 3 failed saves. Every job stops at its deadline, and a failed job is relaunched at most once. Cancelling during a check leaves no owned container behind. |
-| D13 | **Check this computer and the environment matrix.** With the fake Docker and fake agent, each case shows its message and records nothing: missing Docker; not running; still starting (the starting message for 3 minutes, then the fix); Windows containers; stopping mid-check; offline during setup; low disk during setup; no agent; signed out; plan limit. Offline, low disk and plan limit spend no agent retry. Fixing the fake makes the screen pass on its own within one re-check, and repeated focus events never start a second check. |
+| D13 | **Check this computer and the environment matrix.** With the fake Docker and fake agent, each case shows its message and records nothing: missing Docker; not running; still starting (the starting message for 3 minutes, then the fix); Windows containers; stopping mid-check; offline during setup; low disk during setup; no agent; signed out; plan limit. Offline, low disk and plan limit spend no agent retry. For the Docker cases, fixing the fake makes the screen pass on its own within one re-check, and repeated focus events never start a second check. The setup cases recover through Try again on the same proposal, and the agent cases through the connect screen. |
 | D14 | **Failure states.** Each row in §5 maps to a tested screen state. |
 | D15 | **UI rules and no language dispatch.** Rendering every screen shows agent names only on the connect screen, the tutor named "Codemm", and no ids, versions, paths or timestamps. Core A1's scan covers `desktop/`, and track names and colors come from `list_tracks` or the learner. |
 | D16 | **Accessibility (WCAG AA).** Every journey screen passes an automated accessibility check with no AA violations, and every control has a screen-reader name. The D17 flow completes with the keyboard alone. With reduced motion set, nothing animates. |
@@ -463,7 +463,7 @@ Decided: O2 (the honest consent line, §4.1), O3 (macOS and Windows installers, 
 
 ## 14. Review log
 
-D, F and A numbers in the entries below refer to the drafts they reviewed. The acceptance criteria were renumbered when the spec was trimmed.
+D, F and A numbers and section references (§) in the entries below refer to the drafts they reviewed. The spec was renumbered when it was trimmed.
 
 **Astra (gpt-6-astra), desktop spec review, 17 Oct 2026.** Verdict: "not ready for implementation". All findings were accepted.
 
@@ -520,3 +520,13 @@ D, F and A numbers in the entries below refer to the drafts they reviewed. The a
 | A11 forced Codex model vs O6 | §8 "Recommended: ‹model›" and the exact `-m`; O6 rewritten; D26 |
 | A12 exit criteria could never pass | beta-plan: a fixed-and-tested rule during the beta, plus a final validation window |
 | A13 macOS 15 Gatekeeper | §7 and beta-plan: System Settings, Privacy & Security, Open Anyway, checked on a downloaded build |
+
+**Astra re-check of the scope trim, 17 Oct 2026.** The keep and cut lists match the ledger. Five gaps, all fixed:
+
+| Finding | Resolution |
+|---|---|
+| T1 Check always records | D11 keeps core §7's exceptions (unchanged starter, infrastructure failure) |
+| T2 automatic recovery overstated | D13: only the Docker cases recover by re-check; setup uses Try again, and agent cases use the connect screen |
+| T3 minimum model could stay empty | D6: both entries are filled from the bench before the beta; `null` is for development only |
+| T4 portability overstated | `docs/DESIGN.md` §3 states exactly what `assertPortablePaths` rejects |
+| T5 dangling section reference | agent-bridge.md cites §4.6; the review-log note covers old section numbers |

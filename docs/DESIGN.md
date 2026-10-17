@@ -73,7 +73,7 @@ $CODEMM_HOME (default ~/.codemm)
 - **Format versions.** Only the files Codemm writes (`course.json`, `exercise.json`, `track.json`, `events.jsonl` records, `codemm.json`) carry `format_version: 1`. Loaders reject unknown versions.
 - **File maps.** Author input is a file map: `{ "relative/path": "text" }` over MCP, or a directory for the CLI.
   - Paths must be relative, `/`-separated, with no `.` or `..` parts.
-  - Track and exercise paths may not contain `:` or have a name ending in `.` or a space, so content written on one OS installs on any other (`assertPortablePaths`).
+  - Track and exercise paths may not contain `:` or have a name ending in `.` or a space (`assertPortablePaths`). These are the cases that break a checkout on Windows; other names Windows rejects are not checked.
   - At most 256 files and 1 MB in total.
   - Directory input may not contain symlinks or special files.
   - Roadmap YAML may be at most 64 KB and 200 concepts.
