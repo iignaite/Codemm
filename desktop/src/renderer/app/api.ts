@@ -9,9 +9,12 @@ export function useApi(): CodemmApi {
   return api;
 }
 
-/** A typed CodemmApi whose every method goes through the preload bridge. */
+/** A typed CodemmApi whose every call goes through the preload bridge; check progress is the bridge's one event. */
 export function bridgeClient(bridge: Bridge): CodemmApi {
   return new Proxy({} as CodemmApi, {
-    get: (_target, method) => (typeof method === 'string' && method !== 'then' ? (...args: unknown[]) => bridge.invoke(method, args) : undefined),
+    get: (_target, method) => {
+      if (method === 'onCheckProgress') return bridge.onCheckProgress;
+      return typeof method === 'string' && method !== 'then' ? (...args: unknown[]) => bridge.invoke(method, args) : undefined;
+    },
   });
 }

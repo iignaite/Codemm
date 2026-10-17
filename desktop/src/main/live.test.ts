@@ -30,6 +30,23 @@ describe('live CodemmApi', () => {
     expect(t.jobs.ran.map((j) => j.model)).toEqual(['sonnet', 'haiku']);
   });
 
+  it('forwards check progress to listeners, counts only, until they stop listening', async () => {
+    const t = live();
+    const { id } = await practising(t);
+    const seen: unknown[] = [];
+    const off = t.api.onCheckProgress((p) => seen.push(p));
+    await t.api.tryIt(id, 'run-1');
+    await t.api.check(id, 'run-2');
+    expect(seen).toEqual([
+      { run: 'run-1', phase: 'visible', done: 1, total: 1 },
+      { run: 'run-2', phase: 'visible', done: 1, total: 1 },
+      { run: 'run-2', phase: 'hidden', done: 1, total: 2 },
+    ]);
+    off();
+    await t.api.check(id, 'run-3');
+    expect(seen).toHaveLength(3);
+  });
+
   it('saves edits, then asks for changes', async () => {
     const t = live();
     const r = await researched(t);

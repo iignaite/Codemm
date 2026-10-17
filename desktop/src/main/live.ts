@@ -8,6 +8,7 @@ import {
   REPAIR,
   SIGNED_OUT,
   UNSTOPPABLE,
+  type CheckProgress,
   type CodemmApi,
   type Computer,
   type Concept,
@@ -315,7 +316,15 @@ export function createLive(d: LiveDeps): Live {
   // Work the course still needs when the app starts.
   queueMicrotask(schedule);
 
+  // Check progress goes to whoever listens (main sends it to the app window). Only the phase and counts.
+  const progressListeners = new Set<(p: CheckProgress) => void>();
+  const progressOf = (run?: string) => ({ phase, done, total }: CheckProgress) => progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
+
   const api: Live = {
+    onCheckProgress(listener) {
+      progressListeners.add(listener);
+      return () => void progressListeners.delete(listener);
+    },
     async agents() {
       const agents = await d.connect.agents();
       log('agents', Object.fromEntries(agents.map((a) => [a.id, a.untested ? `${a.state}-untested` : a.state])));
@@ -467,9 +476,9 @@ export function createLive(d: LiveDeps): Live {
       }
     },
 
-    async tryIt(activityId) {
+    async tryIt(activityId, run) {
       try {
-        return tryView(await whenDockerReady(() => core.testExercise(ws, activityId)));
+        return tryView(await whenDockerReady(() => core.testExercise(ws, activityId, undefined, progressOf(run))));
       } catch (e) {
         const reason = notCounted(e);
         if (reason) {
@@ -480,9 +489,9 @@ export function createLive(d: LiveDeps): Live {
       }
     },
 
-    async check(activityId) {
+    async check(activityId, run) {
       try {
-        const view = await whenDockerReady(() => core.checkExercise(ws, activityId));
+        const view = await whenDockerReady(() => core.checkExercise(ws, activityId, undefined, progressOf(run)));
         const concepts = core.listExercises(ws).find((e) => e.exercise === activityId)?.concepts ?? [];
         const state = core.progress(ws).concepts.find((c) => concepts.includes(c.id));
         // A graded check can move the course on: the next topic's lesson and activity.
@@ -540,8 +549,9 @@ export function createLive(d: LiveDeps): Live {
       await core.cleanupLeftovers().catch(() => undefined);
     },
   };
-  // Every call: a damaged record says so, with core's guidance.
+  // Every call: a damaged record says so, with core's guidance. (onCheckProgress subscribes; it isn't a call.)
   for (const name of Object.keys(api) as (keyof Live)[]) {
+    if (name === 'onCheckProgress') continue;
     const call = api[name] as (...args: unknown[]) => Promise<unknown>;
     (api as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => call.apply(api, args).catch((e: unknown) => Promise.reject(repairable(e)));
   }

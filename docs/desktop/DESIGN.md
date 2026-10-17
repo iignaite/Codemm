@@ -290,6 +290,17 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 - **Scheduled.** The mastery panel, and the completed-course screen, show "Review tomorrow" or "Review in N days" for a mastered topic. They never show dates. Overdue reviews wait their turn behind the one being offered, without a countdown.
 - **Outcome.** A review is an ordinary Check. A pass keeps the topic mastered; a fail sends it back to practice.
 
+### 4.8 Check progress
+
+- **Core.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }` (core §4.2).
+  - io reports each visible test as it finishes; the build, when the track has one, shows once as `building`.
+  - Hidden tests and unit tests report their phase only (`total` 0): no names, counts or timing per hidden test.
+- **Desktop.**
+  - The renderer passes a run id with each Try it or Check. `live` tags that run's events with it and keeps only `phase`, `done` and `total`.
+  - Main sends each event to the app's windows only, on the one-way channel `codemm:check-progress`.
+  - The preload exposes it as `onCheckProgress(listener)`, which returns a function that stops listening. It isn't an IPC call: `invoke('onCheckProgress')` is refused.
+- **Renderer.** While Try it or Check runs, the results panel shows a quiet bar with the phase and "3 of 8". With no count, it shows the phase alone. It hears only its own run's events, and stops listening when the learner leaves.
+
 ## 5. Failure states
 
 Infrastructure failures record nothing. Learner-caused outcomes are graded as `error` and recorded (core §4.3, §7).
@@ -448,7 +459,7 @@ Cut from 1.0 by the owner's scope ledger:
 - **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
 - The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
 - **Research sources:** storing and showing the agent's sources with the roadmap. The agent may still research before writing it.
-- **Progress:** streaming check and install progress. Jobs show `running`, `done` or `failed`.
+- **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.8).
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.
 - **Platforms:** Linux installers, Windows and Linux arm64, Colima, and Podman.
 - **Cursor** beyond experimental, and its stream parser.
