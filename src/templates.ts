@@ -16,6 +16,9 @@ const LESSON_FIRST =
 
 const SAVE_RETRIES = "Codemm verifies everything you save by running it in a sandbox, and sends back what failed. Fix it and save again, up to 3 tries, then report what still fails.";
 
+/** For saves Codemm checks without running anything: track proposals and lessons. */
+const CHECKED_RETRIES = "Codemm checks what you save and sends back what failed. Fix it and save again, up to 3 tries, then report what still fails.";
+
 const SECRECY = "Never repeat the solution, the mutants or the hidden tests to anyone. The tutor and the learner must not see them.";
 
 const FILE_MAP = `You pass files as a file map: \`{ "relative/path": "file contents" }\`.`;
@@ -129,11 +132,11 @@ export const JOB_BRIEFS: Record<JobKind, string> = {
   roadmap: `You change a Codemm roadmap the way the learner asked.
 
 1. Call \`get_roadmap\`.
-2. Change only what was asked. Keep every concept id, and keep \`requires\` free of cycles. To make a topic easier, add a prerequisite topic that it requires.
+2. Change only what was asked. Keep the ids of the concepts you keep, and keep \`requires\` free of cycles. To make a topic easier, add a prerequisite topic that it requires.
 3. Save the whole roadmap with \`save_roadmap\` under the same course id. ${ROADMAP_YAML}
 4. If nothing should change, don't save, and say why in one sentence.`,
 
-  setup: `You set up the environment for one Codemm track. ${SAVE_RETRIES}
+  setup: `You set up the environment for one Codemm track. ${CHECKED_RETRIES}
 
 ${FILE_MAP} \`save_track\` only proposes the track: the learner decides in Codemm. When it returns \`proposed\`, end your turn.
 
@@ -144,7 +147,7 @@ ${TRACK_RULES}`,
 1. Call \`get_roadmap\` to see where the concept sits.
 2. Write a short Markdown lesson (at most 64 KB) for the concept you were given: what it is, why it matters, and one small worked example. Code blocks are shown, never run.
 3. Teach the idea; don't solve the activity that follows.
-4. Save it with \`save_lesson\`: a new lowercase id, the concept id exactly as given, and a short title. ${SAVE_RETRIES}`,
+4. Save it with \`save_lesson\`: a new lowercase id, the concept id exactly as given, and a short title. ${CHECKED_RETRIES}`,
 
   author: `You write one Codemm exercise. ${SAVE_RETRIES}
 
