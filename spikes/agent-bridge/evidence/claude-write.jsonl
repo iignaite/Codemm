@@ -1,0 +1,8 @@
+{"ms":4499,"type":"session","id":"32e80106-6017-40f3-9c7a-bb8e764fc243"}
+{"ms":7947,"type":"tool_call","id":"toolu_015GT5tpXJxHGJFQig1zgS9W","name":"Write"}
+{"ms":8245,"type":"tool_result","id":"toolu_015GT5tpXJxHGJFQig1zgS9W","error":true}
+{"ms":10389,"type":"tool_call","id":"toolu_017QhVehGjq8nf6KA49BZqbx","name":"Bash"}
+{"ms":10710,"type":"tool_result","id":"toolu_017QhVehGjq8nf6KA49BZqbx","error":true}
+{"ms":12550,"type":"text","text":"**Blocked** — Both the Write and Bash tools need your permission to create the file. Please approve the request to create `notes.txt` in the current folder."}
+{"ms":13835,"type":"done","ok":true}
+{"ms":14712,"exit":0,"cancelled":false}

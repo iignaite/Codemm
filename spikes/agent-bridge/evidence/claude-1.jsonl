@@ -1,0 +1,11 @@
+{"ms":4590,"type":"session","id":"9a025442-b540-4ad2-b1ce-f59a3ef1489c"}
+{"ms":7647,"type":"text","text":"I'll load the schemas for these codemm tools and call them."}
+{"ms":7913,"type":"tool_call","id":"toolu_01Hgw3RudCnHUcNR845ty1Du","name":"ToolSearch"}
+{"ms":7936,"type":"tool_result","id":"toolu_01Hgw3RudCnHUcNR845ty1Du","error":false}
+{"ms":9536,"type":"tool_call","id":"toolu_01QcZE7Q16x96wz8tKZXKXLd","name":"codemm.list_tracks"}
+{"ms":9604,"type":"tool_call","id":"toolu_01WkVkS8xjXqSwLNFMoqdwyG","name":"codemm.progress"}
+{"ms":10640,"type":"tool_result","id":"toolu_01QcZE7Q16x96wz8tKZXKXLd","error":false}
+{"ms":12252,"type":"tool_result","id":"toolu_01WkVkS8xjXqSwLNFMoqdwyG","error":true}
+{"ms":14115,"type":"text","text":"No tracks are installed and no course has been set up—you'll need to plan a roadmap first."}
+{"ms":16402,"type":"done","ok":true}
+{"ms":17640,"exit":0,"cancelled":false}
