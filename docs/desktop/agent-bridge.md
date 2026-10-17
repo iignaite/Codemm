@@ -119,7 +119,7 @@ codex:  {"kind":"web","urls":["https://uk.react.dev/reference/react/useState","h
     - Claude's search URLs are in `tool_use_result.results[].content[].url`, beside the `tool_result` of a `WebSearch` call. A `WebFetch` URL counts only when its result isn't an error.
     - Codex's are in `web_search` items' `results[].url`.
     - The parser keeps `https:` URLs only.
-16. **Process inspection can fail.** In a restricted sandbox (Astra's review), `pgrep` couldn't run. `members` now treats anything except pgrep's "none" as an error, so cleanup is never reported as complete when it couldn't be checked.
+16. **Process inspection can fail.** In a restricted sandbox (Astra's review), `pgrep` couldn't run. `run.ts` always signals the group first and counts afterwards, and reports a group it can't inspect as `null`, never as empty. A test with `pgrep` unavailable proves the group is still killed.
 
 ## Not verified here
 

@@ -42,3 +42,22 @@ test("a group that can't be inspected is an error, never an empty group", () => 
     process.env.PATH = path;
   }
 });
+
+test("cleanup still kills everything when the group can't be inspected, and says it couldn't check", async () => {
+  const { lines, turn } = start("hang");
+  await started(lines);
+  const path = process.env.PATH;
+  process.env.PATH = "";
+  try {
+    turn.cancel();
+    const result = await turn.done;
+    assert.equal(result.cancelled, true);
+    assert.equal(result.signal, "SIGKILL");
+    assert.equal(result.atCancel, null);
+    assert.equal(result.leftover, null);
+  } finally {
+    process.env.PATH = path;
+  }
+  // Signal 0 only checks existence: the whole group must be gone.
+  assert.throws(() => process.kill(-turn.pid, 0), { code: "ESRCH" });
+});

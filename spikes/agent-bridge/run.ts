@@ -7,7 +7,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 
-export type TurnResult = { code: number | null; signal: NodeJS.Signals | null; cancelled: boolean; atCancel?: number; leftover: number };
+/** `atCancel` and `leftover` count group members; `null` means the group couldn't be inspected, never "empty". */
+export type TurnResult = { code: number | null; signal: NodeJS.Signals | null; cancelled: boolean; atCancel?: number | null; leftover: number | null };
 
 export type TurnOptions = {
   command: string;
@@ -30,6 +31,14 @@ export function members(group: number): number {
   return r.stdout.trim().split("\n").filter(Boolean).length;
 }
 
+function count(group: number): number | null {
+  try {
+    return members(group);
+  } catch {
+    return null;
+  }
+}
+
 function killGroup(group: number, signal: NodeJS.Signals): void {
   try {
     process.kill(-group, signal);
@@ -38,7 +47,7 @@ function killGroup(group: number, signal: NodeJS.Signals): void {
   }
 }
 
-export function startTurn(o: TurnOptions): { cancel(): void; done: Promise<TurnResult> } {
+export function startTurn(o: TurnOptions): { pid: number; cancel(): void; done: Promise<TurnResult> } {
   if (process.platform === "win32") throw new Error("The spike runs on POSIX only.");
   const child = spawn(o.command, o.args, { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "inherit"], detached: true });
   const group = child.pid!;
@@ -46,21 +55,22 @@ export function startTurn(o: TurnOptions): { cancel(): void; done: Promise<TurnR
   createInterface({ input: child.stdout }).on("line", o.onLine);
 
   let cancelled = false;
-  let atCancel: number | undefined;
+  let atCancel: number | null | undefined;
   let escalate: NodeJS.Timeout | undefined;
   const done = new Promise<TurnResult>((resolve) => {
     child.on("exit", (code, signal) => {
       clearTimeout(escalate);
       killGroup(group, "SIGKILL");
-      setTimeout(() => resolve({ code, signal, cancelled, ...(atCancel === undefined ? {} : { atCancel }), leftover: members(group) }), 200);
+      setTimeout(() => resolve({ code, signal, cancelled, ...(atCancel === undefined ? {} : { atCancel }), leftover: count(group) }), 200);
     });
   });
   const cancel = () => {
     if (cancelled) return;
     cancelled = true;
-    atCancel = members(group);
+    // Signal first: counting is evidence only and must never stand in the way of stopping.
     killGroup(group, "SIGTERM");
     escalate = setTimeout(() => killGroup(group, "SIGKILL"), o.graceMs ?? 5000);
+    atCancel = count(group);
   };
-  return { cancel, done };
+  return { pid: group, cancel, done };
 }

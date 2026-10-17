@@ -436,3 +436,11 @@ Astra also judged its earlier prototype findings 1 to 8 partly resolved. The row
 | 13 Stored API auth and key helpers | §1.4 subscription-only sign-in (spike `signedIn`, tests), no user settings, and the init-event check (spec-level); O3 |
 
 Astra's sandbox couldn't run `pgrep`, so its run of the cancellation test failed there. The test passes here, and `members` now reports that situation as an error.
+
+**Astra final check, 17 Oct 2026.** Items 1, 3, 5, 8, 10, 12 and 13 and the web-disclosure issue were resolved. One new major issue came up: in the spike, an inspection failure stopped `cancel()` before it sent any signal, and left the turn unsettled. Fixed:
+
+- `run.ts` now signals first and counts afterwards, and an uninspectable group is reported as `null`, never 0;
+- a test with `pgrep` unavailable proves the stubborn group is still killed, and the turn still ends;
+- the fake agent now reports ready only after its child is ready, which removes a startup race.
+
+Item 9's Docker part, container cleanup on cancel during a gate, is still unverified and stays in D16. Verdict on the design: "the remaining reviewed design contracts are resolved".
