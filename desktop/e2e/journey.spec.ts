@@ -237,6 +237,8 @@ async function launch(env: Record<string, string>) {
 }
 
 async function connect(id: string) {
+  // Right after launch the page may still be rendering: wait for the welcome or connect screen first.
+  await until('the welcome or connect screen', async () => (await visible(button('Connect an agent'))) || (await visible(heading('Connect an agent'))), MIN);
   if (await visible(button('Connect an agent'))) await button('Connect an agent').click();
   const row = page.getByRole('listitem', { name: NAMES[id] });
   await expect(row).toBeVisible({ timeout: MIN });
