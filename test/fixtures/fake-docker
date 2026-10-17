@@ -32,6 +32,9 @@ case "$1" in
     case "$FAKE_DOCKER" in
       interactive) printf 'name? '; read -r name; echo "hello $name"; echo "a warning" >&2; exit 0 ;;
       waits) while read -r line; do :; done; exit 0 ;;
+      ignores) exec /bin/sleep 30 ;;
+      exits124) exit 124 ;;
+      euro) printf '\342'; /bin/sleep 0.2; printf '\202\254\n'; exit 0 ;;
     esac
     # An outside kill can land after the driver already reported a case.
     case "$FAKE_DOCKER" in oom) exit 137 ;; killed) printf '\n@@codemm case 01 0 2\n3\n'; exit 137 ;; esac

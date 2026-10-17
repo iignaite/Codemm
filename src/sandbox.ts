@@ -104,8 +104,14 @@ function hostUser(): string {
 /** Output as it arrives, within the output cap. A handler that throws is dropped; the run goes on. */
 export type SandboxOutput = { stdout?: (chunk: Buffer) => void; stderr?: (chunk: Buffer) => void };
 
-/** A started container: typed input (when `stdin` is set), a kill, and its result. */
-export type StartedSandbox = { write(text: string): void; kill(): void; done: Promise<SandboxResult> };
+/**
+ * A started container: typed input (when `stdin` is set), a kill, and its result. `write` returns false, and
+ * drops the text, when it's too long, when input the program isn't reading has piled up, or after the end.
+ */
+export type StartedSandbox = { write(text: string): boolean; kill(): void; done: Promise<SandboxResult> };
+
+const MAX_WRITE = 64 * 1024;
+const MAX_PENDING_INPUT = 1024 * 1024;
 
 /**
  * Starts one sandboxed container: every flag in sandboxArgs, the output cap, the host deadline and a checked
@@ -122,9 +128,11 @@ export function startSandboxed(run: SandboxRun, output: SandboxOutput = {}): Sta
   let stderr = "";
   let flooded = false;
   let timedOut = false;
+  let ended = false;
   let cleanup: Promise<boolean> | undefined;
   // Kill the CLI, then remove the container with a bounded, checked command.
   const stop = () => {
+    ended = true;
     if (cleanup) return;
     child.kill("SIGKILL");
     cleanup = removeContainer(name);
@@ -163,7 +171,10 @@ export function startSandboxed(run: SandboxRun, output: SandboxOutput = {}): Sta
   }, run.deadlineMs);
   const done = new Promise<SandboxResult>((resolve) => {
     child.on("close", async (code) => {
+      ended = true;
       clearTimeout(timer);
+      // 125 is the runtime's own failure, such as a dropped connection: the container may still be running.
+      if (code === 125 && !cleanup) cleanup = removeContainer(name);
       const removed = cleanup ? await cleanup : true;
       const oomKilled = code === 137 && !cleanup && (await hadOomEvent(name, started));
       resolve({ exit: code ?? -1, stdout: Buffer.concat(chunks), stderr, flooded, timedOut, cleanupFailed: !removed, oomKilled });
@@ -175,7 +186,11 @@ export function startSandboxed(run: SandboxRun, output: SandboxOutput = {}): Sta
   });
   return {
     write: (text) => {
-      if (child.stdin?.writable) child.stdin.write(text);
+      const stdin = child.stdin;
+      const size = Buffer.byteLength(text);
+      if (ended || !stdin?.writable || size > MAX_WRITE || stdin.writableLength + size > MAX_PENDING_INPUT) return false;
+      stdin.write(text);
+      return true;
     },
     kill: stop,
     done,

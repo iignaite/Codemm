@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
+import { runProgram } from "../src/judge.js";
 import { sandboxArgs } from "../src/sandbox.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import * as store from "../src/store.js";
@@ -35,12 +36,11 @@ describe.runIf(posix)("interactive run", () => {
   it("sends typed lines to the program and streams what it prints, recording nothing", async () => {
     const ws = await installedExercise();
     fakeDocker("interactive");
-    const out: string[] = [];
-    const run = await app.runInteractive(ws, undefined, undefined, (text, stream) => out.push(`${stream}:${text}`));
+    const out = { stdout: "", stderr: "" };
+    const run = await app.runInteractive(ws, undefined, undefined, (text, stream) => (out[stream] += text));
     run.write("Ada\n");
     expect(await run.done).toMatchObject({ exit: 0, timedOut: false, flooded: false });
-    expect(out.join("")).toContain("stdout:hello Ada");
-    expect(out.join("")).toContain("stderr:a warning");
+    expect(out).toEqual({ stdout: "name? hello Ada\n", stderr: "a warning\n" });
     expect(store.readEvents("shell")).toEqual([]);
   });
 
@@ -49,7 +49,7 @@ describe.runIf(posix)("interactive run", () => {
     fakeDocker("waits");
     const run = await app.runInteractive(ws, undefined, undefined, () => undefined);
     run.kill();
-    expect((await run.done).exit).not.toBe(0);
+    expect(await run.done).toMatchObject({ stopped: true, timedOut: false });
   });
 
   it("stops a program that runs past the time limit", async () => {
@@ -59,6 +59,58 @@ describe.runIf(posix)("interactive run", () => {
     fakeDocker("waits");
     const run = await app.runInteractive(ws, undefined, undefined, () => undefined, { limitMs: 300 });
     expect(await run.done).toMatchObject({ timedOut: true });
+  });
+
+  it("reports a program's own exit 124 as its exit, not a timeout", async () => {
+    const ws = await installedExercise();
+    fakeDocker("exits124");
+    const run = await app.runInteractive(ws, undefined, undefined, () => undefined);
+    expect(await run.done).toMatchObject({ exit: 124, timedOut: false });
+  });
+
+  it("bounds typed input a program isn't reading, instead of buffering it without limit", async () => {
+    const ws = await installedExercise();
+    fakeDocker("ignores");
+    const run = await app.runInteractive(ws, undefined, undefined, () => undefined);
+    const line = "x".repeat(1023) + "\n";
+    let accepted = 0;
+    for (let i = 0; i < 4096; i++) if (run.write(line)) accepted++;
+    expect(accepted).toBeLessThan(4096);
+    expect(run.write("y".repeat(100_000))).toBe(false); // one write is bounded too
+    run.kill();
+    await run.done;
+    expect(run.write("after\n")).toBe(false);
+  });
+
+  it("keeps characters split across output chunks whole", async () => {
+    const ws = await installedExercise();
+    fakeDocker("euro");
+    let out = "";
+    const run = await app.runInteractive(ws, undefined, undefined, (text) => (out += text));
+    await run.done;
+    expect(out).toBe("€\n");
+  });
+
+  it("treats a dropped connection to Docker as an infrastructure failure, not a program result", async () => {
+    const ws = await installedExercise();
+    fakeDocker("drops");
+    const run = await app.runInteractive(ws, undefined, undefined, () => undefined);
+    await expect(run.done).rejects.toThrow(/container runtime/i);
+  });
+
+  it("leaves no temporary folder behind, whatever happens", async () => {
+    const ws = await installedExercise();
+    const runs = () => readdirSync(tmpdir()).filter((f) => f.startsWith("codemm-run-")).length;
+    const before = runs();
+    fakeDocker("interactive");
+    const ok = await app.runInteractive(ws, undefined, undefined, () => undefined);
+    ok.write("Ada\n");
+    await ok.done;
+    fakeDocker("drops");
+    await (await app.runInteractive(ws, undefined, undefined, () => undefined)).done.catch(() => undefined);
+    fakeDocker("missing");
+    expect(() => runProgram({ image: "img", run: "sh main.sh", limits: { time_ms: 1000, memory_mb: 64 } }, { "main.sh": "" }, () => undefined)).toThrow();
+    expect(runs()).toBe(before);
   });
 
   it("isn't offered for a track with no run command", async () => {
