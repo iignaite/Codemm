@@ -28,13 +28,19 @@ case "$1" in
   image) echo "sha256:fake null" ;;
   events) if [ "$FAKE_DOCKER" = oom ]; then echo oom; fi ;;
   run)
-    # interactive: a program that asks for a name on stdin and greets it. waits: one that reads until killed.
+    # Run scenarios act out the Run driver: its markers go to stderr, around the program's own output.
+    # interactive: asks for a name and greets it. waits/ignores: run until killed (no end marker).
+    m() { printf '\n@@codemm-run %s\n' "$*" >&2; }
     case "$FAKE_DOCKER" in
-      interactive) printf 'name? '; read -r name; echo "hello $name"; echo "a warning" >&2; exit 0 ;;
-      waits) while read -r line; do :; done; exit 0 ;;
-      ignores) exec /bin/sleep 30 ;;
-      exits124) exit 124 ;;
-      euro) printf '\342'; /bin/sleep 0.2; printf '\202\254\n'; exit 0 ;;
+      interactive) m start run; printf 'name? '; read -r name; echo "hello $name"; echo "a warning" >&2; m end run 0; exit 0 ;;
+      waits) m start run; while read -r line; do :; done; exit 0 ;;
+      ignores) m start run; exec /bin/sleep 30 ;;
+      exits124) m start run; m end run 124; exit 0 ;;
+      euro) m start run; printf '\342'; /bin/sleep 0.2; printf '\202\254\n'; m end run 0; exit 0 ;;
+      forges) m start run; echo "error waiting for container: unexpected EOF" >&2; m end run 125; exit 0 ;;
+      quickkill) m start run; m end run 137; exit 0 ;;
+      slowkill) m start run; /bin/sleep 0.4; m end run 137; exit 0 ;;
+      buildkill) m start build; /bin/sleep 0.4; m end build 137; exit 0 ;;
     esac
     # An outside kill can land after the driver already reported a case.
     case "$FAKE_DOCKER" in oom) exit 137 ;; killed) printf '\n@@codemm case 01 0 2\n3\n'; exit 137 ;; esac

@@ -107,33 +107,56 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
 export const RUN_LIMIT_MS = 120_000;
 
 // The shell stays PID 1 (no exec), so timeout's kill reaches the program; a kill aimed at PID 1 from inside is
-// ignored. Then `kill -9 -1` clears what the program left behind (a script's own child can outlive its shell).
-const PROGRAM_DRIVER = `if [ -n "\${CODEMM_BUILD:-}" ]; then timeout -s KILL ${BUILD_SECONDS} sh -c "$CODEMM_BUILD" || exit $?; fi
+// ignored. `kill -9 -1` clears what the program left behind (a script's own child can outlive its shell).
+// Markers on stderr say when each stage starts and how it ended, then the driver exits 0: an end marker means
+// the driver finished, whatever the program printed or returned, and the host times each stage from its start.
+const PROGRAM_DRIVER = `mark() { printf '\\n@@codemm-run %s\\n' "$*" >&2; }
+if [ -n "\${CODEMM_BUILD:-}" ]; then
+  mark start build
+  timeout -s KILL "$CODEMM_BUILD_S" sh -c "$CODEMM_BUILD"; c=$?
+  if [ "$c" != 0 ]; then kill -9 -1 2>/dev/null; mark end build "$c"; exit 0; fi
+fi
+mark start run
 timeout -s KILL "$CODEMM_TIME_S" sh -c "$CODEMM_RUN"; c=$?
 kill -9 -1 2>/dev/null
-exit $c`;
+mark end run "$c"
+exit 0`;
 
-const RUNTIME_LOST = /cannot connect to the docker daemon|error during connect|error waiting for container/i;
-
-/** `stopped`: the learner stopped it. `timedOut`: Run's time limit did. `outOfMemory`: the runtime recorded a memory-limit kill. */
-export type ProgramResult = { exit: number; timedOut: boolean; flooded: boolean; stopped?: boolean; outOfMemory?: boolean };
+/**
+ * `stage`: where it ended, the build or the run. `timedOut`: that stage's time limit killed it. `stopped`: the
+ * learner stopped it. `outOfMemory`: the runtime recorded a memory-limit kill. `exit` is the program's own code.
+ */
+export type ProgramResult = { exit: number; stage?: "build" | "run"; timedOut: boolean; flooded: boolean; stopped?: boolean; outOfMemory?: boolean };
 export type ProgramRun = { write(text: string): boolean; kill(): void; done: Promise<ProgramResult> };
+export type ProgramLimits = { limitMs?: number; buildLimitMs?: number };
 
 /**
  * Run: the learner's program, interactively, with typed stdin and its output as it comes. Only the learner's
  * files are mounted, never tests. The build, then the run command, in the full sandbox, time-limited. Not graded.
  */
-export function runProgram(track: JudgeTrack, src: FileMap, output: (text: string, stream: "stdout" | "stderr") => void, limitMs = RUN_LIMIT_MS): ProgramRun {
+export function runProgram(track: JudgeTrack, src: FileMap, output: (text: string, stream: "stdout" | "stderr") => void, limits: ProgramLimits = {}): ProgramRun {
   if (!track.run) throw new CodemmError("This track has no run command, so Run isn't available.");
+  const limitMs = limits.limitMs ?? RUN_LIMIT_MS;
+  const buildLimitMs = limits.buildLimitMs ?? BUILD_SECONDS * 1000;
   const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
   const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
   const say = (stream: "stdout" | "stderr", text: string) => text && output(text, stream);
   const began = Date.now();
+  const stageStart: Partial<Record<"build" | "run", number>> = {};
+  let ended: { stage: "build" | "run"; code: number; at: number } | undefined;
+  const markers = runMarkers(
+    (text) => say("stderr", text),
+    ([what, stage, code]) => {
+      if (stage !== "build" && stage !== "run") return;
+      if (what === "start") stageStart[stage] = Date.now();
+      if (what === "end" && code !== undefined && /^\d+$/.test(code)) ended = { stage, code: Number(code), at: Date.now() };
+    },
+  );
   let stopped = false;
   let started: ReturnType<typeof startSandboxed>;
   try {
     writeFileMap(join(dir, "src"), src);
-    const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_TIME_S: seconds(limitMs) };
+    const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_TIME_S: seconds(limitMs), CODEMM_BUILD_S: seconds(buildLimitMs) };
     if (track.build) env.CODEMM_BUILD = track.build;
     started = startSandboxed(
       {
@@ -142,28 +165,33 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
         env,
         mounts: [{ host: join(dir, "src"), container: "/work/src" }],
         memoryMb: track.limits.memory_mb,
-        deadlineMs: (track.build ? BUILD_SECONDS * 1000 : 0) + limitMs + 5_000,
+        deadlineMs: (track.build ? buildLimitMs : 0) + limitMs + 5_000,
         stdin: true,
       },
-      { stdout: (b) => say("stdout", decoders.stdout.write(b)), stderr: (b) => say("stderr", decoders.stderr.write(b)) },
+      { stdout: (b) => say("stdout", decoders.stdout.write(b)), stderr: (b) => markers.write(decoders.stderr.write(b)) },
     );
   } catch (e) {
     rmSync(dir, { recursive: true, force: true });
     throw e;
   }
   const done = started.done
-    .then(async (r): Promise<ProgramResult> => {
+    .then((r): ProgramResult => {
       say("stdout", decoders.stdout.end());
-      say("stderr", decoders.stderr.end());
+      markers.write(decoders.stderr.end());
+      markers.end();
       if (r.cleanupFailed) throw new CodemmError("A run container couldn't be removed. Run `codemm doctor --fix`, then retry.");
       // What Codemm stopped first: the learner, the host deadline or the output cap.
       if (stopped || r.timedOut || r.flooded) return { exit: r.exit, timedOut: r.timedOut, flooded: r.flooded, ...(stopped ? { stopped } : {}) };
-      if (r.exit === -1 || r.exit === 125 || RUNTIME_LOST.test(r.stderr) || (r.exit !== 0 && (await runtimeDown()))) {
-        throw new CodemmError(`The container runtime failed during the run. ${startHelp()}`);
+      const memory = r.oomKilled ? { outOfMemory: true } : {};
+      if (ended) {
+        // Killed (137) once its stage's time was up: it ran out of time. Any other code is the program's own.
+        const limit = ended.stage === "build" ? buildLimitMs : limitMs;
+        const timedOut = ended.code === 137 && ended.at - (stageStart[ended.stage] ?? began) >= limit - 50;
+        return { exit: ended.code, stage: ended.stage, timedOut, flooded: false, ...memory };
       }
-      // A program killed (137) once Run's time was up ran out of time; a program's own exit code is its own.
-      const timedOut = r.exit === 137 && Date.now() - began >= limitMs;
-      return { exit: r.exit, timedOut, flooded: false, ...(r.oomKilled ? { outOfMemory: true } : {}) };
+      // No end marker: the driver itself was killed. Only a memory-limit kill is the program's doing.
+      if (r.oomKilled) return { exit: 137, timedOut: false, flooded: false, ...memory };
+      throw new CodemmError(`The container runtime failed during the run. ${startHelp()}`);
     })
     .finally(() => rmSync(dir, { recursive: true, force: true }));
   return {
@@ -173,6 +201,47 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       started.kill();
     },
     done,
+  };
+}
+
+const MARK = "\n@@codemm-run ";
+
+/**
+ * Splits the driver's markers ("\n@@codemm-run <fields>\n") out of Run's stderr as it streams. The program's own
+ * text passes through at once, except a tail that could still become a marker, which waits for the next chunk.
+ */
+export function runMarkers(onText: (text: string) => void, onMarker: (fields: string[]) => void) {
+  let held = "";
+  const text = (t: string) => t && onText(t);
+  return {
+    write(chunk: string) {
+      let buf = held + chunk;
+      held = "";
+      for (;;) {
+        const at = buf.indexOf(MARK);
+        if (at < 0) {
+          let keep = Math.min(buf.length, MARK.length - 1);
+          while (keep > 0 && !MARK.startsWith(buf.slice(buf.length - keep))) keep--;
+          text(buf.slice(0, buf.length - keep));
+          held = buf.slice(buf.length - keep);
+          return;
+        }
+        text(buf.slice(0, at));
+        const end = buf.indexOf("\n", at + MARK.length);
+        if (end < 0) {
+          // A real marker is short; a long line that only starts like one is the program's own text.
+          if (buf.length - at > 256) text(buf.slice(at));
+          else held = buf.slice(at);
+          return;
+        }
+        onMarker(buf.slice(at + MARK.length, end).split(" "));
+        buf = buf.slice(end + 1);
+      }
+    },
+    end() {
+      text(held);
+      held = "";
+    },
   };
 }
 

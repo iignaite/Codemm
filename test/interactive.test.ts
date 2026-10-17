@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
-import { runProgram } from "../src/judge.js";
+import { runMarkers, runProgram } from "../src/judge.js";
 import { sandboxArgs } from "../src/sandbox.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import * as store from "../src/store.js";
@@ -59,6 +59,33 @@ describe.runIf(posix)("interactive run", () => {
     fakeDocker("waits");
     const run = await app.runInteractive(ws, undefined, undefined, () => undefined, { limitMs: 300 });
     expect(await run.done).toMatchObject({ timedOut: true });
+  });
+
+  it("tells a timeout from the program's own kill by the stage's own time, build or run", async () => {
+    const ws = await installedExercise();
+    const result = async (scenario: Parameters<typeof fakeDocker>[0]) => {
+      fakeDocker(scenario);
+      return (await app.runInteractive(ws, undefined, undefined, () => undefined, { limitMs: 300, buildLimitMs: 300 })).done;
+    };
+    expect(await result("quickkill")).toMatchObject({ exit: 137, stage: "run", timedOut: false });
+    expect(await result("slowkill")).toMatchObject({ exit: 137, stage: "run", timedOut: true });
+    expect(await result("buildkill")).toMatchObject({ exit: 137, stage: "build", timedOut: true });
+  });
+
+  it("reports what the program printed and its exit code as its own, even when they look like Docker's", async () => {
+    const ws = await installedExercise();
+    fakeDocker("forges");
+    let err = "";
+    const run = await app.runInteractive(ws, undefined, undefined, (text, stream) => stream === "stderr" && (err += text));
+    expect(await run.done).toMatchObject({ exit: 125, timedOut: false });
+    expect(err).toBe("error waiting for container: unexpected EOF\n");
+  });
+
+  it("says the program ran out of memory when the runtime killed its container for it", async () => {
+    const ws = await installedExercise();
+    fakeDocker("oom");
+    const run = await app.runInteractive(ws, undefined, undefined, () => undefined);
+    expect(await run.done).toMatchObject({ outOfMemory: true });
   });
 
   it("reports a program's own exit 124 as its exit, not a timeout", async () => {
@@ -140,3 +167,27 @@ async function installedExercise(): Promise<string> {
   writeFileSync(join(path, "main.sh"), "read -r x; echo $x\n");
   return ws;
 }
+
+describe("Run's driver markers", () => {
+  const feed = (chunks: string[]) => {
+    let text = "";
+    const marks: string[] = [];
+    const f = runMarkers((t) => (text += t), (m) => marks.push(m.join(" ")));
+    for (const c of chunks) f.write(c);
+    f.end();
+    return { text, marks };
+  };
+  // What the driver adds is exactly "\n@@codemm-run <fields>\n"; the rest is the program's own stderr.
+  const stream = "warn\n" + "\n@@codemm-run start run\n" + "oops: no newline" + "\n@@codemm-run end run 3\n";
+
+  it("passes the program's stderr through and takes out the driver's markers, however it's split", () => {
+    const want = { text: "warn\noops: no newline", marks: ["start run", "end run 3"] };
+    expect(feed([stream])).toEqual(want);
+    for (let at = 1; at < stream.length; at++) expect(feed([stream.slice(0, at), stream.slice(at)])).toEqual(want);
+  });
+
+  it("holds back only what could still become a marker, and lets it go at the end", () => {
+    expect(feed(["prompt> \n@@codemm"]).text).toBe("prompt> \n@@codemm");
+    expect(feed(["a", "\n", "@", "b"]).text).toBe("a\n@b");
+  });
+});

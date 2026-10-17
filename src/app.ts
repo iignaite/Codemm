@@ -3,7 +3,7 @@ import { CodemmError } from "./errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./files.js";
 import { checkTrackFiles, verifyExercise, verifyTrack } from "./gates.js";
 import type { TestResult, TestSet } from "./grading.js";
-import { gradeIoRun, gradeUnitRun, type IoRun, type ProgramRun, runIo, runProgram, runUnit, type UnitRun } from "./judge.js";
+import { gradeIoRun, gradeUnitRun, type IoRun, type ProgramLimits, type ProgramRun, runIo, runProgram, runUnit, type UnitRun } from "./judge.js";
 import { type LearnerEvent, MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
 import { assertRuntime, cli as sandboxCli, inspectImage } from "./sandbox.js";
 import { assertNotes, type CourseRecord, type ExerciseRecord, parseLesson, parseRoadmapYaml, type TrackRecord } from "./schemas.js";
@@ -480,13 +480,13 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
  * Run: the learner's program, interactively, in the sandbox, with typed stdin and live output. io tracks only.
  * Never recorded; infrastructure failures reject `done`.
  */
-export async function runInteractive(ws: string, slug: string | undefined, bound: string | undefined, output: (text: string, stream: "stdout" | "stderr") => void, opts: { limitMs?: number } = {}): Promise<ProgramRun> {
+export async function runInteractive(ws: string, slug: string | undefined, bound: string | undefined, output: (text: string, stream: "stdout" | "stderr") => void, limits: ProgramLimits = {}): Promise<ProgramRun> {
   const ctx = loadExercise(ws, slug, bound);
   if (!ctx.track.run) throw new CodemmError("This track has no run command, so Run isn't available.");
   await ensureImage(ctx.track);
   store.materialize(ws, ctx.rel, learnerFiles(ctx.record, ctx.files, ctx.track));
   const src = store.readLearnerFiles(ws, ctx.rel, ctx.track.files);
-  return runProgram({ ...ctx.track, image: ctx.track.imageId }, src, output, opts.limitMs);
+  return runProgram({ ...ctx.track, image: ctx.track.imageId }, src, output, limits);
 }
 
 /** Runs the visible tests only. Never recorded. */

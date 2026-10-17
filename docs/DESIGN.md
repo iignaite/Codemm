@@ -162,9 +162,13 @@ Other ceilings:
 - **Sandbox:** the same `startSandboxed` path and every flag above. The only addition is `-i`, which keeps stdin open, so typed lines reach the program.
 - **What's mounted:** only the learner's files, at `/work/src`. No tests.
 - **Driver:** the build, if the track has one (60 s), then the run command, with stdout and stderr streamed as they come.
-- **Time limit:** 120 s, because a person is typing. A program killed once the time is up is reported as timed out, while a program's own exit code is reported as it is. The host deadline, the 4 MB cap and checked removal apply as for checks.
+- **How it ended:** the driver writes short markers to stderr when each stage starts and how it ended, then exits 0. The host strips the markers from what the learner sees.
+  - An end marker means the driver finished, so the program's own exit code and output are reported as they are, even when they look like Docker's.
+  - A stage killed after its time limit (120 s for the run, because a person is typing; 60 s for the build) is timed out, measured from that stage's start.
+  - No end marker means Codemm stopped it (the learner, the host deadline or the 4 MB cap), the runtime killed it for memory, or Docker failed. Only that last case is an infrastructure failure.
+  - A program could forge markers, but only about its own unrecorded run.
 - **Input:** typed input is bounded: one write is at most 64 KB, and at most 1 MB may wait unread. Beyond that, and after the end, input is dropped.
-- **Failures:** a dropped connection to Docker (exit 125) is an infrastructure failure. The container is removed with a checked command, and nothing is shown as the program's result.
+- **Failures:** if Docker's connection drops (exit 125), the container is removed with a checked command.
 - **Unit tracks:** they have no run command, so they have no Run.
 
 `codemm doctor` checks the container CLI and daemon. It also proves `--network none` blocks a host TCP server that a networked container can reach.

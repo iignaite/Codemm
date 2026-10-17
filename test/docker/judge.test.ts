@@ -24,13 +24,20 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
     let out = "";
     const run = runProgram(ioTrack, { "main.sh": 'printf "name? "; read -r n; echo "hello $n"\n' }, (text) => (out += text));
     run.write("Ada\n");
-    expect(await run.done).toEqual({ exit: 0, timedOut: false, flooded: false });
-    expect(out).toBe("name? hello Ada\n");
+    expect(await run.done).toEqual({ exit: 0, stage: "run", timedOut: false, flooded: false });
+    expect(out).toBe("name? hello Ada\n"); // the driver's stderr markers never reach the learner
+  });
+
+  it("Run: reports a program's own exit code and stderr as its own", async () => {
+    let err = "";
+    const run = runProgram(ioTrack, { "main.sh": 'echo "error waiting for container" >&2; exit 125\n' }, (text, stream) => stream === "stderr" && (err += text));
+    expect(await run.done).toMatchObject({ exit: 125, stage: "run", timedOut: false });
+    expect(err).toBe("error waiting for container\n");
   });
 
   it("Run: stops a program at its time limit and leaves no container", async () => {
-    const run = runProgram(ioTrack, { "main.sh": "read -r n\n" }, () => undefined, 1_000);
-    expect((await run.done).timedOut).toBe(true);
+    const run = runProgram(ioTrack, { "main.sh": "read -r n\n" }, () => undefined, { limitMs: 1_000 });
+    expect(await run.done).toMatchObject({ stage: "run", timedOut: true });
     // --rm finishes removing it just after the exit.
     await expect.poll(() => ownedContainers(), { timeout: 10_000 }).toEqual([]);
   });
