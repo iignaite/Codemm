@@ -37,7 +37,8 @@ export interface CoreRoadmap {
 
 export type CoreNextStep =
   | { kind: 'practice'; exercise: string; concept: string; lesson?: string | null }
-  | { kind: 'author'; concept: string; difficulty: number; lesson?: string | null }
+  | { kind: 'author'; concept: string; difficulty: number; lesson?: string | null; review?: true }
+  | { kind: 'review'; concept: string; difficulty: number; exercise: string }
   | { kind: 'setup'; track: string }
   | { kind: 'stuck'; concept: string }
   | { kind: 'done' };
@@ -46,7 +47,8 @@ export interface CoreProgress {
   course: string;
   goal: string;
   track: string;
-  concepts: { id: string; title: string; requires: string[]; mastery: number; mastered: boolean; attempts: number; stuck: boolean }[];
+  /** `reviewDue`: when a mastered concept's next review is due (core §7). */
+  concepts: { id: string; title: string; requires: string[]; mastery: number; mastered: boolean; attempts: number; stuck: boolean; reviewDue?: string }[];
   next: CoreNextStep;
 }
 

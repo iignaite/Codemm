@@ -18,7 +18,7 @@ const BUSY = { proposing: 'Preparing setup for', installing: 'Setting up' } as c
 export function TopicPage({ topicId }: { topicId: string }) {
   const api = useApi();
   const { fail } = useRouter();
-  const { data: course, error, reload } = useLoad(() => api.course(), [topicId], settled);
+  const { data: course, error, reload } = useLoad(() => api.course(), [topicId], settled, undefined, true);
   const [consentClosed, setConsentClosed] = useState(false);
   const [consentError, setConsentError] = useState<string>();
   if (error) return <Failed error={error} retry={reload} />;
@@ -83,11 +83,11 @@ function Items({ topic }: { topic: TopicView }) {
       ))}
       <div className={`row a-up${open ? '' : ' off'}`} style={stagger(topic.lessons.length, 300)}>
         <Icon name="code" color="#5B6A84" size={18} />
-        <span style={{ flex: 1 }}>Activity</span>
+        <span style={{ flex: 1 }}>{topic.review ? 'Review' : 'Activity'}</span>
         {open ? (
           <Button onClick={() => go({ to: 'practice', concept: topic.id })}>{topic.activity === 'passed' ? 'Again' : 'Start'}</Button>
         ) : topic.activity === 'writing' ? (
-          <span className="shim" style={{ width: 96 }} role="img" aria-label="Writing the activity" />
+          <span className="shim" style={{ width: 96 }} role="img" aria-label={topic.review ? 'Writing the review' : 'Writing the activity'} />
         ) : (
           <span role="img" aria-label="Opens after the lessons"><Icon name="lock" color="#5B6A84" size={16} /></span>
         )}
