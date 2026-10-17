@@ -31,7 +31,7 @@ export type LessonPart = { html: string } | { example: number };
 export function lessonParts(text: string): LessonPart[] {
   const env = {};
   const tokens = md.parse(text, env);
-  const lines = text.split(/\r?\n/);
+  const lines = text.split(/\r\n?|\n/);
   const parts: LessonPart[] = [];
   let chunk: typeof tokens = [];
   const flush = () => {
@@ -39,8 +39,8 @@ export function lessonParts(text: string): LessonPart[] {
     chunk = [];
   };
   for (const token of tokens) {
-    // Three lines (open, N, close), so neither blank lines nor a fence left open at the end count.
-    const block = token.map && token.map[1] - token.map[0] === 3 && /^[`~]/.test(lines[token.map[0]] ?? '');
+    // The same test as core's exampleRefs (src/schemas.ts): three lines (open, N, close), unindented.
+    const block = token.map !== null && token.map[1] - token.map[0] === 3 && /^[`~]/.test(lines[token.map[0]] ?? '');
     if (token.type === 'fence' && token.level === 0 && block && token.info.trim() === 'example' && /^[ \t]*\d+[ \t]*\n$/.test(token.content)) {
       flush();
       parts.push({ example: Number(token.content.trim()) });

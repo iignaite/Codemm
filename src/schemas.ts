@@ -1,3 +1,4 @@
+import MarkdownIt from "markdown-it";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { CodemmError } from "./errors.js";
@@ -202,32 +203,20 @@ const LessonInput = z
   .refine((l) => Buffer.byteLength(l.markdown) <= MAX_LESSON_BYTES, { message: "markdown is larger than 64 KB", path: ["markdown"] });
 export type LessonInput = z.infer<typeof LessonInput>;
 
+/** CommonMark, as the app renders lessons (raw HTML off), so core and the app see the same blocks. */
+const markdown = new MarkdownIt({ html: false, linkify: false });
+
 /**
- * Where the Markdown places example N: an unindented fence (``` or ~~~) whose info string is `example`, then one line
- * holding N, then the closing fence. Any fence indented up to 3 spaces starts a code block whose contents are shown,
- * never run (CommonMark). The app's renderer finds exactly the same blocks.
+ * Where the Markdown places example N: a top-level, unindented fence (``` or ~~~) whose info string is `example`,
+ * holding one line with N, closed by the next line. The app's renderer (desktop ui/Markdown.tsx) applies the same
+ * test to the same markdown-it tokens.
  */
-export function exampleRefs(markdown: string): number[] {
-  const lines = markdown.split(/\r?\n/);
-  const fenceAt = (i: number) => /^( {0,3})(`{3,}|~{3,})(.*)$/.exec(lines[i] ?? "");
-  const closes = (i: number, open: string) => {
-    const m = fenceAt(i);
-    return !!m && m[2]![0] === open[0] && m[2]!.length >= open.length && m[3]!.trim() === "";
-  };
-  const refs: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const m = fenceAt(i);
-    if (!m || (m[2]![0] === "`" && m[3]!.includes("`"))) continue;
-    const open = m[2]!;
-    if (m[1] === "" && m[3]!.trim() === "example" && /^[ \t]*\d+[ \t]*$/.test(lines[i + 1] ?? "") && closes(i + 2, open)) {
-      refs.push(Number(lines[i + 1]!.trim()));
-      i += 2;
-      continue;
-    }
-    // Skip the rest of this fence: anything inside it is shown, not run.
-    for (i++; i < lines.length && !closes(i, open); i++);
-  }
-  return refs;
+export function exampleRefs(text: string): number[] {
+  const lines = text.split(/\r\n?|\n/);
+  return markdown.parse(text, {}).flatMap((t) => {
+    const block = t.map !== null && t.map[1] - t.map[0] === 3 && /^[`~]/.test(lines[t.map[0]] ?? "");
+    return t.type === "fence" && t.level === 0 && block && t.info.trim() === "example" && /^[ \t]*\d+[ \t]*\n$/.test(t.content) ? [Number(t.content.trim())] : [];
+  });
 }
 
 /** A lesson as the agent saves it: static Markdown for one roadmap concept, and optional runnable examples. */

@@ -83,10 +83,16 @@ describe("lesson examples", () => {
     expect(exampleRefs("~~~example\n2\n~~~\n")).toEqual([2]);
   });
 
-  it("agrees with the renderer on the edge cases: blank lines, no closing fence, an outer fence indented up to 3 spaces", () => {
-    expect(exampleRefs("```example\n\n1\n\n```\n")).toEqual([]);
-    expect(exampleRefs("```example\n1\n")).toEqual([]);
-    expect(exampleRefs("   ````md\n```example\n1\n```\n   ````\n")).toEqual([]);
+  // The app's renderer pins the same cases (desktop ui/Markdown.test.tsx): both use markdown-it's tokens.
+  it.each([
+      ["- item\n  ~~~text\n  code\n\n~~~example\n1\n~~~", [1]],
+      ["~~~example\n1\n~~~\u00a0", []],
+      ["~~~example\r1\r~~~", [1]],
+      ["```example\n\n1\n\n```\n", []],
+      ["```example\n1\n", []],
+      ["   ````md\n```example\n1\n```\n   ````\n", []],
+    ])("finds the same example blocks as the app in %j", (text, refs) => {
+    expect(exampleRefs(text as string)).toEqual(refs);
   });
 
   it("accepts examples that are each referenced", () => {

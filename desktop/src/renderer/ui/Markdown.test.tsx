@@ -44,10 +44,16 @@ describe('lessonParts', () => {
     expect((parts[0] as { html: string }).html).toContain('href="https://example.com/docs"');
   });
 
-  it('agrees with core on the edge cases: blank lines, no closing fence, an outer fence indented up to 3 spaces', () => {
-    for (const text of ['```example\n\n1\n\n```\n', '```example\n1\n', '   ````md\n```example\n1\n```\n   ````\n']) {
-      expect(lessonParts(text).every((p) => 'html' in p)).toBe(true);
-    }
+  // Core pins the same cases (test/schemas.test.ts): both use markdown-it's tokens.
+  it.each([
+      ["- item\n  ~~~text\n  code\n\n~~~example\n1\n~~~", [1]],
+      ["~~~example\n1\n~~~\u00a0", []],
+      ["~~~example\r1\r~~~", [1]],
+      ["```example\n\n1\n\n```\n", []],
+      ["```example\n1\n", []],
+      ["   ````md\n```example\n1\n```\n   ````\n", []],
+    ])('finds the same example blocks as core in %j', (text, refs) => {
+    expect(lessonParts(text as string).flatMap((p) => ('example' in p ? [p.example] : []))).toEqual(refs);
   });
 
   it('shows, never runs, an example fence inside another fence or indented', () => {
