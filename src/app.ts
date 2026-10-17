@@ -309,7 +309,7 @@ function trackContract(track: TrackRecord, style: string): TrackContract {
 }
 
 const pickFor = (course: CourseRecord) =>
-  pickNext(course, store.listExercises(course.course), store.readEvents(course.course), store.listLessons(course.course));
+  pickNext(course, store.listExercises(course.course), store.readEvents(course.course), store.listLessons(course.course), new Date().toISOString());
 
 export function nextStep(ws: string, bound?: string): NextStep {
   const course = activeCourse(ws, bound);
@@ -453,7 +453,22 @@ function present(slug: string, tests: TestResult[], recorded: boolean, note?: st
   };
 }
 
-async function judge(ws: string, slug: string | undefined, includeHidden: boolean, bound?: string) {
+/**
+ * Progress through a check. io reports each visible test as it finishes; hidden tests, and unit tests (whose
+ * runner reports at the end), report their phase once with `total` 0. Nothing about a test leaves but counts (DESIGN §4.2).
+ */
+export type CheckProgress = { phase: "building" | "visible" | "hidden"; done: number; total: number };
+
+async function judge(ws: string, slug: string | undefined, includeHidden: boolean, bound?: string, listener?: (p: CheckProgress) => void) {
+  // A listener that throws is dropped; the check goes on.
+  let heard = listener;
+  const onProgress = heard && ((p: CheckProgress) => {
+    try {
+      heard?.(p);
+    } catch {
+      heard = undefined;
+    }
+  });
   const ctx = loadExercise(ws, slug, bound);
   const { record, files, rel } = ctx;
   await ensureImage(ctx.track);
@@ -465,10 +480,21 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
   for (const set of sets) {
     const t = subMap(files, `tests/${set}`);
     if (record.style === "io") {
-      const run: IoRun = await runIo(track, set, src, t);
+      // Hidden tests report their phase only: per-test timing could hint at what a hidden input does.
+      if (set === "hidden") onProgress?.({ phase: "hidden", done: 0, total: 0 });
+      const total = Object.keys(t).filter((p) => p.endsWith(".in")).length;
+      const report = (done: number) => onProgress?.({ phase: "visible", done: Math.min(done, total), total });
+      // The build runs in each set's container; it shows once, before the visible tests.
+      if (set === "visible") {
+        if (track.build) onProgress?.({ phase: "building", done: 0, total: 0 });
+        else report(0);
+      }
+      const follow = onProgress && set === "visible" ? { onProgress: (m: "built" | number) => report(m === "built" ? 0 : m) } : {};
+      const run: IoRun = await runIo(track, set, src, t, follow);
       const expected = Object.fromEntries(Object.entries(record.expected ?? {}).filter(([k]) => k.startsWith(`${set}/`)));
       tests.push(...gradeIoRun(run, expected));
     } else {
+      onProgress?.({ phase: set, done: 0, total: 0 });
       const run: UnitRun = await runUnit(track, src, t);
       tests.push(...gradeUnitRun(set, run, record.inventory?.[set]));
     }
@@ -490,8 +516,8 @@ export async function runInteractive(ws: string, slug: string | undefined, bound
 }
 
 /** Runs the visible tests only. Never recorded. */
-export async function testExercise(ws: string, slug?: string, bound?: string): Promise<CheckView> {
-  const { record, tests } = await judge(ws, slug, false, bound);
+export async function testExercise(ws: string, slug?: string, bound?: string, onProgress?: (p: CheckProgress) => void): Promise<CheckView> {
+  const { record, tests } = await judge(ws, slug, false, bound, onProgress);
   return present(record.slug, tests, false);
 }
 
@@ -499,8 +525,8 @@ export async function testExercise(ws: string, slug?: string, bound?: string): P
  * Runs every test and records the attempt. Infrastructure failures throw before anything is recorded.
  * A check of the unedited starter is graded but records no check event: it isn't an attempt (DESIGN §7).
  */
-export async function checkExercise(ws: string, slug?: string, bound?: string): Promise<CheckView> {
-  const { course, config, record, files, track, src, tests } = await judge(ws, slug, true, bound);
+export async function checkExercise(ws: string, slug?: string, bound?: string, onProgress?: (p: CheckProgress) => void): Promise<CheckView> {
+  const { course, config, record, files, track, src, tests } = await judge(ws, slug, true, bound, onProgress);
   const unedited = track.files.every((f) => src[f] === files[`starter/${f}`]);
   const passed = tests.filter((t) => t.status === "pass").length;
   await store.withLock(store.courseLockPath(course.course), async () => {
@@ -532,6 +558,7 @@ export function progress(ws: string, bound?: string) {
       return {
         id: c.id, title: c.title, requires: c.requires, mastery: Math.round(mastery * 1000) / 1000,
         mastered: mastery >= MASTERED, difficulty: s?.difficulty ?? 1, attempts: s?.attempts ?? 0, stuck: s?.stuck ?? false,
+        ...(s?.review ? { reviewDue: s.review.due } : {}),
       };
     }),
     next: nextStep(ws, bound),

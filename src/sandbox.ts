@@ -23,6 +23,8 @@ export type SandboxRun = {
   deadlineMs: number;
   /** Keep the program's stdin open for typed input (`docker run -i`); Run only. */
   stdin?: boolean;
+  /** Each stdout chunk as it arrives, within the output cap (for progress; the result still carries all of it). */
+  onStdout?: (chunk: Buffer) => void;
 };
 /** `oomKilled`: the runtime recorded that the container hit its memory limit (exit 137 from inside, not a kill from outside). */
 export type SandboxResult = { exit: number; stdout: Buffer; stderr: string; flooded: boolean; timedOut: boolean; cleanupFailed: boolean; oomKilled: boolean };
@@ -198,7 +200,7 @@ export function startSandboxed(run: SandboxRun, output: SandboxOutput = {}): Sta
 }
 
 export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
-  return startSandboxed(run).done;
+  return startSandboxed(run, run.onStdout ? { stdout: run.onStdout } : {}).done;
 }
 
 /**

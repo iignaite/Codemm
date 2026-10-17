@@ -91,7 +91,8 @@ export function createServer(ws: string, version: string, { course, tools, deskt
     "next_step",
     {
       description:
-        "What to do next: setup (install the track), practice an existing exercise, author a new one (concept, difficulty, style, track), stuck, or done. " +
+        "What to do next: setup (install the track), practice an existing exercise, review a mastered concept on an exercise (a check keeps it mastered), " +
+        "author a new one (concept, difficulty, style, track; review: true when it's for a review), stuck, or done. " +
         "On practice and author, lesson is null when the concept needs a lesson first, or the id of a lesson the learner hasn't read yet; teach before the activity until it's gone.",
     },
     () => respond(() => app.nextStep(ws, course)),

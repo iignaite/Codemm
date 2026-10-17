@@ -15,6 +15,11 @@ describe('settled', () => {
     expect(settled(course({ setup: 'proposing', stalled: 'failed' }))).toBe(true);
   });
 
+  it('keeps reading while a review is being written on a mastered topic', () => {
+    expect(settled(course({ topics: [topic({ state: 'mastered', activity: 'writing', review: 'writing' })] }))).toBe(false);
+    expect(settled(course({ topics: [topic({ state: 'mastered', activity: 'open', review: 'due' })] }))).toBe(true);
+  });
+
   it('keeps reading while setup installs, even when other work stopped', () => {
     expect(settled(course({ setup: 'installing', stalled: 'failed' }))).toBe(false);
   });
