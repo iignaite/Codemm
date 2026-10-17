@@ -29,11 +29,47 @@ export function containerCli(): string {
   for (const cli of ["docker", "podman"]) {
     if (spawnSync(cli, ["--version"], { stdio: "ignore" }).status === 0) return cli;
   }
-  throw new CodemmError("No container runtime found. Install Docker Desktop (or Podman), start it and retry.");
+  throw new CodemmError(`No container runtime found. ${runtimeHelp()}`);
+}
+
+/** What to install and start on this OS. Codemm needs an engine that runs Linux containers. */
+export function runtimeHelp(platform: NodeJS.Platform = process.platform): string {
+  if (platform === "darwin") return "Install Docker Desktop for Mac (or Podman, experimental), start it and retry.";
+  if (platform === "win32") {
+    return "Install Docker Desktop for Windows with the WSL 2 backend (run `wsl --install` first if WSL 2 is missing), " +
+      "make sure it's set to Linux containers, start it and retry. Podman is experimental.";
+  }
+  return "Install Docker Engine (or Podman, experimental), start it (for example `sudo systemctl start docker`) " +
+    "and make sure your user may use it (the docker group, or rootless mode), then retry.";
+}
+
+/** How to start an installed engine that isn't running on this OS. */
+export function startHelp(platform: NodeJS.Platform = process.platform): string {
+  if (platform === "darwin" || platform === "win32") {
+    return "Start Docker Desktop (or `podman machine start` for Podman) and wait until it says it's running, then retry.";
+  }
+  return "Start Docker (for example `sudo systemctl start docker`) and make sure your user may use it " +
+    "(the docker group, or rootless mode), then retry.";
+}
+
+/** Asks the engine for its version and the kind of containers it runs. */
+export const RUNTIME_INFO = ["info", "--format", "{{.ServerVersion}}|{{.OSType}}"];
+
+/**
+ * Reads the RUNTIME_INFO answer. `docker info` exits 0 even when the daemon is down, so a running
+ * engine is one that reported a version.
+ */
+export function runtimeProblem(r: { exit: number; output: string }, platform: NodeJS.Platform = process.platform): string | undefined {
+  // A configured CLI that doesn't exist fails to spawn.
+  if (r.exit === -1 && /ENOENT/.test(r.output)) return `No container runtime found. ${runtimeHelp(platform)}`;
+  const m = /^(\S+)\|(\w+)\s*$/m.exec(r.output);
+  if (r.exit !== 0 || !m) return `The container runtime isn't running. ${startHelp(platform)}`;
+  if (m[2] === "windows") return "Docker is running Windows containers. Switch Docker Desktop to Linux containers and retry.";
+  return undefined;
 }
 
 /** The full `run` argument list. Pure, so the isolation flags are easy to test. */
-export function sandboxArgs(run: SandboxRun, name: string, user = posixUser()): string[] {
+export function sandboxArgs(run: SandboxRun, name: string, user = hostUser()): string[] {
   const args = [
     "run", "--rm", "--name", name, "--label", OWNER_LABEL, "--label", `codemm.pid=${process.pid}`,
     "--network", "none",
@@ -45,16 +81,17 @@ export function sandboxArgs(run: SandboxRun, name: string, user = posixUser()): 
     "--no-healthcheck", "--log-opt", "max-size=1m",
     "--entrypoint", "/bin/sh", "--workdir", "/work/src",
     "-e", "HOME=/tmp",
+    "--user", user,
   ];
-  if (user) args.push("--user", user);
   for (const [k, v] of Object.entries(run.env)) args.push("-e", `${k}=${v}`);
   for (const m of run.mounts) args.push("--mount", `type=bind,source=${m.host},target=${m.container},readonly`);
   args.push(run.image, "-c", run.script);
   return args;
 }
 
-function posixUser(): string | undefined {
-  return typeof process.getuid === "function" && typeof process.getgid === "function" ? `${process.getuid()}:${process.getgid()}` : undefined;
+/** The host user on POSIX. Windows has no uid, so there the code runs as the conventional unprivileged "nobody". */
+function hostUser(): string {
+  return typeof process.getuid === "function" && typeof process.getgid === "function" ? `${process.getuid()}:${process.getgid()}` : "65534:65534";
 }
 
 export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
@@ -146,18 +183,46 @@ export function cli(args: string[], timeoutMs = 60_000): Promise<{ exit: number;
   });
 }
 
-export async function assertRuntime(): Promise<void> {
-  const r = await cli(["info", "--format", "{{.ServerVersion}}"], 20_000);
-  if (r.exit !== 0) throw new CodemmError("The container runtime isn't running. Start Docker Desktop (or Podman) and retry.");
+/** Why the runtime can't run containers right now, or undefined when it can. */
+export async function runtimeDown(): Promise<string | undefined> {
+  return runtimeProblem(await cli(RUNTIME_INFO, 20_000));
 }
 
-/** Builds a track image from a staged folder. Networked; this is the separate trust boundary in DESIGN §4.4. */
-export async function buildImage(contextDir: string, tag: string, timeoutMs = 600_000): Promise<{ ok: boolean; log: string }> {
+export async function assertRuntime(): Promise<void> {
+  const problem = await runtimeDown();
+  if (problem) throw new CodemmError(problem);
+}
+
+const NOT_THE_TRACK = "This is not a problem with the track files, so retry with the same files";
+
+/** Reads a failed build's output for causes outside the track: no network, or no disk space. */
+export function buildProblem(log: string): string | undefined {
+  if (/no space left on device/i.test(log)) {
+    return `Docker ran out of disk space while building the track, so nothing was installed. ${NOT_THE_TRACK} ` +
+      "after freeing space (`docker system prune` removes unused images and build cache).";
+  }
+  const offline = /temporary failure (?:in name resolution|resolving)|could not resolve (?:host|proxy)|no such host|network is unreachable|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)/i;
+  const line = log.split("\n").find((l) => offline.test(l));
+  if (line) {
+    return `The track build couldn't reach the network (${line.trim().slice(0, 300)}), so nothing was installed. ` +
+      `Docker may be offline, or a VPN, proxy or firewall may be blocking it. ${NOT_THE_TRACK} once the connection works.`;
+  }
+  return undefined;
+}
+
+/**
+ * Builds a track image from a staged folder. Networked; this is the separate trust boundary in DESIGN §4.4.
+ * `problem` is set when the build failed for a reason outside the track (runtime, network or disk).
+ */
+export async function buildImage(contextDir: string, tag: string, timeoutMs = 600_000): Promise<{ ok: boolean; log: string; problem?: string }> {
   const args = ["build", "-t", tag];
   if (containerCli() === "docker") args.push("--progress", "plain");
   args.push(contextDir);
   const r = await cli(args, timeoutMs);
-  return { ok: r.exit === 0, log: r.output.slice(-8000) };
+  const log = r.output.slice(-8000);
+  if (r.exit === 0) return { ok: true, log };
+  const problem = (await runtimeDown()) ?? buildProblem(log);
+  return { ok: false, log, ...(problem ? { problem } : {}) };
 }
 
 export async function inspectImage(tag: string): Promise<{ id: string; hasVolumes: boolean } | undefined> {

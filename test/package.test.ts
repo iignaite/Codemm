@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,23 +7,29 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { beforeAll, describe, expect, it } from "vitest";
 import { readFileMap } from "../src/files.js";
 import { dockerUp } from "./docker/helpers.js";
+import { npm } from "./npm.js";
 
 const root = join(import.meta.dirname, "..");
-let bin: string;
+let codemm: { command: string; args: string[] };
 let files: string[];
 
 /** Builds and packs Codemm exactly as it would ship, then installs the tarball into a clean folder. */
 beforeAll(() => {
   const out = mkdtempSync(join(tmpdir(), "codemm-pack-"));
-  const packed = JSON.parse(execFileSync("npm", ["pack", "--json", "--pack-destination", out], { cwd: root, encoding: "utf8" }))[0];
+  const packed = JSON.parse(npm(["pack", "--json", "--pack-destination", out], root))[0];
   files = packed.files.map((f: { path: string }) => f.path);
   const prefix = mkdtempSync(join(tmpdir(), "codemm-install-"));
-  execFileSync("npm", ["install", "--prefix", prefix, "--prefer-offline", "--no-audit", "--no-fund", join(out, packed.filename)], { stdio: "ignore" });
-  bin = join(prefix, "node_modules", ".bin", "codemm");
+  npm(["install", "--prefix", prefix, "--prefer-offline", "--no-audit", "--no-fund", join(out, packed.filename)]);
+  // npm links a shell shim on POSIX. On Windows it links a .cmd shim, which Node won't spawn without
+  // a shell, so there the packed package's own bin entry runs with this Node.
+  const installed = join(prefix, "node_modules", "codemm");
+  codemm = process.platform === "win32"
+    ? { command: process.execPath, args: [join(installed, JSON.parse(readFileSync(join(installed, "package.json"), "utf8")).bin.codemm)] }
+    : { command: join(prefix, "node_modules", ".bin", "codemm"), args: [] };
 }, 300_000);
 
 const run = (args: string[], opts: { cwd?: string; input?: string; env?: NodeJS.ProcessEnv } = {}) =>
-  spawnSync(bin, args, { encoding: "utf8", ...opts, env: { ...process.env, ...opts.env } });
+  spawnSync(codemm.command, [...codemm.args, ...args], { encoding: "utf8", ...opts, env: { ...process.env, ...opts.env } });
 
 describe("packed artifact", () => {
   it("ships only the CLI: no tracks, toolchains, tests or v1 code", () => {
@@ -44,6 +50,8 @@ describe("packed artifact", () => {
     expect(init.status).toBe(0);
     expect(init.stdout).toContain(".mcp.json");
 
+    expect(run(["tracks"], { env }).stdout.trim()).toMatch(/^No tracks installed yet\..*codemm track add/);
+
     const status = run(["status"], { cwd: ws, env });
     expect(status.status).toBe(1);
     expect(status.stderr).toMatch(/No course/);
@@ -57,7 +65,7 @@ describe("packed artifact", () => {
     const ws = mkdtempSync(join(tmpdir(), "codemm-mcp-"));
     const home = mkdtempSync(join(tmpdir(), "codemm-home-"));
     const client = new Client({ name: "codemm-test", version: "1.0.0" });
-    await client.connect(new StdioClientTransport({ command: bin, args: ["mcp", "--workspace", ws], env: { ...process.env, CODEMM_HOME: home } as Record<string, string> }));
+    await client.connect(new StdioClientTransport({ command: codemm.command, args: [...codemm.args, "mcp", "--workspace", ws], env: { ...process.env, CODEMM_HOME: home } as Record<string, string> }));
     const call = async (name: string, args: Record<string, unknown> = {}) => {
       const r = await client.callTool({ name, arguments: args }, undefined, { timeout: 600_000 });
       const text = (r.content as { text: string }[])[0]!.text;
@@ -91,7 +99,7 @@ describe("packed artifact", () => {
     const ws = mkdtempSync(join(tmpdir(), "codemm-mcp-"));
     const client = new Client({ name: "codemm-test", version: "1.0.0" });
     await client.connect(
-      new StdioClientTransport({ command: bin, args: ["mcp", "--workspace", ws], env: { ...process.env, CODEMM_HOME: mkdtempSync(join(tmpdir(), "codemm-home-")) } as Record<string, string> }),
+      new StdioClientTransport({ command: codemm.command, args: [...codemm.args, "mcp", "--workspace", ws], env: { ...process.env, CODEMM_HOME: mkdtempSync(join(tmpdir(), "codemm-home-")) } as Record<string, string> }),
     );
     try {
       const { tools } = await client.listTools();
