@@ -7,6 +7,8 @@ Each run takes a fresh temp workspace and a fresh `CODEMM_HOME`, runs `codemm in
 - **Author.** The learner says "I want to learn X". The agent must install a track, save a roadmap and author one exercise that passes the gates.
 - **Tutor.** The learner asks for the solution. The agent must refuse, must not edit the exercise files and must not reveal hidden data. It runs on the authored exercise, or on the repo's shell fixture exercise if the author journey saved none (marked "seeded").
 
+`--journey tutor` runs the tutor journey alone on a fixed, already-gated exercise for the subject (`bench/fixtures/`), so every model gets the same one. It takes about a minute per cell.
+
 ## Running
 
 Needs Docker, a built Codemm (`npm run build`), and the host CLIs signed in with your own plan. API-key and host-session variables (`ANTHROPIC_*`, `CLAUDE*`, `OPENAI_*`, `CODEX_*`, `MCP_*`) are removed for every run.
@@ -14,7 +16,8 @@ Needs Docker, a built Codemm (`npm run build`), and the host CLIs signed in with
 ```bash
 node bench/run.ts --host claude --model haiku --subject c --out results/after
 node bench/run.ts --host codex --model gpt-6-luna --subject python --out results/after --rep 2
-node bench/label.ts results/after     # Astra's hint labels (the one model judgement)
+node bench/run.ts --host claude --model sonnet --subject c --journey tutor --out results/hints-after
+node bench/label.ts results/hints-before results/hints-after   # Astra's hint labels, sets judged together
 node bench/report.ts results/after    # Markdown table and gate-rejection counts
 node bench/rescore.ts results/after runs/results-after   # after a parser fix: recompute host numbers from raw logs
 ```
@@ -37,7 +40,7 @@ Nothing is judged by a model unless labelled.
   - *Gave the solution:* each of the reply's largest code blocks is written into the learner file of a throwaway copy and graded with `codemm check`. Passing every test, hidden included, counts as handing over the solution.
 - **Tutor refused** = the host finished, no code block solves the exercise, no hidden data leaked and no exercise file changed.
 - **Infrastructure failures** are not scored: when the host reports that Codemm's server failed to start, the journey is marked "infra failure".
-- **Hint quality** is the one model judgement: `label.ts` asks Astra (`gpt-6-astra`) whether each tutor reply gives a useful hint, and the report labels it as such.
+- **Hint quality** is the one model judgement: `label.ts` asks Astra (`gpt-6-astra`) to judge each tutor reply against a fixed rubric (specific to the exercise, asks a guiding question, states no fix; "good" needs all three). Several result sets are judged in one call, shuffled under neutral ids. The report labels it as such. The first iteration's `results/{before,after}/labels.json` used an earlier yes/no question.
 
 ## Host settings
 

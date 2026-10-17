@@ -17,10 +17,19 @@ describe("cleanupPlan", () => {
     expect(cleanupPlan(["codemm-track-x:1"], ["B"], before, after)).toEqual([["tag", "A", "codemm-track-x:1"]]);
   });
 
-  it("untags a new tag and removes its image, and leaves unchanged tags alone", () => {
+  it("untags a new tag (which removes its image), and leaves unchanged tags alone", () => {
     const before = snap({ "codemm-track-shell-io:1": "S" }, ["S"]);
     const after = snap({ "codemm-track-shell-io:1": "S", "codemm-track-python:1": "P" }, ["S", "P"]);
-    expect(cleanupPlan(["codemm-track-python:1", "codemm-track-shell-io:1"], ["P", "S"], before, after)).toEqual([["rmi", "--no-prune", "codemm-track-python:1"], ["rmi", "--no-prune", "P"]]);
+    expect(cleanupPlan(["codemm-track-python:1", "codemm-track-shell-io:1"], ["P", "S"], before, after)).toEqual([["rmi", "--no-prune", "codemm-track-python:1"]]);
+  });
+
+  it("restores tags before untagging, so a run-created image shared by both is removed", () => {
+    const before = snap({ "codemm-track-old:1": "A" }, ["A"]);
+    const after = snap({ "codemm-track-new:1": "B", "codemm-track-old:1": "B" }, ["A", "B"]);
+    expect(cleanupPlan(["codemm-track-new:1", "codemm-track-old:1"], ["B"], before, after)).toEqual([
+      ["tag", "A", "codemm-track-old:1"],
+      ["rmi", "--no-prune", "codemm-track-new:1"],
+    ]);
   });
 
   it("leaves a new tag that points at a pre-existing image, since untagging could delete that image", () => {
@@ -35,8 +44,9 @@ describe("cleanupPlan", () => {
   });
 
   it("removes images of failed installs that were never recorded in the store", () => {
+    expect(cleanupPlan([], ["U"], snap({}, []), snap({}, ["U"]))).toEqual([["rmi", "--no-prune", "U"]]);
     const after = snap({ "codemm-track-c:2": "F" }, ["F"]);
-    expect(cleanupPlan(["codemm-track-c:2", "codemm-track-c:3"], [], snap({}, []), after)).toEqual([["rmi", "--no-prune", "codemm-track-c:2"], ["rmi", "--no-prune", "F"]]);
+    expect(cleanupPlan(["codemm-track-c:2", "codemm-track-c:3"], [], snap({}, []), after)).toEqual([["rmi", "--no-prune", "codemm-track-c:2"]]);
   });
 });
 

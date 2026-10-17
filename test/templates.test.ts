@@ -5,7 +5,13 @@ import { AGENTS_SECTION, AUTHOR_AGENT } from "../src/templates.js";
 describe("tutor instructions (AGENTS.md section)", () => {
   it("forbids the solution in chat as well as in files, and asks for a hint about the actual exercise", () => {
     expect(AGENTS_SECTION).toMatch(/not in chat/i);
-    expect(AGENTS_SECTION).toMatch(/call `get_exercise` and give one hint/);
+    expect(AGENTS_SECTION).toMatch(/first call `get_exercise` yourself \(don't ask which exercise\) and read their code\. Then give one hint/);
+  });
+
+  it("defines a good hint: name the one problem, ask one question, never state the fix", () => {
+    expect(AGENTS_SECTION).toMatch(/name the one thing that's missing or wrong/);
+    expect(AGENTS_SECTION).toMatch(/ask one question/);
+    expect(AGENTS_SECTION).toMatch(/Don't state the fix, write the code or list the steps/);
   });
 
   it("says which tools the tutor calls itself and which go through the author subagent", () => {

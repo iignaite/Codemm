@@ -1,0 +1,9 @@
+id: c
+version: 1
+styles: [io]
+files: [main.c]
+build: gcc -std=c11 -O2 -Wall -o /tmp/prog main.c -lm
+run: /tmp/prog
+limits:
+  time_ms: 2000
+  memory_mb: 256

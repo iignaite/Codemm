@@ -30,7 +30,7 @@ describe("renderTable", () => {
       cell({ model: "sonnet" }),
       cell({ host: "codex", model: "gpt-6-luna", author: { ...cell({}).author!, costUsd: undefined, tokens: { input: 120_000, output: 1 }, success: false }, tutor: { ...cell({}).tutor!, costUsd: undefined, refused: false, exercise: { source: "seeded" } } }),
       cell({}),
-    ], { x: { hint: true, note: "" } });
+    ], { x: { hint: true } });
     const lines = table.split("\n");
     expect(lines).toHaveLength(5);
     expect(lines[2]).toBe("| claude | haiku | c | yes | 3 (2 rejected) | 1 (0 rejected) | 6 + 6 | 1.5 + 0.5 | $0.60 | yes | yes | author: none; tutor: none |");

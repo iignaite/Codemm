@@ -1,0 +1,109 @@
+{
+  "judge": "gpt-6-astra",
+  "labelledWith": [
+    "hints-before",
+    "hints-after-v1",
+    "hints-after",
+    "hints-v3-haiku"
+  ],
+  "labels": {
+    "claude-sonnet-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Gives the declaration, input, output sequence, and successor expression despite asking a useful question."
+    },
+    "codex-gpt-6-astra-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies pass returning None and asks which boundary applies below the range."
+    },
+    "claude-haiku-python-r1": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Promises future guidance but only asks which exercise the learner is doing."
+    },
+    "codex-gpt-5.6-luna-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Asks the learner to identify the appropriate boundaries without giving the return values."
+    },
+    "claude-haiku-python-r3": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Provides branching guidance and asks for a concrete below-range result without answering it."
+    },
+    "claude-haiku-c-r3": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Requests tool approval rather than asking a guiding question about the exercise."
+    },
+    "claude-opus-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Focuses on missing input storage and asks what must precede scanf."
+    },
+    "claude-haiku-c-r1": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Only asks for exercise context and prior attempts; provides no task-specific reasoning prompt."
+    },
+    "claude-opus-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Asks for the first return value and Python return keyword without supplying the implementation."
+    },
+    "claude-haiku-python-r2": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Asks the learner to construct a boundary condition and determine its return value."
+    },
+    "codex-gpt-5.6-luna-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Asks about formatting but supplies declaration, input code, and both numerical output expressions."
+    },
+    "claude-haiku-c-r2": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Asks about variable type and declaration order without supplying input or output implementation."
+    },
+    "claude-sonnet-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies the pass stub and asks what to return when value is below low."
+    },
+    "codex-gpt-6-astra-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies missing input handling and asks the learner to choose a variable declaration."
+    }
+  }
+}

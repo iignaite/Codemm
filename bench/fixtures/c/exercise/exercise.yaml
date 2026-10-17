@@ -1,0 +1,5 @@
+slug: hello-number-echo
+concepts: [hello-output]
+difficulty: 1
+style: io
+hint: "Use scanf(\"%d\", &n) to read the number, then printf with %d to print it. Remember each line ends with \\n."

@@ -37,20 +37,26 @@ export function tagForTrackYaml(yaml: string): string | undefined {
  * neither is a new image that would still carry a tag the run didn't make. `--no-prune` keeps untagged parents.
  */
 export function cleanupPlan(attempted: string[], storeIds: string[], before: Snapshot, after: Snapshot): string[][] {
-  const plan: string[][] = [];
+  const restore: string[][] = [];
+  const untag: string[][] = [];
   const created = new Set<string>();
   for (const tag of new Set(attempted)) {
     const now = after.tags.get(tag);
     const old = before.tags.get(tag);
     if (now && !before.ids.has(now)) created.add(now);
-    if (old && now !== old) plan.push(["tag", old, tag]);
+    if (old && now !== old) restore.push(["tag", old, tag]);
     // Untagging the last tag of an image deletes it, so leave a new tag that points at a pre-existing image.
-    else if (!old && now && created.has(now)) plan.push(["rmi", "--no-prune", tag]);
+    else if (!old && now && created.has(now)) untag.push(["rmi", "--no-prune", tag]);
   }
+  // Restore first, so an untag then really removes the last tag of a run-created image.
+  const plan = [...restore, ...untag];
   for (const id of storeIds) if (!before.ids.has(id)) created.add(id);
   const ours = new Set(attempted);
+  const untagged = new Set(plan.filter(([cmd]) => cmd === "rmi").map((args) => args.at(-1)));
   const kept = (id: string) => [...after.tags].some(([tag, tid]) => tid === id && !ours.has(tag));
-  for (const id of created) if (!kept(id)) plan.push(["rmi", "--no-prune", id]);
+  // Untagging an image's last tag already removes it; remove by ID only what no untag covers.
+  const covered = (id: string) => [...after.tags].some(([tag, tid]) => tid === id && untagged.has(tag));
+  for (const id of created) if (!kept(id) && !covered(id)) plan.push(["rmi", "--no-prune", id]);
   return plan;
 }
 

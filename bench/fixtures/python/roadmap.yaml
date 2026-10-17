@@ -1,0 +1,31 @@
+goal: Learn Python fundamentals by writing functions checked with unit tests
+track: python@1
+style: unit
+concepts:
+  - id: functions-basics
+    title: Defining functions, parameters and return values
+    requires: []
+  - id: conditionals
+    title: Conditionals and boolean logic
+    requires: [functions-basics]
+  - id: loops
+    title: for and while loops
+    requires: [conditionals]
+  - id: strings
+    title: Working with strings
+    requires: [loops]
+  - id: lists
+    title: Lists and list operations
+    requires: [loops]
+  - id: dicts
+    title: Dictionaries
+    requires: [lists]
+  - id: comprehensions
+    title: List and dict comprehensions
+    requires: [lists, dicts]
+  - id: exceptions
+    title: Handling and raising exceptions
+    requires: [functions-basics, conditionals]
+  - id: classes
+    title: Classes and objects
+    requires: [dicts, exceptions]

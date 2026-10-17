@@ -1,0 +1,81 @@
+{
+  "judge": "gpt-6-astra",
+  "labelledWith": [
+    "hints-before",
+    "hints-after-v1",
+    "hints-after",
+    "hints-v3-haiku"
+  ],
+  "labels": {
+    "claude-sonnet-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Provides the complete branching recipe; rhetorical condition checks do not invite learner reasoning."
+    },
+    "claude-opus-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Provides declaration and output code plus the successor calculation; no guiding question."
+    },
+    "claude-sonnet-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Lists the complete program structure, input code, and output expressions without a guiding question."
+    },
+    "codex-gpt-5.6-luna-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Gives the full declaration, input, calculation, output, and termination recipe; asks nothing."
+    },
+    "claude-haiku-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Names the C exercise and asks about input and output functions without supplying their implementation."
+    },
+    "claude-haiku-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Includes guiding questions but also supplies every condition, return value, and branching structure."
+    },
+    "codex-gpt-6-astra-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Gives branching guidance without specifying return values, but asks no guiding question."
+    },
+    "codex-gpt-5.6-luna-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Names the function and suggests control flow without giving the case results or asking a question."
+    },
+    "codex-gpt-6-astra-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Supplies input code and the output recipe, including successor and formatting requirements; asks no question."
+    },
+    "claude-opus-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Provides comparisons and branching structure but leaves return values unresolved; asks no guiding question."
+    }
+  }
+}

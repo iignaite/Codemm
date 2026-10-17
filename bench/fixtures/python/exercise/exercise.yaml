@@ -1,0 +1,5 @@
+slug: clamp-number
+concepts: [functions-basics]
+difficulty: 1
+style: unit
+hint: Use if/elif/else and make sure every branch ends in a return statement (not print).

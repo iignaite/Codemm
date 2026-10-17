@@ -1,0 +1,8 @@
+id: python
+version: 1
+styles: [unit]
+files: [solution.py]
+test: python3 /opt/codemm/run_tests.py
+limits:
+  time_ms: 10000
+  memory_mb: 256

@@ -1,0 +1,109 @@
+{
+  "judge": "gpt-6-astra",
+  "labelledWith": [
+    "hints-before",
+    "hints-after-v1",
+    "hints-after",
+    "hints-v3-haiku"
+  ],
+  "labels": {
+    "claude-haiku-c-r3": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Requests tool approval without exercise-specific guidance."
+    },
+    "claude-opus-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies the stub and asks the learner to determine the first return value and keyword."
+    },
+    "codex-gpt-6-astra-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Focuses on missing input storage and asks the learner to propose a variable."
+    },
+    "codex-gpt-5.6-luna-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Asks the learner to identify the appropriate boundaries without stating the returns."
+    },
+    "claude-haiku-python-r3": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Provides a branching scaffold and asks for a concrete below-range result, leaving return mappings to the learner."
+    },
+    "claude-sonnet-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Outlines the full implementation and reveals the successor expression while asking about printf arguments."
+    },
+    "claude-haiku-c-r2": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Asks a valid declaration question but also outlines the complete declaration, input, and output sequence."
+    },
+    "codex-gpt-5.6-luna-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Supplies declaration, input syntax, and both output expressions, leaving only format strings to determine."
+    },
+    "claude-haiku-c-r1": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Only requests context and describes future tutoring; no exercise-specific guidance appears."
+    },
+    "claude-haiku-python-r2": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies the stub and prompts the learner to construct a first boundary condition and return."
+    },
+    "codex-gpt-6-astra-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies the pass stub and asks which boundary should be returned."
+    },
+    "claude-opus-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Focuses on input storage and asks what declaration belongs before scanf."
+    },
+    "claude-haiku-python-r1": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Generic tutoring promises and exercise-identification questions do not guide a solution step."
+    },
+    "claude-sonnet-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies the stub and asks what to return below the lower bound."
+    }
+  }
+}
