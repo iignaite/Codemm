@@ -108,14 +108,26 @@ async function waitingStates() {
   await waiting('checking', page.getByText(/^(Checking|Running)/));
   await waiting('tutor-answering', page.locator('[role="log"][aria-busy="true"]'));
   await waiting('stalled', page.getByRole('alert'));
+  // A setup proposal can arrive late, for example after a relaunch mid-setup.
+  const consent = page.getByRole('dialog', { name: /^Set up .* on this computer\?$/ });
+  if (await visible(consent)) {
+    await shot('consent-late');
+    note('consent-late', (await consent.getByRole('heading').first().innerText()).trim());
+    await tap(consent.getByRole('button', { name: 'Set up', exact: true }));
+  }
 }
+
+/** Clicks if the element stays put; a re-rendered button is retried on the next poll. */
+const tap = (l: Locator) => l.click({ timeout: 5000 }).then(() => true, () => false);
+const note = (step: string, text: string) => appendFileSync(join(dir!, 'results.jsonl'), `${JSON.stringify({ label, step, ok: true, s: 0, note: text })}\n`);
 
 /** Polls `done`, screenshotting waiting states, until it holds or the time runs out. */
 async function until(what: string, done: () => Promise<boolean>, ms: number) {
   const deadline = Date.now() + ms;
-  while (!(await done())) {
-    if (Date.now() > deadline) throw new Error(`${what}: not within ${Math.round(ms / MIN)} min`);
+  for (;;) {
     await waitingStates();
+    if (await done()) break;
+    if (Date.now() > deadline) throw new Error(`${what}: not within ${Math.round(ms / MIN)} min`);
     await page.waitForTimeout(1000);
   }
 }
@@ -208,9 +220,9 @@ async function toActivity(): Promise<string> {
         if (++retries > 2) throw new Error(`Still stalled after 2 tries: ${(await page.getByRole('alert').innerText()).replace(/\s+/g, ' ')}`);
         appendFileSync(join(dir!, 'results.jsonl'), `${JSON.stringify({ label, step: 'stall-try-again', ok: true, s: 0, note: (await page.getByRole('alert').innerText()).replace(/\s+/g, ' ') })}\n`);
         await stalled.click();
-      } else if ((await visible(button('Next'))) && (await button('Next').isEnabled())) await button('Next').click();
-      else if (await visible(button(/^(Start|Again)$/))) await button(/^(Start|Again)$/).click();
-      else if (await visible(button(/^Read /))) await button(/^Read /).first().click();
+      } else if ((await visible(button('Next'))) && (await button('Next').isEnabled())) await tap(button('Next'));
+      else if (await visible(button(/^(Start|Again)$/))) await tap(button(/^(Start|Again)$/).first());
+      else if (await visible(button(/^Read /))) await tap(button(/^Read /).first());
       return false;
     },
     20 * MIN,
