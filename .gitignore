@@ -1,24 +1,10 @@
 .DS_Store
-
-# Dependencies / builds
-**/node_modules/
-**/dist/
-**/.next/
-**/out/
-
-# Local env / secrets (never commit real keys)
-**/.env
-**/.env.*
-!.env.example
-!**/.env.example
-
-# Codemm local workspace data (never commit)
-**/.codemm/
-
-# Logs
+node_modules/
+dist/
 *.log
+*.tgz
+.env
+.env.*
 
-# Local DB / data
-**/data/*.db
-**/data/*.sqlite
-**/data/*.sqlite3
+# Codemm v1 workspace data, in case a clone was used as a v1 workspace
+**/.codemm/

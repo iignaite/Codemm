@@ -1,7 +1,0 @@
-FROM gcc:13
-
-WORKDIR /workspace
-
-# We override entrypoint at runtime for /run and /submit.
-ENTRYPOINT ["/bin/bash", "-lc", "echo \"codem-cpp-judge ready\""]
-

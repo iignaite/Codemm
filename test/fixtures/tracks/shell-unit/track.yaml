@@ -1,0 +1,6 @@
+id: shell-unit
+version: 1
+styles: [unit]
+files: [lib.sh]
+test: "sh /codemm/test.sh"
+limits: { time_ms: 5000, memory_mb: 128 }

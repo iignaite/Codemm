@@ -1,53 +1,33 @@
-# Contributing (Codemm-Desktop)
+# Contributing
 
-Codemm-Desktop is an Electron wrapper around the in-repo apps:
+Thanks for helping. Codemm stays small on purpose, so read [AGENTS.md](AGENTS.md) for the invariants and [docs/DESIGN.md](docs/DESIGN.md) for the spec before you start.
 
-- `apps/backend` (local engine: agent loop + SQLite + Docker judge; IPC-only)
-- `apps/frontend` (Next.js renderer UI)
+## Set up
 
-The goal is a single desktop app experience while keeping backend determinism and Docker-based judging intact.
-
-## Repo Layout
-
-- `apps/ide/main.js` Electron main process (starts backend + frontend, then opens a window)
-- `apps/ide/localLlm/*` local-runtime orchestration (install/start/pull/probe/lease)
-- `package.json` npm workspaces root + scripts
-- `apps/ide/package.json` Electron dev entrypoint
-- `docs/` project docs (functions, troubleshooting, handoffs)
-
-## Local Development
-
-1. Ensure Docker Desktop is running.
-2. From the repo root:
+You need Node.js 22+ and Docker Desktop (running) for the full suite.
 
 ```bash
-npm install
-npm run dev
+npm ci
+npm run typecheck
+npm test
 ```
 
-Note: this is an npm workspaces monorepo. Use the repo root for installs; do not maintain per-app lockfiles.
+`npm run test:unit` skips the Docker tests.
 
-This will:
+## Layout
 
-- start the local engine from `apps/backend` (IPC; no internal HTTP server)
-- start frontend from `apps/frontend`
-- open the local frontend URL inside Electron (served from localhost as a transitional layer)
+```
+src/        the CLI, MCP server and core modules
+test/       unit tests; test/docker/ needs a container runtime
+test/fixtures/
+  tracks/      shell-script tracks used only by Codemm's own tests
+  exercises/   fixture exercises for the gates
+docs/       design, security, migration
+```
 
-## Making Changes
+## Pull requests
 
-- Desktop wrapper logic: edit `main.js`
-- Local-runtime orchestration: edit files in `apps/ide/localLlm`
-- Backend behavior/API/judge: edit files in `apps/backend`
-- UI/UX: edit files in `apps/frontend`
-
-Keep in mind:
-
-- Codemm’s “agent logic” is backend-owned; the IDE should remain a thin shell over backend contracts.
-- Judging relies on Docker; don’t add a path that executes untrusted code outside Docker.
-- For generation APIs, preserve IPC naming stability (`threads.generate`, `threads.generateV2`, `threads.regenerateSlot`, `threads.getGenerationDiagnostics`).
-
-## Style / Guardrails
-
-- Keep `nodeIntegration: false` and `contextIsolation: true` in Electron.
-- Prefer explicit timeouts and clear error dialogs when booting dependencies.
-- Avoid hard-coding absolute paths; use environment overrides (`CODEMM_BACKEND_DIR`, `CODEMM_FRONTEND_DIR`) where needed.
+- Write the test first, and keep each PR to one change.
+- Run `npm run typecheck` and `npm test` before you push. CI runs both on Linux with Docker.
+- If you change a format or a gate, update `docs/DESIGN.md` in the same PR.
+- Security issues: please report them privately to the maintainers rather than in a public issue.
