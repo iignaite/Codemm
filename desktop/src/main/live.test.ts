@@ -250,4 +250,20 @@ describe('live CodemmApi', () => {
     await new Promise((res) => setTimeout(res, 10));
     expect(t.jobs.ran).toHaveLength(ran);
   });
+
+  it('reading the course, a lesson or an activity starts no agent: only Codemm\'s own steps do (D9)', async () => {
+    const t = live();
+    const activity = await practising(t);
+    const lesson = (await t.api.course())!.topics[0].lessons[0].id;
+    const ran = t.jobs.ran.length;
+    // Work becomes due without any step of the learner's: a read must not start it.
+    t.c.lessons.length = 0;
+    t.c.exercises.clear();
+    await t.api.course();
+    await t.api.course();
+    await t.api.lesson(lesson).catch(() => undefined);
+    await t.api.activity(activity.concept).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.jobs.ran).toHaveLength(ran);
+  });
 });

@@ -173,6 +173,8 @@ export function createLive(d: LiveDeps): Live {
     outcome
       .then((o) => {
         if (!o.ok && !controller?.signal.aborted) stalled ??= o.problem ?? 'failed';
+        // A finished job can make the next one due: the lesson before the activity, a proposal after gates.
+        else if (o.ok) schedule();
       })
       .catch((e: Error) => {
         log('job-error', { kind, message: e.message });
@@ -195,9 +197,29 @@ export function createLive(d: LiveDeps): Live {
     if (setup.gateFailures >= PROPOSAL_BOUND) return { state: 'failed', problem: 'gates' };
     const proposal = latestProposal(ref);
     if (proposal) return { state: 'consent', proposal };
-    const before = new Set(core.listProposals().map((p) => p.digest));
-    background(`setup:${progress.course}`, 'setup', briefs.setup(ref, setup.lastGateProblem), progress.course, () => core.listProposals().some((p) => p.track === ref && !before.has(p.digest)));
     return { state: 'proposing' };
+  }
+
+  /**
+   * Starts the background work the course needs: a setup proposal, the current topic's lesson and
+   * activity. Only Codemm's own steps call it, never a read, so reopening a lesson or an activity
+   * starts no agent (D9).
+   */
+  function schedule() {
+    try {
+      const roadmap = roadmapOrNull();
+      if (!roadmap || d.state.read().approved !== roadmap.course) return;
+      const progress = core.progress(ws, roadmap.course);
+      const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
+      if (state.state === 'proposing') {
+        const ref = progress.track;
+        const before = new Set(core.listProposals().map((p) => p.digest));
+        background(`setup:${progress.course}`, 'setup', briefs.setup(ref, setup.lastGateProblem), progress.course, () => core.listProposals().some((p) => p.track === ref && !before.has(p.digest)));
+      }
+      work(progress, state.state === 'ready');
+    } catch (e) {
+      log('schedule-error', { name: e instanceof Error && /^\w{1,40}$/.test(e.name) ? e.name : 'thrown' });
+    }
   }
 
   /** The lesson (from the start, beside setup) and the activity (once set up) the current topic needs (§3.2, §4.3). */
@@ -245,6 +267,9 @@ export function createLive(d: LiveDeps): Live {
     return core.listExercises(ws, course).filter((e) => e.concepts.includes(concept)).sort((a, b) => b.created.localeCompare(a.created))[0]?.exercise;
   }
 
+  // Work the course still needs when the app starts.
+  queueMicrotask(schedule);
+
   return {
     async agents() {
       const agents = await d.connect.agents();
@@ -255,7 +280,10 @@ export function createLive(d: LiveDeps): Live {
       const agent = await d.connect.connect(id);
       log('connect', { agent: id, state: agent.state, untested: agent.untested || undefined });
       // Signing in again ends a sign-out that stopped background work.
-      if (agent.state === 'connected' && stalled === 'signed-out') stalled = undefined;
+      if (agent.state === 'connected' && stalled === 'signed-out') {
+        stalled = undefined;
+        schedule();
+      }
       return agent;
     },
     async computer() {
@@ -293,6 +321,7 @@ export function createLive(d: LiveDeps): Live {
     async reviseRoadmap(concepts, request) {
       await saveConcepts(concepts);
       const { outcome, changed, after } = await roadmapJob(briefs.roadmap(request), (before) => (turn) => turn.ok || JSON.stringify(core.getRoadmap(ws)) !== before);
+      schedule();
       const filter = hidden();
       return { roadmap: roadmapView(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
     },
@@ -303,14 +332,15 @@ export function createLive(d: LiveDeps): Live {
       d.state.update((s) => ({ ...s, approved: course }));
       stalled = undefined;
       setup = { gateFailures: 0 };
+      schedule();
     },
 
+    /** A read: it starts nothing (D9). */
     async course() {
       const roadmap = roadmapOrNull();
       if (!roadmap || d.state.read().approved !== roadmap.course) return null;
       const progress = core.progress(ws, roadmap.course);
       const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
-      work(progress, state.state === 'ready');
       const jobs = new Set([...running.keys()].map((k) => k.replace(`:${roadmap.course}`, '')));
       const view = courseView(progress, core.listLessons(ws, roadmap.course), state, jobs);
       return stalled ? { ...view, stalled } : view;
@@ -340,23 +370,31 @@ export function createLive(d: LiveDeps): Live {
           setup.lastGateProblem = e.message;
           void core.dropProposal(ref).catch(() => undefined);
         })
-        .finally(() => (setup.installing = undefined));
+        .finally(() => {
+          setup.installing = undefined;
+          schedule();
+        });
     },
 
     async retrySetup() {
       setup = { gateFailures: 0 };
       stalled = undefined;
+      schedule();
     },
 
     async retryJobs() {
       stalled = undefined;
+      schedule();
     },
 
     async lesson(id) {
       return core.getLesson(ws, id);
     },
     saveNotes: (id, notes) => core.saveNotes(ws, id, notes),
-    markRead: (id) => core.markLessonRead(ws, id),
+    async markRead(id) {
+      await core.markLessonRead(ws, id);
+      schedule();
+    },
 
     async activity(concept) {
       const course = core.getRoadmap(ws).course;
@@ -393,6 +431,8 @@ export function createLive(d: LiveDeps): Live {
         const view = await tracked(core.checkExercise(ws, activityId));
         const concepts = core.listExercises(ws).find((e) => e.exercise === activityId)?.concepts ?? [];
         const state = core.progress(ws).concepts.find((c) => concepts.includes(c.id));
+        // A graded check can move the course on: the next topic's lesson and activity.
+        schedule();
         return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false });
       } catch (e) {
         const reason = notCounted(e);
@@ -419,11 +459,13 @@ export function createLive(d: LiveDeps): Live {
 
     async skip(concept) {
       await core.skip(ws, concept);
+      schedule();
     },
 
     async easier(concept) {
       const title = core.getRoadmap(ws).concepts.find((c) => c.id === concept)?.title ?? concept;
       await roadmapJob(briefs.easier(concept, title), (before) => () => JSON.stringify(core.getRoadmap(ws)) !== before);
+      schedule();
     },
 
     async rebuild(ref) {
