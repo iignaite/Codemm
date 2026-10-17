@@ -1,0 +1,42 @@
+{
+  "name": "codemm-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Codemm desktop app",
+  "license": "MIT",
+  "author": "Codemm contributors",
+  "homepage": "https://github.com/iignaite/Codemm",
+  "main": "out/main/main.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json --noEmit",
+    "test": "vitest run",
+    "build": "vite build && tsc -p tsconfig.node.json",
+    "start": "npm run build && electron .",
+    "test:e2e": "npm run build && playwright test",
+    "dist": "npm run build && electron-builder --publish never"
+  },
+  "devDependencies": {
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/poppins": "^5.3.0",
+    "@playwright/test": "^1.64.1",
+    "@testing-library/jest-dom": "~6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.9.0",
+    "electron-builder": "^26.17.0",
+    "jsdom": "^26.1.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^3.2.7"
+  }
+}
