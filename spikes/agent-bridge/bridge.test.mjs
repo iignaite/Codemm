@@ -39,12 +39,12 @@ test("run removes credential variables from the agent's environment", async () =
   }
 });
 
-test("cancel stops the agent and the processes it started", async () => {
+test("cancel resolves only after the whole group is gone, even a child that ignores SIGTERM", async () => {
   const controller = new AbortController();
   let child;
   const out = run(
-    node(`const c = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-          console.log(JSON.stringify({ child: c.pid })); setInterval(() => {}, 1000)`),
+    node(`const c = require('node:child_process').spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: 'ignore' });
+          setTimeout(() => console.log(JSON.stringify({ child: c.pid })), 200); setInterval(() => {}, 1000)`),
     parse,
     {
       onEvent: (e) => {
@@ -52,11 +52,28 @@ test("cancel stops the agent and the processes it started", async () => {
         controller.abort();
       },
       signal: controller.signal,
+      killAfterMs: 300,
     },
   );
   assert.equal((await out).cancelled, true);
-  await new Promise((r) => setTimeout(r, 200));
   assert.equal(alive(child), false);
+});
+
+test("an already-cancelled run never starts the agent", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  assert.deepEqual(await run({ command: "/no/such/agent", args: [] }, parse, { signal: controller.signal }), { code: null, cancelled: true });
+});
+
+test("a parser that throws or an overlong line never crashes the run", async () => {
+  const events = [];
+  const throwing = (line) => {
+    if (line === "bad") throw new Error("boom");
+    return parse(line);
+  };
+  const out = await run(node(`console.log('bad'); console.log('x'.repeat(5000)); console.log('{"ok":1}')`), throwing, { onEvent: (e) => events.push(e), maxLine: 1000 });
+  assert.deepEqual(events, [{ ok: 1 }]);
+  assert.equal(out.code, 0);
 });
 
 test("signedIn runs the status command and keeps only the yes or no", async () => {
@@ -64,4 +81,5 @@ test("signedIn runs the status command and keeps only the yes or no", async () =
   assert.equal(await signedIn(yes), true);
   assert.equal(await signedIn({ ...yes, args: ["-e", "process.exit(3)"] }), false);
   assert.equal(await signedIn({ ...yes, command: "/no/such/agent" }), false);
+  assert.equal(await signedIn({ ...yes, args: ["-e", "setInterval(() => {}, 1000)"] }, { timeoutMs: 300 }), false);
 });

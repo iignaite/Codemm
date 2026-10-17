@@ -44,9 +44,10 @@ async function runOnce(name, prompt, { model, resume, root = mkdtempSync(join(tm
   });
   console.log(JSON.stringify({ ms: Date.now() - started, exit: out.code, cancelled: out.cancelled }));
   if (out.cancelled) {
-    await new Promise((r) => setTimeout(r, 1000));
-    const left = spawnSync("pgrep", ["-f", ws], { encoding: "utf8" }).stdout.trim();
-    console.log(JSON.stringify({ leftoverProcesses: left ? left.split("\n").length : 0 }));
+    // run() resolves only after the group is gone. pgrep exits 0 with matches, 1 with none, and higher on failure; a failure is never reported as zero.
+    const p = spawnSync("pgrep", ["-f", ws], { encoding: "utf8" });
+    const left = p.status === 1 ? 0 : p.status === 0 ? p.stdout.trim().split("\n").length : "unknown";
+    console.log(JSON.stringify({ leftoverProcesses: left }));
   }
 }
 

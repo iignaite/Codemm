@@ -1,18 +1,18 @@
 # Codemm desktop 1.0 design
 
-Status: draft for review. It extends the core spec, `docs/DESIGN.md`, which stays authoritative for the harness. The core changes in §4 move into `docs/DESIGN.md` in the same PR as their code. The journeys follow the approved prototype (`codemm-journeys.html`, outside this repo). Agent CLI evidence: [agent-bridge.md](agent-bridge.md).
+Status: revised after Astra's review (§14). It extends the core spec, `docs/DESIGN.md`, which stays authoritative for the harness. The core changes in §4 move into `docs/DESIGN.md` in the same PR as their code. The journeys follow the approved prototype (`codemm-journeys.html`, outside this repo). Agent CLI evidence: [agent-bridge.md](agent-bridge.md).
 
 ## Decisions
 
 | # | Decision |
 |---|---|
 | 1 | 1.0 ships the core harness plus an Electron app for macOS, Windows and Linux. |
-| 2 | The Electron main process calls core `app` functions in-process. The renderer reaches main only through a typed preload API whose handlers are thin. |
+| 2 | The Electron main process calls core `app` functions in-process. The renderer reaches main only through a typed preload API whose handlers are thin and check their sender. |
 | 3 | The renderer gets learner-safe data only: never solutions, mutants, hidden tests, expected outputs, author transcripts, tool arguments, agent stderr or debug logs. |
 | 4 | "Codemm never calls a model" now reads: **Codemm launches the learner's own agent CLI. It never calls a model API, and it never reads, stores or asks for credentials.** |
-| 5 | Each agent run is one job with a short brief, only that job's Codemm tools, an explicit permission level, a deadline and a retry bound. Authoring runs in its own process and is never streamed. |
-| 6 | Installing a track stays its own decision. In the app, `save_track` only proposes a track. Codemm builds it after the learner clicks Set up, never on roadmap approval. |
-| 7 | New core features are the smallest needed: lessons, roadmap read, research sources, a `lesson` and a `setup` step, honest skip, and install progress events. Review scheduling is deferred. |
+| 5 | Each agent run is one job. A job has a short brief, a Codemm server bound to its course that exposes only that job's tools, the narrowest built-in tools the agent allows, a deadline, a retry bound and a check for whether it worked. Authoring runs in its own process and is never streamed. |
+| 6 | Installing a track stays its own decision. In the app, `save_track` only proposes a track. Codemm builds exactly the files the learner approved, after they click Set up, and never on roadmap approval. |
+| 7 | New core features are the smallest needed: lessons, roadmap read, research sources, a `setup` step, honest skip, install progress events, per-job servers and learner file saves. Review scheduling is deferred. |
 | 8 | Installers are built with electron-builder and are unsigned for 1.0. |
 
 ## 1. Scope
@@ -23,7 +23,7 @@ Changes from the prototype, following Astra's design review:
 
 - "Best path" becomes "Suggested path".
 - Lessons hold static examples and predict questions. Agent-written code never runs in the app.
-- The review card and streaks are cut (deferred, §11).
+- The review card and streaks are cut (deferred, §12).
 - Environments come from `list_tracks`. Nothing in the app is per-language.
 
 UI rules:
@@ -31,7 +31,8 @@ UI rules:
 - Use minimal wording.
 - No status dots, arrows or metadata (ids, versions, paths or timestamps).
 - Nothing should look like Claude's UI or copy Duolingo.
-- The tutor and every action are "Codemm". Agent names (Claude Code, Codex, Cursor) appear only on the connect screen. The connect screen carries the disclosure "Codemm uses your agent and your plan."
+- The tutor and every action are "Codemm". Agent names (Claude Code, Codex, Cursor) appear only on the connect screen.
+- The connect screen carries the disclosure "Codemm uses your agent and your plan." Every agent job starts from a learner action or the approved flow, and the bounds in §3.2 cap how much of the plan it uses.
 
 ## 2. Architecture
 
@@ -41,36 +42,43 @@ desktop/
   src/preload/preload.ts    contextBridge exposes `codemm.*` from api.ts; nothing else
   src/main/
     main.ts                 window, app lifecycle, menu
-    ipc.ts                  one handler per channel: validate input, call one function, return a view
-    views.ts                learner-safe projections of core results (the boundary in §2.2)
-    state.ts                desktop.json in userData: chosen agent, binary path, tutor session id
+    ipc.ts                  one handler per channel: check the sender, validate input, call one function, return a view
+    views.ts                learner-safe projections of core results, and the reply filter (§2.2)
+    state.ts                desktop.json in userData: chosen agent, executable path, tutor session ids
     agent/agents.ts         per agent: launch arguments, stream parser, sign-in check
     agent/bridge.ts         spawn, line parsing, cancellation, sign-in (proved in spikes/agent-bridge)
-    agent/jobs.ts           job kinds: brief, tools, permissions, deadline, retry bound (§3.2)
+    agent/jobs.ts           job kinds: brief, tools, permissions, deadline, retry bound, done check (§3.2)
   src/renderer/             screens only; no Node, no file or process access
 ```
 
 - **Core in-process.** Main imports the core's `app` module from the repo and bundles it. `app` stays the only place that holds use cases, so the CLI, the MCP server and the app share them.
-- **Two processes write course data.** These are main and the `codemm mcp` server that the agent starts. The core's PID-based course and track locks already serialize them.
-- **The MCP server** is the app's own binary in Node mode: `ELECTRON_RUN_AS_NODE=1 <app executable> <resources>/core/cli.js mcp --workspace <ws> --desktop`. The Electron `RunAsNode` fuse must stay on.
+- **Two processes write course data.** These are main and the `codemm mcp` server that each agent job starts. The core's PID-based course, track and workspace locks already serialize them.
+- **One server per job.** Each job's MCP server is the app's own binary in Node mode: `ELECTRON_RUN_AS_NODE=1 <app executable> <resources>/core/cli.js mcp --workspace <ws> --course <course> --tools <list> --desktop`. The Electron `RunAsNode` fuse must stay on.
 - **One workspace.** The app keeps one workspace (default `~/Codemm`) holding `codemm.json` and `exercises/`. The course, events and tracks stay under `$CODEMM_HOME`, as in core. `desktop.json` carries `format_version` and is written atomically, like every Codemm-owned file.
 
 ### 2.1 Renderer security
 
-- Windows set `contextIsolation: true`, `sandbox: true` and `nodeIntegration: false`, and use a strict CSP with no remote code.
-- Navigation and `window.open` are denied. A link is opened by `shell.openExternal` only after a click, and only for `https:` URLs.
-- Lessons and agent text are Markdown rendered with raw HTML stripped. Code blocks are highlighted, never run.
+- **Window settings.** Windows set `contextIsolation: true`, `sandbox: true` and `nodeIntegration: false`. They load the app's own `app://codemm` origin.
+- **CSP.** `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`. The page can make no remote request, including for images.
+- **Markdown.** Lessons and agent text are rendered with raw HTML stripped:
+  - An image with a remote URL renders as a plain link.
+  - Links keep only `https:` URLs.
+  - Code blocks are highlighted, never run.
+- **Navigation.** Navigation, `window.open` and webviews are denied. `shell.openExternal` opens a link only after a click, and only for `https:` URLs.
+- **IPC senders.** Every handler checks that `event.senderFrame` is the main window's top frame on `app://codemm`, and rejects anything else.
 
 ### 2.2 The learner-safe boundary
 
 - **IPC.** Every IPC result is built in `views.ts` from core results that are already learner-safe: `getExercise`, `CheckView`, `progress`, `getRoadmap`, `getLesson`, `listTracks`, and the learner file reads. Hidden results carry only an index and a status, as in core §4.2.
-- **Agent events.** Only `text` events from tutor turns reach the renderer. For other jobs the renderer sees a job state (`running`, `checking`, `retrying`, `done`, `failed`).
+- **Agent events.** Only `text` events from tutor, assist and roadmap-change turns reach the renderer. For other jobs the renderer sees a job state (`running`, `checking`, `retrying`, `done`, `failed`).
 - **Never forwarded.** Author, setup and lesson job streams, tool arguments and results, agent stderr, and sign-in output.
-- **Test.** A canary test enforces this (D4).
+- **Reply filter.** Before forwarding text, main compares it with the current exercise's solution, mutants, hidden tests and expected outputs. If any normalized line of at least 24 characters from that material appears verbatim, the message is replaced with "Codemm held back a reply that showed hidden material." This is a backstop, not proof: a paraphrase passes it.
+- **Honor system.** As in core §1 and §4.2, grading is on the honor system, and hidden tests are hidden from the agent's tools, not from the computer. §3.1 says how much each agent can still read.
+- **Tests.** A canary test enforces the boundary (D4).
 
 ## 3. The agent bridge
 
-### 3.1 Launch, stream, cancel, sign in
+### 3.1 Launch, isolate, stream, cancel, sign in
 
 Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor is unverified.
 
@@ -78,33 +86,66 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor i
 |---|---|---|---|
 | Headless turn | `claude -p <brief> --output-format stream-json --verbose` | `codex exec --json --skip-git-repo-check <brief>` | `cursor-agent -p --output-format stream-json --approve-mcps --workspace <ws>` |
 | Codemm server | `--mcp-config <json> --strict-mcp-config` | `-c mcp_servers.codemm.{command,args,env}=…` | `<ws>/.cursor/mcp.json` (no flag exists) |
-| Tool permission | `--allowedTools mcp__codemm__<tool>,…` | `-c mcp_servers.codemm.default_tools_approval_mode="approve"` | `--approve-mcps` |
-| Read-only turn | `--permission-mode default --disallowedTools Edit,Write,MultiEdit,NotebookEdit,Bash` | `-c sandbox_mode="read-only"` | `--mode ask` |
+| Codemm tools | `--allowedTools mcp__codemm__<tool>,…` | `-c mcp_servers.codemm.enabled_tools=[…]`, then `default_tools_approval_mode="approve"` | `--approve-mcps` |
+| Built-in tools | `--tools ""`, or the job's list (§3.2) | `--disable shell_tool --disable unified_exec --disable browser_use --disable computer_use --disable apps`, plus `-c sandbox_mode="read-only"` | `--mode ask` |
 | Follow-up turn | `--resume <session_id>` | `codex exec resume <thread_id>` | `--resume <chatId>` |
 | Sign-in check | `claude auth status --json`, field `loggedIn` | `codex login status`, exit 0 and "Logged in" | `cursor-agent status`, "Not logged in" |
 
-- **Processes.** Argument arrays, no shell, stdin closed (both CLIs otherwise wait on stdin), and a new process group. Cancelling kills the group on POSIX and runs `taskkill /pid <pid> /t /f` on Windows, so the agent's MCP server and tools stop too.
+**What isolation holds.** These were tested with a canary file the agent was asked to read (agent-bridge.md, finding 7).
+
+- **Claude Code.** `--tools ""` leaves only the Codemm server's tools, with no shell and no file reads. The canary was not read. The per-job `--tools` filter on the server (§4.8) then limits those to the job's own.
+- **Codex.**
+  - The read-only sandbox blocks writes and network, the shell features are off, and `enabled_tools` limits the Codemm tools.
+  - Codex still keeps host tools that can't be switched off (`functions.exec`, `view_image`, web and collaboration tools), so in principle a Codex job can read files the learner can read. In the test it didn't read the canary.
+  - For Codex, hidden data is protected by the reply filter (§2.2) and the honor system. README says so.
+- **The invariant.** Codemm never runs agent-written code on the host. Codemm runs untrusted code only through `sandbox.ts`. What the agent's own tools do happens under the agent's own sandbox, exactly as in a terminal. Turning those tools off is defense in depth.
+
+**Running processes.**
+
+- **Spawning.** The bridge uses argument arrays, no shell, and closed stdin (both CLIs otherwise wait on stdin). Each agent leads a new process group.
+- **Cancelling.**
+  - On POSIX it sends SIGTERM to the group, then SIGKILL after 3 s, and resolves only when the group is gone.
+  - On Windows it awaits `taskkill /pid <pid> /t /f`.
+  - A job that is already cancelled never starts.
+  - After a cancel or crash, main runs the core's leftover-container cleanup (`doctor --fix`'s rule: only containers whose owner process is gone), because killing an MCP server mid-check skips its own cleanup.
+- **Robustness.**
+  - A stream line that is malformed or makes the parser throw is skipped.
+  - A line over 1 MB is dropped.
+  - Sign-in checks stop after 10 s and keep at most 64 KB of output.
 - **Streaming.** Each stdout line is parsed into common events: `session`, `text`, `tool_call`, `tool_result` and `done`. Both CLIs emit whole messages, not tokens, so the panel shows a working state until each message arrives.
-- **Credentials.** Codemm never opens an agent's credential files or keychain entries. Sign-in uses the agent's own status command. Only a yes or no leaves the bridge, and the output is dropped. Signing in is the learner's job in their agent ("Not signed in. Sign in to Codex first." then Try again).
-- **Environment.** The agent gets the app's environment unchanged. Codemm adds and removes nothing (open decision O1).
-- **Finding agents.** GUI apps don't load shell profiles. The app looks on `PATH` and in the usual install folders. On the connect screen the learner can pick the agent's executable, which is needed for version-manager installs. On Windows the app runs `.exe` files only, because `.cmd` shims need a shell.
-- **Docker.** The same lookup adds Docker's folder to `PATH` for core calls.
+
+**Credentials and environment.**
+
+- Codemm never opens an agent's credential files or keychain entries.
+- Sign-in uses the agent's own status command. Only a yes or no leaves the bridge, and the output is dropped.
+- Signing in is the learner's job in their agent ("Not signed in. Sign in to Codex first." then Try again).
+- The agent gets the app's environment unchanged. Codemm adds and removes nothing (open decision O1).
+
+**Finding and launching agents.**
+
+- GUI apps don't load shell profiles. The app looks on `PATH` and in the usual install folders, and on the connect screen the learner can pick the agent's executable.
+- A native executable runs directly.
+- A JavaScript entry point (a `#!/usr/bin/env node` launcher, like the npm-installed Codex) runs as `ELECTRON_RUN_AS_NODE=1 <app executable> <script>`, so no system Node is needed.
+- On Windows, an npm `.cmd` shim is never run, because that needs a shell. The app reads the script path from npm's fixed shim format and runs that script the same way.
+- The same lookup adds Docker's folder to `PATH` for core calls.
+- D1 tests all of this in the packaged app.
 
 ### 3.2 Jobs
 
-| Job | Codemm tools | Other tools | Permission | Shown to the learner |
-|---|---|---|---|---|
-| Research and roadmap | `list_tracks`, `save_roadmap` | web search and fetch | read-only | state, then the saved roadmap and sources |
-| Roadmap change ("Ask Codemm for changes") | `get_roadmap`, `save_roadmap` | none | read-only | state, then the saved roadmap |
-| Setup | `list_tracks`, `save_track` (proposes only) | none | read-only | state, then the consent dialog |
-| Lesson | `get_roadmap`, `save_lesson` | none | read-only | state, then the lesson |
-| Author | `next_step`, `save_exercise` | none | read-only | state only; the result is an exercise id from core state |
-| Tutor | `progress`, `next_step`, `get_exercise`, `get_lesson`, `get_roadmap`, `list_tracks` | none | read-only | text |
-| Assist | tutor tools | file edits | write, only after the learner's yes | text |
+| Job | Codemm tools | Built-in tools | Done when |
+|---|---|---|---|
+| Research and roadmap | `list_tracks`, `save_roadmap` | web search and fetch (Codex's web tool is on by default) | the job's course exists with at least one source |
+| Roadmap change ("Ask Codemm for changes") | `get_roadmap`, `save_roadmap` | none | the turn ends without error; its text is shown and the roadmap reloads |
+| Setup | `list_tracks`, `save_track` (proposes only) | none | a new proposal exists for the job's track |
+| Lesson | `get_roadmap`, `save_lesson` | none | a new lesson exists for the job's concept |
+| Author | `next_step`, `save_exercise` | none | a new exercise exists for the job's concept and difficulty |
+| Tutor | `progress`, `next_step`, `get_exercise`, `get_lesson`, `get_roadmap`, `list_tracks` | none | the turn ends without error |
+| Assist | `get_exercise` | read and edit, confined to the exercise folder | the turn ends without error |
 
-- **Fresh sessions.** Author, setup and lesson jobs start without history. They are cheaper, and an author job can't see the tutor's chat (or the tutor the author's). The tutor resumes one session per course.
+- **Bound to a course.** Every job's server gets `--course <course>`, so switching courses in the app can't redirect a job's save.
+- **Checking the result.** "Done when" is checked against core records created after the job started, never against the agent's text. Before relaunching a failed job, main checks again, because a save can commit just before a crash.
+- **Fresh sessions.** Author, setup, lesson and assist jobs start without history. They are cheaper, and an author job can't see the tutor's chat (or the tutor the author's). The tutor resumes one session per course, from the same workspace folder, because both CLIs keep sessions per working directory.
 - **Concurrency.** At most two agent processes run at once: one foreground job and one background queue. After approval, the first lesson runs in the foreground while setup, then authoring, runs in the background ("Reading starts as soon as the first lesson exists").
-- **Success comes from core state.** A job succeeds when the record exists: the course, a proposal, a lesson, or an exercise for that concept and difficulty. The agent's text never decides success.
 - **Bounds.**
 
   | Job | Deadline | Retry bound |
@@ -113,42 +154,69 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor i
   | Setup | 10 min per proposal, then core's 10 min build limit | 3 proposals per setup |
   | Lesson | 5 min | — |
   | Author | 15 min | 3 failed `save_exercise` calls |
-  | Tutor | 5 min | — |
+  | Tutor and assist | 5 min | — |
 
   The bridge counts failed saves from `tool_result` events and cancels the job at the bound. A failed job is relaunched once at most. After that, the learner gets the failure screen (§5).
-- **Practice protection is enforced by launch flags.** Tutor turns can't edit files in Claude Code or Codex. This doesn't depend on the Claude hook, and it is still not a security boundary (the agent can read `~/.codemm`, as in core). "Let Codemm edit?" runs `app.setAssist(ws, true)`, then one assist turn, the learner's check, then `app.setAssist(ws, false)`. Core §7 rules are unchanged: the attempt counts a quarter, the exercise stays assisted, and a new exercise follows because the concept isn't mastered yet.
+- **Practice protection.** Tutor turns have no edit tools in Claude Code or Codex, so this doesn't depend on the Claude hook. It is still not a security boundary (§3.1).
+- **Assist.** "Let Codemm edit?" works like this:
+  1. `app.setAssist(ws, true)`, which records the assist event for the current exercise first (core §7).
+  2. One assist job, run with its working folder set to that exercise's folder:
+     - Claude Code: `--tools Read,Edit` and `--allowedTools "Edit(./**)"`.
+     - Codex: `-c sandbox_mode="workspace-write"`, which allows writes only under the working folder.
+  3. `app.setAssist(ws, false)` when the turn ends, however it ends. The app also clears it at startup, so an interrupted assist never leaves it on.
+
+  The exercise keeps its assist event, so its checks count a quarter. A new exercise follows because the concept isn't mastered yet.
+- **Stuck.**
+  - "Reread the lesson" opens the lesson.
+  - "Try an easier one" runs a roadmap-change job that adds a prerequisite topic. The stuck topic then waits for it, as core §7 already says.
+  - "Come back later" is skip (§4.5).
 
 ## 4. New core capabilities
 
-Each addition lands in its own module (`schemas`, `store`, `learner`, `app`), with a thin MCP tool where the agent needs it.
+Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mcp`), with a thin MCP tool where the agent needs it.
 
 ### 4.1 Install consent in the app
 
-- `codemm mcp --desktop` changes `save_track` only. It runs track gate 1 (valid files, and `id@version` new or identical) and stores the files as a proposal under `$CODEMM_HOME/proposals/<id>@<v>/`. The write is atomic and versioned and holds the track lock. It returns `{ proposed: "id@v" }` and the note "The learner decides in Codemm. End your turn."
-- The new `app.listProposals()`, `app.installProposal(ref, onProgress)` and `app.dropProposal(ref)` let main install a proposal. `installProposal` runs gates 2 to 5 and installs exactly like `saveTrack`.
-- The consent dialog reads "Set up React on this computer?" with "Downloads once. Graded runs are offline." and Not now or Set up. Details shows the Dockerfile and track.yaml as text.
-- If a build fails, a new setup job gets the gate diagnostics (track diagnostics hold no learner secrets) and proposes again, within the bound in §3.2. Whether one consent covers those retries is open decision O2. The default is that it does, the learner can Stop at any time, and every attempt uses a fresh build context without secrets.
-- Roadmap approval never installs anything. Without `--desktop`, `save_track` behaves as in core: approving the call in the agent is the consent.
+- **Proposals.** `codemm mcp --desktop` changes `save_track` only:
+  1. It runs track gate 1: valid files, and `id@version` new or identical.
+  2. It stores the files as an immutable proposal under `$CODEMM_HOME/proposals/<id>@<v>/<digest>/`. The digest is SHA-256 over the canonical file map.
+  3. A newer proposal for the same `id@version` replaces older ones.
+  4. It returns `{ proposed: "id@v" }` and the note "The learner decides in Codemm. End your turn."
+  Writes are atomic and versioned and hold the track lock.
+- **Installing.** The new `app.listProposals()`, `app.installProposal(ref, digest, onProgress)` and `app.dropProposal(ref)` let main install a proposal.
+  - Under the track lock, `installProposal` re-reads the files and recomputes the digest. It refuses unless the digest equals the one the learner was shown.
+  - It then runs gates 2 to 5 and installs exactly like `saveTrack`.
+- **The consent dialog.**
+  - Text: "Set up React on this computer?" and "Setup runs code your agent wrote, with internet access. Graded runs are offline." (open decision O2), with Not now or Set up.
+  - Details shows the Dockerfile and track.yaml, the 10-minute build limit, and the fact that builds have no memory or CPU limit.
+- **Retries.** If a build fails, a new setup job gets the gate diagnostics (track diagnostics hold no learner secrets) and proposes again, within the bound in §3.2. Every new proposal has new contents, so it asks again: "Codemm has another way to set up React." with Stop or Set up.
+- **Outside the app.** Roadmap approval never installs anything. Without `--desktop`, `save_track` behaves as in core: approving the call in the agent is the consent.
 
 ### 4.2 Roadmap read and edit
 
-- **Draft before setup.** `save_roadmap` accepts a track that isn't installed yet, if it is a valid `id@version`. `next_step` returns `{ kind: "setup", track }` until it is installed. `save_exercise`, `get_exercise` and `check` still need the installed track. If the installed track doesn't offer the roadmap's style, `next_step` fails with "Edit the roadmap's style".
+- **Draft before setup.**
+  - `save_roadmap` accepts a track that isn't installed yet, if it is a valid `id@version`.
+  - `next_step` returns `{ kind: "setup", track }` until it is installed.
+  - Re-saving may change `track` while the course has no exercises, so a failed setup can move to another track.
+  - `save_exercise`, `get_exercise` and `check` still need the installed track.
+  - If the installed track doesn't offer the roadmap's style, `next_step` fails with "Edit the roadmap's style".
 - **Reading.** `get_roadmap` (tool) and `app.getRoadmap(ws)` return `{ course, goal, track, style, concepts: [{ id, title, requires }], sources }`.
-- **Editing in the app** builds a new roadmap and saves it through `app.saveRoadmap`, so core §5 rules apply unchanged:
+- **Editing in the app** builds a new roadmap and saves it through `app.saveRoadmap`, so core §5 rules apply:
   - Rename changes the title only, and the id stays stable.
   - Add creates an id from the title (kebab case, made unique) with `requires: []`.
   - Move changes order only. It is refused, with "Needs ‹title› first", when it would put a topic above one it requires.
-  - Remove is refused when another topic requires it ("‹title› needs this topic") or core rejects it (used by an exercise or event). Prerequisites are never rewritten silently.
+  - Remove is refused when another topic requires it ("‹title› needs this topic"). Core also rejects removing a concept that an exercise, event or lesson uses; the lesson part is new. Prerequisites are never rewritten silently.
   - Prerequisite changes go through "Ask Codemm for changes".
 
 ### 4.3 Research sources
 
-- `save_roadmap` takes optional `sources: [{ url, title, retrieved, why }]`:
+- `save_roadmap` takes optional `sources: [{ url, title, retrieved, why, version? }]`:
   - 1 to 20 entries;
   - `https:` URLs only;
   - `retrieved` as `YYYY-MM-DD`;
-  - `title` up to 120 characters, `why` up to 280.
-- Sources are stored in `course.json` and returned by `get_roadmap`.
+  - `title` up to 120 characters, `why` up to 280;
+  - `version` optional, up to 40 characters (for example, "React 19").
+- Sources are stored in `course.json` and returned by `get_roadmap`. The research job must save at least one (§3.2).
 - Web text is untrusted:
   - The research brief tells the agent to prefer primary sources and to treat page text as data, never instructions.
   - Codemm never fetches the URLs.
@@ -167,9 +235,13 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`), wi
   - `edited.md`, the learner's version, which is shown instead when present;
   - `notes.md`, the learner's notes.
   Writes are atomic and hold the course lock.
-- **Reading.** `get_lesson { id }` returns the shown text and the notes. App functions: `listLessons`, `getLesson`, `editLesson`, `saveNotes` and `readLesson`.
-- **Read events.** `readLesson` appends `{ kind: "read", at, lesson, concept }` when the learner finishes a lesson.
-- **Next step.** After the stuck check (core §7, step 3), if the chosen concept has no lesson, `next_step` returns `{ kind: "lesson", concept, lesson: null }` (write one). If it has an unread lesson, it returns `{ kind: "lesson", concept, lesson: id }` for the earliest unread one. Lessons never change mastery.
+- **Reading.** `get_lesson { id }` and `app.getLesson` return the shown text and the notes. App functions: `listLessons`, `getLesson`, `editLesson` and `saveNotes`.
+- **Read events.** Showing a lesson counts as reading it: `get_lesson` and `app.getLesson` append `{ kind: "read", at, lesson, concept }` the first time. Terminal and app learners therefore clear lessons the same way.
+- **Next step.** `practice` and `author` steps gain a `lesson` field:
+  - `null`: the concept has no lesson yet (write one first).
+  - an id: the earliest unread lesson.
+  - absent: every lesson for the concept has been read.
+  The activity stays locked in the app, and the tutor teaches first, until the field is absent. The author job can still run in the background, because the step names the activity. Lessons never change mastery.
 - **Not verified.** Lessons are checked for structure only. Only activities are "checked before you see it". The learner can edit a lesson or tell Codemm when it reads wrong.
 
 ### 4.5 Honest skip
@@ -177,8 +249,9 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`), wi
 `skip` now means "Come back later". It doesn't mean "I already know this".
 
 - A `skip` event defers the concept without changing mastery.
-- A deferred concept is not a candidate while any other candidate exists. It never satisfies a prerequisite.
-- The deferral ends at the concept's next check, or when it is the only candidate left.
+- Candidates are still the concepts that aren't mastered and whose prerequisites are all mastered. A deferred concept never counts as a mastered prerequisite.
+- Non-deferred candidates come first. If every candidate is deferred, the earliest in topological and roadmap order is chosen.
+- The deferral ends at the concept's next check.
 - `done` still needs every concept mastered.
 - The CLI help changes to "come back to a concept later". 1.0 isn't published, so the change needs no migration.
 
@@ -186,11 +259,28 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`), wi
 
 `installProposal` and `saveTrack` take an optional `onProgress({ step, state })`. Steps are `build`, `pass-probe`, `fail-probe` and `repeat`. States are `running`, `passed` and `failed`. Events carry no diagnostics.
 
-Exercise gates run in the agent's MCP server, so the app derives the author job's state from the stream instead: a `save_exercise` call means `checking`, and a failed result means `retrying`. No new channel is needed.
+Exercise gates run in the job's MCP server, so the app derives the author job's state from the stream instead: a `save_exercise` call means `checking`, and a failed result means `retrying`. No new channel is needed.
 
 ### 4.7 Learner files
 
-`app.readLearnerFiles(ws, slug)` and `app.writeLearnerFile(ws, slug, path, text)` cover only the track's learner files for that exercise. They reuse core's symlink-safe, atomic workspace writes. The editor saves through them, Run tests calls `testExercise`, and Check calls `checkExercise`.
+- **Reading.** `app.readLearnerFiles(ws, slug)` returns `{ path: { text, digest } }` for that exercise's track files only.
+- **Saving.** `app.writeLearnerFile(ws, slug, path, text, digest)`:
+  - holds the workspace lock;
+  - accepts only that exercise's track files;
+  - refuses any path whose components include a symlink;
+  - replaces the file through a temp file and a rename;
+  - refuses with "Changed outside Codemm" when the file's current digest isn't the one the editor loaded. The editor then reloads.
+- **During assist.** The editor is read-only while an assist turn runs and reloads when it ends.
+- **Tests and checks.** Run tests calls `testExercise`, and Check calls `checkExercise`.
+
+### 4.8 Per-job MCP server
+
+`codemm mcp` gains two options:
+
+- `--course <course>` makes course-scoped tools use that course instead of the workspace's active one.
+- `--tools <list>` registers only the listed tools.
+
+With neither option, the server behaves as in core.
 
 ## 5. Failure states
 
@@ -201,12 +291,13 @@ Infrastructure failures record nothing. Learner-caused outcomes are graded as `e
 | Docker not running, or the host deadline passed | "This check wasn't counted. Docker isn't running. Start it, then try again." | nothing |
 | Track image missing or changed | "Rebuild" on the track; runs `rebuildTrack` | nothing |
 | No agent found, or not signed in | the connect screen with its fix | nothing |
-| An agent run fails (model refused, rate limit, crash, deadline) or ends without its save | "Codemm couldn't finish that." Try again or Check your agent (opens connect) | nothing; saves are atomic |
-| Track gates fail | "Couldn't set up React. Codemm is trying another way." Stop or Try now; after the bound, Stop or Try again | nothing |
+| An agent run fails (model refused, rate limit, crash, deadline) or isn't done by its check | "Codemm couldn't finish that." Try again or Check your agent (opens connect) | nothing; saves are atomic |
+| Track gates fail | "Couldn't set up React." A new proposal asks again; after the bound, Stop or Try again | nothing |
 | Author bound reached | "Couldn't write this activity." Try again | nothing |
+| Editor file changed outside Codemm | the editor reloads it | nothing |
 | A course is busy (lock) | a working state; core waits up to 10 minutes | nothing |
 | Corrupt event log | "Codemm's records need a repair." with the doctor result | nothing |
-| App quits during a job | agent process groups are killed | nothing |
+| App quits or cancels during a job | agent process groups are killed, then leftover containers are cleaned up | nothing |
 | Build error, timeout or output flood in learner code | the test results, as errors | a `check` event |
 
 ## 6. Cross-platform support
@@ -218,7 +309,7 @@ Infrastructure failures record nothing. Learner-caused outcomes are graded as `e
 | Linux x64 | Docker Engine; the user must be in the `docker` group or run rootless | D15, otherwise experimental (O3) |
 
 - Core cross-platform fixes and CI belong to the cross-platform core work. Core already omits `--user` outside POSIX.
-- The app only adds runtime discovery (§3.1) and process-tree cancellation on Windows.
+- The app adds runtime and agent discovery (§3.1) and process-tree cancellation on Windows.
 
 ## 7. Packaging
 
@@ -235,11 +326,11 @@ Infrastructure failures record nothing. Learner-caused outcomes are graded as `e
 
 The flow must work from weak to strong models.
 
-- **Gates are the net.** Tracks, roadmaps and exercises reach the learner only after their gates pass. A weak model costs retries, not wrong activities.
-- **Short, single-purpose briefs.** Each job brief is at most about 25 lines and lists only that job's tools. In Claude Code, MCP tools load lazily through a ToolSearch step, so fewer tools means fewer wrong calls. Briefs live in core `templates.ts` and name no language.
+- **Gates are the net.** Tracks, roadmaps and exercises reach the learner only after their gates pass. A weak model costs retries, not inconsistent activities. As core §1 says, gates prove internal consistency, not that a statement teaches the right thing.
+- **Short, single-purpose briefs.** Each job brief is at most about 25 lines, and the job's server exposes only its own tools. With `--tools ""`, Claude Code loads Codemm's tools directly, without the lazy ToolSearch step (agent-bridge.md, finding 5). Briefs live in core `templates.ts` and name no language.
 - **No subagents needed.** The app runs authoring as its own process. Hosts or models that handle subagents poorly still get isolation.
-- **Specific errors and bounded retries.** Tool inputs are validated with specific messages that the agent can act on. Retries are bounded (§3.2), and success comes from core state.
-- **Bench.** The cross-model bench (`bench/`) supplies evidence per model. D17 requires the desktop flow to pass with one small model per verified agent, or to fail only into honest failure screens.
+- **Specific errors and bounded retries.** Tool inputs are validated with specific messages that the agent can act on. Retries are bounded (§3.2), and each job's done check reads core records.
+- **Bench.** The cross-model bench (`bench/`) supplies evidence per model.
 
 ## 9. Acceptance criteria
 
@@ -247,38 +338,71 @@ Each item is verified by an automated test unless marked *journey*.
 
 | # | Requirement |
 |---|---|
-| D1 | CI builds unsigned installers on macOS (dmg), Windows (NSIS) and Linux (AppImage, deb). A smoke test launches each build to the welcome screen. |
-| D2 | Renderer isolation: the window has `contextIsolation`, `sandbox`, no `nodeIntegration` and a strict CSP. `require` and `process` are undefined in the renderer, and navigation and new windows are denied. |
+| D1 | CI builds unsigned installers on macOS (dmg), Windows (NSIS) and Linux (AppImage, deb). On each OS, the packaged build, with no system Node on `PATH`: (a) launches to the welcome screen; (b) starts its own MCP server through `ELECTRON_RUN_AS_NODE`, which a test client calls `list_tracks` on; and (c) launches a fake JavaScript agent the same way (on Windows, through an npm `.cmd` shim). |
+| D2 | Renderer security: the window has `contextIsolation`, `sandbox`, no `nodeIntegration` and the §2.1 CSP. In the renderer, `require` and `process` are undefined, a remote image in a lesson makes no request, and navigation and new windows are denied. IPC from any frame other than the main window's top frame is rejected. |
 | D3 | Every IPC channel is declared in `shared/api.ts`. Each handler validates its input and calls one function. Unknown channels and bad input are rejected. |
-| D4 | Canary test: an exercise whose solution, mutants, hidden tests and expected outputs hold canary strings is authored through a recorded author stream. Every IPC handler is driven, and every renderer-bound payload and the app log are checked for the canaries. None appears. |
-| D5 | The bridge, for Claude Code and Codex: launch arguments match §3.1. Recorded streams parse to the expected events. Cancelling leaves no process from the group. The agent gets no stdin, and no shell is used. |
+| D4 | Canary test: an exercise whose solution, mutants, hidden tests and expected outputs hold canary strings is authored through a recorded author stream. Every IPC handler is driven, and every renderer-bound payload and the app log are checked: none holds a canary. A tutor reply that quotes a canary line is held back. |
+| D5 | The bridge, for Claude Code and Codex: launch arguments match §3.1. Recorded streams parse to the expected events, and malformed lines produce none. A cancelled job resolves only after its whole process group is gone, including a child that ignores SIGTERM. A job cancelled before it starts never spawns. Overlong lines are dropped. Sign-in stops at its deadline. No stdin, no shell. |
 | D6 | Credentials: no desktop code reads agent credential files or credential environment variables. Sign-in returns a boolean only, and status output (for example, an email address) never reaches IPC or logs. |
-| D7 | Install consent: with `--desktop`, `save_track` stores a proposal and builds nothing. Only `installProposal` builds. Approving a roadmap never calls it. |
-| D8 | Roadmap: `get_roadmap` round-trips. App edits keep ids. A move is refused when a prerequisite would follow its dependant. Removing a required or used topic is refused. An uninstalled track gives `setup`. Sources are validated, stored and returned. |
-| D9 | Lessons: save, get, edit, notes and read work. A new agent save never overwrites a learner edit. `next_step` lesson rules hold. Writes are locked, atomic and versioned. |
-| D10 | Skip: it defers without changing mastery. It never satisfies a prerequisite. The concept returns when it is the only candidate. `done` needs every concept mastered. |
+| D7 | Install consent: with `--desktop`, `save_track` stores a proposal and builds nothing. Only `installProposal` builds, and only when the digest matches; a proposal whose files changed after the learner saw them is refused. Approving a roadmap never calls it. |
+| D8 | Roadmap: `get_roadmap` round-trips. App edits keep ids. A move is refused when a topic would come before one it requires. Removing a required topic, or one used by an exercise, event or lesson, is refused. An uninstalled track gives `setup`, and the track can change until the course has exercises. Sources are validated, stored and returned. |
+| D9 | Lessons: save, get, edit and notes work. The first `get_lesson` records a read. A new agent save never overwrites a learner edit. The `lesson` field on `practice` and `author` steps is `null`, the earliest unread id, or absent, as §4.4 says. Writes are locked, atomic and versioned. |
+| D10 | Skip: it defers without changing mastery and never satisfies a prerequisite. With every candidate deferred, the earliest is chosen. `done` needs every concept mastered. |
 | D11 | `installProposal` emits ordered progress events without diagnostics. |
-| D12 | Practice protection: tutor turns launch with the read-only flags in §3.1. An assist turn runs only after the learner's yes, and assist is turned off after the assisted check. |
-| D13 | Bounds: with a fake agent, an author job is cancelled after 3 failed saves, every job stops at its deadline, and a failed job is relaunched at most once. |
+| D12 | Practice and assist: tutor turns launch with no edit tools (§3.1). An assist job runs only after the learner's yes, can edit only the exercise folder, and leaves assist off when it ends, whether it succeeds, fails or is cancelled. Startup clears assist. |
+| D13 | Bounds: with a fake agent, an author job is cancelled after 3 failed saves, every job stops at its deadline, a failed job is relaunched at most once, and the flow ends on a §5 screen. |
 | D14 | *Journey*, on macOS with Docker Desktop, in the packaged app, for Claude Code and Codex: connect, goal, research, roadmap edit, approve, setup consent, lesson, a failing check, then a passing check, then the course view. Evidence goes in the release notes. |
 | D15 | *Journey*, on Windows 11 (Docker Desktop, WSL2) and Ubuntu (Docker Engine): install the unsigned build, connect one agent and pass one activity. If it can't be run, the OS is marked experimental (O3). |
-| D16 | *Journey*, Cursor: attempted. If it can't be signed in and run here, it is marked experimental and hidden behind its connect row. |
-| D17 | *Journey*, weak models: D14 runs with Claude Haiku and a small Codex model. Each completes, or fails only into the §5 screens within the bounds, and never shows an unverified activity. |
+| D16 | *Journey*, Cursor: attempted. If it can't be signed in and run here, it is marked experimental and its connect row says so. |
+| D17 | *Journey*, weak models: the D14 flow completes with at least one small model per verified agent (for example, Claude Haiku and gpt-6-luna). Bench evidence goes in the release notes. |
 | D18 | UI rules: rendering every screen shows agent names only on the connect screen, the tutor named "Codemm", and no ids, versions, paths or timestamps. |
 | D19 | No language dispatch: core A1's scan covers `desktop/`. Track names and colors come from `list_tracks` or the learner. |
 | D20 | Failure states: each row in §5 maps to a tested screen state. A check with no runtime records nothing and shows "wasn't counted". |
+| D21 | Jobs: switching the active course during an author job doesn't redirect its save. Each job's done check reads core records created after it started. A job whose save committed before a crash isn't relaunched. Cancelling during a check leaves no owned container behind. |
+| D22 | `codemm mcp --tools a,b` lists and accepts only `a` and `b`. `--course` scopes course tools to that course. |
 
 ## 10. Test strategy
 
 Work test-first. For each behavior, write a failing test, make it pass simply, then refactor while green.
 
-- **Core first.** These are unit tests in `learner` (the lesson, setup and skip rules), `schemas` (lessons, sources, predict blocks), `store` (proposals, lessons, atomicity) and `app`. Docker integration tests cover `installProposal` and its progress events.
-- **Desktop main.** Pure modules get vitest tests: `agents` (launch and parse against recorded fixtures), `views` (the boundary), roadmap edit rules and job bounds.
+- **Core first.** These are unit tests in:
+  - `learner`: the lesson field, setup and skip rules;
+  - `schemas`: lessons, sources and predict blocks;
+  - `store`: proposals and digests, lessons, learner file replacement and atomicity;
+  - `mcp`: `--tools` and `--course`;
+  - `app`.
+  Docker integration tests cover `installProposal` and its progress events.
+- **Desktop main.** Pure modules get vitest tests: `agents` (launch and parse against recorded fixtures), `views` (the boundary and the reply filter), roadmap edit rules, job bounds and done checks.
 - **The bridge** is tested with fake agent scripts that replay recorded streams. CI never calls a real model. Fixtures are re-recorded when an agent CLI changes its stream, and [agent-bridge.md](agent-bridge.md) records the versions they come from.
-- **Renderer.** A Playwright-for-Electron smoke test runs on each OS, plus a screen-text check for D18.
+- **Renderer.** A Playwright-for-Electron smoke test runs on each OS, plus the D2 security checks and a screen-text check for D18.
 - **Journeys** D14 to D17 run by hand with real agents on the owner's subscriptions.
 
-## 11. Deferred
+## 11. Delete or simplify
+
+The desktop direction makes some existing core code and docs unnecessary. Each removal lands with the change that replaces it.
+
+**Delete or rewrite with the change that replaces it:**
+
+| What | Why | Replaced by |
+|---|---|---|
+| The rule that `skip` raises mastery to 0.85 (`learner.ts`, core §7) and "mark a concept you already know" in the CLI help | It reports mastery the learner never showed | §4.5 |
+| The two long instruction blocks in `templates.ts` (`AGENTS_SECTION` and `AUTHOR_AGENT`) as the only source of agent rules | The app needs short per-job briefs; two copies of the rules would drift | one set of short job briefs in `templates.ts`; the terminal files are composed from them |
+| "Any UI" and "Practice hooks for Codex and Cursor" in core §2 "Deferred" | The app is in scope, and its launch flags remove edit tools from tutor turns for Claude Code and Codex | this spec |
+| README's terminal-first "Start learning" | The app is the main way in | an app-first README, with a short "Use from a terminal" section |
+| `spikes/agent-bridge/` | Throwaway proof | `desktop/src/main/agent/` (delete the spike in that PR) |
+
+**Delete only if the app becomes the only way in (O7):**
+
+| What | Size today |
+|---|---|
+| `init.ts` and `codemm init`, apart from writing `<ws>/.cursor/mcp.json` | 143 lines, plus A11 |
+| `hook.ts` and `codemm hook claude` (the app's launch flags replace it) | 54 lines, plus A12 |
+| The `codemm-author` subagent file (the app runs authoring as its own process) | part of `templates.ts` |
+| The learner CLI commands `test`, `check`, `status`, `skip` and `assist` | thin wrappers; `app` keeps the logic |
+
+The MCP server, `doctor`, `track add`, `track rebuild` and `tracks` stay either way. The app needs the server, and the rest support setup and repair.
+
+## 12. Deferred
 
 - Review scheduling: spacing intervals, priority over new topics and the authoring cost per review are product decisions, not a tiny rule. The prototype's review card is cut.
 - Executable lesson previews, streaks and activity history.
@@ -286,14 +410,40 @@ Work test-first. For each behavior, write a failing test, make it pass simply, t
 - Token-level streaming (Claude `--include-partial-messages`), a model picker, and signing in from inside the app.
 - Podman in the app, multiple workspaces, and course sharing.
 - A Cursor stream parser, until Cursor is verified (D16).
+- Stronger hidden-data protection against Codex's remaining host tools, which would need a separate grader account or encrypted storage.
 
-## 12. Open decisions for the owner
+## 13. Open decisions for the owner
 
 | # | Decision | Recommendation |
 |---|---|---|
 | O1 | Pass the agent the app's environment unchanged, or remove API-key variables so runs always use the signed-in plan | Pass it unchanged. Removing variables would break learners who use keys on purpose, and Codemm stays out of credentials. |
-| O2 | Does one setup consent cover up to 3 attempts for the same track, or does each attempt ask again? | One consent, with Stop always available and each attempt's files under Details. |
+| O2 | Consent wording: the prototype's "Downloads once. Graded runs are offline." or the honest "Setup runs code your agent wrote, with internet access. Graded runs are offline." | The honest line. The build runs agent-written code online, without resource limits. |
 | O3 | Windows and Linux: verified journeys before 1.0, or experimental as in core | Run D15 on real machines if available; otherwise experimental. |
-| O4 | Lessons before activities for terminal users too (`next_step` changes for everyone) | Yes: one learner model. |
+| O4 | Lessons before activities for terminal users too (`next_step` changes for everyone) | Yes: one learner model, and `get_lesson` records reads in both. |
 | O5 | Default workspace folder | `~/Codemm`, changeable once in settings. |
 | O6 | When the agent's own default model fails (seen with Codex), add a model setting? | No for 1.0. Show "Check your agent" and let the learner fix it in the agent. |
+| O7 | Keep the terminal path (`init`, the Claude hook, the author subagent, the learner CLI) in 1.0, or make the app the only way in and delete it (§11) | Keep it for 1.0: it is built, tested and journey-verified (A9 to A16), and the app shares its `app` functions. Revisit after D14. |
+| O8 | Codex can still read local files through host tools it won't let Codemm turn off. Accept the reply filter and the honor system for 1.0? | Yes, and say it in the README, as core already does for grading. |
+
+## 14. Review log
+
+**Astra (gpt-6-astra), desktop spec review, 17 Oct 2026.** Verdict: "not ready for implementation". All findings were accepted.
+
+| Finding | Resolution |
+|---|---|
+| F1 blocker: job isolation not enforced | §3.1: `--tools ""` for Claude Code (canary test passed); Codex shell off and `enabled_tools`, with its remaining host tools stated; §4.8 per-job server `--tools`; §2.2 reply filter; O8 |
+| F2 blocker: the spike blanket-approved the ordinary server | spike passes the job's tools as Codex `enabled_tools` and Claude `--tools ""`; agent-bridge.md finding 8 |
+| F3 consent not bound to the files | §4.1 digest-addressed immutable proposals, re-checked under the track lock; new contents ask again; honest dialog text (O2) |
+| F4 renderer content policy | §2.1 full CSP, remote images as links, `https:` links only, sender-frame checks; D2 |
+| F5 job targets and done checks | §3.2 `--course` binding, per-job done checks against new records, reconcile before relaunch; §4.8; D21 |
+| F6 cancellation didn't prove cleanup | spike resolves only after the group is gone, skips cancelled-before-start jobs, awaits `taskkill`, and treats a failed `pgrep` as unknown; §3.1 leftover-container cleanup; D5, D21 |
+| F7 malformed or excessive output | spike validates event shapes, catches parser errors, caps lines, and bounds sign-in time and output; D5 |
+| F8 skipping every candidate | §4.5 non-deferred first, otherwise the earliest deferred; D10 |
+| F9 lesson completion for terminal users; removal | §4.4 `get_lesson` records the read; §4.2 lessons block removal |
+| F10 assist left on | §3.2 assist job in the exercise folder; assist cleared when the turn ends and at startup; D12 |
+| F11 editor persistence | §4.7 locked, digest-checked, symlink-safe replacement; read-only during assist |
+| F12 packaged launch dependencies | §3.1 JavaScript launchers run with Electron as Node; `.cmd` shims resolved; D1 packaged checks |
+| F13 overclaims; D17 | §8 restates the internal-consistency limit; D17 is a capability journey, and bounded failure is D13 |
+| Earlier review 5: draft pins an uninstalled track | §4.2 track may change until the course has exercises |
+| Earlier review 7: persistent stuck | §3.2 "Try an easier one" adds a prerequisite |
+| Earlier review 8: research evidence and cost | §4.3 `version`, at least one source; §1 cost note and §3.2 bounds |

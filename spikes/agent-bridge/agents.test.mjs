@@ -44,9 +44,16 @@ test("codex: a rejected model ends with ok false and the agent's message; warnin
   assert.match(events[1].error, /not supported when using Codex with a ChatGPT account/);
 });
 
-test("parsers ignore blank, non-JSON and unknown lines", () => {
+test("parsers ignore blank, non-JSON, unknown and malformed lines", () => {
+  const malformed = [
+    '{"type":"assistant","message":{"content":"a string, not a list"}}',
+    '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1"}]}}',
+    '{"type":"assistant","message":{"content":[null,{"type":"text","text":7}]}}',
+    '{"type":"item.started","item":{"type":"mcp_tool_call","id":"i1"}}',
+    '{"type":"system","subtype":"init"}',
+  ];
   for (const agent of ["claude", "codex"]) {
-    for (const line of ["", "Reading additional input from stdin...", "{\"type\":\"rate_limit_event\"}", "[1,2]", "null"]) {
+    for (const line of ["", "Reading additional input from stdin...", "{\"type\":\"rate_limit_event\"}", "[1,2]", "null", ...malformed]) {
       assert.deepEqual(agents[agent].parse(line), [], `${agent}: ${line}`);
     }
   }
@@ -59,6 +66,7 @@ test("claude: launch passes the prompt, stream-json, the codemm server only and 
   const config = JSON.parse(args[args.indexOf("--mcp-config") + 1]);
   assert.deepEqual(config, { mcpServers: { codemm: server } });
   assert.ok(args.includes("--strict-mcp-config"));
+  assert.equal(args[args.indexOf("--tools") + 1], "", "no built-in tools: no shell, no file reads");
   assert.equal(args[args.indexOf("--allowedTools") + 1], "mcp__codemm__list_tracks,mcp__codemm__progress");
   assert.equal(args[args.indexOf("--model") + 1], "haiku");
   assert.ok(!args.includes("--resume"));
@@ -70,8 +78,8 @@ test("claude: resume adds the session id", () => {
   assert.ok(!args.includes("--allowedTools"));
 });
 
-test("codex: launch runs exec --json read-only with the codemm server as TOML overrides", () => {
-  const { command, args } = agents.codex.launch({ prompt: "hi", server, model: "gpt-6-luna" });
+test("codex: launch runs exec --json read-only, shell off, with only the job's codemm tools", () => {
+  const { command, args } = agents.codex.launch({ prompt: "hi", server, tools: ["list_tracks"], model: "gpt-6-luna" });
   assert.equal(command, "codex");
   assert.deepEqual(args.slice(0, 3), ["exec", "--json", "--skip-git-repo-check"]);
   const overrides = args.flatMap((a, i) => (args[i - 1] === "-c" ? [a] : []));
@@ -80,14 +88,17 @@ test("codex: launch runs exec --json read-only with the codemm server as TOML ov
     'mcp_servers.codemm.command="/abs/node"',
     'mcp_servers.codemm.args=["/abs/cli.js","mcp","--workspace","/ws"]',
     'mcp_servers.codemm.env={CODEMM_HOME="/home"}',
+    'mcp_servers.codemm.enabled_tools=["list_tracks"]',
     'mcp_servers.codemm.default_tools_approval_mode="approve"',
   ]);
+  const disabled = args.flatMap((a, i) => (args[i - 1] === "--disable" ? [a] : []));
+  assert.deepEqual(disabled, ["shell_tool", "unified_exec", "browser_use", "computer_use", "apps"]);
   assert.equal(args[args.indexOf("-m") + 1], "gpt-6-luna");
   assert.equal(args.at(-1), "hi");
 });
 
 test("codex: resume uses exec resume with the thread id before the prompt", () => {
-  const { args } = agents.codex.launch({ prompt: "again", server, resume: "t1" });
+  const { args } = agents.codex.launch({ prompt: "again", server, tools: [], resume: "t1" });
   assert.deepEqual(args.slice(0, 2), ["exec", "resume"]);
   assert.deepEqual(args.slice(-2), ["t1", "again"]);
 });

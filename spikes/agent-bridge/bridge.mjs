@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
  */
 
 const CREDENTIAL_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY", "CURSOR_API_KEY"];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function agentEnv() {
   const env = { ...process.env };
@@ -13,35 +14,57 @@ function agentEnv() {
   return env;
 }
 
-function start({ command, args }, cwd) {
-  // detached: the agent leads a new process group, so cancelling also stops its MCP server and tools.
-  return spawn(command, args, { cwd, env: agentEnv(), stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32" });
+function groupAlive(pid) {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-function stop(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
+/** Stops the agent's whole process group: SIGTERM, then SIGKILL after `killAfterMs`; resolves once it is gone. */
+async function stopGroup(child, killAfterMs) {
   if (process.platform === "win32") {
-    spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" });
+    await new Promise((r) => spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" }).on("close", r).on("error", r));
     return;
   }
-  const group = (sig) => {
+  const signal = (sig) => {
     try {
       process.kill(-child.pid, sig);
     } catch {}
   };
-  group("SIGTERM");
-  setTimeout(() => group("SIGKILL"), 3000).unref();
+  signal("SIGTERM");
+  const start = Date.now();
+  let killed = false;
+  while (groupAlive(child.pid) && Date.now() - start < killAfterMs + 5000) {
+    if (!killed && Date.now() - start >= killAfterMs) {
+      signal("SIGKILL");
+      killed = true;
+    }
+    await sleep(50);
+  }
 }
 
-/** Resolves with { code, cancelled } once the agent exits; `parse` turns one stdout line into events. */
-export function run(launch, parse, { onEvent, signal, cwd } = {}) {
+/**
+ * Resolves with { code, cancelled } once the agent and everything it started have exited.
+ * `parse` turns one stdout line into events; a line that throws or is longer than `maxLine` is skipped.
+ */
+export function run({ command, args }, parse, { onEvent, signal, cwd, maxLine = 1 << 20, killAfterMs = 3000 } = {}) {
+  if (signal?.aborted) return Promise.resolve({ code: null, cancelled: true });
   return new Promise((resolve, reject) => {
-    const child = start(launch, cwd);
+    // detached: the agent leads a new process group, so cancelling also stops its MCP server and tools.
+    const child = spawn(command, args, { cwd, env: agentEnv(), stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32" });
     let buffer = "";
-    let cancelled = false;
+    let skipping = false;
+    let stopping;
     const cancel = () => {
-      cancelled = true;
-      stop(child);
+      stopping ??= stopGroup(child, killAfterMs);
+    };
+    const emit = (line) => {
+      try {
+        for (const event of parse(line)) onEvent?.(event);
+      } catch {}
     };
     signal?.addEventListener("abort", cancel, { once: true });
     child.stdout.setEncoding("utf8");
@@ -49,29 +72,41 @@ export function run(launch, parse, { onEvent, signal, cwd } = {}) {
       buffer += chunk;
       let end;
       while ((end = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, end);
+        if (!skipping) emit(buffer.slice(0, end));
+        skipping = false;
         buffer = buffer.slice(end + 1);
-        for (const event of parse(line)) onEvent?.(event);
+      }
+      if (buffer.length > maxLine) {
+        buffer = "";
+        skipping = true;
       }
     });
     child.stderr.resume(); // drained, never shown: it can carry account details
     child.on("error", reject);
-    child.on("close", (code) => {
+    child.on("close", async (code) => {
       signal?.removeEventListener("abort", cancel);
-      if (buffer && !cancelled) for (const event of parse(buffer)) onEvent?.(event);
-      resolve({ code, cancelled });
+      if (stopping) {
+        await stopping;
+        resolve({ code, cancelled: true });
+        return;
+      }
+      if (buffer && !skipping) emit(buffer);
+      resolve({ code, cancelled: false });
     });
   });
 }
 
 /** Runs the agent's own status command. Only the yes/no leaves this function; the output is dropped. */
-export function signedIn({ command, args, read }) {
+export function signedIn({ command, args, read }, { timeoutMs = 10_000, maxOutput = 65_536 } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { env: agentEnv(), stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { env: agentEnv(), stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs, killSignal: "SIGKILL" });
     let output = "";
-    child.stdout.on("data", (d) => (output += d));
-    child.stderr.on("data", (d) => (output += d));
+    const collect = (d) => {
+      if (output.length < maxOutput) output += d;
+    };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
     child.on("error", () => resolve(false));
-    child.on("close", (code) => resolve(read({ code, output })));
+    child.on("close", (code, sig) => resolve(sig === null && read({ code, output })));
   });
 }
