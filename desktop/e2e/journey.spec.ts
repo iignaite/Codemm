@@ -181,9 +181,11 @@ async function ask(how: 'Hint' | 'Show me' | string): Promise<string> {
 
 /** The course map, from anywhere (a relaunched app opens on the welcome screen). */
 async function toMap() {
-  if (await visible(button('Start learning'))) await button('Start learning').click();
-  else if (await visible(nav('Learn'))) await nav('Learn').click();
   const map = page.getByRole('list', { name: 'Topics' });
+  // Right after launch the page may still be rendering: wait for a screen first.
+  await until('a screen', async () => (await visible(button('Start learning'))) || (await visible(nav('Learn'))) || (await visible(map)), MIN);
+  if (await visible(button('Start learning'))) await button('Start learning').click();
+  else if (!(await visible(map))) await nav('Learn').click();
   await until('the course map', async () => (await visible(map)) || (await visible(heading(/ complete$/))), 2 * MIN);
 }
 
