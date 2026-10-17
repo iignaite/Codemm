@@ -33,8 +33,11 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:e2e
-      # PR builds never sign: no secrets reach them. Releases sign (desktop-release.yml).
+      # No secrets reach PR builds, so they never get a real signature. electron-builder
+      # skips all signing on PRs unless told otherwise; allow it so macOS is signed ad hoc.
       - run: npm run dist
+        env:
+          CSC_FOR_PULL_REQUEST: "true"
       - uses: actions/upload-artifact@v4
         with:
           name: codemm-desktop-${{ runner.os }}

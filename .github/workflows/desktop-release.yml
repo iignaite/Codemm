@@ -72,10 +72,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          # A re-run may add to its own draft, but never touches a published release.
-          draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || echo none)
-          case "$draft" in
-            true) gh release upload "$TAG" installers/* --clobber --repo "$GITHUB_REPOSITORY" ;;
-            none) gh release create "$TAG" installers/* --draft --title "Codemm $TAG" --notes "Installers for macOS and Windows." --repo "$GITHUB_REPOSITORY" ;;
-            *) echo "Release $TAG is already published; not changing it." >&2; exit 1 ;;
-          esac
+          # Create only: if a release for this tag exists (draft or published),
+          # this fails and changes nothing. Delete a stale draft to rebuild it.
+          gh release create "$TAG" installers/* --draft --title "Codemm $TAG" \
+            --notes "Installers for macOS and Windows." --repo "$GITHUB_REPOSITORY"

@@ -1,10 +1,11 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { Course } from '../../shared/api';
 import { Button } from '../ui/Button';
 import { hueColor } from '../ui/Emm';
 import { Icon, type IconName } from '../ui/Icon';
 import { Logo, Mark } from '../ui/Mark';
 import { useApi } from './api';
+import { PLAN_LIMIT_TEXT, problemOf } from './errors';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
 
@@ -78,11 +79,18 @@ export function WithSide({ children }: { children: ReactNode }) {
   return <><Sidebar />{children}</>;
 }
 
-export function Failed({ retry }: { retry: () => void }) {
+/** A screen whose data couldn't load. An agent that needs signing in goes to connect instead. */
+export function Failed({ error, retry }: { error: unknown; retry: () => void }) {
+  const { fail } = useRouter();
+  const problem = problemOf(error);
+  useEffect(() => {
+    if (problem === 'signed-out') fail(error);
+  }, [problem, error, fail]);
+  if (problem === 'signed-out') return null;
   return (
     <main className="center">
       <div className="stack" role="alert">
-        <p className="sub">Couldn't reach Codemm.</p>
+        <p className="sub">{problem === 'plan-limit' ? PLAN_LIMIT_TEXT : "Couldn't reach Codemm."}</p>
         <Button variant="ghost" onClick={retry}>Try again</Button>
       </div>
     </main>

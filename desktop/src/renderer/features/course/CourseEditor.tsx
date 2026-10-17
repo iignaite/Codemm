@@ -57,7 +57,8 @@ export function CourseEditor({ draft }: { draft: Draft }) {
       setTopics(items((await api.revise(current(), request.trim())).topics));
       setRequest('');
     } catch (err) {
-      fail(err);
+      // Come back to the edited course, not the one this screen opened with.
+      fail(err, { to: 'course', draft: current() });
     } finally {
       setAsking(false);
     }

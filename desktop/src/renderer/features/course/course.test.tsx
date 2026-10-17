@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { Draft } from '../../../shared/api';
+import { createMock, type MockOptions } from '../../../main/mock';
 import { renderApp } from '../../test-utils';
 
 const draft: Draft = { title: 'React basics', track: 'React', installed: false, topics: ['JavaScript basics', 'JSX', 'Props', 'State'] };
@@ -45,6 +46,23 @@ describe('course editor', () => {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+  });
+
+  it('keeps the learner\'s edits when sign-in expires during a request', async () => {
+    const user = userEvent.setup();
+    const options: MockOptions = {};
+    const api = createMock(options);
+    await api.connect('claude');
+    renderApp({ to: 'course', draft }, api);
+    await user.click(await screen.findByRole('button', { name: 'Remove JSX' }));
+    options.agentProblem = 'signed-out';
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Testing{Enter}');
+    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+    await user.click(within(claude).getByRole('button', { name: 'Try again' }));
+    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    await screen.findByRole('heading', { name: 'React basics' });
+    expect(names()).toEqual(['JavaScript basics', 'Props', 'State']);
   });
 
   it('asks Codemm for changes', async () => {

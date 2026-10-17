@@ -15,17 +15,21 @@ const STATE_TEXT = { ok: 'Ready', problem: 'Needs a step', waiting: 'Waiting' } 
 export function Computer({ then }: { then: Route }) {
   const api = useApi();
   const { go } = useRouter();
-  const { data, error, reload } = useLoad(() => api.computer(), [], (c) => c.ready, timing.recheckMs);
+  const { data, error, loading, reload } = useLoad(() => api.computer(), [], (c) => c.ready, timing.recheckMs);
+  // One check at a time: a click or focus while one runs waits for its result.
+  const recheck = () => {
+    if (!loading) reload();
+  };
   const list = useRef<HTMLUListElement>(null);
   const action = useRef<HTMLButtonElement>(null);
   const focusInList = useRef(false);
 
   // Coming back to the window re-checks at once.
   useEffect(() => {
-    if (data?.ready) return;
+    if (data?.ready || loading) return;
     window.addEventListener('focus', reload);
     return () => window.removeEventListener('focus', reload);
-  }, [data?.ready, reload]);
+  }, [data?.ready, loading, reload]);
 
   // A re-check can remove the step that had focus; move focus to the next action.
   useEffect(() => {
@@ -35,7 +39,7 @@ export function Computer({ then }: { then: Route }) {
     }
   }, [data]);
 
-  if (error) return <Failed retry={reload} />;
+  if (error) return <Failed error={error} retry={reload} />;
   if (!data) return null;
   const problem = data.checks.find((c) => c.state === 'problem');
   return (
@@ -54,7 +58,7 @@ export function Computer({ then }: { then: Route }) {
             <Button ref={action} size="lg" onClick={() => go(then)}>Continue</Button>
           ) : (
             <>
-              <Button ref={action} variant="ghost" size="lg" onClick={reload}>Check now</Button>
+              <Button ref={action} variant="ghost" size="lg" onClick={recheck}>Check now</Button>
               <Button variant="text" onClick={() => go(then)}>Later</Button>
             </>
           )}

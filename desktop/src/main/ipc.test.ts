@@ -64,6 +64,8 @@ describe('dispatch', () => {
     expect(() => dispatch(echo, 'research', [{ topic: '', known: [] }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'research', [{ topic: 'React' }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'research', [{ topic: 'React', known: [], extra: 1 }])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: [], constructor: 1 }])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: [], toString: 'x' }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'approve', [{ ...draft, topics: [] }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'approve', [{ ...draft, topics: [''] }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'approve', [{ ...draft, installed: 'no' }])).toThrow('Bad input');
@@ -76,6 +78,14 @@ describe('dispatch', () => {
       [{ path: 'a/../../x', text: '' }],
       [{ path: 'a\\b', text: '' }],
       [{ path: 'C:/x', text: '' }],
+      [{ path: 'a\u0000b', text: '' }],
+      [{ path: 'src/file:stream', text: '' }],
+      [{ path: 'what?.txt', text: '' }],
+      [{ path: 'NUL', text: '' }],
+      [{ path: 'src/con.txt', text: '' }],
+      [{ path: 'Com1', text: '' }],
+      [{ path: 'notes.', text: '' }],
+      [{ path: 'notes ', text: '' }],
       [{ path: 'a', text: 1 }],
       [{ path: 'a', text: '', extra: true }],
       Array.from({ length: 257 }, (_, i) => ({ path: `f${i}`, text: '' })),

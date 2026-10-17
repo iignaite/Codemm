@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { createMock, type MockOptions } from '../../../main/mock';
@@ -107,5 +107,26 @@ describe('check this computer', () => {
         if (fix?.link) expect(isOfficialLink(fix.link.url)).toBe(true);
       }
     }
+  });
+});
+
+describe('re-checking', () => {
+  it('runs one check at a time, even when the window regains focus', async () => {
+    const api = createMock({ docker: 'stopped', platform: 'mac' });
+    let calls = 0;
+    let finish = () => {};
+    const computer = api.computer;
+    api.computer = () => {
+      calls++;
+      return calls === 1 ? computer() : new Promise((done) => (finish = () => done(computer())));
+    };
+    renderApp({ to: 'computer', then: { to: 'welcome' } }, api);
+    await screen.findByRole('listitem', { name: 'Docker is running' });
+    await waitFor(() => expect(calls).toBe(2));
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('focus'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls).toBe(2);
+    finish();
   });
 });

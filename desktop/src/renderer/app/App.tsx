@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { PLAN_LIMIT, SIGNED_OUT, type CodemmApi } from '../../shared/api';
+import type { CodemmApi } from '../../shared/api';
 import { Connect } from '../features/connect/Connect';
 import { Welcome } from '../features/connect/Welcome';
 import { Computer } from '../features/computer/Computer';
@@ -13,6 +13,7 @@ import { Research } from '../features/research/Research';
 import { Tracks } from '../features/tracks/Tracks';
 import { Button } from '../ui/Button';
 import { ApiContext } from './api';
+import { PLAN_LIMIT_TEXT, problemOf } from './errors';
 import { RouterContext, type Route, type Router } from './router';
 import { WithSide } from './Shell';
 
@@ -53,15 +54,15 @@ export function App({ api, start = { to: 'welcome' } }: { api: CodemmApi; start?
         setFailed(undefined);
         setRoute(next);
       },
-      fail: (error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes(SIGNED_OUT)) {
+      fail: (error, resume = route) => {
+        const problem = problemOf(error);
+        if (problem === 'signed-out') {
           setFailed(undefined);
-          setRoute({ to: 'connect', then: route });
+          setRoute({ to: 'connect', then: resume });
           return;
         }
         console.error(error);
-        setFailed(message.includes(PLAN_LIMIT) ? "Your agent's plan limit is reached. Try again later." : "Codemm couldn't finish that. Try again.");
+        setFailed(problem === 'plan-limit' ? PLAN_LIMIT_TEXT : "Codemm couldn't finish that. Try again.");
       },
     }),
     [route],

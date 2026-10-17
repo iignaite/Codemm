@@ -14,12 +14,17 @@ const oneOf = (...options: string[]): Valid => (v) => typeof v === 'string' && o
 const id: Valid = (v) => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(v) && !v.includes('..');
 const list = (item: Valid, max: number, min = 0): Valid => (v) => Array.isArray(v) && v.length >= min && v.length <= max && v.every(item);
 const shape = (fields: Record<string, Valid>): Valid => (v) =>
-  isObject(v) && Object.keys(v).every((k) => k in fields) && Object.entries(fields).every(([k, valid]) => valid(v[k]));
+  isObject(v) && Object.keys(v).every((k) => Object.hasOwn(fields, k)) && Object.entries(fields).every(([k, valid]) => valid(v[k]));
 
-/** A relative, `/`-separated path with no `.` or `..` parts, as in core's file maps. */
-const path: Valid = (v) =>
-  typeof v === 'string' && v.length <= 512 && !v.startsWith('/') && !v.includes('\\') && !/^[A-Za-z]:/.test(v) &&
-  v.split('/').every((part) => part !== '' && part !== '.' && part !== '..');
+/**
+ * A relative, `/`-separated path with no `.` or `..` parts, as in core's file
+ * maps, that is also safe on Windows: no reserved characters, device names,
+ * or names ending in a dot or space.
+ */
+const DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\.|$)/i;
+const part: Valid = (p) =>
+  typeof p === 'string' && p !== '' && p !== '.' && p !== '..' && !/[<>:"|?*\\\u0000-\u001f]/.test(p) && !DEVICE.test(p) && !/[. ]$/.test(p);
+const path: Valid = (v) => typeof v === 'string' && v.length <= 512 && v.split('/').every(part);
 
 const files: Valid = (v) =>
   list(shape({ path, text: text(MAX_FILE_BYTES) }), MAX_FILES)(v) &&

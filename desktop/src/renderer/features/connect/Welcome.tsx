@@ -13,7 +13,7 @@ export function Welcome() {
   const api = useApi();
   const { go } = useRouter();
   const { data, error, reload } = useLoad(async () => ({ agents: await api.agents(), course: await api.course() }), []);
-  if (error) return <Failed retry={reload} />;
+  if (error) return <Failed error={error} retry={reload} />;
   if (!data) return null;
   const on = data.agents.some((a) => a.state === 'connected');
   const fx = on ? 'colorin' : 'bw';

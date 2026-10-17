@@ -15,7 +15,7 @@ export function Tracks() {
   const { data, error, reload } = useLoad(async () => ({ tracks: await api.tracks(), suggestions: await api.suggestions() }), []);
   const [topic, setTopic] = useState('');
   const [rebuilding, setRebuilding] = useState<string>();
-  if (error) return <Failed retry={reload} />;
+  if (error) return <Failed error={error} retry={reload} />;
   if (!data) return null;
 
   async function rebuild(id: string) {

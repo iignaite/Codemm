@@ -17,8 +17,11 @@ export type Route =
 export interface Router {
   route: Route;
   go: (route: Route) => void;
-  /** Reports a failed call: an agent that needs signing in opens connect; anything else is said in a banner. */
-  fail: (error: unknown) => void;
+  /**
+   * Reports a failed call. An agent that needs signing in opens connect, then
+   * returns to `resume` (default: this route). Anything else is said in a banner.
+   */
+  fail: (error: unknown, resume?: Route) => void;
 }
 
 export const RouterContext = createContext<Router | null>(null);

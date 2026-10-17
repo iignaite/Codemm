@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { createMock, type MockOptions } from '../../../main/mock';
 import { renderApp } from '../../test-utils';
 
 describe('choose journey', () => {
@@ -25,6 +26,22 @@ describe('choose journey', () => {
 
     expect(await screen.findByRole('heading', { name: 'React basics' }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem').length).toBeGreaterThan(3);
+  });
+
+  it('sends the learner to sign in when research needs it', async () => {
+    const options: MockOptions = {};
+    const api = createMock(options);
+    await api.connect('claude');
+    options.agentProblem = 'signed-out';
+    renderApp({ to: 'research', goal: { topic: 'React', known: [] } }, api);
+    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+    expect(claude).toHaveTextContent('Sign in to Claude Code, then try again.');
+  });
+
+  it('says when research hits the plan limit', async () => {
+    renderApp({ to: 'research', goal: { topic: 'React', known: [] } }, createMock({ agentProblem: 'plan-limit' }));
+    expect(await screen.findByText("Your agent's plan limit is reached. Try again later.")).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't reach Codemm.")).not.toBeInTheDocument();
   });
 
   it('does not start without a goal', async () => {

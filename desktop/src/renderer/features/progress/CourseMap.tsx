@@ -21,7 +21,7 @@ const left = (n: number) => (n === 1 ? 'One more activity' : `${n} more activiti
 export function CourseMap() {
   const api = useApi();
   const { data: course, error, reload } = useLoad(() => api.course(), []);
-  if (error) return <Failed retry={reload} />;
+  if (error) return <Failed error={error} retry={reload} />;
   if (course === undefined) return null;
   if (course === null) return <Goal />;
   if (course.topics.every((t) => t.state === 'mastered')) return <Complete course={course} />;

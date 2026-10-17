@@ -17,7 +17,7 @@ export function Research({ goal }: { goal: Goal }) {
     if (data?.done) go({ to: 'course', draft: { title: data.title, track: data.track, installed: data.installed, topics: data.path.map((s) => s.title) } });
   }, [data, go]);
 
-  if (error) return <Failed retry={reload} />;
+  if (error) return <Failed error={error} retry={reload} />;
 
   return (
     <main className="main page">

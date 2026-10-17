@@ -16,7 +16,7 @@ export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
   const [agents, setAgents] = useState<Agent[]>();
   const [busy, setBusy] = useState<string>();
   const list = agents ?? data;
-  if (error) return <Failed retry={reload} />;
+  if (error) return <Failed error={error} retry={reload} />;
   if (!list) return null;
 
   async function connect(id: string) {

@@ -16,7 +16,7 @@ import { Results, type Shown } from './Results';
 export function Practice({ activityId }: { activityId: string }) {
   const api = useApi();
   const { data, error, reload } = useLoad(async () => ({ activity: await api.activity(activityId), course: (await api.course())! }), [activityId]);
-  if (error) return <><Sidebar slim /><Failed retry={reload} /></>;
+  if (error) return <><Sidebar slim /><Failed error={error} retry={reload} /></>;
   if (!data) return <Sidebar slim />;
   return <><Sidebar slim /><Workspace {...data} /></>;
 }

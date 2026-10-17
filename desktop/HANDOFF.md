@@ -107,6 +107,14 @@ Background work is polled: screens re-read the course or the research every 500 
   - the lesson cache across replaced courses;
   - a stale read hiding a saved note;
   - focus lost when a computer check turns ready.
+- **Third Astra review**, of the 1.0 trim, seven findings, all fixed:
+  - edits lost when sign-in expired during a roadmap request;
+  - research errors skipping the sign-in and plan-limit handling;
+  - overlapping computer checks on window focus;
+  - inherited keys slipping past IPC shapes;
+  - Windows-unsafe file paths;
+  - PR builds skipping the ad-hoc signature (electron-builder skips signing on PRs unless `CSC_FOR_PULL_REQUEST` is set);
+  - a release re-run able to change a published release.
 
 ## Decisions
 

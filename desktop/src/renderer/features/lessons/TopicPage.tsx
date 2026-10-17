@@ -14,7 +14,7 @@ const settled = (c: Course | null) => !c || (c.setup !== 'running' && !c.topics.
 export function TopicPage({ topicId }: { topicId: string }) {
   const api = useApi();
   const { data: course, error, reload } = useLoad(() => api.course(), [topicId], settled);
-  if (error) return <Failed retry={reload} />;
+  if (error) return <Failed error={error} retry={reload} />;
   const topic = course?.topics.find((t) => t.id === topicId);
   if (!course || !topic) return null;
   if (course.setup === 'failed') return <SetupFailed course={course} onRetry={reload} />;

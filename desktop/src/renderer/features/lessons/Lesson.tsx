@@ -54,7 +54,7 @@ export function Lesson({ lessonId }: { lessonId: string }) {
     reload();
   };
   if (view) return <><Sidebar slim /><Reader {...view} onSaved={onSaved} /></>;
-  if (error) return <><Sidebar slim /><Failed retry={reload} /></>;
+  if (error) return <><Sidebar slim /><Failed error={error} retry={reload} /></>;
   return <Sidebar slim />;
 }
 
