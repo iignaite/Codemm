@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { appendEvent, materialize, readEvents, withLock } from "../src/store.js";
+import { appendEvent, materialize, readEvents, withLock, withWorkspaceLock } from "../src/store.js";
 
 let home: string;
 beforeEach(() => {
@@ -56,6 +56,42 @@ describe("withLock", () => {
     const lock = join(home, "x.lock");
     writeFileSync(lock, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
     await expect(withLock(lock, async () => "never", 300)).rejects.toThrow(/busy/i);
+  });
+});
+
+describe("withWorkspaceLock", () => {
+  it("is one lock for every spelling of the workspace", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+    const alias = join(mkdtempSync(join(tmpdir(), "codemm-alias-")), "ws");
+    symlinkSync(ws, alias);
+    const order: string[] = [];
+    const slow = withWorkspaceLock(ws, async () => {
+      order.push("first in");
+      await new Promise((r) => setTimeout(r, 300));
+      order.push("first out");
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    await withWorkspaceLock(alias, async () => order.push("second"));
+    await slow;
+    expect(order).toEqual(["first in", "first out", "second"]);
+  });
+});
+
+describe("withWorkspaceLock for a folder that doesn't exist yet", () => {
+  it("is the same lock before and after the folder is created", async () => {
+    const real = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+    const alias = join(mkdtempSync(join(tmpdir(), "codemm-alias-")), "ws");
+    symlinkSync(real, alias);
+    const order: string[] = [];
+    const slow = withWorkspaceLock(join(alias, "new"), async () => {
+      order.push("first in");
+      await new Promise((r) => setTimeout(r, 300));
+      order.push("first out");
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    await withWorkspaceLock(join(real, "new"), async () => order.push("second"));
+    await slow;
+    expect(order).toEqual(["first in", "first out", "second"]);
   });
 });
 

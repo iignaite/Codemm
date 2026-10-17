@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
-import { type FileMap, subMap, validateFileMap } from "./files.js";
+import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./files.js";
 import { verifyExercise, verifyTrack } from "./gates.js";
 import type { TestResult, TestSet } from "./grading.js";
 import { gradeIoRun, gradeUnitRun, type IoRun, runIo, runUnit, type UnitRun } from "./judge.js";
@@ -46,7 +46,7 @@ export function listTracks() {
 }
 
 export async function saveTrack(files: FileMap): Promise<{ installed: string; unchanged?: true; warning?: string }> {
-  validateFileMap(files);
+  assertPortablePaths(validateFileMap(files));
   if (!files["track.yaml"]) throw new CodemmError("A track needs a track.yaml file.");
   const spec = parseTrackYaml(files["track.yaml"]);
   const ref = `${spec.id}@${spec.version}`;
@@ -141,6 +141,7 @@ export function nextStep(ws: string): NextStep {
 }
 
 export async function saveExercise(ws: string, files: FileMap): Promise<{ exercise: string; warning?: string }> {
+  assertPortablePaths(validateFileMap(files));
   const courseId = activeCourse(ws).course;
   const trackId = store.parseTrackRef(activeCourse(ws).track).id;
   const { record, track } = await store.withLock(store.courseLockPath(courseId), () =>

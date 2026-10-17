@@ -9,8 +9,18 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  # Typecheck, build and the unit tests on every OS Codemm supports.
+  #
+  # GitHub's macOS and Windows runners can't run Linux containers (no nested
+  # virtualization for Docker Desktop on macOS, Windows containers only on
+  # Windows), so the Docker integration tests run on Linux only. On macOS and
+  # Windows, the sandbox and judge are covered by unit tests and by reasoning.
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +30,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run build
+      - run: npm run test:unit
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - run: npm run build
       - name: Test (Docker tests required)
         run: npm test
