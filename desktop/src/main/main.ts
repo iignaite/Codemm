@@ -4,7 +4,6 @@ import type { CodemmApi } from '../shared/api';
 import { dispatch } from './ipc';
 import { isSafeLink } from './links';
 import { createLog } from './log';
-import { createMock, scenario } from './mock';
 import { liveApi } from './wire';
 
 const page = join(__dirname, '../renderer/index.html');
@@ -19,7 +18,13 @@ process.on('unhandledRejection', (e) => log('error', { where: 'main', message: e
 
 const mock = !app.isPackaged && process.env.CODEMM_MOCK !== undefined;
 const live = mock ? null : liveApi({ coreDir: app.isPackaged ? join(process.resourcesPath, 'core') : join(__dirname, '../core'), userData: app.getPath('userData'), log });
-const codemm: CodemmApi = live ?? createMock(scenario(process.env.CODEMM_MOCK || undefined));
+// The mock loads only in mock mode, so installers can leave it out.
+const codemm: CodemmApi = live ?? devMock();
+
+function devMock(): CodemmApi {
+  const { createMock, scenario } = require('./mock') as typeof import('./mock');
+  return createMock(scenario(process.env.CODEMM_MOCK || undefined));
+}
 
 // Windows only ever show the app's own page (navigation and new windows are
 // blocked), so accept calls from a main frame on a file URL and nothing else.
