@@ -1,9 +1,9 @@
-<h1 align="center">
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/codemm-logo-dark.svg">
     <img src="docs/brand/codemm-logo.svg" alt="Codemm" width="360">
   </picture>
-</h1>
+</p>
 
 <p align="center">
   <picture>
