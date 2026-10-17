@@ -18,7 +18,7 @@
   <a href="https://github.com/iignaite/Codemm/actions/workflows/ci.yml"><img src="https://github.com/iignaite/Codemm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-0E2754" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A522-0E2754" alt="Node.js 22 or newer">
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-0E2754" alt="Platforms: macOS, Linux, Windows">
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows%20%28experimental%29-0E2754" alt="Platforms: macOS, Linux, Windows (experimental)">
 </p>
 
 ## What is Codemm
@@ -45,7 +45,7 @@ While you practice in Claude Code, a hook stops the agent from editing your exer
 
 ## Install
 
-Codemm isn't on npm yet. Install it from source:
+A downloadable app for macOS and Windows is coming in 1.0. Until then, install the CLI from source (it isn't on npm yet):
 
 ```bash
 git clone https://github.com/iignaite/Codemm.git
@@ -100,7 +100,7 @@ Your agent uses the MCP tools `list_tracks`, `save_track`, `save_roadmap`, `next
 | **Agents** | Claude Code, Codex | Cursor |
 | **Platforms** | macOS with Docker Desktop, Linux | Windows (Docker Desktop with WSL 2), Podman |
 
-Verified means a real end-to-end run is recorded in the [1.0 release evidence](docs/release-evidence-1.0.md) or covered by CI. CI runs the unit tests on macOS, Linux and Windows, and the Docker tests on Linux.
+Verified means a real end-to-end run is recorded in the [1.0 release evidence](docs/release-evidence-1.0.md) or covered by CI. CI runs the unit tests on macOS, Linux and Windows, and the Docker tests on Linux. Windows stays experimental until it has a full run on a Windows machine.
 
 ## Good to know
 
