@@ -236,7 +236,7 @@ export function getLesson(ws: string, id: string, bound?: string) {
 export function listLessons(ws: string, bound?: string) {
   const course = activeCourse(ws, bound).course;
   const read = new Set(store.readEvents(course).flatMap((e) => (e.kind === "read" ? [e.lesson] : [])));
-  return store.listLessons(course).map((l) => ({ id: l.id, concept: l.concept, title: l.title, read: read.has(l.id) }));
+  return store.listLessons(course).map((l) => ({ id: l.id, concept: l.concept, title: l.title, created: l.created, read: read.has(l.id) }));
 }
 
 export async function saveNotes(ws: string, id: string, text: string, bound?: string): Promise<void> {
@@ -299,6 +299,11 @@ export async function saveExercise(ws: string, files: FileMap, bound?: string): 
     return { exercise: record.slug, warning: `Saved, but the learner files couldn't be written yet: ${(e as Error).message}` };
   }
   return { exercise: record.slug };
+}
+
+/** Saved exercises, oldest first. A job's done check reads `created`. */
+export function listExercises(ws: string, bound?: string) {
+  return store.listExercises(activeCourse(ws, bound).course).map((e) => ({ exercise: e.slug, concepts: e.concepts, difficulty: e.difficulty, created: e.createdAt }));
 }
 
 /** What the learner may see: the statement, starter files and visible tests (with expected io outputs). */

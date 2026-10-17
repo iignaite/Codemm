@@ -156,7 +156,7 @@ describe("lessons", () => {
     await app.markLessonRead(ws, "intro");
     await app.markLessonRead(ws, "intro");
     expect(store.readEvents("shell")).toEqual([expect.objectContaining({ kind: "read", lesson: "intro", concept: "sh.basics" })]);
-    expect(app.listLessons(ws)).toEqual([{ id: "intro", concept: "sh.basics", title: "About intro", read: true }]);
+    expect(app.listLessons(ws)).toEqual([{ id: "intro", concept: "sh.basics", title: "About intro", created: expect.any(String), read: true }]);
   });
 
   it("asks for a lesson, then the earliest unread one, before practice", async () => {
@@ -173,6 +173,17 @@ describe("lessons", () => {
   it("keeps a concept a lesson uses in the roadmap", async () => {
     await app.saveLesson(ws, lesson("loops", "sh.loops"));
     await expect(app.saveRoadmap(ws, "shell", roadmap("  - { id: sh.basics, title: Basics, requires: [] }\n"))).rejects.toThrow(/sh\.loops/);
+  });
+});
+
+describe("exercise list", () => {
+  it("lists exercises with what a job's done check needs, and nothing hidden", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    addExercise("shell", "e1", "sh.basics");
+    const list = app.listExercises(ws);
+    expect(list).toEqual([{ exercise: "e1", concepts: ["sh.basics"], difficulty: 1, created: expect.any(String) }]);
+    expect(JSON.stringify(list)).not.toMatch(/SECRET|HIDDEN/);
   });
 });
 
