@@ -1,5 +1,6 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -13,6 +14,8 @@ import { join } from 'node:path';
 //   JOURNEY_AGENT=claude|codex
 //   JOURNEY_PART=full|setup|activity   `setup`: through setup and the first lesson, then quit;
 //                                      `activity`: only the next activity (author) and the tutor, on that course
+//                                      `no-agent`: no agent on PATH or in the usual folders
+//                                      `docker-stop`: Docker Desktop stopped before and during a Check, then started
 //   JOURNEY_LABEL=<name>   names screenshots and result rows
 const dir = process.env.CODEMM_JOURNEY;
 const exe = process.env.CODEMM_APP;
@@ -270,15 +273,73 @@ async function activity(skipAfter: boolean) {
   });
 }
 
+const docker = (command: 'stop' | 'start') => execFileSync('docker', ['desktop', command], { stdio: 'ignore', timeout: 5 * MIN });
+
 test(`journey: ${label}`, async () => {
   const env: Record<string, string> = { ...(process.env as Record<string, string>), CODEMM_HOME: join(dir!, 'home'), PATH: `${join(dir!, 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin` };
+  if (part === 'no-agent') {
+    // Neither PATH nor the usual install folders (under HOME) hold an agent.
+    env.PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
+    env.HOME = join(dir!, 'empty-home');
+    mkdirSync(env.HOME, { recursive: true });
+  }
   for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ELECTRON_RUN_AS_NODE', 'CODEMM_JOURNEY', 'CODEMM_APP', 'NODE_OPTIONS']) delete env[key];
   const untouched = snapshot();
   app = await electron.launch({ executablePath: exe!, args: [`--user-data-dir=${join(dir!, 'userData')}`], env, cwd: dir! });
   page = await app.firstWindow();
   expect(await app.evaluate(({ app: a }) => a.getPath('userData'))).toBe(join(dir!, 'userData'));
 
-  if (part === 'full' || part === 'setup') {
+  if (part === 'no-agent') {
+    await step('no-agent', async () => {
+      await button('Connect an agent').click();
+      for (const name of ['Claude Code', 'Codex']) await expect(page.getByRole('listitem', { name }).getByText('Not installed')).toBeVisible({ timeout: MIN });
+      await expect(button('Continue')).toBeDisabled();
+      return (await page.getByRole('link', { name: /^Get / }).evaluateAll((els) => els.map((e) => `${e.textContent} ${e.getAttribute('href')}`))).join(' / ');
+    });
+  } else if (part === 'docker-stop') {
+    await step('activity-open', async () => {
+      // A relaunched app opens on the welcome screen; Start learning leads to the course.
+      await expect(button('Start learning').or(page.getByRole('list', { name: 'Topics' }))).toBeVisible({ timeout: 2 * MIN });
+      if (await button('Start learning').isVisible()) await button('Start learning').click();
+      await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible({ timeout: 2 * MIN });
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      return toActivity();
+    });
+    await step('docker-stopped-before-check', async () => {
+      docker('stop');
+      await wrongAnswer(5);
+      const verdict = await check();
+      expect(verdict).toBe("This check wasn't counted");
+      return (await results().innerText()).replace(/\s+/g, ' ').slice(0, 200);
+    });
+    await step('check-this-computer', async () => {
+      await results().getByRole('button', { name: 'Check this computer' }).click();
+      await expect(page.getByRole('heading', { name: 'Check this computer' })).toBeVisible();
+      const waiting = (await page.getByRole('status').innerText()).replace(/\s+/g, ' ');
+      docker('start');
+      await expect(page.getByText('This computer is ready.')).toBeVisible({ timeout: 5 * MIN });
+      await button('Continue').click();
+      return `while stopped: ${waiting}`;
+    });
+    await step('docker-stopped-during-check', async () => {
+      await expect(button('Try it')).toBeVisible({ timeout: 2 * MIN });
+      await wrongAnswer(6);
+      await button('Check').click();
+      docker('stop');
+      const verdict = results().getByRole('heading', { name: /passed|wasn't counted/ });
+      await expect(verdict).toBeVisible({ timeout: 5 * MIN });
+      return verdict.innerText();
+    });
+    await step('docker-back', async () => {
+      docker('start');
+      await page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Practice' }).click();
+      await expect(button('Try it')).toBeVisible({ timeout: 2 * MIN });
+      await rightAnswer();
+      const verdict = await check();
+      expect(verdict).toMatch(/^(\d+) of \1 passed$/);
+      return verdict;
+    });
+  } else if (part === 'full' || part === 'setup') {
     await step('connect', async () => {
       await button('Connect an agent').click();
       const row = page.getByRole('listitem', { name: AGENT_NAME });
@@ -357,6 +418,9 @@ test(`journey: ${label}`, async () => {
     }
   } else {
     await step('activity-open', async () => {
+      // A relaunched app opens on the welcome screen; Start learning leads to the course.
+      await expect(button('Start learning').or(page.getByRole('list', { name: 'Topics' }))).toBeVisible({ timeout: 2 * MIN });
+      if (await button('Start learning').isVisible()) await button('Start learning').click();
       await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible({ timeout: 2 * MIN });
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
       return toActivity();
