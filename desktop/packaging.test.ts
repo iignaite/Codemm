@@ -21,6 +21,10 @@ describe('packaging', () => {
     expect(packaging({ CSC_LINK: 'base64-p12' }).mac.hardenedRuntime).toBe(true);
   });
 
+  it('leaves the development mock and its demo curriculum out of the installer', () => {
+    expect(packaging({}).files).toContain('!out/main/mock.js');
+  });
+
   it('builds only macOS and Windows installers', () => {
     const config = packaging({}) as Record<string, unknown>;
     expect(config.linux).toBeUndefined();
