@@ -206,7 +206,7 @@ async function toActivity(): Promise<string> {
         if (++retries > 2) throw new Error(`Still stalled after 2 tries: ${(await page.getByRole('alert').innerText()).replace(/\s+/g, ' ')}`);
         appendFileSync(join(dir!, 'results.jsonl'), `${JSON.stringify({ label, step: 'stall-try-again', ok: true, s: 0, note: (await page.getByRole('alert').innerText()).replace(/\s+/g, ' ') })}\n`);
         await stalled.click();
-      } else if (await visible(button('Next'))) await button('Next').click();
+      } else if ((await visible(button('Next'))) && (await button('Next').isEnabled())) await button('Next').click();
       else if (await visible(button(/^(Start|Again)$/))) await button(/^(Start|Again)$/).click();
       else if (await visible(button(/^Read /))) await button(/^Read /).first().click();
       return false;
