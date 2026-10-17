@@ -99,9 +99,10 @@ export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['s
 
   return (
     <div className="failed" role="alert">
-      {stalled === 'plan-limit' ? SAY['plan-limit'] : "Codemm couldn't finish that."}
+      {stalled === 'failed' ? "Codemm couldn't finish that." : SAY[stalled]}
       {stalled === 'failed' && <Button variant="text" onClick={() => go({ to: 'connect', then: route })}>Check your agent</Button>}
-      <Button variant="text" onClick={again}>Try again</Button>
+      {/* An agent Codemm couldn't stop is still running: only quitting stops it (§3.1). */}
+      {stalled !== 'unstoppable' && <Button variant="text" onClick={again}>Try again</Button>}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 // only when its check against core records passes, never on the agent's word.
 import type { AgentId } from '../../shared/api';
 import { AGENT_CLIS, type AgentEvent, type McpServer } from './agents';
+import { infra as isInfra } from '../core/failures';
 import { run, type Executable } from './bridge';
 
 export type JobKind = 'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor';
@@ -31,7 +32,8 @@ export const SAVE_BOUND = 3;
 /** Known plan-limit markers in an agent's `done` error (§6.1). Unverified until each is recorded as a fixture. */
 const PLAN_LIMIT = /usage limit|rate limit|\b429\b/i;
 
-export type JobProblem = 'plan-limit' | 'signed-out' | 'failed';
+/** `infra`: Docker, disk, network or the Codemm server failed: nothing is recorded and no attempt is spent (§6.1). `unstoppable`: a cancel the agent survived. */
+export type JobProblem = 'plan-limit' | 'signed-out' | 'failed' | 'infra' | 'unstoppable';
 
 export interface JobOutcome {
   ok: boolean;
@@ -61,30 +63,56 @@ export interface Job {
   deadlineMs?: number;
 }
 
-async function once(job: Job): Promise<{ ok: boolean; error?: string; session?: string; text: string[]; cancelled: boolean }> {
+interface Attempt {
+  ok: boolean;
+  error?: string;
+  session?: string;
+  text: string[];
+  /** A cancel the agent's process group survived (§3.1). */
+  unstoppable: boolean;
+  /** `server`: the Codemm server didn't start. `tool`: a Codemm tool hit Docker, disk or network. `unstarted`: the agent exited before it started. */
+  infra?: 'server' | 'tool' | 'unstarted';
+}
+
+async function once(job: Job): Promise<Attempt> {
   const cli = AGENT_CLIS[job.agent];
-  if (!cli.launch || !cli.parse) return { ok: false, error: 'This agent is experimental and can not run jobs yet.', text: [], cancelled: false };
+  if (!cli.launch || !cli.parse) return { ok: false, error: 'This agent is experimental and can not run jobs yet.', text: [], unstoppable: false };
   const spec = JOBS[job.kind];
+  const deadlineMs = job.deadlineMs ?? spec.deadlineMs;
   const stop = new AbortController();
-  const deadline = setTimeout(() => stop.abort(), job.deadlineMs ?? spec.deadlineMs);
+  const deadline = setTimeout(() => stop.abort(), deadlineMs);
   const cancel = () => stop.abort();
   job.signal?.addEventListener('abort', cancel, { once: true });
   const saves = new Set<string>();
   let failedSaves = 0;
   let session: string | undefined;
   let done: AgentEvent & { type: 'done' } | undefined;
+  let started = false;
+  let infra: Attempt['infra'];
   const text: string[] = [];
   const onEvent = (e: AgentEvent) => {
+    started = true;
     if (e.type === 'session') session = e.id;
     if (e.type === 'text') text.push(e.text);
     if (e.type === 'done') done = e;
+    if (e.type === 'server') {
+      infra = 'server';
+      stop.abort();
+    }
     if (e.type === 'tool_call' && spec.save && e.name === `codemm.${spec.save}`) saves.add(e.id);
+    if (e.type === 'tool_result' && e.error && e.text && isInfra(e.text)) {
+      infra = 'tool';
+      stop.abort();
+    }
     if (e.type === 'tool_result' && e.error && saves.has(e.id) && ++failedSaves >= SAVE_BOUND) stop.abort();
   };
-  const args = cli.launch({ prompt: job.brief, server: job.server(spec.tools), tools: spec.tools, model: job.model, resume: job.resume, web: spec.web }).args;
+  const turn = { prompt: job.brief, server: job.server(spec.tools), tools: spec.tools, model: job.model, resume: job.resume, web: spec.web, toolTimeoutSec: Math.ceil(deadlineMs / 1000) };
   try {
-    const result = await run(job.exe, args, cli.parse, { onEvent, signal: stop.signal, cwd: job.cwd, runtime: job.runtime });
-    return { ok: !result.cancelled && done?.ok === true, error: done?.error, session, text, cancelled: result.cancelled };
+    const result = await run(job.exe, cli.launch(turn).args, cli.parse, { onEvent, signal: stop.signal, cwd: job.cwd, runtime: job.runtime });
+    if (!started && !result.cancelled && result.code !== 0) infra ??= 'unstarted';
+    // A conversational success needs the agent's done event and a clean exit.
+    const ok = !result.cancelled && result.code === 0 && done?.ok === true;
+    return { ok, error: done?.error, session, text, unstoppable: result.cancelled && result.stopped === false, infra };
   } finally {
     clearTimeout(deadline);
     job.signal?.removeEventListener('abort', cancel);
@@ -93,16 +121,21 @@ async function once(job: Job): Promise<{ ok: boolean; error?: string; session?: 
 
 /**
  * Runs a job and checks it against core records. A failed job is relaunched at most once, never after
- * a plan limit or sign-out, and never when its save landed anyway (a save can commit just before a crash).
+ * a plan limit, a sign-out or an infrastructure failure, never while its agent may still be running,
+ * and never when its save landed anyway (a save can commit just before a crash).
  */
 export async function runJob(job: Job): Promise<JobOutcome> {
-  let last: Awaited<ReturnType<typeof once>> | undefined;
+  let last: Attempt | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (job.signal?.aborted) break;
     last = await once(job);
+    if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };
+    if (job.signal?.aborted) break;
     if (last.error && PLAN_LIMIT.test(last.error)) return { ok: false, problem: 'plan-limit', text: last.text };
+    if (last.infra === 'server' || last.infra === 'tool') return { ok: false, problem: 'infra', text: last.text };
     if (!(await job.signedIn())) return { ok: false, problem: 'signed-out', text: last.text };
+    if (last.infra === 'unstarted') return { ok: false, problem: 'infra', text: last.text };
   }
   return { ok: false, problem: 'failed', session: last?.session, text: last?.text ?? [] };
 }

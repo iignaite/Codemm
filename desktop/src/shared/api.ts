@@ -15,6 +15,8 @@ export const NO_AGENT = 'codemm:no-agent';
 export const PLAN_LIMIT = 'codemm:plan-limit';
 /** An agent job failed or wasn't done by its check (§5). */
 export const AGENT_FAILED = 'codemm:agent-failed';
+/** A cancel the agent's process group survived: "Codemm couldn't stop your agent" (§3.1). */
+export const UNSTOPPABLE = 'codemm:unstoppable';
 /** A learner file changed outside Codemm since the editor loaded it (§4.5). */
 export const CHANGED = 'codemm:changed';
 
@@ -135,7 +137,7 @@ export interface CourseView {
   topics: TopicView[];
   done: boolean;
   /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
-  stalled?: 'plan-limit' | 'signed-out' | 'failed';
+  stalled?: 'plan-limit' | 'signed-out' | 'failed' | 'unstoppable';
 }
 
 export interface Lesson {

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { CHANGED, PLAN_LIMIT } from '../shared/api';
+import { CHANGED, PLAN_LIMIT, UNSTOPPABLE } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
 import { HELD_BACK } from './views';
 
@@ -249,5 +249,23 @@ describe('live CodemmApi', () => {
     await t.api.course();
     await new Promise((res) => setTimeout(res, 10));
     expect(t.jobs.ran).toHaveLength(ran);
+  });
+
+  it('an agent Codemm could not stop says so, in the foreground and as stalled background work', async () => {
+    const t = live({ tutor: () => ({ ok: false, problem: 'unstoppable' }) });
+    const activity = await practising(t);
+    await expect(t.api.ask({ activityId: activity.id }, 'Why?')).rejects.toThrow(UNSTOPPABLE);
+
+    const s = live({ lesson: () => ({ ok: false, problem: 'unstoppable' }) });
+    const r = await researched(s);
+    await s.api.approve(r.roadmap!.concepts);
+    expect(await until(s.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'unstoppable' });
+  });
+
+  it('an infrastructure failure in background work is a recoverable stall', async () => {
+    const t = live({ lesson: () => ({ ok: false, problem: 'infra' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'failed' });
   });
 });
