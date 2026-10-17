@@ -1,4 +1,9 @@
-# Codemm
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/codemm-logo-dark.svg">
+    <img src="docs/brand/codemm-logo.svg" alt="Codemm" width="360">
+  </picture>
+</h1>
 
 CodeChum-style practice for any language or framework, written by **your own coding agent**. Codemm proves every exercise works before you see it, grades your code in a sandbox, and tracks what you've mastered.
 
