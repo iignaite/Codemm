@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { AGENTS_SECTION, AUTHOR_AGENT } from "../src/templates.js";
+import { TOOL_NAMES } from "../src/mcp.js";
+import { AGENTS_SECTION, AUTHOR_AGENT, JOB_BRIEFS, JOB_TOOLS, type JobKind } from "../src/templates.js";
 
 // Each rule below closes a failure the cross-model bench observed (docs/bench/results.md).
 describe("tutor instructions (AGENTS.md section)", () => {
@@ -43,5 +44,44 @@ describe("author instructions (codemm-author subagent)", () => {
 
   it("starts track versions at 1", () => {
     expect(AUTHOR_AGENT).toMatch(/starting at 1/);
+  });
+});
+
+describe("the 1.0 learning flow in the tutor instructions", () => {
+  it("handles setup, and teaches the lesson before the activity", () => {
+    expect(AGENTS_SECTION).toMatch(/`setup`: the roadmap's track isn't installed yet/);
+    expect(AGENTS_SECTION).toMatch(/`save_lesson`.*`get_lesson`.*call `mark_lesson_read` only after the learner says they've read it/s);
+  });
+});
+
+describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
+  const named = (brief: string) => new Set(brief.match(new RegExp(`\\b(${TOOL_NAMES.join("|")})\\b`, "g")));
+  const kinds = Object.keys(JOB_BRIEFS) as JobKind[];
+
+  it("has a brief and a tool list for every job in the spec", () => {
+    expect(kinds.sort()).toEqual(["author", "lesson", "research", "roadmap", "setup", "tutor"]);
+    expect(Object.keys(JOB_TOOLS).sort()).toEqual(kinds);
+    for (const k of kinds) for (const t of JOB_TOOLS[k]) expect(TOOL_NAMES).toContain(t);
+  });
+
+  it.each(kinds)("the %s brief names only its own tools", (kind) => {
+    expect([...named(JOB_BRIEFS[kind])].filter((t) => !JOB_TOOLS[kind].includes(t))).toEqual([]);
+  });
+
+  it.each(kinds)("keeps the %s brief within 25 lines", (kind) => {
+    expect(JOB_BRIEFS[kind].split("\n").length).toBeLessThanOrEqual(25);
+  });
+
+  it("gives setup and author the same bench-checked rules as the terminal subagent", () => {
+    expect(JOB_BRIEFS.setup).toMatch(/never make one up/i);
+    expect(JOB_BRIEFS.setup).toMatch(/only proposes/);
+    expect(JOB_BRIEFS.author).toMatch(/edge cases .* hidden tests/);
+    expect(JOB_BRIEFS.author).toMatch(/reply with only the exercise id/);
+  });
+
+  it("keeps the tutor's hint rule and keeps it away from saves", () => {
+    expect(JOB_BRIEFS.tutor).toMatch(/not in chat/);
+    expect(JOB_BRIEFS.tutor).toMatch(/Don't state the fix, write the code or list the steps/);
+    expect(JOB_TOOLS.tutor.filter((t) => t.startsWith("save_"))).toEqual([]);
   });
 });
