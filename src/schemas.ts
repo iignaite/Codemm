@@ -1,0 +1,170 @@
+import { parse as parseYaml } from "yaml";
+import { z } from "zod";
+import { CodemmError } from "./errors.js";
+import { assertRelativePath, ID_PATTERN } from "./files.js";
+
+const MAX_YAML_BYTES = 65_536;
+const Id = z.string().regex(ID_PATTERN, "must be 1-64 lowercase letters, digits, '.', '_' or '-'");
+const Style = z.enum(["io", "unit"]);
+export type Style = z.infer<typeof Style>;
+
+export const LIMITS = { time_ms: { min: 100, max: 30_000, default: 2000 }, memory_mb: { min: 64, max: 2048, default: 256 } };
+const clamp = (n: number | undefined, l: { min: number; max: number; default: number }) => Math.min(l.max, Math.max(l.min, n ?? l.default));
+
+function describe(error: z.ZodError): string {
+  return error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ");
+}
+
+function parseWith<T>(schema: z.ZodType<T>, yaml: string, what: string): T {
+  if (Buffer.byteLength(yaml) > MAX_YAML_BYTES) throw new CodemmError(`${what} is larger than 64 KB.`);
+  let data: unknown;
+  try {
+    data = parseYaml(yaml);
+  } catch (e) {
+    throw new CodemmError(`${what} is not valid YAML: ${(e as Error).message}`);
+  }
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) throw new CodemmError(`Invalid ${what}: ${describe(parsed.error)}`);
+  return parsed.data;
+}
+
+const TrackYaml = z
+  .object({
+    id: Id,
+    version: z.number().int().positive("version must be a positive integer"),
+    styles: z.array(Style).min(1),
+    files: z.array(z.string()).min(1).max(20),
+    build: z.string().min(1).max(2000).optional(),
+    run: z.string().min(1).max(2000).optional(),
+    test: z.string().min(1).max(2000).optional(),
+    limits: z.object({ time_ms: z.number().int().positive().optional(), memory_mb: z.number().int().positive().optional() }).strict().optional(),
+  })
+  .strict();
+
+export type TrackSpec = Omit<z.infer<typeof TrackYaml>, "limits"> & { limits: { time_ms: number; memory_mb: number } };
+
+export function parseTrackYaml(yaml: string): TrackSpec {
+  const t = parseWith(TrackYaml, yaml, "track.yaml");
+  for (const f of t.files) assertRelativePath(f);
+  if (t.styles.includes("io") && !t.run) throw new CodemmError("Invalid track.yaml: an io track needs a run command.");
+  if (t.styles.includes("unit") && !t.test) throw new CodemmError("Invalid track.yaml: a unit track needs a test command.");
+  return { ...t, limits: { time_ms: clamp(t.limits?.time_ms, LIMITS.time_ms), memory_mb: clamp(t.limits?.memory_mb, LIMITS.memory_mb) } };
+}
+
+const RoadmapYaml = z
+  .object({
+    goal: z.string().min(1).max(500),
+    track: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}@[1-9][0-9]{0,8}$/, "track must be pinned as id@version"),
+    style: Style,
+    concepts: z
+      .array(z.object({ id: Id, title: z.string().min(1).max(200), requires: z.array(Id).max(20).default([]) }).strict())
+      .min(1, "add at least one concept")
+      .max(200),
+  })
+  .strict();
+export type Roadmap = z.infer<typeof RoadmapYaml>;
+
+/** Structural roadmap rules: unique ids, known prerequisites, no cycles (Kahn's algorithm). */
+export function parseRoadmapYaml(yaml: string): Roadmap {
+  const r = parseWith(RoadmapYaml, yaml, "roadmap");
+  const ids = new Set<string>();
+  for (const c of r.concepts) {
+    if (ids.has(c.id)) throw new CodemmError(`Invalid roadmap: duplicate concept id "${c.id}".`);
+    ids.add(c.id);
+  }
+  for (const c of r.concepts) {
+    for (const req of c.requires) if (!ids.has(req)) throw new CodemmError(`Invalid roadmap: "${c.id}" requires unknown concept "${req}".`);
+  }
+  const indegree = new Map(r.concepts.map((c) => [c.id, c.requires.length]));
+  const queue = r.concepts.filter((c) => c.requires.length === 0).map((c) => c.id);
+  let seen = 0;
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    seen += 1;
+    for (const c of r.concepts) {
+      if (!c.requires.includes(id)) continue;
+      const left = indegree.get(c.id)! - 1;
+      indegree.set(c.id, left);
+      if (left === 0) queue.push(c.id);
+    }
+  }
+  if (seen !== r.concepts.length) {
+    const cyclic = [...indegree].filter(([, n]) => n > 0).map(([id]) => id);
+    throw new CodemmError(`Invalid roadmap: prerequisites form a cycle among ${cyclic.join(", ")}.`);
+  }
+  return r;
+}
+
+const ExerciseYaml = z
+  .object({
+    slug: Id,
+    style: Style.optional(),
+    concepts: z.array(Id).min(1).max(10),
+    difficulty: z.number().int().min(1).max(3),
+    hint: z.string().max(2000).optional(),
+  })
+  .strict();
+export type ExerciseSpec = z.infer<typeof ExerciseYaml>;
+
+export const parseExerciseYaml = (yaml: string): ExerciseSpec => parseWith(ExerciseYaml, yaml, "exercise.yaml");
+
+// Records Codemm itself writes. Each carries format_version so a future release can migrate forward.
+
+export const TrackRecord = z.object({
+  format_version: z.literal(1),
+  id: Id,
+  version: z.number().int().positive(),
+  styles: z.array(Style),
+  files: z.array(z.string()),
+  build: z.string().optional(),
+  run: z.string().optional(),
+  test: z.string().optional(),
+  limits: z.object({ time_ms: z.number(), memory_mb: z.number() }),
+  image: z.string(),
+  imageId: z.string(),
+  installedAt: z.string(),
+});
+export type TrackRecord = z.infer<typeof TrackRecord>;
+
+export const CourseRecord = RoadmapYaml.extend({ format_version: z.literal(1), course: Id });
+export type CourseRecord = z.infer<typeof CourseRecord>;
+
+export const ExerciseRecord = z.object({
+  format_version: z.literal(1),
+  slug: Id,
+  style: Style,
+  concepts: z.array(Id),
+  difficulty: z.number().int(),
+  hint: z.string().optional(),
+  track: z.string(),
+  createdAt: z.string(),
+  /** io: expected stdout per case name, written from the reference. */
+  expected: z.record(z.string(), z.string()).optional(),
+  /** unit: test names per set, recorded from the reference. */
+  inventory: z.object({ visible: z.array(z.string()), hidden: z.array(z.string()) }).optional(),
+});
+export type ExerciseRecord = z.infer<typeof ExerciseRecord>;
+
+export const WorkspaceConfig = z.object({
+  format_version: z.literal(1),
+  course: Id.optional(),
+  current: Id.optional(),
+  assist: z.boolean().default(false),
+});
+export type WorkspaceConfig = z.infer<typeof WorkspaceConfig>;
+
+export const LearnerEventSchema = z.discriminatedUnion("kind", [
+  z.object({
+    format_version: z.literal(1),
+    kind: z.literal("check"),
+    at: z.string(),
+    exercise: Id,
+    concepts: z.array(Id),
+    difficulty: z.number().int(),
+    passed: z.number().int().nonnegative(),
+    total: z.number().int().positive(),
+    assisted: z.boolean(),
+  }),
+  z.object({ format_version: z.literal(1), kind: z.literal("skip"), at: z.string(), concept: Id }),
+  z.object({ format_version: z.literal(1), kind: z.literal("assist"), at: z.string(), exercise: Id }),
+]);

@@ -21,7 +21,9 @@ export type CheckEvent = {
   assisted: boolean;
 };
 export type SkipEvent = { format_version: 1; kind: "skip"; at: string; concept: string };
-export type LearnerEvent = CheckEvent | SkipEvent;
+/** Marks an exercise as assisted for good: every check of it counts as assisted. */
+export type AssistEvent = { format_version: 1; kind: "assist"; at: string; exercise: string };
+export type LearnerEvent = CheckEvent | SkipEvent | AssistEvent;
 
 export type ConceptState = {
   mastery: number;
@@ -51,8 +53,8 @@ export function replay(log: LearnerEvent[]): Map<string, ConceptState> {
     states.set(concept, s);
     return s;
   };
-  const checked = new Set<string>();
-  const solved = new Set<string>();
+  const best = new Map<string, number>();
+  const assistedExercises = new Set<string>();
 
   for (const a of log) {
     if (a.kind === "skip") {
@@ -60,23 +62,29 @@ export function replay(log: LearnerEvent[]): Map<string, ConceptState> {
       s.mastery = Math.max(s.mastery, MASTERED);
       continue;
     }
-    const firstTry = !checked.has(a.exercise);
-    checked.add(a.exercise);
+    if (a.kind === "assist") {
+      assistedExercises.add(a.exercise);
+      continue;
+    }
+    const score = a.total > 0 ? a.passed / a.total : 0;
+    const previousBest = best.get(a.exercise);
+    const firstTry = previousBest === undefined;
     const perfect = isPerfect(a);
     // Re-checking an already solved exercise is feedback only, never new evidence.
-    if (perfect && solved.has(a.exercise)) continue;
-    if (perfect) solved.add(a.exercise);
+    if (perfect && previousBest === 1) continue;
+    // Mastery moves only on a first check or a better best score, so retrying the same partial answer adds nothing.
+    const improves = firstTry || score > previousBest;
+    if (improves) best.set(a.exercise, score);
+    const assisted = a.assisted || assistedExercises.has(a.exercise);
 
     for (const concept of a.concepts) {
       const s = get(concept);
-      const score = a.total > 0 ? a.passed / a.total : 0;
-      const weight = a.assisted ? ASSISTED_WEIGHT : 1;
-      s.mastery += RATE * weight * (score - s.mastery);
+      if (improves) s.mastery += RATE * (assisted ? ASSISTED_WEIGHT : 1) * (score - s.mastery);
       s.attempts += 1;
 
       if (perfect) {
         s.failStreak = 0;
-        if (firstTry && !a.assisted) s.difficulty = Math.min(MAX_DIFFICULTY, s.difficulty + 1);
+        if (firstTry && !assisted) s.difficulty = Math.min(MAX_DIFFICULTY, s.difficulty + 1);
       } else {
         s.failStreak += 1;
         if (s.failStreak >= 2 && s.difficulty > 1) {

@@ -5,17 +5,17 @@ import { CodemmError } from "./errors.js";
 /** Relative path → UTF-8 contents. How agents hand Codemm a track or an exercise. */
 export type FileMap = Record<string, string>;
 
-const ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+export const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const MAX_FILES = 256;
 const MAX_BYTES = 1_048_576;
 
 export function assertId(kind: string, value: string): void {
-  if (!ID.test(value) || value.includes("..")) {
+  if (!ID_PATTERN.test(value) || value.includes("..")) {
     throw new CodemmError(`Invalid ${kind} "${value}". Use 1-64 lowercase letters, digits, ".", "_" or "-", starting with a letter or digit.`);
   }
 }
 
-function assertRelativePath(path: string): void {
+export function assertRelativePath(path: string): void {
   const parts = path.split("/");
   const ok = path.length > 0 && !path.includes("\\") && !path.includes("\0") && parts.every((p) => p !== "" && p !== "." && p !== "..");
   if (!ok) throw new CodemmError(`Invalid path "${path}". Use a relative path with "/" separators and no "." or ".." parts.`);

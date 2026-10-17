@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type CheckEvent, MASTERED, nextStep, replay, type SkipEvent } from "../src/learner.js";
+import { type CheckEvent, type LearnerEvent, MASTERED, nextStep, replay, type SkipEvent } from "../src/learner.js";
 
 const at = (n: number) => new Date(Date.UTC(2026, 9, 17, 0, n)).toISOString();
 
@@ -27,6 +27,23 @@ describe("replay: mastery", () => {
   it("still counts progress on an exercise until its first perfect check", () => {
     const log = [attempt({ exercise: "e", concepts: ["x"], passed: 0, total: 2 }, 0), attempt({ exercise: "e", concepts: ["x"], passed: 2, total: 2 }, 1)];
     expect(replay(log).get("x")!.mastery).toBeCloseTo(0.35 + 0.3 * (1 - 0.35));
+  });
+
+  it("ignores identical partial retries so they can't add up to mastery", () => {
+    const log = [0, 1, 2, 3, 4, 5].map((n) => attempt({ exercise: "e", concepts: ["x"], passed: 9, total: 10 }, n));
+    expect(replay(log).get("x")!.mastery).toBeCloseTo(0.5 + 0.3 * (0.9 - 0.5));
+  });
+
+  it("still counts failures toward the staircase when the score doesn't improve", () => {
+    const log = [0, 1].map((n) => attempt({ exercise: "e", concepts: ["x"], passed: 0 }, n));
+    expect(replay(log).get("x")!.stuck).toBe(true);
+  });
+
+  it("treats every check of an exercise with an assist event as assisted", () => {
+    const log: LearnerEvent[] = [{ format_version: 1, kind: "assist", at: at(0), exercise: "e" }, attempt({ exercise: "e", concepts: ["x"] }, 1)];
+    const s = replay(log).get("x")!;
+    expect(s.mastery).toBeCloseTo(0.5 + 0.3 * 0.25 * 0.5);
+    expect(s.difficulty).toBe(1);
   });
 
   it("moves toward the pass ratio", () => {

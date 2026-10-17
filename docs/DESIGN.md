@@ -1,6 +1,6 @@
 # Codemm 1.0 design
 
-Status: approved for implementation after the Astra design review (§13). The longer illustrated design, with research sources and the competitor survey, is the "Codemm Harness" design doc (v0.4, 17 Oct 2026). This file is the authoritative spec for what 1.0 ships.
+Status: revised after two Astra design reviews (§13). The longer illustrated design, with research sources and the competitor survey, is the "Codemm Harness" design doc (v0.4, 17 Oct 2026). This file is the authoritative spec for what 1.0 ships.
 
 ## 1. What Codemm is
 
@@ -60,11 +60,11 @@ $CODEMM_HOME (default ~/.codemm)
   courses/<course>/
     course.json                     { format_version, goal, track, style, concepts }
     exercises/<slug>/               full exercise + exercise.json (inventory, expected io outputs)
-    events.jsonl                    append-only learner events
+    events.jsonl                    append-only learner events (check, skip, assist)
     .lock                           held while mutating this course
 
 <workspace>/                        bound explicitly: --workspace for the MCP server, cwd for the CLI
-  codemm.json                       { format_version, course, current, assist, assisted: [slugs] }
+  codemm.json                       { format_version, course, current, assist }
   exercises/<course>/<slug>/        README.md, learner files, tests/ (visible only)
 ```
 
@@ -104,20 +104,20 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
 
 ### 4.2 Running a check
 
-- **One container per check.** Learner or reference files are copied into a fresh host folder mounted read-only at `/work/src` (the working directory). Tests are mounted read-only at `/work/tests/visible` and `/work/tests/hidden`. The only writable location is a size-capped tmpfs at `/tmp`, and `HOME=/tmp`.
+- **One container per test set.** Visible and hidden tests run in separate containers, so code running against visible tests can never read hidden ones. Learner or reference files are copied into a fresh host folder mounted read-only at `/work/src` (the working directory). That set's tests are mounted read-only at `/work/tests`. The only writable location is a size-capped tmpfs at `/tmp`, and `HOME=/tmp`.
 - **No output mount.** The driver writes results to stdout as length-framed records (`@@codemm <kind> <name> <exit> <bytes>` followed by exactly that many bytes). The host parses them sequentially and stops reading past the cap.
 - **The driver** is a POSIX `sh` script, written by Codemm and run as PID 1 with the entrypoint overridden. It first checks for `sh`, `timeout`, `head`, `wc` and `cat`; a missing utility is a track error.
 - **io:**
-  1. Run `build` once.
-  2. Run `run` per input with `timeout`, capturing stdout to `/tmp` and keeping the first 64 KB.
+  1. Run `build` once, with a 60 s limit.
+  2. Run `run` per input with `timeout`, capturing stdout to `/tmp`. Output longer than 64 KB is an `error` ("printed more than 64 KB"), never a comparison of the first 64 KB, and a reference that does this fails the gates.
   3. Run `kill -9 -1` after each case so leftover processes can't affect the next one.
   4. Expected outputs never enter the container. The host compares output after converting CRLF to LF and removing trailing whitespace per line and at the end.
 - **unit:**
-  1. Run `test` with `TESTS=/work/tests/<set>` and `OUT=/tmp/<set>.json`, once for `visible` and once for `hidden`.
+  1. Run `test` with `TESTS=/work/tests` and `OUT=/tmp/report.json`, in that set's own container.
   2. `test` must exit 0 whenever it wrote a valid report, including when tests fail. A non-zero exit or an invalid report is `error`.
   3. A report is `{ "tests": [ { "name", "status": "pass"|"fail"|"error", "message"? } ] }`. It must be non-empty, with unique names.
 - **Unit inventory.** When an exercise is verified, Codemm records the reference's test names for each set. At check time, a test missing from the learner's report counts as `error`, and unknown extra names are ignored, so the denominator never shrinks.
-- **Hidden-test output.** For hidden tests, tools and the CLI show only an index and a status.
+- **Disclosure.** Visible results include messages and program output. Hidden results include only an index and a status: no messages, output or names leave Codemm, in tool output, CLI output or gate diagnostics.
 
 ### 4.3 Host-owned sandbox settings
 
@@ -135,7 +135,16 @@ Every judge container gets:
 Other ceilings:
 
 - **Time:** `time_ms` is capped at 30 s per case or test run. The host kills the whole check at `build + Σ cases + 30 s`, then runs `docker rm -f <name>`.
-- **Output:** the host stops reading stdout past 4 MB.
+- **Output:** inside the container, program stdout and stderr go to `/tmp` and only bounded slices are framed out. Outside, the host counts stdout and stderr of the container process together; past 4 MB it kills the container.
+
+**Termination reasons** decide whether a run counts:
+
+| What happened | Result | Recorded as an attempt |
+|---|---|---|
+| A case times out (the driver's `timeout`), crashes, exits non-zero or prints more than 64 KB | that test is `error` | yes |
+| Learner code fails to build | every test is `error` | yes |
+| The 4 MB stream cap is hit | every test in that set is `error` ("output limit exceeded") | yes |
+| The host deadline for the whole set passes, the runtime is missing, or the image is missing or changed | the command fails with an infrastructure error | no |
 - **Volumes:** images that declare `VOLUME` are rejected at install.
 
 `codemm doctor` checks the container CLI and daemon. It also proves `--network none` blocks a host TCP server that a networked container can reach.
@@ -147,7 +156,9 @@ Other ceilings:
 - **The trust point** is the learner approving the `save_track` call in their agent, or running `codemm track add` themselves. Codemm's tool description says this plainly, and `init` never pre-approves it.
 - **The build context** is a fresh folder holding only the track's files. No secrets, SSH agent or Docker socket are forwarded.
 - **The build** times out after 10 minutes and the process is killed. Build resource limits are not enforced in 1.0 (a known limitation).
-- **The image** is tagged `codemm-track-<id>:<version>`, and its ID is stored in `track.json`. Every check verifies that the ID still matches. If the image is missing or has changed, the check fails with "Run `codemm track rebuild <id>@<version>`". Rebuild re-runs the track gates and records the new ID. Nothing rebuilds silently.
+- **The image** is tagged `codemm-track-<id>:<version>`, and its ID is stored in `track.json`. Every check verifies that the ID still matches. If the image is missing or has changed, the check fails with "Run `codemm track rebuild <id>@<version>`".
+- **Rebuild** re-runs the track gates, then re-runs exercise gates 2 to 6 for every stored exercise on the new image. io outputs must also equal the stored expected outputs, and unit inventories must match. Only then is the new image ID recorded. Otherwise rebuild fails and lists the exercises that changed. Nothing rebuilds silently.
+- **Locks.** Installs, rebuilds and exercise saves (from validation through commit) hold that track's lock, so an exercise can't be validated on an image that a rebuild is replacing.
 
 ## 5. Roadmaps (courses)
 
@@ -210,19 +221,20 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
 
 `events.jsonl` is the only learner state. It holds `check` and `skip` events, and everything below is recomputed by replaying them in order.
 
-- **`check` event:** `{ kind: "check", at, exercise, concepts, difficulty, passed, total, assisted }`. It is recorded only when grading completed. Infrastructure failures record nothing: no container runtime, a missing image, or a host-side kill of the whole check.
+- **`check` event:** `{ kind: "check", at, exercise, concepts, difficulty, passed, total, assisted }`. It is recorded only when grading completed. Infrastructure failures record nothing: no container runtime, a missing image, or a host-side kill of the whole check. Learner-caused outcomes are graded, as `error`: build failures, timeouts and output floods.
 - **`skip` event:** `{ kind: "skip", at, concept }`. It raises that concept's mastery to at least 0.85.
+- **`assist` event:** `{ kind: "assist", at, exercise }`. It marks that exercise as assisted for good, in every workspace.
 
 For each `check`, in order, for each concept it lists:
 
 1. **First try:** the first `check` of this exercise.
 2. **Repeat pass:** a perfect check on an exercise that already has a perfect check. It changes nothing (no mastery, no difficulty, no streak), so re-checking a solved exercise can't inflate mastery.
-3. **Mastery:** `m += 0.3 × w × (s − m)`, where `s = passed/total`, `w` is 1, or 0.25 if `assisted`, and m starts at 0.5. A concept is mastered at `m ≥ 0.85`.
+3. **Mastery** moves only on an exercise's first check, or when its score beats that exercise's best so far. Re-running the same partial solution adds nothing. On those checks, `m += 0.3 × w × (s − m)`, where `s = passed/total`, `w` is 1, or 0.25 if assisted, and m starts at 0.5. A concept is mastered at `m ≥ 0.85`.
 4. **Perfect check:** sets `failStreak = 0`. If it was the first try and unassisted, difficulty goes up by 1 (max 3, starting at 1).
 5. **Otherwise:** `failStreak += 1`. If `failStreak ≥ 2` and difficulty > 1, difficulty goes down by 1 and `failStreak` resets to 0.
 6. **Stuck:** a concept is stuck while difficulty is 1 and `failStreak ≥ 2`.
 
-**Assistance.** A check is assisted if assist mode is on, or the exercise is in `codemm.json`'s `assisted` list. Turning assist mode on adds the current exercise to that list, and it stays there.
+**Assistance.** A check is assisted if assist mode is on in the workspace, or the course log has an `assist` event for that exercise. While assist mode is on, Codemm records an `assist` event for every exercise that becomes current (`get_exercise`) or is checked, unless that exercise already has one. Turning assist mode off doesn't remove them.
 
 **Next step**, in order:
 
@@ -233,7 +245,7 @@ For each `check`, in order, for each concept it lists:
 5. Otherwise return `author` with the concept, difficulty and the course style.
 6. If there are no candidates, return `done`.
 
-**Corrupt log.** A truncated final line, from a crash mid-append, is ignored with a warning. Any other invalid line makes state-changing commands fail with the line number until it's repaired.
+**Corrupt log.** A truncated final line, from a crash mid-append, is ignored when reading. Before the next append, the log is backed up to `events.jsonl.bak-<time>` and the torn line is removed. Any other invalid line makes state-changing commands fail with the line number until it's repaired.
 
 ## 8. Interfaces
 
@@ -257,7 +269,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 | File | Contents |
 |---|---|
 | `AGENTS.md` | A marked Codemm section with tutor rules: never write the learner's solution, use the tools, author through the subagent, and report only the exercise id. |
-| `CLAUDE.md` (if present) | Claude Code: add an `@AGENTS.md` import line, because Claude Code reads `CLAUDE.md` instead of `AGENTS.md` when both exist. |
+| `CLAUDE.md` | Claude Code: create it if needed and make sure it has an `@AGENTS.md` import line. Claude Code prefers `CLAUDE.md` files, including ones in parent folders, over `AGENTS.md`. |
 | `.claude/agents/codemm-author.md` | The author instructions. Cursor reads it, and the `AGENTS.md` section tells Codex to spawn a subagent with them. |
 | `.mcp.json` | Claude Code's MCP config. |
 | `.claude/settings.json` | Claude Code's `PreToolUse` hook on `Edit|Write|MultiEdit|NotebookEdit`, running `codemm hook claude`. |
@@ -272,7 +284,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 ## 10. Failure handling
 
 - **No container runtime:** commands that need one fail with "Start Docker Desktop (or Podman) and retry." `doctor` says which part failed.
-- **Locks:** `.lock` is created exclusively and is stale after 10 minutes. A second writer gets "Course is busy; retry."
+- **Locks** (per course and per track): the file is created exclusively and records the owner's PID. A lock whose PID is no longer running is stale and removed. A second writer waits up to 10 minutes, then gets "Course is busy; retry."
 - **Leftover containers:** found by the `codemm=1` label. `doctor` lists any and removes them with `--fix`.
 
 ## 11. Compatibility, migration and rollback
@@ -324,3 +336,28 @@ The MCP tools and CLI commands are thin calls into one application module.
 | F17 support claims | A10 packed-artifact stdio test; A16 per-host journeys; §2 supported matrix |
 | F18 v1 migration | §11 all v1 locations, tested rollback; A13 removes conflicting docs and config |
 | Cuts | The vocabulary blacklist, strictly increasing versions and versioning of agent-authored files were dropped; `init --host` was added |
+
+**Astra re-check, 17 Oct 2026.** 9 resolved, 9 partly resolved, 2 new major issues. Resolutions:
+
+| Item | Resolution |
+|---|---|
+| F03 build allowance, output cap | §4.2 60 s build limit; §4.3 kill and error at 4 MB |
+| F04 unit set transition | §4.2 one container per test set |
+| F06 rebuild | §4.4 rebuild re-validates every stored exercise before recording the new image |
+| F07 track locks, lock expiry | §4.4 per-track lock; §10 PID-based staleness instead of age |
+| F10 identical partial retries | §7 mastery moves only on a first check or an improved best score |
+| F11 assistance across workspaces | §7 `assist` events in the course log |
+| F12 torn final line | §7 back up and repair before the next append |
+| F14 ancestor `CLAUDE.md` | §9 always ensure a workspace `CLAUDE.md` with the import |
+| New: truncated output false pass | §4.2 output over 64 KB is an error |
+| New: hidden tests leaking through visible diagnostics | §4.2 separate containers per set and a disclosure policy |
+
+**Astra second re-check, 17 Oct 2026.** Five narrow gaps, no new major issues. Resolutions:
+
+| Item | Resolution |
+|---|---|
+| F03 stderr outside the limit | §4.3 stdout and stderr counted together; container output is framed and bounded |
+| F06 rebuild could keep a weakened exercise | §4.4 rebuild re-runs exercise gates 2 to 6 |
+| F07 rebuild racing an exercise save | §4.4 exercise saves hold the track lock |
+| F11 assist across exercise switches | §7 an `assist` event for every exercise made current or checked while assist mode is on |
+| F12 contradictory classification | §4.3 termination-reason table |
