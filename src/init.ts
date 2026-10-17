@@ -81,7 +81,7 @@ function withCodexServer(existing: string, launcher: Launcher, ws: string): stri
 
 /**
  * Claude Code's hook entry. Windows runs a shell-form hook in Git Bash or PowerShell, and neither can run a
- * quoted C:\\ path, so there the hook uses exec form: the executable and its arguments, with no shell.
+ * quoted C:\ path, so there the hook uses exec form: the executable and its arguments, with no shell.
  */
 function hookEntry(launcher: Launcher, ws: string, platform: NodeJS.Platform): Record<string, unknown> {
   if (platform === "win32") return { type: "command", command: launcher.command, args: [...launcher.args, ...hookArgs(ws)] };

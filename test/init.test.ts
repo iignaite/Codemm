@@ -14,7 +14,7 @@ const json = (p: string) => JSON.parse(read(p));
 
 describe("init", () => {
   it("sets up all three hosts by default, pointing every launch at this workspace", async () => {
-    const written = await init(ws, [], launcher);
+    const written = await init(ws, [], launcher, "linux");
     expect(written.sort()).toEqual(
       [".claude/agents/codemm-author.md", ".claude/settings.json", ".codex/config.toml", ".cursor/mcp.json", ".mcp.json", "AGENTS.md", "CLAUDE.md"].sort(),
     );
@@ -75,15 +75,15 @@ describe("init", () => {
     expect(parsed.other.x).toBe(1);
   });
 
-  it("removes only its own hook entry from a shared hook group", async () => {
-    await init(ws, ["claude"], launcher);
+  it.each(["linux", "win32"] as const)("removes only its own hook entry from a shared hook group (%s)", async (platform) => {
+    await init(ws, ["claude"], launcher, platform);
     const settings = json(".claude/settings.json");
     settings.hooks.PreToolUse[0].hooks.push({ type: "command", command: "audit-edits" });
     writeFileSync(join(ws, ".claude", "settings.json"), JSON.stringify(settings));
-    await init(ws, ["claude"], launcher);
-    const groups = json(".claude/settings.json").hooks.PreToolUse;
-    expect(groups.flatMap((g: any) => g.hooks.map((h: any) => h.command)).filter((c: string) => c === "audit-edits")).toHaveLength(1);
-    expect(groups.flatMap((g: any) => g.hooks).filter((h: any) => h.command.includes(" hook claude "))).toHaveLength(1);
+    await init(ws, ["claude"], launcher, platform);
+    const hooks = json(".claude/settings.json").hooks.PreToolUse.flatMap((g: any) => g.hooks);
+    expect(hooks.filter((h: any) => h.command === "audit-edits")).toHaveLength(1);
+    expect(hooks.filter((h: any) => h.command !== "audit-edits")).toHaveLength(1);
   });
 
   it("on Windows, runs the hook without a shell, since Git Bash and PowerShell can't run a quoted C:\\ path", async () => {
