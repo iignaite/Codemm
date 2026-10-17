@@ -25,10 +25,10 @@ export function Icon({ name, color = 'currentColor', size = 20 }: { name: IconNa
   );
 }
 
-export function Status({ kind, size = 26 }: { kind: 'ok' | 'fail' | 'run'; size?: number }) {
-  const label = { ok: 'Passed', fail: 'Not yet', run: 'In progress' }[kind];
+export function Status({ kind, size = 26, label }: { kind: 'ok' | 'fail' | 'run'; size?: number; label?: string }) {
+  const name = label ?? { ok: 'Passed', fail: 'Not yet', run: 'In progress' }[kind];
   return (
-    <span className={`ico ${kind}`} style={{ width: size, height: size }} role="img" aria-label={label}>
+    <span className={`ico ${kind}`} style={{ width: size, height: size }} role="img" aria-label={name}>
       {kind === 'ok' && <Icon name="check" color="#fff" size={Math.round(size * 0.54)} />}
       {kind === 'fail' && <Icon name="x" color="#fff" size={Math.round(size * 0.46)} />}
     </span>

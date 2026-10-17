@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
 import { join } from 'node:path';
 import type { CodemmApi } from '../shared/api';
+import { isOfficialLink } from './links';
 import { createMock } from './mock';
 
 const page = join(__dirname, '../renderer/index.html');
@@ -36,7 +37,11 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // Links open in the learner's browser, and only to official install pages.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isOfficialLink(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   void win.loadFile(page);
 }

@@ -16,6 +16,7 @@ export interface Ways {
   reread: () => void;
   easier: () => void;
   later: () => void;
+  computer: () => void;
   next: () => void;
 }
 
@@ -46,7 +47,10 @@ function Body({ shown, name, ways }: { shown: Shown; name?: string; ways: Ways }
         <div className="stack">
           <h2 className="h2 a-up">This check wasn't counted</h2>
           <p className="sub a-up" style={stagger(1)}>{result.reason}</p>
-          <div className="a-up" style={stagger(2)}><Button size="lg" onClick={ways.retry}>Try again</Button></div>
+          <div className="actions a-up" style={stagger(2)}>
+            <Button size="lg" onClick={ways.retry}>Try again</Button>
+            <Button variant="ghost" size="lg" onClick={ways.computer}>Check this computer</Button>
+          </div>
         </div>
       </div>
     );

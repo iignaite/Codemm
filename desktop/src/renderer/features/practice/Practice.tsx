@@ -124,6 +124,7 @@ function Workspace({ activity: initial, course }: { activity: Activity; course: 
     reread: () => go(lastLesson ? { to: 'lesson', lessonId: lastLesson.id } : { to: 'learn' }),
     easier,
     later: () => go({ to: 'learn' }),
+    computer: () => go({ to: 'computer', then: { to: 'practice', activityId: activity.id } }),
     next: () => go({ to: 'learn' }),
   };
 

@@ -4,6 +4,7 @@ import type { Draft, Goal } from '../../shared/api';
 export type Route =
   | { to: 'welcome' }
   | { to: 'connect' }
+  | { to: 'computer'; then: Route }
   | { to: 'goal' }
   | { to: 'research'; goal: Goal }
   | { to: 'course'; draft: Draft }

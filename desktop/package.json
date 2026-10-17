@@ -16,7 +16,7 @@
     "build": "vite build && tsc -p tsconfig.node.json",
     "start": "npm run build && electron .",
     "test:e2e": "npm run build && playwright test",
-    "dist": "npm run build && electron-builder --publish never"
+    "dist": "npm run build && electron-builder --config electron-builder.config.cjs --publish never"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { CodemmApi } from '../../shared/api';
 import { Connect } from '../features/connect/Connect';
 import { Welcome } from '../features/connect/Welcome';
+import { Computer } from '../features/computer/Computer';
 import { CourseEditor } from '../features/course/CourseEditor';
 import { Goal } from '../features/learn/Goal';
 import { Lesson } from '../features/lessons/Lesson';
@@ -21,6 +22,8 @@ function Screen({ route }: { route: Route }) {
       return <Welcome />;
     case 'connect':
       return <Connect />;
+    case 'computer':
+      return <Computer then={route.then} />;
     case 'goal':
       return <WithSide><Goal /></WithSide>;
     case 'research':

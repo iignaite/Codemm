@@ -40,6 +40,7 @@ export function Connect() {
             <li key={a.id} aria-label={a.name} className={`card agent a-up${a.state === 'connected' ? ' on' : ''}`} style={stagger(i + 1)}>
               <div>
                 <b>{a.name}</b>
+                {a.modelHint && <div className="quiet-text">{a.modelHint}</div>}
                 {a.state === 'failed' && <div className="alert">{a.fix}</div>}
               </div>
               {a.state === 'connected' ? (
@@ -54,7 +55,7 @@ export function Connect() {
         </ul>
         <div className="a-up" style={{ ...stagger(4), display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <span className="quiet-text">Codemm uses your agent and your plan.</span>
-          <Button size="lg" disabled={!list.some((a) => a.state === 'connected')} onClick={() => go({ to: 'welcome' })}>Continue</Button>
+          <Button size="lg" disabled={!list.some((a) => a.state === 'connected')} onClick={() => go({ to: 'computer', then: { to: 'welcome' } })}>Continue</Button>
         </div>
       </div>
     </main>

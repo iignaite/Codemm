@@ -18,6 +18,8 @@ describe('connect journey', () => {
     expect(await within(claude).findByText('Connected')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await screen.findByText('This computer is ready.');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('heading', { name: 'Ready when you are.' })).toBeInTheDocument();
     expect(screen.getByText('Connected')).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('Claude Code');
@@ -39,6 +41,12 @@ describe('connect journey', () => {
     finish();
     expect(await within(claude).findByText('Connected')).toBeInTheDocument();
     expect(within(codex).getByRole('button', { name: 'Connect' })).toBeEnabled();
+  });
+
+  it('shows the minimum model hint for each agent', async () => {
+    renderApp({ to: 'connect' });
+    const codex = await screen.findByRole('listitem', { name: 'Codex' });
+    expect(within(codex).getByText('Minimum model to be confirmed.')).toBeInTheDocument();
   });
 
   it('shows how to fix a failed sign-in', async () => {

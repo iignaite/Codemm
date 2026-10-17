@@ -7,7 +7,7 @@ const goal = { topic: 'React', known: ['Python'] };
 async function researched(api: CodemmApi): Promise<Draft> {
   let r = await api.research(goal);
   while (!r.done) r = await api.research(goal);
-  return { title: r.title, track: r.track, installed: r.installed, topics: r.path.map((s) => s.title) };
+  return { title: r.title, track: r.track, installed: r.installed, runsPerTopic: r.runsPerTopic, topics: r.path.map((s) => s.title) };
 }
 
 async function settled(api: CodemmApi): Promise<Course> {
@@ -38,6 +38,7 @@ describe('mock Codemm', () => {
     expect(first.sources.some((s) => !s.read)).toBe(true);
     const draft = await researched(api);
     expect(draft.topics.length).toBeGreaterThan(3);
+    expect(draft.runsPerTopic).toBeGreaterThan(0);
     expect(draft.installed).toBe(false);
   });
 
@@ -105,8 +106,8 @@ describe('mock Codemm', () => {
     expect(await api.check(id, files)).toMatchObject({ stuck: true });
   });
 
-  it('records nothing when the sandbox is down', async () => {
-    const api = createMock({ sandbox: false });
+  it('records nothing when Docker is down', async () => {
+    const api = createMock({ docker: 'stopped' });
     await api.approve(await researched(api));
     const course = await settled(api);
     await readAll(api, course);
@@ -126,11 +127,39 @@ describe('mock Codemm', () => {
 describe('mock drafts', () => {
   it('saves files without grading them', async () => {
     const api = createMock();
-    await api.approve({ title: 'React basics', track: 'React', installed: true, topics: ['State'] });
+    await api.approve({ title: 'React basics', track: 'React', installed: true, runsPerTopic: 4, topics: ['State'] });
     const { id, files } = await api.activity('t1.a');
     const draft = files.map((f) => ({ ...f, text: 'draft' }));
     await api.save(id, draft);
     expect((await api.activity(id)).files).toEqual(draft);
     expect((await api.course())!.topics[0].state).toBe('now');
+  });
+});
+
+describe('mock computer check', () => {
+  it('reports each check, in order, for the platform', async () => {
+    const options = { docker: 'missing' as const, platform: 'linux' as const };
+    const api = createMock(options);
+    expect(await api.computer()).toEqual({
+      platform: 'linux',
+      ready: false,
+      checks: [
+        { id: 'docker-installed', state: 'problem' },
+        { id: 'docker-running', state: 'waiting' },
+        { id: 'docker-access', state: 'waiting' },
+      ],
+    });
+    expect((await api.computer()).checks.map((c) => c.id)).toEqual(['docker-installed', 'docker-running', 'docker-access']);
+  });
+
+  it('sees Docker change, with no access check off Linux', async () => {
+    const options: { docker: 'stopped' | 'ready'; platform: 'mac' } = { docker: 'stopped', platform: 'mac' };
+    const api = createMock(options);
+    expect((await api.computer()).checks).toEqual([
+      { id: 'docker-installed', state: 'ok' },
+      { id: 'docker-running', state: 'problem' },
+    ]);
+    options.docker = 'ready';
+    expect(await api.computer()).toMatchObject({ ready: true });
   });
 });

@@ -7,7 +7,7 @@ import { renderApp } from '../../test-utils';
 
 async function approved(options?: Parameters<typeof createMock>[0]): Promise<CodemmApi> {
   const api = createMock(options);
-  await api.approve({ title: 'React basics', track: 'React', installed: false, topics: ['State', 'Events'] });
+  await api.approve({ title: 'React basics', track: 'React', installed: false, runsPerTopic: 4, topics: ['State', 'Events'] });
   return api;
 }
 
@@ -50,6 +50,19 @@ describe('lessons', () => {
 
     await user.click(screen.getByRole('button', { name: 'Next' }));
     expect(await screen.findByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
+  });
+
+  it('reopens a lesson instantly from the cache', async () => {
+    const user = userEvent.setup();
+    const api = await approved();
+    for (let i = 0; i < 3; i++) await api.course();
+    renderApp({ to: 'lesson', lessonId: 't1.2' }, api);
+    await screen.findByRole('heading', { name: 'useState', level: 1 });
+    await user.click(screen.getByRole('button', { name: 'What state is' }));
+    await screen.findByRole('heading', { name: 'What state is', level: 1 });
+    api.lesson = () => new Promise(() => {});
+    await user.click(screen.getByRole('button', { name: 'useState' }));
+    expect(screen.getByRole('heading', { name: 'useState', level: 1 })).toBeInTheDocument();
   });
 
   it('says when setup failed, and retries', async () => {

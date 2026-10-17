@@ -6,12 +6,12 @@ An Electron, Vite, TypeScript and React shell for every screen in the approved j
 
 | Journey | Screens |
 |---|---|
-| Connect | welcome (asleep), connect an agent, welcome (connected) |
-| Choose | goal, research, course editor, setup dialog |
-| Lessons | topic page while lessons are written, lesson with predict and notes |
+| Connect | welcome (asleep), connect an agent (with a minimum model hint), check this computer, welcome (connected) |
+| Choose | goal, research, course editor (with rough runs per topic), setup dialog |
+| Lessons | topic page while lessons are written, lesson with predict and notes (reopens instantly from a cache) |
 | Practice | activity, not yet, assist dialog, passed, stuck |
 | Progress | course map with review and mastery, course complete, tracks |
-| When things go wrong | check not counted (sandbox down), setup failed |
+| When things go wrong | check not counted (Docker down, with a way to check this computer), setup failed |
 
 The UI runs against a mock core. It is not wired to the real Codemm core yet.
 
@@ -21,12 +21,14 @@ The UI runs against a mock core. It is not wired to the real Codemm core yet.
 src/shared/api.ts      CodemmApi: the only seam between UI and core (types only)
 src/main/main.ts       window, security settings, one IPC handler
 src/main/mock.ts       in-memory CodemmApi (the stand-in for the core)
+src/main/links.ts      the only pages the app opens in the browser (official Docker docs)
 src/preload/preload.ts exposes window.codemm.invoke(method, args) and nothing else
 src/renderer/app/      App (routing), Shell (sidebar), api client, router, useLoad
-src/renderer/features/ connect, learn, research, course, lessons, practice, progress, tracks
+src/renderer/features/ connect, computer, learn, research, course, lessons, practice, progress, tracks
 src/renderer/ui/       Button, Field, Switch, Dialog, Rail (the Codemm tutor), Emm, Icon, Mark
 src/renderer/styles/   tokens.css (prototype tokens), app.css (components and motion)
 e2e/smoke.spec.ts      Playwright launches the built app and walks the main journey
+packaging.cjs          electron-builder settings; signing only from the environment (SIGNING.md)
 ```
 
 ## Mocked versus real
@@ -35,11 +37,14 @@ e2e/smoke.spec.ts      Playwright launches the built app and walks the main jour
 - Window and process setup: context isolation, sandboxed preload, no Node in the renderer, a strict CSP, and blocked navigation and new windows.
 - IPC: one channel, which only accepts calls from the app's own page and only for methods the core object has.
 - Every screen and state, with keyboard and screen-reader support and the motion rules.
-- Packaging: unsigned dmg (arm64 and x64), nsis (x64), and AppImage plus deb (x64).
+- Packaging: dmg (arm64 and x64), nsis (x64), and AppImage plus deb (x64). Unsigned unless the signing secrets in `SIGNING.md` are set. Auto-update is off.
+- Check this computer: per-OS fix steps (Docker Desktop on macOS, Docker Desktop with WSL 2 on Windows, Docker Engine on Linux), links to Docker's official pages that open in the browser, and a re-check every 3 seconds until ready.
+- The lesson cache: a lesson reopens at once from what was last loaded, then refreshes.
 
 **Mocked (`src/main/mock.ts`):**
-- Agent connections.
+- Agent connections, and the minimum model hint, a placeholder until the cross-model bench reports.
 - Research, which advances one source per call.
+- The computer check (Docker state and OS are mock options) and the rough runs per topic (a fixed estimate of 4).
 - Lesson writing and track setup, which advance each time the UI reads the course.
 - Grading: an unchanged starter fails 2 of 4, and any edit passes.
 - Saving drafts: practice code is autosaved shortly after typing stops, and when the learner leaves.

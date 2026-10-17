@@ -1,7 +1,7 @@
 import { _electron as electron, expect, test } from '@playwright/test';
 
 // Launches the built app (with the mock core) and walks the main journey.
-test('connect, goal, course, lesson and practice', async () => {
+test('connect, computer check, goal, course, lesson and practice', async () => {
   const app = await electron.launch({ args: ['.'] });
   const page = await app.firstWindow();
   const button = (name: string) => page.getByRole('button', { name, exact: true });
@@ -9,6 +9,9 @@ test('connect, goal, course, lesson and practice', async () => {
 
   await button('Connect an agent').click();
   await page.getByRole('listitem', { name: 'Claude Code' }).getByRole('button', { name: 'Connect' }).click();
+  await button('Continue').click();
+  await expect(heading('Check this computer')).toBeVisible();
+  await expect(page.getByText('This computer is ready.')).toBeVisible();
   await button('Continue').click();
   await button('Start learning').click();
 

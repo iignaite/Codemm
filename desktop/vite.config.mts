@@ -8,7 +8,7 @@ export default defineConfig({
   build: { outDir: '../../out/renderer', emptyOutDir: true },
   test: {
     root: '.',
-    include: ['src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}', '*.test.ts'],
     environment: 'jsdom',
     // Journey tests type and click through several screens; slow CI runners need room.
     testTimeout: 20_000,

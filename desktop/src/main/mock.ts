@@ -8,11 +8,13 @@ import type {
   CheckResult,
   CodeFile,
   CodemmApi,
+  ComputerCheck,
   Course,
   Draft,
   Goal,
   Lesson,
   Message,
+  Platform,
   Research,
   Topic,
   Track,
@@ -21,13 +23,28 @@ import type {
 export interface MockOptions {
   failAgent?: string;
   setupFails?: boolean;
-  sandbox?: boolean;
+  /** Read on every call, so a test can change it while the app runs. */
+  docker?: 'missing' | 'stopped' | 'no-access' | 'ready';
+  platform?: Platform;
 }
 
+const DOCKER_DOWN = {
+  missing: "Docker isn't installed on this computer.",
+  stopped: "Docker isn't running. Start it, then try again.",
+  'no-access': "Codemm can't use Docker yet.",
+};
+
+function hostPlatform(): Platform {
+  if (process.platform === 'darwin') return 'mac';
+  return process.platform === 'win32' ? 'windows' : 'linux';
+}
+
+// The model hint is a placeholder until the cross-model bench reports.
+const MODEL_HINT = 'Minimum model to be confirmed.';
 const AGENTS: Agent[] = [
-  { id: 'claude', name: 'Claude Code', state: 'not-connected' },
-  { id: 'codex', name: 'Codex', state: 'not-connected' },
-  { id: 'cursor', name: 'Cursor', state: 'not-connected' },
+  { id: 'claude', name: 'Claude Code', state: 'not-connected', modelHint: MODEL_HINT },
+  { id: 'codex', name: 'Codex', state: 'not-connected', modelHint: MODEL_HINT },
+  { id: 'cursor', name: 'Cursor', state: 'not-connected', modelHint: MODEL_HINT },
 ];
 
 const SOURCES = ['Official docs', 'MDN Web Docs', 'Testing Library', 'Community roadmaps'];
@@ -92,7 +109,6 @@ function activityFor(topicId: string, id = `${topicId}.a`, title = 'Click Counte
 const same = (a: CodeFile[], b: CodeFile[]) => a.length === b.length && a.every((f, i) => f.path === b[i].path && f.text === b[i].text);
 
 export function createMock(options: MockOptions = {}): CodemmApi {
-  const sandbox = options.sandbox ?? true;
   const agents = AGENTS.map((a) => ({ ...a }));
   const tracks: Track[] = [];
   const lessons = new Map<string, Lesson>();
@@ -163,6 +179,17 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       return { ...agent };
     },
 
+    async computer() {
+      const platform = options.platform ?? hostPlatform();
+      const docker = options.docker ?? 'ready';
+      const failing = { missing: 0, stopped: 1, 'no-access': 2, ready: Infinity }[docker];
+      const ids: ComputerCheck['id'][] = ['docker-installed', 'docker-running', 'docker-access'];
+      const checks = ids
+        .filter((id) => platform === 'linux' || id !== 'docker-access')
+        .map((id, i): ComputerCheck => ({ id, state: i < failing ? 'ok' : i === failing ? 'problem' : 'waiting' }));
+      return { platform, checks, ready: checks.every((c) => c.state === 'ok') };
+    },
+
     async suggestions() {
       return { known: ['Python', 'JavaScript'], next: ['Rust', 'Go', 'Kotlin', 'Elixir'] };
     },
@@ -174,6 +201,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
           title: `${goal.topic} basics`,
           track: goal.topic,
           installed: tracks.some((t) => t.name === goal.topic),
+          // Two lessons and one activity, each about one run, plus a retry.
+          runsPerTopic: 4,
           sources: SOURCES.map((name) => ({ name, read: false })),
           path: PATH.map((title, i) => (i === 0 && because ? { title, because } : { title })),
           done: false,
@@ -199,6 +228,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       course = {
         title: draft.title,
         track: draft.track,
+        runsPerTopic: draft.runsPerTopic,
         setup: draft.installed ? 'ready' : 'running',
         topics: draft.topics.map((title, i) => {
           const id = `t${i + 1}`;
@@ -265,7 +295,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async check(activityId, files): Promise<CheckResult> {
       const entry = find(activities, activityId);
       entry.activity.files = structuredClone(files);
-      if (!sandbox) return { kind: 'not-counted', reason: "Docker isn't running. Start it, then try again." };
+      const docker = options.docker ?? 'ready';
+      if (docker !== 'ready') return { kind: 'not-counted', reason: DOCKER_DOWN[docker] };
       if (same(files, entry.starter) && !entry.activity.assist) {
         entry.fails++;
         return {

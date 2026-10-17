@@ -70,7 +70,7 @@ function Items({ topic }: { topic: Topic }) {
 function SetupFailed({ course, onRetry }: { course: Course; onRetry: () => void }) {
   const api = useApi();
   const { go, fail } = useRouter();
-  const draft = { title: course.title, track: course.track, installed: false, topics: course.topics.map((t) => t.title) };
+  const draft = { title: course.title, track: course.track, installed: false, runsPerTopic: course.runsPerTopic, topics: course.topics.map((t) => t.title) };
   async function retry() {
     try {
       await api.setUp();

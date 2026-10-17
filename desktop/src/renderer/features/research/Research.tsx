@@ -15,7 +15,7 @@ export function Research({ goal }: { goal: Goal }) {
   const { data, error, reload } = useLoad(() => api.research(goal), [goal], (r) => r.done);
 
   useEffect(() => {
-    if (data?.done) go({ to: 'course', draft: { title: data.title, track: data.track, installed: data.installed, topics: data.path.map((s) => s.title) } });
+    if (data?.done) go({ to: 'course', draft: { title: data.title, track: data.track, installed: data.installed, runsPerTopic: data.runsPerTopic, topics: data.path.map((s) => s.title) } });
   }, [data, go]);
 
   if (error) return <Failed retry={reload} />;

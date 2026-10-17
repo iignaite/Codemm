@@ -126,7 +126,7 @@ describe('practice', () => {
   });
 
   it("says when a check wasn't counted, and records nothing", async () => {
-    const { user } = await open({ sandbox: false });
+    const { user } = await open({ docker: 'stopped' });
     await user.click(screen.getByRole('button', { name: 'Check' }));
     expect(await within(results()).findByRole('heading', { name: "This check wasn't counted" })).toBeInTheDocument();
     expect(results()).toHaveTextContent("Docker isn't running. Start it, then try again.");

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Course, Lesson as LessonData, Topic } from '../../../shared/api';
 import { useApi } from '../../app/api';
+import { cacheFor } from '../../app/cache';
 import { useConversation } from '../../app/useConversation';
 import { useRouter, type Route } from '../../app/router';
 import { Failed, Sidebar } from '../../app/Shell';
@@ -28,17 +29,27 @@ function neighbours(topic: Topic, lessonId: string): { prev: Route; next: (cours
   };
 }
 
-/** Predict first, then see it. The learner can keep a note on the lesson. */
+interface View {
+  lesson: LessonData;
+  course: Course;
+  topic: Topic;
+}
+
+/** Predict first, then see it. The learner can keep a note on the lesson. Reopens instantly from the cache. */
 export function Lesson({ lessonId }: { lessonId: string }) {
   const api = useApi();
+  const cache = cacheFor<View>(api, 'lessons');
   const { data, error, reload } = useLoad(async () => {
     const lesson = await api.lesson(lessonId);
     const course = (await api.course())!;
-    return { lesson, course, topic: course.topics.find((t) => t.id === lesson.topicId)! };
+    const view = { lesson, course, topic: course.topics.find((t) => t.id === lesson.topicId)! };
+    cache.set(lessonId, view);
+    return view;
   }, [lessonId]);
+  const view = data ?? cache.get(lessonId);
+  if (view) return <><Sidebar slim /><Reader {...view} /></>;
   if (error) return <><Sidebar slim /><Failed retry={reload} /></>;
-  if (!data) return <Sidebar slim />;
-  return <><Sidebar slim /><Reader {...data} /></>;
+  return <Sidebar slim />;
 }
 
 function Reader({ lesson, course, topic }: { lesson: LessonData; course: Course; topic: Topic }) {
@@ -52,6 +63,7 @@ function Reader({ lesson, course, topic }: { lesson: LessonData; course: Course;
   async function save(text: string) {
     try {
       await api.saveNote(lesson.id, text);
+      lesson.note = text; // keeps the cached copy current
       setNote(text);
       setEditing(false);
     } catch (e) {

@@ -11,6 +11,24 @@ export interface Agent {
   state: AgentState;
   /** What to do when `state` is `failed`. */
   fix?: string;
+  /** The weakest model known to work well with Codemm, from the cross-model bench. */
+  modelHint?: string;
+}
+
+export type Platform = 'mac' | 'windows' | 'linux';
+export type CheckId = 'docker-installed' | 'docker-running' | 'docker-access';
+
+export interface ComputerCheck {
+  id: CheckId;
+  /** `waiting` means an earlier check has to pass first. */
+  state: 'ok' | 'problem' | 'waiting';
+}
+
+/** Whether this computer can run graded checks. */
+export interface Computer {
+  platform: Platform;
+  checks: ComputerCheck[];
+  ready: boolean;
 }
 
 export interface Suggestions {
@@ -41,6 +59,8 @@ export interface Research {
   track: string;
   /** Whether the track is already set up on this computer. */
   installed: boolean;
+  /** Rough agent runs to write one topic's lessons and activity. */
+  runsPerTopic: number;
   sources: Source[];
   path: PathStep[];
   done: boolean;
@@ -50,6 +70,7 @@ export interface Draft {
   title: string;
   track: string;
   installed: boolean;
+  runsPerTopic: number;
   topics: string[];
 }
 
@@ -84,6 +105,7 @@ export interface Topic {
 export interface Course {
   title: string;
   track: string;
+  runsPerTopic: number;
   setup: SetupState;
   topics: Topic[];
   review?: { topic: string; activityId: string };
@@ -168,6 +190,7 @@ export interface CodemmApi {
   agents(): Promise<Agent[]>;
   connect(agentId: string): Promise<Agent>;
   suggestions(): Promise<Suggestions>;
+  computer(): Promise<Computer>;
 
   /** Starts research on the first call; call again to follow it. */
   research(goal: Goal): Promise<Research>;
