@@ -29,6 +29,11 @@ describe("cleanupPlan", () => {
     expect(cleanupPlan(["codemm-track-c:1"], ["D"], before, after)).toEqual([]);
   });
 
+  it("keeps a new image that something else tagged during the run", () => {
+    const after = snap({ "codemm-track-c:1": "N", "someone/else:latest": "N" }, ["N"]);
+    expect(cleanupPlan(["codemm-track-c:1"], ["N"], snap({}, []), after)).toEqual([["rmi", "codemm-track-c:1"]]);
+  });
+
   it("removes images of failed installs that were never recorded in the store", () => {
     const after = snap({ "codemm-track-c:2": "F" }, ["F"]);
     expect(cleanupPlan(["codemm-track-c:2", "codemm-track-c:3"], [], snap({}, []), after)).toEqual([["rmi", "codemm-track-c:2"], ["rmi", "F"]]);

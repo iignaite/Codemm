@@ -2,15 +2,20 @@
 import { parse } from "yaml";
 import { capture } from "./proc.ts";
 
+/** Every image ID on the machine, and every tag with its image ID. */
 export type Snapshot = { tags: Map<string, string>; ids: Set<string> };
 
-/** Every image ID on the machine, and the `codemm-track-*` tags with their IDs. */
+/** Throws if Docker can't list images: cleanup must never run against an incomplete picture. */
 export function snapshot(): Snapshot {
-  const ids = new Set(capture("docker", ["images", "-a", "-q", "--no-trunc"]).out.split("\n").map((l) => l.trim()).filter(Boolean));
+  const docker = (args: string[]) => {
+    const r = capture("docker", args);
+    if (r.code !== 0) throw new Error(`docker ${args.join(" ")} failed: ${r.out.slice(0, 300)}`);
+    return r.out.split("\n").map((l) => l.trim()).filter(Boolean);
+  };
+  const ids = new Set(docker(["images", "-a", "-q", "--no-trunc"]));
   const tags = new Map<string, string>();
-  const listed = capture("docker", ["images", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}", "--filter", "reference=codemm-track-*"]).out;
-  for (const line of listed.split("\n")) {
-    const [tag, id] = line.trim().split(" ");
+  for (const line of docker(["images", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}} {{.ID}}"])) {
+    const [tag, id] = line.split(" ");
     if (tag && id && !tag.includes("<none>")) tags.set(tag, id);
   }
   return { tags, ids };
@@ -29,7 +34,7 @@ export function tagForTrackYaml(yaml: string): string | undefined {
 /**
  * The docker commands that undo a run: re-tag every tag that existed before to its old image, untag the run's
  * new tags, then remove the run's images by ID. An image ID that existed before the run is never removed, and
- * nothing is forced, so an image that still has another tag stays.
+ * neither is a new image that would still carry a tag the run didn't make.
  */
 export function cleanupPlan(attempted: string[], storeIds: string[], before: Snapshot, after: Snapshot): string[][] {
   const plan: string[][] = [];
@@ -43,7 +48,9 @@ export function cleanupPlan(attempted: string[], storeIds: string[], before: Sna
     else if (!old && now && created.has(now)) plan.push(["rmi", tag]);
   }
   for (const id of storeIds) if (!before.ids.has(id)) created.add(id);
-  for (const id of created) plan.push(["rmi", id]);
+  const ours = new Set(attempted);
+  const kept = (id: string) => [...after.tags].some(([tag, tid]) => tid === id && !ours.has(tag));
+  for (const id of created) if (!kept(id)) plan.push(["rmi", id]);
   return plan;
 }
 

@@ -161,7 +161,12 @@ try {
   say(`error: ${result.error}`);
 } finally {
   ev = readEvidence(home, ws);
-  result.cleanup = cleanupImages(tags, ev.tracks.map((t) => t.imageId), baseline);
+  try {
+    result.cleanup = cleanupImages(tags, ev.tracks.map((t) => t.imageId), baseline);
+  } catch (e) {
+    // Without a full picture of Docker's images nothing is removed; say so and clean up the rest.
+    result.cleanup = [`skipped: ${(e as Error).message}`];
+  }
   if (opts.host === "claude") removeClaudeSessions(ws);
   else removeCodexSessions(root);
   if (opts.keep) say(`kept ${root}`);
