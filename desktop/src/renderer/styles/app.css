@@ -16,7 +16,8 @@ button, input, textarea { font: inherit; color: inherit; }
 
 /* ---------- Navigation ---------- */
 .side { width: 232px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 20px 12px; background: var(--navy); color: #F3F6FB; }
-.logo { display: flex; align-items: center; gap: 2px; padding: 0 10px 22px; font: 600 22px var(--display); }
+.logo { padding: 0 10px 22px; }
+.logo img { display: block; }
 .nav { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border: none; border-radius: 10px; background: transparent; color: var(--navy-text); font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; transition: background .2s; }
 .nav:hover { background: rgba(255, 255, 255, .06); }
 .nav[aria-current="page"] { background: var(--navy-2); color: #fff; font-weight: 600; }
@@ -78,7 +79,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 /* ---------- Welcome and connect ---------- */
 .welcome { flex: 1; display: flex; gap: 64px; padding: 56px 72px; }
 .welcome-text { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 30px; max-width: 540px; }
-.welcome-text .brand { display: flex; align-items: center; gap: 2px; font: 600 26px var(--display); }
+.welcome-text .brand { align-self: flex-start; }
 .welcome-text .h1 { font-size: 60px; line-height: 1.05; }
 .welcome-art { flex: 1; border-radius: 28px; background: var(--navy); position: relative; display: grid; place-items: center; overflow: hidden; }
 .welcome-art .bg { position: absolute; right: -60px; bottom: -80px; opacity: .07; }

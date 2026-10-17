@@ -57,7 +57,7 @@ export function Sidebar({ slim = false }: { slim?: boolean }) {
   }
   return (
     <nav className="side" aria-label="Main">
-      <Logo />
+      <div className="logo"><Logo height={22} onNavy /></div>
       {nav}
       <div className="foot">
         {course ? (

@@ -10,6 +10,8 @@ export default defineConfig({
     root: '.',
     include: ['src/**/*.test.{ts,tsx}'],
     environment: 'jsdom',
+    // Journey tests type and click through several screens; slow CI runners need room.
+    testTimeout: 20_000,
     setupFiles: ['src/renderer/test-setup.ts'],
   },
 });

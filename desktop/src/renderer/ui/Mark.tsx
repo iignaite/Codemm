@@ -1,6 +1,8 @@
 import { useId } from 'react';
+import logo from '../../../../docs/brand/codemm-logo.svg';
+import logoOnNavy from '../../../../docs/brand/codemm-logo-dark.svg';
 
-/** The Codemm chevron. With "odemm" after it, it reads "Codemm". */
+/** The Codemm chevron alone. */
 export function Mark({ size = 24 }: { size?: number }) {
   const id = useId();
   return (
@@ -16,11 +18,7 @@ export function Mark({ size = 24 }: { size?: number }) {
   );
 }
 
-export function Logo({ size = 24, className = 'logo' }: { size?: number; className?: string }) {
-  return (
-    <div className={className} role="img" aria-label="Codemm">
-      <Mark size={size} />
-      <span aria-hidden="true">odemm</span>
-    </div>
-  );
+/** The brand logo (the wordmark is outlined, so it needs no font). */
+export function Logo({ height, onNavy = false, className }: { height: number; onNavy?: boolean; className?: string }) {
+  return <img className={className} src={onNavy ? logoOnNavy : logo} alt="Codemm" height={height} />;
 }

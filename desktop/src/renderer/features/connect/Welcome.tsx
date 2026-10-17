@@ -20,7 +20,7 @@ export function Welcome() {
   return (
     <main className="welcome">
       <div className="welcome-text">
-        <Logo size={30} className={`brand a-up ${fx}`} />
+        <Logo height={26} className={`brand a-up ${fx}`} />
         <h1 className="h1 a-up" style={stagger(1)}>{on ? 'Ready when you are.' : 'Learn anything.'}</h1>
         <div className="a-up" style={stagger(2)}>
           {on ? (
