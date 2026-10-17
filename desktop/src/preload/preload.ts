@@ -3,8 +3,16 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { Bridge } from '../shared/api';
 
+// Electron rejects a failed invoke as "Error invoking remote method 'codemm': Error: <message>".
+// The renderer gets <message> alone, so Codemm's codes (codemm:repair and the rest) match as sent.
+// Kept here, inline: a sandboxed preload can't load other modules.
+const ENVELOPE = /^Error invoking remote method 'codemm': (?:\w*Error: )?/;
+
 const bridge: Bridge = {
-  invoke: (method, args) => ipcRenderer.invoke('codemm', method, args),
+  invoke: (method, args) =>
+    ipcRenderer.invoke('codemm', method, args).catch((e: unknown) => {
+      throw new Error((e instanceof Error ? e.message : String(e)).replace(ENVELOPE, ''));
+    }),
 };
 
 contextBridge.exposeInMainWorld('codemm', bridge);

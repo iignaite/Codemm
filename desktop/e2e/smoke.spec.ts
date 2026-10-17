@@ -110,3 +110,18 @@ test('renderer security', async () => {
   expect(await page.evaluate(() => [location.href, document.body.innerText.includes('Connect an agent')])).toEqual(['app://codemm/index.html', true]);
   await app.close();
 });
+
+// N3: a rejected call reaches the renderer as Codemm's own message, without Electron's
+// "Error invoking remote method" envelope, so codes like codemm:repair still match.
+test('errors cross IPC as their own message', async () => {
+  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: '' } });
+  const page = await app.firstWindow();
+  await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
+  const messages = await page.evaluate(async () => {
+    const bridge = (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<unknown> } }).codemm;
+    const call = (method: string, args: unknown[]) => bridge.invoke(method, args).then(() => 'resolved', (e: Error) => e.message);
+    return [await call('nope', []), await call('lesson', [42])];
+  });
+  expect(messages).toEqual(['Unknown call', 'Bad input']);
+  await app.close();
+});
