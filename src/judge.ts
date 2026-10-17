@@ -34,7 +34,7 @@ const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
 // driver. It's best effort: the program could lower its score back to 0. If the write fails, nothing changes.
 const EMIT = `OOM='{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || :; '
 emit() { n=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$n"; cat "$4"; }
-for u in timeout head wc cat basename; do command -v "$u" >/dev/null 2>&1 || { echo "the image has no '$u'" > /tmp/m; emit fatal tools 1 /tmp/m; exit 0; }; done`;
+for u in timeout sleep head wc cat basename; do command -v "$u" >/dev/null 2>&1 || { echo "the image has no '$u'" > /tmp/m; emit fatal tools 1 /tmp/m; exit 0; }; done`;
 
 const IO_DRIVER = `${EMIT}
 if [ -n "\${CODEMM_BUILD:-}" ]; then
@@ -98,7 +98,7 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.");
     }
     // Never echo a fatal frame's body: code in the container could forge one (DESIGN §4.2).
-    if (frames.some((f) => f.kind === "fatal")) throw new CodemmError("The track image is missing a tool Codemm needs (sh, timeout, head, wc, cat or basename).");
+    if (frames.some((f) => f.kind === "fatal")) throw new CodemmError("The track image is missing a tool Codemm needs (sh, timeout, sleep, head, wc, cat or basename).");
     return { frames, flooded: result.flooded };
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -114,10 +114,11 @@ export const RUN_LIMIT_MS = 120_000;
 // read from an exit code or from timing, and it needs no `timeout` tool. Markers on stderr say when each stage starts
 // and how it ended, then the driver exits 0: an end marker means the driver finished, whatever the program printed or
 // returned. A program can print a marker too, but the driver's end marker comes last, and a forged timeout only
-// mislabels the program's own unrecorded run.
+// mislabels the program's own unrecorded run. If `sleep` fails, the watchdog stays quiet and the host deadline stops
+// the run instead; grading checks for `sleep`, so an installed track has it.
 const PROGRAM_DRIVER = `mark() { printf '\\n@@codemm-run %s\\n' "$*" >&2; }
 limited() {
-  ( sleep "$2"; mark timeout "$1"; kill -9 -1 2>/dev/null ) &
+  ( sleep "$2" 2>/dev/null && { mark timeout "$1"; kill -9 -1 2>/dev/null; } ) &
   w=$!
   sh -c "$3"; c=$?
   kill -9 "$w" 2>/dev/null; kill -9 -1 2>/dev/null

@@ -1,10 +1,13 @@
 import { execFile } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { gradeIoRun, gradeUnitRun, type JudgeTrack, runIo, runProgram, runUnit } from "../../src/judge.js";
-import { ownedContainers } from "../../src/sandbox.js";
+import { buildImage, ownedContainers } from "../../src/sandbox.js";
 import { buildFixture, dockerUp, expectedFrom, fixtureTrack, inputsOnly, subMap } from "./helpers.js";
 
 const io = fixtureTrack("shell-io");
@@ -49,6 +52,21 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
     const build = runProgram({ ...ioTrack, build: "sleep 30" }, { "main.sh": "echo hi\n" }, () => undefined, { buildLimitMs: 1_000 });
     expect(await build.done).toMatchObject({ stage: "build", timedOut: true });
     await expect.poll(() => ownedContainers(), { timeout: 10_000 }).toEqual([]);
+  });
+
+  it("an image without sleep: Run isn't cut short as a timeout, and grading names the missing tool", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "codemm-nosleep-"));
+    writeFileSync(join(dir, "Dockerfile"), `${io.files["Dockerfile"]!.trim()}\nRUN rm /bin/sleep\n`);
+    const built = await buildImage(dir, "codemm-test-nosleep:1");
+    expect(built.ok).toBe(true);
+    const track = { ...ioTrack, image: "codemm-test-nosleep:1" };
+    let out = "";
+    const run = runProgram(track, { "main.sh": 'read -r n\necho "got $n"\n' }, (text) => (out += text), { limitMs: 5_000 });
+    await new Promise((r) => setTimeout(r, 500));
+    run.write("Ada\n");
+    expect(await run.done).toEqual({ exit: 0, stage: "run", timedOut: false, flooded: false });
+    expect(out).toBe("got Ada\n");
+    await expect(runIo(track, "visible", { "main.sh": "echo hi\n" }, { "01.in": "" })).rejects.toThrow(/missing a tool/);
   });
 
   it("Run: stops a program at its time limit and leaves no container", async () => {
