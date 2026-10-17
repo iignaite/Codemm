@@ -406,4 +406,17 @@ describe('live CodemmApi', () => {
     await Promise.all([check, stopping]);
     expect(t.c.checks).toEqual([]);
   });
+
+  it('a damaged course record asks for a repair instead of looking like no course (D14)', async () => {
+    const t = live();
+    await practising(t);
+    t.app.getRoadmap = () => {
+      throw Object.assign(new Error("Codemm's record /h/courses/react/course.json is damaged. Restore it from a backup, or remove that track, course or exercise."), { name: 'CodemmError' });
+    };
+    await expect(t.api.course()).rejects.toThrow(/^codemm:repair\nCodemm's record/);
+    t.app.getRoadmap = () => {
+      throw Object.assign(new Error('No course in this workspace yet. Ask your agent to plan a roadmap (save_roadmap).'), { name: 'CodemmError' });
+    };
+    expect(await t.api.course()).toBeNull();
+  });
 });

@@ -121,11 +121,13 @@ export function createLive(d: LiveDeps): Live {
   /** The setup the learner approved, and how it went (§4.1). */
   let setup: { installing?: Promise<void>; approved?: Proposal; problem?: SetupProblem; gateFailures: number; lastGateProblem?: string; installs: number } = { gateFailures: 0, installs: 0 };
 
+  /** The course roadmap, or null when there's no course yet. A damaged record isn't "no course": it needs a repair (D14). */
   const roadmapOrNull = (): CoreRoadmap | null => {
     try {
       return core.getRoadmap(ws);
-    } catch {
-      return null;
+    } catch (e) {
+      if (e instanceof Error && /^No course in this workspace yet|^Course ".*" is missing from /.test(e.message)) return null;
+      throw e;
     }
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
