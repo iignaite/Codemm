@@ -1,4 +1,4 @@
-import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -38,6 +38,37 @@ describe("claudeHook", () => {
     symlinkSync(ws, alias);
     expect(claudeHook(ws, input("Edit", join(alias, "exercises/c/sum/main.c"))).exit).toBe(2);
     expect(claudeHook(alias, input("Edit", join(ws, "exercises/c/sum/main.c"))).exit).toBe(2);
+  });
+
+  // /var vs /private/var on macOS, 8.3 short names (RUNNER~1) on Windows; Linux usually has no alias here.
+  it.runIf(realpathSync.native(tmpdir()) !== tmpdir())("sees through the OS's other spelling of the workspace", () => {
+    const native = realpathSync.native(ws);
+    expect(native).not.toBe(ws);
+    expect(claudeHook(ws, input("Edit", join(native, "exercises/c/sum/main.c"))).exit).toBe(2);
+    expect(claudeHook(native, input("Edit", join(ws, "exercises/c/sum/main.c"))).exit).toBe(2);
+  });
+
+  // Only where the disk ignores case (macOS, Windows) is EXERCISES the same folder.
+  const caseInsensitive = existsSync(tmpdir().toUpperCase()) && existsSync(tmpdir().toLowerCase());
+  it.each([false, true])("treats EXERCISES as exercises only where the disk ignores case (folder exists: %s)", (exists) => {
+    if (exists) mkdirSync(join(ws, "exercises", "c"), { recursive: true });
+    expect(claudeHook(ws, input("Edit", join(ws, "EXERCISES/C/sum/main.c"))).exit).toBe(caseInsensitive ? 2 : 0);
+  });
+
+  it("doesn't mistake a different folder of another case for the same one", () => {
+    // A case-sensitive disk can hold both "ws" and "WS": they are different folders.
+    const parent = mkdtempSync(join(tmpdir(), "codemm-case-"));
+    mkdirSync(join(parent, "ws"));
+    mkdirSync(join(parent, "WS"), { recursive: true });
+    const lower = join(parent, "ws");
+    expect(claudeHook(lower, input("Edit", join(lower, "EXERCISES/c/main.c"))).exit).toBe(caseInsensitive ? 2 : 0);
+  });
+
+  it("knows the disk ignores case even when the workspace's name has no letters", () => {
+    const digits = join(mkdtempSync(join(tmpdir(), "codemm-case-")), "123");
+    mkdirSync(digits);
+    writeFileSync(join(digits, "codemm.json"), JSON.stringify({ format_version: 1, assist: false }));
+    expect(claudeHook(digits, input("Edit", join(digits, "EXERCISES/c/main.c"))).exit).toBe(caseInsensitive ? 2 : 0);
   });
 
   it("treats names that start with dots as ordinary names, not as a step out", () => {
