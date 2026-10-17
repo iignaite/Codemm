@@ -79,6 +79,12 @@ describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
     expect(JOB_BRIEFS.author).toMatch(/reply with only the exercise id/);
   });
 
+  it("sends a fresh author to next_step for the exact target and the track's contract", () => {
+    expect(JOB_BRIEFS.author).toMatch(/`contract\.files`/);
+    expect(JOB_BRIEFS.author).toMatch(/`contract\.examples`/);
+    expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, difficulty, style, track and contract from `next_step`/);
+  });
+
   it("keeps the tutor's hint rule and keeps it away from saves", () => {
     expect(JOB_BRIEFS.tutor).toMatch(/not in chat/);
     expect(JOB_BRIEFS.tutor).toMatch(/Don't state the fix, write the code or list the steps/);

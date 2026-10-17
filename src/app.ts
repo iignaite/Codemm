@@ -260,7 +260,34 @@ export async function markLessonRead(ws: string, id: string, bound?: string): Pr
 
 // ---------- exercises ----------
 
-export type NextStep = Step | { kind: "setup"; track: string } | (Extract<Step, { kind: "author" }> & { style: string; track: string });
+/**
+ * What a fresh author needs from the installed track, and nothing hidden: the learner files, the commands that
+ * build, run or test them for this style, the limits, and the track's own probe as a worked example.
+ */
+export type TrackContract = {
+  files: string[];
+  build?: string;
+  run?: string;
+  test?: string;
+  limits: { time_ms: number; memory_mb: number };
+  examples: { solution: FileMap; tests: FileMap };
+};
+
+export type NextStep =
+  | Step
+  | { kind: "setup"; track: string }
+  | (Extract<Step, { kind: "author" }> & { title: string; style: string; track: string; contract: TrackContract });
+
+function trackContract(track: TrackRecord, style: string): TrackContract {
+  const files = store.readTrackFiles(`${track.id}@${track.version}`);
+  const commands = style === "io" ? { ...(track.build ? { build: track.build } : {}), run: track.run } : { test: track.test };
+  return {
+    files: track.files,
+    ...commands,
+    limits: track.limits,
+    examples: { solution: subMap(files, `probe/${style}/pass`), tests: subMap(files, `probe/${style}/tests`) },
+  };
+}
 
 const pickFor = (course: CourseRecord) =>
   pickNext(course, store.listExercises(course.course), store.readEvents(course.course), store.listLessons(course.course));
@@ -273,7 +300,9 @@ export function nextStep(ws: string, bound?: string): NextStep {
     throw new CodemmError(`Track ${course.track} offers ${track.styles.join(", ")}, not style "${course.style}". Edit the roadmap's style.`);
   }
   const step = pickFor(course);
-  return step.kind === "author" ? { ...step, style: course.style, track: course.track } : step;
+  if (step.kind !== "author") return step;
+  const title = course.concepts.find((c) => c.id === step.concept)?.title ?? step.concept;
+  return { ...step, title, style: course.style, track: course.track, contract: trackContract(track, course.style) };
 }
 
 export async function saveExercise(ws: string, files: FileMap, bound?: string): Promise<{ exercise: string; warning?: string }> {
