@@ -253,6 +253,8 @@ export async function buildImage(contextDir: string, tag: string, timeoutMs = 60
     const log = r.output.slice(-8000);
     const imageId = existsSync(join(out, "iid")) ? readFileSync(join(out, "iid"), "utf8").trim() : "";
     if (r.exit === 0 && imageId) return { ok: true, log, imageId };
+    // The build worked but the runtime didn't report its image: not the track's fault.
+    if (r.exit === 0) return { ok: false, log, problem: `The container runtime built the track but didn't report the image ID. ${NOT_THE_TRACK} after updating Docker.` };
     const problem = (await runtimeDown()) ?? buildProblem(log);
     return { ok: false, log, ...(problem ? { problem } : {}) };
   } finally {

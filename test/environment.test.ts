@@ -52,6 +52,12 @@ describe.runIf(posix)("building a track image", () => {
     const built = await buildImage(mkdtempSync(join(tmpdir(), "codemm-context-")), "codemm-track-shell-io:1");
     expect(built).toMatchObject({ ok: true, imageId: "sha256:built" });
   });
+
+  it("blames the runtime, not the track, when a build reports no image ID", async () => {
+    fakeDocker("no-iid");
+    const built = await buildImage(mkdtempSync(join(tmpdir(), "codemm-context-")), "codemm-track-shell-io:1");
+    expect(built).toMatchObject({ ok: false, problem: expect.stringMatching(/didn't report the image ID.*not a problem with the track files/s) });
+  });
 });
 
 describe.runIf(posix)("installing a track", () => {
