@@ -3,9 +3,8 @@ import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { saveTrack } from "../src/app.js";
+import { saveExercise, saveTrack } from "../src/app.js";
 import { assertId, assertPortablePaths, readFileMap, validateFileMap } from "../src/files.js";
-import { verifyExercise } from "../src/gates.js";
 
 describe("assertId", () => {
   it.each(["c", "react", "python3", "c.loops", "sum-evens_2"])("accepts %s", (id) => {
@@ -63,7 +62,7 @@ describe("portable author input", () => {
   it("is enforced when a track or an exercise is saved, before anything runs", async () => {
     process.env.CODEMM_HOME = mkdtempSync(join(tmpdir(), "codemm-home-"));
     await expect(saveTrack({ "track.yaml": "id: x\n", "run.sh:x": "" })).rejects.toThrow(/Invalid path/);
-    await expect(verifyExercise({} as never, {} as never, { "exercise.yaml": "", "notes.": "" }, new Set())).rejects.toThrow(/Invalid path/);
+    await expect(saveExercise(mkdtempSync(join(tmpdir(), "codemm-ws-")), { "exercise.yaml": "", "notes.": "" })).rejects.toThrow(/Invalid path/);
   });
 });
 

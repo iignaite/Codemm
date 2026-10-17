@@ -141,6 +141,7 @@ export function nextStep(ws: string): NextStep {
 }
 
 export async function saveExercise(ws: string, files: FileMap): Promise<{ exercise: string; warning?: string }> {
+  assertPortablePaths(validateFileMap(files));
   const courseId = activeCourse(ws).course;
   const trackId = store.parseTrackRef(activeCourse(ws).track).id;
   const { record, track } = await store.withLock(store.courseLockPath(courseId), () =>

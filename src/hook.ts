@@ -21,17 +21,23 @@ function canonical(path: string): string {
   return join(realpathSync.native(existing), ...rest);
 }
 
-/** True when the disk holding `dir` ignores case: its own name in another case is the same folder. */
-function caseInsensitive(dir: string): boolean {
-  const name = basename(dir);
-  const swapped = name.replace(/[a-z]/gi, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
-  if (swapped === name) return false;
-  try {
-    const [a, b] = [statSync(dir, { bigint: true }), statSync(join(dirname(dir), swapped), { bigint: true })];
-    return a.dev === b.dev && a.ino === b.ino;
-  } catch {
-    return false;
+/**
+ * True when the workspace's disk ignores case: a name in it, in another case, is the same file.
+ * codemm.json always has letters to swap; the workspace's own name is the fallback.
+ */
+function caseInsensitive(ws: string): boolean {
+  for (const path of [join(ws, "codemm.json"), ws]) {
+    const name = basename(path);
+    const swapped = name.replace(/[a-z]/gi, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
+    if (swapped === name) continue;
+    try {
+      const [a, b] = [statSync(path, { bigint: true }), statSync(join(dirname(path), swapped), { bigint: true })];
+      return a.dev === b.dev && a.ino === b.ino;
+    } catch {
+      // That name doesn't exist (or its swap doesn't): try the next.
+    }
   }
+  return false;
 }
 
 /**

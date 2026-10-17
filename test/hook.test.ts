@@ -64,6 +64,13 @@ describe("claudeHook", () => {
     expect(claudeHook(lower, input("Edit", join(lower, "EXERCISES/c/main.c"))).exit).toBe(caseInsensitive ? 2 : 0);
   });
 
+  it("knows the disk ignores case even when the workspace's name has no letters", () => {
+    const digits = join(mkdtempSync(join(tmpdir(), "codemm-case-")), "123");
+    mkdirSync(digits);
+    writeFileSync(join(digits, "codemm.json"), JSON.stringify({ format_version: 1, assist: false }));
+    expect(claudeHook(digits, input("Edit", join(digits, "EXERCISES/c/main.c"))).exit).toBe(caseInsensitive ? 2 : 0);
+  });
+
   it("treats names that start with dots as ordinary names, not as a step out", () => {
     expect(claudeHook(ws, input("Write", join(ws, "exercises/..notes/file"))).exit).toBe(2);
     expect(claudeHook(ws, input("Write", join(ws, "..exercises/file"))).exit).toBe(0);
