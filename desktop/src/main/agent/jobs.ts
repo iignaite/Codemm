@@ -58,6 +58,8 @@ export interface Job {
   signal?: AbortSignal;
   /** Checked against core records created after the job started; a tutor turn passes when it ends without error. */
   done: (turn: { ok: boolean }) => boolean | Promise<boolean>;
+  /** True once no agent may launch: another job's agent couldn't be stopped (§3.1). */
+  blocked?: () => boolean;
   /** Asked when a job fails for an unknown reason. */
   signedIn: () => Promise<boolean>;
   deadlineMs?: number;
@@ -128,6 +130,8 @@ export async function runJob(job: Job): Promise<JobOutcome> {
   let last: Attempt | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (job.signal?.aborted) break;
+    // Checked before every launch, the relaunch included.
+    if (job.blocked?.()) return { ok: false, problem: 'unstoppable', text: last?.text ?? [] };
     last = await once(job);
     if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };

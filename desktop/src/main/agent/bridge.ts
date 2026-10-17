@@ -152,6 +152,8 @@ export function run<E>(exe: Executable, args: string[], parse: (line: string) =>
       for (const done of closing.splice(0)) done();
       if (stopping) return;
       if (buffer && !skipping && buffer.length <= maxLine) emit(buffer);
+      // The last line may have asked to cancel: then the cancel settles, once its termination is known.
+      if (stopping) return;
       settle({ code, cancelled: false });
     });
   });

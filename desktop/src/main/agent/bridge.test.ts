@@ -105,6 +105,29 @@ describe('bridge (D5)', () => {
     expect(result).toMatchObject({ cancelled: true, stopped: process.platform !== 'win32' });
   });
 
+  it.skipIf(process.platform === 'win32')('a cancel asked for by the last line, as the agent exits, still waits for its group', async () => {
+    const controller = new AbortController();
+    let grandchild = 0;
+    const out = run(
+      ...node(`const c = require('node:child_process').spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: 'ignore' });
+              process.stdout.write(JSON.stringify({ child: c.pid })); process.exit(0)`),
+      parse,
+      {
+        onEvent: (e) => {
+          grandchild = e.child as number;
+          controller.abort();
+        },
+        signal: controller.signal,
+        killAfterMs: 300,
+      },
+    );
+    const result = await out;
+    const survived = alive(grandchild);
+    if (survived) process.kill(grandchild, 'SIGKILL');
+    expect(result).toMatchObject({ cancelled: true, stopped: true });
+    expect(survived).toBe(false);
+  });
+
   it('delivers no event after a run settles', async () => {
     const controller = new AbortController();
     let events = 0;

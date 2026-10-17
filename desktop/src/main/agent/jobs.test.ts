@@ -147,6 +147,14 @@ describe('jobs (§3.2)', () => {
     expect(agent.argv()).toContain('mcp_servers.codemm.tool_timeout_sec=900');
   });
 
+  it('never relaunches once another job found its agent unstoppable', async () => {
+    const agent = fakeAgent([init, success]);
+    let blocked = false;
+    const outcome = await runJob(job(agent.exe, { kind: 'lesson', done: () => false, blocked: () => blocked, signedIn: async () => ((blocked = true), true) }));
+    expect(outcome).toMatchObject({ ok: false, problem: 'unstoppable' });
+    expect(agent.runs()).toBe(1);
+  });
+
   it('stops at its deadline', async () => {
     const agent = fakeAgent([init], { hang: true });
     expect(await runJob(job(agent.exe, { deadlineMs: 300, done: () => false }))).toMatchObject({ ok: false, problem: 'failed' });

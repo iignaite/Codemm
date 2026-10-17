@@ -184,6 +184,7 @@ export function createLive(d: LiveDeps): Live {
         resume,
         signal: stop.signal,
         done,
+        blocked: () => unstoppable,
         signedIn: () => d.connect.recheck(id, exe),
       });
       if (outcome.problem === 'unstoppable') unstoppable = true;
