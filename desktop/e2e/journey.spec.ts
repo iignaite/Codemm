@@ -506,6 +506,12 @@ test(`journey: ${label}`, async () => {
         await box.fill(`${await box.inputValue()} basics`);
         await box.press('Enter');
         did.push('renamed the first');
+        const addRows = async (at: string) => {
+          await shot(`edit-${at}`);
+          const open = await page.getByRole('textbox', { name: 'Topic name' }).count();
+          if (open) did.push(`an edit row stayed open after ${at}`);
+        };
+        await addRows('rename');
         if (flow.has('edits')) {
           // Reorder: move the second topic down; a prerequisite may refuse it, with a reason.
           const move = page.getByRole('button', { name: /^Move / }).nth(1);
@@ -513,19 +519,23 @@ test(`journey: ${label}`, async () => {
           await page.getByRole('menuitem', { name: 'Move down' }).click();
           const refused = page.getByRole('alert');
           did.push((await visible(refused)) ? `reorder refused: ${(await refused.innerText()).replace(/\s+/g, ' ')}` : 'moved the second down');
+          await addRows('reorder');
           // Add, then remove, a topic.
           await button('Add a topic').click();
           await page.getByRole('textbox', { name: 'Topic name' }).fill('Practice review');
           await page.getByRole('textbox', { name: 'Topic name' }).press('Enter');
           await expect(button('Remove Practice review')).toBeVisible();
+          await addRows('add');
           await button('Remove Practice review').click();
           did.push('added and removed a topic');
+          await addRows('remove');
           // Ask Codemm for a change.
           const before = await page.getByRole('button', { name: /^Rename / }).count();
           await page.getByRole('textbox', { name: 'Ask Codemm for changes' }).fill('Add a short topic on docstrings at the end.');
           await page.getByRole('textbox', { name: 'Ask Codemm for changes' }).press('Enter');
           await until('the roadmap change', async () => (await page.getByRole('button', { name: /^Rename / }).count()) !== before || (await visible(page.getByRole('status'))), 10 * MIN);
           did.push(`asked for a change: ${before} → ${await page.getByRole('button', { name: /^Rename / }).count()} topics`);
+          await addRows('ask');
         }
         return did.join('; ');
       });
