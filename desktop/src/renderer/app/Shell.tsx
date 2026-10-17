@@ -64,7 +64,7 @@ export function Sidebar({ slim = false }: { slim?: boolean }) {
         {course ? (
           <div className="pick">
             <span className="badge" style={{ background: hueColor(course.track) }} aria-hidden="true">{course.goal[0]}</span>
-            {course.goal}
+            <span className="goal">{course.goal}</span>
           </div>
         ) : (
           <div className="pick none">No course yet</div>
