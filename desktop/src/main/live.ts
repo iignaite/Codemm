@@ -241,8 +241,8 @@ export function createLive(d: LiveDeps): Live {
 
   /**
    * Starts the background work the course needs: a setup proposal, the current topic's lesson and
-   * activity. Only Codemm's own steps call it, never a read, so reopening a lesson or an activity
-   * starts no agent (D9).
+   * activity. Codemm's own steps call it, so reopening a lesson or an activity starts no agent (D9).
+   * The one read that calls it is a course read that finds a review the clock made due (core §7).
    */
   function schedule() {
     try {

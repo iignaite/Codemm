@@ -51,6 +51,24 @@ describe('course map', () => {
     expect(await screen.findByText('Review', { selector: '.pill' })).toBeInTheDocument();
   });
 
+  it('reads the course again when the window regains focus, so a review that came due shows up', async () => {
+    const { api } = await mockWithCourse();
+    const real = (await api.course())!;
+    let reads = 0;
+    let due = false;
+    api.course = async () => {
+      reads++;
+      return due ? { ...real, topics: real.topics.map((t, i) => (i === 0 ? { ...t, state: 'mastered' as const, review: 'due' as const, activity: 'open' as const } : t)) } : real;
+    };
+    renderApp({ to: 'learn' }, api);
+    await screen.findByRole('list', { name: 'Topics' });
+    const before = reads;
+    due = true;
+    window.dispatchEvent(new Event('focus'));
+    expect(await screen.findByRole('button', { name: 'Review' })).toBeInTheDocument();
+    expect(reads).toBeGreaterThan(before);
+  });
+
   it('keeps the review schedule on a finished course', async () => {
     const { api, course } = await mockWithCourse();
     await master(api, course.topics.length);

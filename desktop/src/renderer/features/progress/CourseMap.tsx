@@ -19,7 +19,7 @@ function continueRoute(topic: TopicView): Route {
 /** Lessons, then an activity, per topic, with mastery so far. */
 export function CourseMap() {
   const api = useApi();
-  const { data: course, error, reload } = useLoad(() => api.course(), [], settled);
+  const { data: course, error, reload } = useLoad(() => api.course(), [], settled, undefined, true);
   if (error) return <Failed error={error} retry={reload} />;
   if (course === undefined) return null;
   if (course === null) return <Goal />;

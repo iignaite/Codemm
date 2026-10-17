@@ -18,7 +18,7 @@ const BUSY = { proposing: 'Preparing setup for', installing: 'Setting up' } as c
 export function TopicPage({ topicId }: { topicId: string }) {
   const api = useApi();
   const { fail } = useRouter();
-  const { data: course, error, reload } = useLoad(() => api.course(), [topicId], settled);
+  const { data: course, error, reload } = useLoad(() => api.course(), [topicId], settled, undefined, true);
   const [consentClosed, setConsentClosed] = useState(false);
   const [consentError, setConsentError] = useState<string>();
   if (error) return <Failed error={error} retry={reload} />;
