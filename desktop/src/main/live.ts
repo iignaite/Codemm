@@ -40,6 +40,8 @@ export interface LiveDeps {
   runJob?: (job: Job) => Promise<JobOutcome>;
   /** Lifecycle and detection events only (log.ts). */
   log?: Log;
+  /** Resolves once Docker isn't starting any more (§6.1). */
+  dockerReady?: () => Promise<void>;
 }
 
 export interface Live extends CodemmApi {
@@ -73,6 +75,7 @@ export function createLive(d: LiveDeps): Live {
   const { core, ws } = d;
   const runJob = d.runJob ?? realRunJob;
   const log = d.log ?? noLog;
+  const dockerReady = d.dockerReady ?? (async () => {});
   const briefs = briefsFrom(core.JOB_BRIEFS);
   const running = new Map<string, Running>();
   const lanes = { fg: Promise.resolve() as Promise<unknown>, bg: Promise.resolve() as Promise<unknown> };
@@ -322,8 +325,8 @@ export function createLive(d: LiveDeps): Live {
       if (!proposal || proposal.digest !== digest) throw new Error('The setup changed. Look at it again.');
       setup.approved = proposal;
       setup.problem = undefined;
-      setup.installing = core
-        .installProposal(ref, digest)
+      setup.installing = dockerReady()
+        .then(() => core.installProposal(ref, digest))
         .then(() => {
           setup.approved = undefined;
         })
@@ -377,6 +380,7 @@ export function createLive(d: LiveDeps): Live {
 
     async tryIt(activityId) {
       try {
+        await dockerReady();
         return tryView(await tracked(core.testExercise(ws, activityId)));
       } catch (e) {
         const reason = notCounted(e);
@@ -390,6 +394,7 @@ export function createLive(d: LiveDeps): Live {
 
     async check(activityId) {
       try {
+        await dockerReady();
         const view = await tracked(core.checkExercise(ws, activityId));
         const concepts = core.listExercises(ws).find((e) => e.exercise === activityId)?.concepts ?? [];
         const state = core.progress(ws).concepts.find((c) => concepts.includes(c.id));

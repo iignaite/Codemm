@@ -7,7 +7,7 @@ import { delimiter, dirname, join } from 'node:path';
 import { AGENT_CLIS } from './agent/agents';
 import { ask } from './agent/bridge';
 import { find } from './agent/find';
-import { computerCheck } from './computer';
+import { computerCheck, waitWhileStarting } from './computer';
 import { connector } from './connect';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
@@ -62,6 +62,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     ws,
     runtime,
     log,
+    dockerReady: () => waitWhileStarting(computer, () => new Promise((r) => setTimeout(r, 3000))),
     server: (course, tools) => ({
       command: runtime,
       args: [join(coreDir, 'dist', 'cli.mjs'), 'mcp', '--workspace', ws, ...(course ? ['--course', course] : []), '--tools', tools.join(','), '--desktop'],

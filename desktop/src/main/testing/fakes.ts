@@ -8,7 +8,7 @@ import type { Job, JobOutcome } from '../agent/jobs';
 import { connector } from '../connect';
 import { JOB_BRIEFS } from '../../../../src/templates';
 import type { CoreApp, CoreCheckView, CoreNextStep } from '../core/types';
-import { createLive } from '../live';
+import { createLive, type LiveDeps } from '../live';
 import { createLog } from '../log';
 import { desktopState } from '../state';
 
@@ -171,7 +171,7 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
   return { ran, runJob };
 }
 
-export function live(over: Partial<Record<Job['kind'], Act>> = {}) {
+export function live(over: Partial<Record<Job['kind'], Act>> = {}, deps: Partial<LiveDeps> = {}) {
   const { c, app } = fakeCore();
   const jobs = fakeJobs(c, over);
   const dir = mkdtempSync(join(tmpdir(), 'codemm-live-'));
@@ -187,6 +187,7 @@ export function live(over: Partial<Record<Job['kind'], Act>> = {}) {
     server: (course, tools) => ({ command: '/app', args: ['core/cli.mjs', 'mcp', ...(course ? ['--course', course] : []), '--tools', tools.join(',')] }),
     runJob: jobs.runJob,
     log: createLog(dir),
+    ...deps,
   });
   return { api, c, app, jobs, connect, logFile: join(dir, 'codemm.log') };
 }

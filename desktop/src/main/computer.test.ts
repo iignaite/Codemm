@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { computerCheck, type Probe } from './computer';
+import { computerCheck, waitWhileStarting, type Probe } from './computer';
+import type { Computer } from '../shared/api';
 
 function probe(over: Partial<Probe> = {}): Probe & { clock: number } {
   const p: Probe & { clock: number } = {
@@ -51,5 +52,17 @@ describe('check this computer (§6.1, D13)', () => {
     await check();
     expect(runs).toBe(1);
     expect(await states(computerCheck(probe({ sandbox: async () => false }), 'darwin'))).toEqual(['ok', 'ok', 'problem']);
+  });
+
+  it('waits while Docker is starting, and only then (§6.1)', async () => {
+    const running = (detail?: 'starting'): Computer => ({ platform: 'mac', ready: !detail, checks: [{ id: 'docker-running', state: detail ? 'problem' : 'ok', ...(detail ? { detail } : {}) }] });
+    const answers = [running('starting'), running('starting'), running()];
+    let naps = 0;
+    await waitWhileStarting(async () => answers.shift()!, async () => void naps++);
+    expect(naps).toBe(2);
+    naps = 0;
+    const stopped: Computer = { platform: 'mac', ready: false, checks: [{ id: 'docker-running', state: 'problem' }] };
+    await waitWhileStarting(async () => stopped, async () => void naps++);
+    expect(naps).toBe(0);
   });
 });
