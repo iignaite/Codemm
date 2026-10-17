@@ -44,6 +44,11 @@ describe("gradeIo", () => {
     expect(tests).toEqual([{ set: "visible", name: "visible/01", status: "error", message: "Build failed (exit 1):\nsyntax error" }]);
   });
 
+  it("errors a case that printed more than 64 KB instead of comparing a prefix", () => {
+    const big = [{ name: "visible/01", exit: 0, stdout: "", stderr: "", big: true }];
+    expect(gradeIo(big, { "visible/01": "" })[0]).toMatchObject({ status: "error", message: expect.stringMatching(/64 KB/) });
+  });
+
   it("errors an expected case the run never reached", () => {
     expect(gradeIo([], { "hidden/01": "x" })[0]).toMatchObject({ status: "error" });
   });

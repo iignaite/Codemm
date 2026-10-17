@@ -13,7 +13,7 @@ export type TestResult = {
 };
 
 export type Frame = { kind: string; name: string; exit: number; body: string };
-export type RawCase = { name: string; exit: number; stdout: string; stderr: string };
+export type RawCase = { name: string; exit: number; stdout: string; stderr: string; big?: boolean };
 export type RawReport = { exit: number; body: string; log: string };
 export type RawBuild = { exit: number; output: string };
 
@@ -67,6 +67,7 @@ export function gradeIo(cases: RawCase[], expected: Record<string, string>, buil
     if (build && build.exit !== 0) return { set, name, status: "error", message: cap(`Build failed (exit ${build.exit}):\n${build.output}`) };
     const c = byName.get(name);
     if (!c) return { set, name, status: "error", message: "This case did not run." };
+    if (c.big) return { set, name, status: "error", message: "Printed more than 64 KB of output." };
     if (c.exit !== 0) return { set, name, status: "error", message: exitMessage(c.exit, c.stderr), actual: c.stdout };
     const pass = normalizeOutput(c.stdout) === normalizeOutput(expected[name]!);
     return pass ? { set, name, status: "pass", actual: c.stdout } : { set, name, status: "fail", message: "Output differs from the expected output.", actual: c.stdout };
