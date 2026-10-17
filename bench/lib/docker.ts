@@ -1,6 +1,49 @@
-/** Docker housekeeping: track images are tagged globally, so each run removes what it created and restores what it replaced. */
+/**
+ * Docker housekeeping. Track tags are global, and other sessions may build the same tags at the same time, so a
+ * run records the exact image ID of every build it makes: Codemm runs Docker through a wrapper that keeps each
+ * build's `--iidfile` output and adds a label unique to the run, so no other session's build can share an ID with
+ * it. Cleanup removes only those IDs, by ID and never by tag, so it can't touch another session's image.
+ */
+import { randomBytes } from "node:crypto";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { parse } from "yaml";
 import { capture } from "./proc.ts";
+
+export const OWNER_LABEL = "codemm.bench.run";
+
+/**
+ * Writes a container CLI for Codemm (CODEMM_CONTAINER_CLI) into `dir`, which must be the run's own folder. Every
+ * `build` also gets the run's label (so its image ID is the run's alone) and plain progress (as Codemm asks of
+ * `docker`), and its image ID is copied to `dir/iid.*`: from the `--iidfile` Codemm passes, or from one the wrapper
+ * adds. Every other command passes straight through. Returns the wrapper's path.
+ */
+export function recordingCli(dir: string, docker = capture("sh", ["-c", "command -v docker"]).out.trim()): string {
+  if (!docker) throw new Error("recordingCli needs a docker executable.");
+  const q = (text: string) => `'${text.replace(/'/g, "'\\''")}'`;
+  const path = join(dir, "docker-recorded");
+  const run = randomBytes(8).toString("hex");
+  const script = [
+    "#!/bin/sh",
+    `[ "$1" = build ] || exec ${q(docker)} "$@"`,
+    "shift",
+    'iid=""; prev=""',
+    'for a in "$@"; do [ "$prev" = --iidfile ] && iid=$a; prev=$a; done',
+    `own=${q(dir)}/iid.$$`,
+    `if [ -n "$iid" ]; then ${q(docker)} build --progress plain --label ${OWNER_LABEL}=${run} "$@"; else ${q(docker)} build --progress plain --label ${OWNER_LABEL}=${run} --iidfile "$own" "$@"; fi`,
+    "c=$?",
+    'if [ -n "$iid" ] && [ -f "$iid" ]; then cat "$iid" > "$own"; fi',
+    'exit "$c"',
+    "",
+  ].join("\n");
+  writeFileSync(path, script, { mode: 0o755 });
+  return path;
+}
+
+/** The image IDs the run's builds produced, from the wrapper's `iid.*` files. */
+export function builtImages(dir: string): Set<string> {
+  return new Set(readdirSync(dir).filter((f) => f.startsWith("iid.")).map((f) => readFileSync(join(dir, f), "utf8").trim()).filter(Boolean));
+}
 
 /** Every image ID on the machine, and every tag with its image ID. */
 export type Snapshot = { tags: Map<string, string>; ids: Set<string> };
@@ -32,37 +75,20 @@ export function tagForTrackYaml(yaml: string): string | undefined {
 }
 
 /**
- * The docker commands that undo a run: re-tag every tag that existed before to its old image, untag the run's
- * new tags, then remove the run's images by ID. An image ID that existed before the run is never removed, and
- * neither is a new image that would still carry a tag the run didn't make. `--no-prune` keeps untagged parents.
+ * The docker commands that undo a run: `rmi` by ID for every image the run built that didn't exist before and is
+ * still there, unless a tag the run didn't try points at it. Removing by ID without force can't delete another
+ * session's image, and fails rather than untag one still shared. Tags the run's builds replaced aren't restored:
+ * Codemm checks installed tracks by image ID, and re-pointing a shared tag could race another session.
  */
-export function cleanupPlan(attempted: string[], storeIds: string[], before: Snapshot, after: Snapshot): string[][] {
-  const restore: string[][] = [];
-  const untag: string[][] = [];
-  const created = new Set<string>();
-  for (const tag of new Set(attempted)) {
-    const now = after.tags.get(tag);
-    const old = before.tags.get(tag);
-    if (now && !before.ids.has(now)) created.add(now);
-    if (old && now !== old) restore.push(["tag", old, tag]);
-    // Untagging the last tag of an image deletes it, so leave a new tag that points at a pre-existing image.
-    else if (!old && now && created.has(now)) untag.push(["rmi", "--no-prune", tag]);
-  }
-  // Restore first, so an untag then really removes the last tag of a run-created image.
-  const plan = [...restore, ...untag];
-  for (const id of storeIds) if (!before.ids.has(id)) created.add(id);
+export function cleanupPlan(attempted: string[], built: Set<string>, before: Snapshot, after: Snapshot): string[][] {
   const ours = new Set(attempted);
-  const untagged = new Set(plan.filter(([cmd]) => cmd === "rmi").map((args) => args.at(-1)));
   const kept = (id: string) => [...after.tags].some(([tag, tid]) => tid === id && !ours.has(tag));
-  // Untagging an image's last tag already removes it; remove by ID only what no untag covers.
-  const covered = (id: string) => [...after.tags].some(([tag, tid]) => tid === id && untagged.has(tag));
-  for (const id of created) if (!kept(id) && !covered(id)) plan.push(["rmi", "--no-prune", id]);
-  return plan;
+  return [...built].filter((id) => !before.ids.has(id) && after.ids.has(id) && !kept(id)).map((id) => ["rmi", "--no-prune", id]);
 }
 
 /** Runs the cleanup plan and returns what happened, for the run log. */
-export function cleanupImages(attempted: string[], storeIds: string[], before: Snapshot): string[] {
-  return cleanupPlan(attempted, storeIds, before, snapshot()).map((args) => {
+export function cleanupImages(attempted: string[], dir: string, before: Snapshot): string[] {
+  return cleanupPlan(attempted, builtImages(dir), before, snapshot()).map((args) => {
     const ok = capture("docker", args).code === 0;
     return `${ok ? "" : "failed: "}docker ${args.map((a) => (a.startsWith("sha256:") ? a.slice(7, 19) : a)).join(" ")}`;
   });

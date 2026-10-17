@@ -16,7 +16,6 @@ import {
   type Roadmap,
   type SetupProblem,
 } from '../shared/api';
-import models from '../shared/models.json';
 import type { McpServer } from './agent/agents';
 import { briefsFrom, courseId } from './agent/briefs';
 import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type JobProblem } from './agent/jobs';
@@ -165,7 +164,7 @@ export function createLive(d: LiveDeps): Live {
       if (stop.signal.aborted || (lane === 'bg' && stalled)) return { ok: false, problem: 'failed', text: [] };
       // Nor does any job while an agent Codemm couldn't stop may still run (§3.1).
       if (unstoppable) return { ok: false, problem: 'unstoppable', text: [] };
-      const { id, exe } = await d.connect.chosen();
+      const { id, exe, model } = await d.connect.chosen();
       // Again after the lookup: another job may have found its agent unstoppable meanwhile.
       if (unstoppable) return { ok: false, problem: 'unstoppable', text: [] };
       if (stop.signal.aborted) return { ok: false, problem: 'failed', text: [] };
@@ -179,8 +178,8 @@ export function createLive(d: LiveDeps): Live {
         brief,
         server: (tools) => d.server(course, tools),
         cwd: ws,
-        // Codex jobs ignore the learner's config, so they run the recommended model (§3.3).
-        model: id === 'codex' ? (models.codex ?? undefined) : undefined,
+        // The learner's model choice, or the recommended one (O6), for every agent with choices.
+        model,
         resume,
         signal: stop.signal,
         done,
@@ -330,6 +329,11 @@ export function createLive(d: LiveDeps): Live {
         stalled = undefined;
         schedule();
       }
+      return agent;
+    },
+    async chooseModel(id, model) {
+      const agent = await d.connect.chooseModel(id, model);
+      log('model', { agent: id, model });
       return agent;
     },
     async computer() {

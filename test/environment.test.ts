@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { doctor } from "../src/doctor.js";
 import { readFileMap } from "../src/files.js";
-import { runtimeHelp, startHelp } from "../src/sandbox.js";
+import { buildImage, runtimeHelp, startHelp } from "../src/sandbox.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import * as store from "../src/store.js";
 import { fakeDocker, posix } from "./fake-docker.js";
@@ -43,6 +43,20 @@ describe("doctor", () => {
     const runtime = checks.find((c) => c.name === "container runtime")!;
     expect(runtime).toMatchObject({ ok: false, detail: `The container runtime isn't running. ${startHelp()}` });
     expect(runtime.detail).not.toMatch(/install/i);
+  });
+});
+
+describe.runIf(posix)("building a track image", () => {
+  it("returns the ID its own build produced, never whatever the shared tag points at later", async () => {
+    fakeDocker("builds");
+    const built = await buildImage(mkdtempSync(join(tmpdir(), "codemm-context-")), "codemm-track-shell-io:1");
+    expect(built).toMatchObject({ ok: true, imageId: "sha256:built" });
+  });
+
+  it("blames the runtime, not the track, when a build reports no image ID", async () => {
+    fakeDocker("no-iid");
+    const built = await buildImage(mkdtempSync(join(tmpdir(), "codemm-context-")), "codemm-track-shell-io:1");
+    expect(built).toMatchObject({ ok: false, problem: expect.stringMatching(/didn't report the image ID.*not a problem with the track files/s) });
   });
 });
 

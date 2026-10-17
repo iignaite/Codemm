@@ -9,6 +9,7 @@ const concepts = [{ id: 'values', title: 'Values', requires: [] }, { id: 'state'
 const GOOD: Record<keyof CodemmApi, unknown[]> = {
   agents: [],
   connect: ['claude'],
+  chooseModel: ['claude', 'opus'],
   computer: [],
   tracks: [],
   research: [{ topic: 'React', known: 'Python' }],

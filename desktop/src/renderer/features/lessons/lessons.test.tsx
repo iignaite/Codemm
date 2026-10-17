@@ -222,3 +222,15 @@ describe('lessons', () => {
     expect(await screen.findByText('Saved note')).toBeInTheDocument();
   });
 });
+
+describe('the activity while the agent writes it', () => {
+  it('shows it being written, not locked, once every lesson is read', async () => {
+    const { api, course } = await mockWithCourse({ read: true });
+    // The real core reports `writing` for the current topic until the author job saves an exercise.
+    const writing = { ...course, topics: course.topics.map((t, i) => (i === 0 ? { ...t, activity: 'writing' as const } : t)) };
+    api.course = async () => writing;
+    renderApp({ to: 'topic', topicId: course.topics[0].id }, api);
+    expect(await screen.findByRole('img', { name: 'Writing the activity' })).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Opens after the lessons' })).not.toBeInTheDocument();
+  });
+});

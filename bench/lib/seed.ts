@@ -32,9 +32,9 @@ export const subjectFixture = (subject: string) => {
   return fixture(join(dir, "track"), join(dir, "roadmap.yaml"), join(dir, "exercise"), `bench-${subject}`);
 };
 
-export async function seedExercise(cli: string, ws: string, home: string, f: Fixture): Promise<void> {
+export async function seedExercise(cli: string, ws: string, home: string, containerCli: string, f: Fixture): Promise<void> {
   const client = new Client({ name: "codemm-bench-seed", version: "1" });
-  await client.connect(new StdioClientTransport({ command: process.execPath, args: [cli, "mcp", "--workspace", ws], env: cleanEnv({ CODEMM_HOME: home }) }));
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [cli, "mcp", "--workspace", ws], env: cleanEnv({ CODEMM_HOME: home, CODEMM_CONTAINER_CLI: containerCli }) }));
   try {
     const call = async (name: string, args: Record<string, unknown>) => {
       const r: any = await client.callTool({ name, arguments: args }, undefined, { timeout: 900_000 });

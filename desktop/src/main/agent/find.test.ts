@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dockerFolders, find, shimTarget, type Where } from './find';
+import { dockerFolders, find, shimTarget, withDockerFolders, type Where } from './find';
 
 function tree() {
   const root = mkdtempSync(join(tmpdir(), 'codemm-find-'));
@@ -64,5 +64,14 @@ describe('find (§3.1)', () => {
     // Homebrew's Docker CLI, beside Docker Desktop: the helpers are only in Docker Desktop's folder.
     expect(dockerFolders(join(dir, 'bin', 'docker'), [desktop])).toEqual([join(dir, 'bin'), cellar, desktop]);
     expect(dockerFolders(join(cellar, 'docker'), [join(dir, 'missing')])).toEqual([cellar]);
+  });
+
+  it("adds Docker's folders to a PATH once, keeping what was there", () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-path-')));
+    writeFileSync(join(dir, 'docker'), '');
+    const path = ['/usr/bin', '/bin'].join(delimiter);
+    const once = withDockerFolders(path, join(dir, 'docker'), []);
+    expect(once).toBe([path, dir].join(delimiter));
+    expect(withDockerFolders(once, join(dir, 'docker'), [])).toBe(once);
   });
 });
