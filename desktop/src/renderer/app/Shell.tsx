@@ -118,7 +118,8 @@ export function Failed({ error, retry }: { error: unknown; retry: () => void }) 
   return (
     <main className="center">
       <div className="stack" role="alert">
-        <p className="sub">{problem === 'other' ? "Couldn't reach Codemm." : SAY[problem]}</p>
+        {/* Main lets only learner-safe messages through (errors.ts), so another failure shows its own. */}
+        <p className="sub">{problem === 'other' ? (error instanceof Error && error.message) || SAY.other : SAY[problem]}</p>
         {problem === 'repair' && <p className="sub">{repairDetail(error)}</p>}
         <Button variant="ghost" onClick={retry}>Try again</Button>
       </div>

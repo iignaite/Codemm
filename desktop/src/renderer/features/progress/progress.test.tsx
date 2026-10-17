@@ -52,4 +52,13 @@ describe('course map', () => {
     expect(alert).toHaveTextContent('The learning log /h/events.jsonl has an invalid entry on line 3. Fix or remove that line, then retry.');
     expect(alert).not.toHaveTextContent('codemm:repair');
   });
+
+  it("shows Codemm's own message for any other failure, not a connection problem", async () => {
+    const { api } = await mockWithCourse();
+    api.course = () => Promise.reject(new Error('Track python@3 offers unit, not style "io".'));
+    renderApp({ to: 'learn' }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Track python@3 offers unit, not style "io".');
+    expect(alert).not.toHaveTextContent("Couldn't reach Codemm.");
+  });
 });
