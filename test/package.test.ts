@@ -50,6 +50,8 @@ describe("packed artifact", () => {
     expect(init.status).toBe(0);
     expect(init.stdout).toContain(".mcp.json");
 
+    expect(run(["tracks"], { env }).stdout.trim()).toMatch(/^No tracks installed yet\..*codemm track add/);
+
     const status = run(["status"], { cwd: ws, env });
     expect(status.status).toBe(1);
     expect(status.stderr).toMatch(/No course/);

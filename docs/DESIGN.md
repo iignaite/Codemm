@@ -148,7 +148,7 @@ Other ceilings:
 | A case times out (the driver's `timeout`), crashes, exits non-zero or prints more than 64 KB | that test is `error` | yes |
 | Learner code fails to build | every test is `error` | yes |
 | The 4 MB stream cap is hit | every test in that set is `error` ("output limit exceeded") | yes |
-| The host deadline for the whole set passes, the runtime is missing, or the image is missing or changed | the command fails with an infrastructure error | no |
+| The host deadline for the whole set passes, the runtime is missing or stops during the run, or the image is missing or changed | the command fails with an infrastructure error | no |
 - **Volumes:** images that declare `VOLUME` are rejected at install.
 
 `codemm doctor` checks the container CLI and daemon. It also proves `--network none` blocks a host TCP server that a networked container can reach.
@@ -160,6 +160,7 @@ Other ceilings:
 - **The trust point** is the learner approving the `save_track` call in their agent, or running `codemm track add` themselves. Codemm's tool description says this plainly, and `init` never pre-approves it.
 - **The build context** is a fresh folder holding only the track's files. No secrets, SSH agent or Docker socket are forwarded.
 - **The build** times out after 10 minutes and the process is killed. Build resource limits are not enforced in 1.0 (a known limitation).
+- **Infrastructure failures.** A build that fails because the runtime is down, the network is unreachable or the disk is full is reported as that, not as a gate failure, and installs nothing. The agent retries the same files instead of rewriting a correct track.
 - **The image** is tagged `codemm-track-<id>:<version>`, and its ID is stored in `track.json`. Every check verifies that the ID still matches. If the image is missing or has changed, the check fails with "Run `codemm track rebuild <id>@<version>`".
 - **Base images.** Each `FROM` should pin its image by digest (`image@sha256:…`). An unpinned `FROM` (other than `scratch` or an earlier stage) installs with a warning rather than failing a gate: checks run by the recorded image ID, and a rebuild that pulls a different base must pass every gate below, so an unpinned base can make a rebuild fail but can't change results silently.
 - **Rebuild** re-runs the track gates, then re-runs exercise gates 2 to 6 for every stored exercise on the new image. io outputs must also equal the stored expected outputs, and unit inventories must match. Only then is the new image ID recorded. Otherwise rebuild fails and lists the exercises that changed. Nothing rebuilds silently.
@@ -292,7 +293,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 
 ## 10. Failure handling
 
-- **No container runtime:** commands that need one fail with what to install and start on that OS (`runtimeHelp`): Docker Desktop on macOS; Docker Desktop with the WSL 2 backend set to Linux containers on Windows; Docker Engine on Linux. A Docker Desktop running Windows containers is reported as such. `doctor` says which part failed.
+- **No container runtime:** commands that need one fail and say what to do on that OS. When none is installed, they say what to install (`runtimeHelp`): Docker Desktop on macOS; Docker Desktop with the WSL 2 backend set to Linux containers on Windows; Docker Engine on Linux. When one is installed but not running, they say how to start it (`startHelp`). A Docker Desktop running Windows containers is reported as such. `doctor` says which part failed.
 - **Locks** (per course and per track): the file is created exclusively and records the owner's PID. A lock whose PID is no longer running is stale and removed. A second writer waits up to 10 minutes, then gets "Course is busy; retry."
 - **Leftover containers:** found by the `codemm=1` label. Each container also carries its owner's PID (`codemm.pid`). `doctor --fix` removes only containers whose owner is gone, verifies they're gone, and reports listing or removal failures.
 - **`doctor`'s network check** passes only when an ordinary container reaches the test server and the sandbox doesn't. Anything else is reported as a failure ("inconclusive"), never as success.

@@ -43,6 +43,15 @@ export function runtimeHelp(platform: NodeJS.Platform = process.platform): strin
     "and make sure your user may use it (the docker group, or rootless mode), then retry.";
 }
 
+/** How to start an installed engine that isn't running on this OS. */
+export function startHelp(platform: NodeJS.Platform = process.platform): string {
+  if (platform === "darwin" || platform === "win32") {
+    return "Start Docker Desktop (or `podman machine start` for Podman) and wait until it says it's running, then retry.";
+  }
+  return "Start Docker (for example `sudo systemctl start docker`) and make sure your user may use it " +
+    "(the docker group, or rootless mode), then retry.";
+}
+
 /** Asks the engine for its version and the kind of containers it runs. */
 export const RUNTIME_INFO = ["info", "--format", "{{.ServerVersion}}|{{.OSType}}"];
 
@@ -51,8 +60,10 @@ export const RUNTIME_INFO = ["info", "--format", "{{.ServerVersion}}|{{.OSType}}
  * engine is one that reported a version.
  */
 export function runtimeProblem(r: { exit: number; output: string }, platform: NodeJS.Platform = process.platform): string | undefined {
+  // A configured CLI that doesn't exist fails to spawn.
+  if (r.exit === -1 && /ENOENT/.test(r.output)) return `No container runtime found. ${runtimeHelp(platform)}`;
   const m = /^(\S+)\|(\w+)\s*$/m.exec(r.output);
-  if (r.exit !== 0 || !m) return `The container runtime isn't running. ${runtimeHelp(platform)}`;
+  if (r.exit !== 0 || !m) return `The container runtime isn't running. ${startHelp(platform)}`;
   if (m[2] === "windows") return "Docker is running Windows containers. Switch Docker Desktop to Linux containers and retry.";
   return undefined;
 }
@@ -172,18 +183,46 @@ export function cli(args: string[], timeoutMs = 60_000): Promise<{ exit: number;
   });
 }
 
+/** Why the runtime can't run containers right now, or undefined when it can. */
+export async function runtimeDown(): Promise<string | undefined> {
+  return runtimeProblem(await cli(RUNTIME_INFO, 20_000));
+}
+
 export async function assertRuntime(): Promise<void> {
-  const problem = runtimeProblem(await cli(RUNTIME_INFO, 20_000));
+  const problem = await runtimeDown();
   if (problem) throw new CodemmError(problem);
 }
 
-/** Builds a track image from a staged folder. Networked; this is the separate trust boundary in DESIGN §4.4. */
-export async function buildImage(contextDir: string, tag: string, timeoutMs = 600_000): Promise<{ ok: boolean; log: string }> {
+const NOT_THE_TRACK = "This is not a problem with the track files, so retry with the same files";
+
+/** Reads a failed build's output for causes outside the track: no network, or no disk space. */
+export function buildProblem(log: string): string | undefined {
+  if (/no space left on device/i.test(log)) {
+    return `Docker ran out of disk space while building the track, so nothing was installed. ${NOT_THE_TRACK} ` +
+      "after freeing space (`docker system prune` removes unused images and build cache).";
+  }
+  const offline = /temporary failure (?:in name resolution|resolving)|could not resolve (?:host|proxy)|no such host|network is unreachable|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)/i;
+  const line = log.split("\n").find((l) => offline.test(l));
+  if (line) {
+    return `The track build couldn't reach the network (${line.trim().slice(0, 300)}), so nothing was installed. ` +
+      `Docker may be offline, or a VPN, proxy or firewall may be blocking it. ${NOT_THE_TRACK} once the connection works.`;
+  }
+  return undefined;
+}
+
+/**
+ * Builds a track image from a staged folder. Networked; this is the separate trust boundary in DESIGN §4.4.
+ * `problem` is set when the build failed for a reason outside the track (runtime, network or disk).
+ */
+export async function buildImage(contextDir: string, tag: string, timeoutMs = 600_000): Promise<{ ok: boolean; log: string; problem?: string }> {
   const args = ["build", "-t", tag];
   if (containerCli() === "docker") args.push("--progress", "plain");
   args.push(contextDir);
   const r = await cli(args, timeoutMs);
-  return { ok: r.exit === 0, log: r.output.slice(-8000) };
+  const log = r.output.slice(-8000);
+  if (r.exit === 0) return { ok: true, log };
+  const problem = (await runtimeDown()) ?? buildProblem(log);
+  return { ok: false, log, ...(problem ? { problem } : {}) };
 }
 
 export async function inspectImage(tag: string): Promise<{ id: string; hasVolumes: boolean } | undefined> {

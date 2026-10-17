@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
 import { gradeIo, gradeUnit, parseFrames, type RawBuild, type RawCase, type TestResult, type TestSet } from "./grading.js";
-import { runSandboxed } from "./sandbox.js";
+import { runSandboxed, runtimeDown, startHelp } from "./sandbox.js";
 
 /** What the judge needs from an installed track. */
 export type JudgeTrack = {
@@ -71,14 +71,18 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
     if (result.timedOut) throw new CodemmError("The check didn't finish in time, so nothing was recorded. Check that the container runtime is healthy and retry.");
     // A flood is the program's doing and is graded; the host kill makes the exit code meaningless.
     if (result.flooded) return { frames: [], flooded: true };
-    // Exit 125 means the runtime failed before any code ran, so its stderr is the runtime's own.
+    // The driver exits 0. Anything else may mean the runtime went away mid-run, whatever was printed so far.
+    if (result.exit !== 0) {
+      if (await runtimeDown()) throw new CodemmError(`The container runtime stopped during the run, so it wasn't counted. ${startHelp()}`);
+    }
+    // Exit 125 is the runtime's own failure. With no output, no code ran, so its stderr is the runtime's own too.
     if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`);
     if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.");
     const frames = parseFrames(result.stdout);
-    // A working driver always reports at least one frame. None at all, or a runtime connection error,
-    // means the runtime failed, not the learner's code, so nothing may be graded or recorded.
-    if (frames.length === 0 || /cannot connect to the docker daemon|error during connect|connection refused/i.test(result.stderr)) {
-      throw new CodemmError("The container runtime failed during the check, so nothing was recorded. Run `codemm doctor`, then retry.");
+    // A working driver always reports at least one frame. None, exit 125 after some output, or a runtime
+    // connection error means the runtime failed, not the learner's code, so nothing may be graded or recorded.
+    if (frames.length === 0 || result.exit === 125 || /cannot connect to the docker daemon|error during connect|connection refused/i.test(result.stderr)) {
+      throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.");
     }
     // Never echo a fatal frame's body: code in the container could forge one (DESIGN §4.2).
     if (frames.some((f) => f.kind === "fatal")) throw new CodemmError("The track image is missing a tool Codemm needs (sh, timeout, head, wc, cat or basename).");
