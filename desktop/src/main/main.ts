@@ -1,17 +1,18 @@
 import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import type { CodemmApi } from '../shared/api';
 import { createMock } from './mock';
 
 const page = join(__dirname, '../renderer/index.html');
-const pageUrl = pathToFileURL(page).href;
 
 // Swap the mock for the Codemm core here. Nothing else changes.
 const codemm: CodemmApi = createMock();
 
+// Windows only ever show the app's own page (navigation and new windows are
+// blocked), so accept calls from a main frame on a file URL and nothing else.
 function handle(event: IpcMainInvokeEvent, method: unknown, args: unknown) {
-  if (event.senderFrame?.url !== pageUrl) throw new Error('Unknown sender');
+  const frame = event.senderFrame;
+  if (!frame || frame !== event.sender.mainFrame || !frame.url.startsWith('file:')) throw new Error('Unknown sender');
   if (typeof method !== 'string' || !Object.hasOwn(codemm, method) || !Array.isArray(args)) throw new Error('Unknown call');
   const call = codemm[method as keyof CodemmApi] as (...a: unknown[]) => Promise<unknown>;
   return call(...args);

@@ -63,6 +63,7 @@ export function CourseEditor({ draft }: { draft: Draft }) {
   }
 
   async function approve() {
+    setConfirm(false);
     try {
       const course = await api.approve(current());
       go({ to: 'topic', topicId: course.topics[0].id });
@@ -98,7 +99,7 @@ export function CourseEditor({ draft }: { draft: Draft }) {
         </button>
         <form className="composer a-up" style={{ ...stagger(1, 100), marginTop: 10 }} onSubmit={ask}>
           <Field aria-label="Ask Codemm for changes" placeholder="Ask Codemm for changes" value={request} disabled={asking} onChange={(e) => setRequest(e.target.value)} />
-          <Button size="lg" disabled={topics.length === 0} onClick={() => (draft.installed ? approve() : setConfirm(true))}>Approve</Button>
+          <Button size="lg" disabled={topics.length === 0 || editing !== undefined || asking} onClick={() => (draft.installed ? approve() : setConfirm(true))}>Approve</Button>
         </form>
       </div>
       {confirm && (

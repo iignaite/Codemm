@@ -138,6 +138,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
   function pass(entry: { activity: Activity }): string {
     const topic = topicOf(entry.activity.topicId);
+    if (topic.state === 'mastered') return `${topic.title} mastered.`;
     topic.activity.state = 'passed';
     topic.state = 'mastered';
     topic.mastery = 1;
@@ -250,6 +251,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async activity(id) {
       return structuredClone(find(activities, id).activity);
+    },
+
+    async save(activityId, files) {
+      find(activities, activityId).activity.files = structuredClone(files);
     },
 
     async run(activityId, files) {

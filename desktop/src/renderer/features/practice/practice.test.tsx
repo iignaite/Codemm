@@ -57,6 +57,28 @@ describe('practice', () => {
     expect(await screen.findByRole('heading', { name: 'React basics' })).toBeInTheDocument();
   });
 
+  it('keeps unchecked code when the learner leaves and comes back', async () => {
+    const { user } = await open();
+    const code = screen.getByRole('textbox', { name: 'Counter.jsx' });
+    await user.clear(code);
+    await user.type(code, 'draft');
+    await user.click(screen.getByRole('button', { name: 'Learn' }));
+    await screen.findByRole('heading', { name: 'React basics' });
+    await user.click(screen.getByRole('button', { name: 'Practice' }));
+    expect(await screen.findByRole('textbox', { name: 'Counter.jsx' })).toHaveValue('draft');
+  });
+
+  it('keeps unchecked code when the learner turns on assist', async () => {
+    const { user } = await open();
+    const code = screen.getByRole('textbox', { name: 'Counter.jsx' });
+    await user.clear(code);
+    await user.type(code, 'draft');
+    await user.click(screen.getByRole('switch', { name: 'Assist' }));
+    await user.click(screen.getByRole('button', { name: 'Let Codemm edit' }));
+    await within(results()).findByRole('heading', { name: '4 of 4 passed' });
+    expect(screen.getByRole('textbox', { name: 'Counter.jsx' })).toHaveValue('draft');
+  });
+
   it('keeps practice mode: Codemm points at the line instead of writing the code', async () => {
     const { user, container } = await open();
     await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'Just fix it for me.{Enter}');

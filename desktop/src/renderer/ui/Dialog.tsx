@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
-/** A modal dialog: focus moves in, Tab stays in, Escape closes, focus goes back. */
+/** A modal dialog: the rest of the window goes inert, focus moves in and stays in, Escape closes, focus goes back. */
 type Props = { title: string; text?: string; art?: ReactNode; onClose: () => void; children: ReactNode };
 
 export function Dialog({ title, text, art, onClose, children }: Props) {
@@ -11,8 +12,13 @@ export function Dialog({ title, text, art, onClose, children }: Props) {
 
   useEffect(() => {
     const back = document.activeElement as HTMLElement | null;
+    const others = [...document.body.children].filter((el) => !el.contains(ref.current));
+    others.forEach((el) => el.setAttribute('inert', ''));
     ref.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
-    return () => back?.focus();
+    return () => {
+      others.forEach((el) => el.removeAttribute('inert'));
+      back?.focus();
+    };
   }, []);
 
   function onKeyDown(e: KeyboardEvent) {
@@ -34,7 +40,7 @@ export function Dialog({ title, text, art, onClose, children }: Props) {
     }
   }
 
-  return (
+  return createPortal(
     <div className="scrim">
       <div ref={ref} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown}>
         {art}
@@ -42,6 +48,7 @@ export function Dialog({ title, text, art, onClose, children }: Props) {
         {text && <p className="sub">{text}</p>}
         <div className="actions">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import type { Activity, Course } from '../../../shared/api';
+import { useEffect, useRef, useState } from 'react';
+import type { Activity, CodeFile, Course } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useConversation } from '../../app/useConversation';
 import { useRouter } from '../../app/router';
@@ -21,6 +21,29 @@ export function Practice({ activityId }: { activityId: string }) {
   return <><Sidebar slim /><Workspace {...data} /></>;
 }
 
+const SAVE_MS = 400;
+
+/** Saves unchecked edits shortly after typing stops, and when the learner leaves. */
+function useDraft(activityId: string, files: CodeFile[], loaded: CodeFile[]) {
+  const api = useApi();
+  const latest = useRef({ files, saved: true });
+  useEffect(() => {
+    if (files === loaded) return;
+    latest.current = { files, saved: false };
+    const timer = setTimeout(() => {
+      latest.current.saved = true;
+      void api.save(activityId, files).catch(console.error);
+    }, SAVE_MS);
+    return () => clearTimeout(timer);
+  }, [api, activityId, files, loaded]);
+  useEffect(
+    () => () => {
+      if (!latest.current.saved) void api.save(activityId, latest.current.files).catch(console.error);
+    },
+    [api, activityId],
+  );
+}
+
 /** Statement, editor and results, with Codemm beside them. Only Check is graded. */
 function Workspace({ activity: initial, course }: { activity: Activity; course: Course }) {
   const api = useApi();
@@ -34,6 +57,7 @@ function Workspace({ activity: initial, course }: { activity: Activity; course: 
   const topic = course.topics.find((t) => t.id === activity.topicId);
   const line = [...chat.messages].reverse().find((m) => m.line !== undefined)?.line;
   const busy = shown.kind === 'busy';
+  useDraft(activity.id, files, initial.files);
 
   async function attempt(label: string, work: () => Promise<Shown>) {
     const before = shown;
@@ -75,6 +99,7 @@ function Workspace({ activity: initial, course }: { activity: Activity; course: 
   async function letCodemmEdit() {
     setConfirm(false);
     try {
+      await api.save(activity.id, files);
       const edited = await api.assist(activity.id, true);
       setActivity(edited);
       setFiles(edited.files);

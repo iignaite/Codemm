@@ -42,6 +42,7 @@ e2e/smoke.spec.ts      Playwright launches the built app and walks the main jour
 - Research, which advances one source per call.
 - Lesson writing and track setup, which advance each time the UI reads the course.
 - Grading: an unchanged starter fails 2 of 4, and any edit passes.
+- Saving drafts: practice code is autosaved shortly after typing stops, and when the learner leaves.
 - Hints and replies, which are canned.
 - Assist, which turns the flag on but edits nothing.
 - The easier activity and track rebuilds.
@@ -59,6 +60,17 @@ The renderer doesn't change. Expect to adjust `api.ts` once `docs/desktop/DESIGN
 - `help(kind)`.
 
 Background work is polled: screens re-read the course or the research every 500 ms until it settles. If the core can push changes, swap `useLoad`'s timer for an event.
+
+## Review
+
+Astra reviewed the first commit and found seven real issues; all are fixed and covered by tests:
+1. Unchecked code was lost on navigation or assist. Drafts now autosave.
+2. A repeat pass re-advanced the mock's topics.
+3. Approve worked mid-rename. It is now disabled while editing.
+4. Concurrent agent connects raced. They now run one at a time.
+5. The error toast could escape the modal. The dialog now portals and makes the rest of the window inert.
+6. The green focus ring failed 3:1 contrast on light surfaces. It is now navy there and green on navy.
+7. Spinners, shimmers and sparkles looped beyond two repeats.
 
 ## Decisions
 

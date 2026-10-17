@@ -183,6 +183,8 @@ export interface CodemmApi {
   saveNote(lessonId: string, note: string): Promise<void>;
 
   activity(id: string): Promise<Activity>;
+  /** Saves the learner's files without grading them. */
+  save(activityId: string, files: CodeFile[]): Promise<void>;
   run(activityId: string, files: CodeFile[]): Promise<RunResult>;
   check(activityId: string, files: CodeFile[]): Promise<CheckResult>;
   /** `hint` nudges; `show` points at the line to look at. */

@@ -41,6 +41,7 @@ describe('Dialog', () => {
     await user.click(opener);
     const dialog = screen.getByRole('dialog', { name: 'Let Codemm edit this activity?' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(opener.closest('[inert]')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Keep trying' })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole('button', { name: 'Let Codemm edit' })).toHaveFocus();
@@ -50,6 +51,7 @@ describe('Dialog', () => {
     expect(screen.getByRole('button', { name: 'Let Codemm edit' })).toHaveFocus();
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(document.querySelector('[inert]')).toBeNull();
     expect(opener).toHaveFocus();
   });
 });

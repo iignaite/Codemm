@@ -23,7 +23,7 @@ export function Connect() {
     setBusy(id);
     try {
       const agent = await api.connect(id);
-      setAgents(list!.map((a) => (a.id === id ? agent : a)));
+      setAgents((current) => (current ?? data)?.map((a) => (a.id === id ? agent : a)));
     } catch (e) {
       fail(e);
     } finally {
@@ -45,7 +45,7 @@ export function Connect() {
               {a.state === 'connected' ? (
                 <span className="state"><Status kind="ok" size={24} />Connected</span>
               ) : (
-                <Button variant="ghost" disabled={busy === a.id} onClick={() => connect(a.id)}>
+                <Button variant="ghost" disabled={busy !== undefined} onClick={() => connect(a.id)}>
                   {a.state === 'failed' ? 'Try again' : 'Connect'}
                 </Button>
               )}

@@ -38,6 +38,15 @@ describe('course editor', () => {
     expect(names()).toEqual(['JavaScript basics', 'State', 'Props and children', 'Hooks']);
   });
 
+  it('cannot approve while a topic is being renamed', async () => {
+    const user = userEvent.setup();
+    renderApp({ to: 'course', draft });
+    await user.click(await screen.findByRole('button', { name: 'Rename Props' }));
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+  });
+
   it('asks Codemm for changes', async () => {
     const user = userEvent.setup();
     renderApp({ to: 'course', draft });

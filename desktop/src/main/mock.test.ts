@@ -87,8 +87,10 @@ describe('mock Codemm', () => {
     const result = await api.check(id, changed);
     expect(result).toMatchObject({ kind: 'graded', passed: 4, total: 4, progress: expect.any(String) });
     expect((await api.activity(id)).files).toEqual(changed);
+    await api.check(id, changed);
     const after = (await api.course())!;
     expect(after.topics[0].state).toBe('mastered');
+    expect(after.topics.map((t) => t.state).filter((s) => s === 'now')).toHaveLength(1);
     expect(after.topics[1].state).toBe('now');
   });
 
@@ -118,5 +120,17 @@ describe('mock Codemm', () => {
     const course = await settled(api);
     const replies = await api.ask({ activityId: course.topics[0].activity.id }, 'Just fix it for me.');
     expect(replies[0]).toMatchObject({ from: 'codemm', locked: true });
+  });
+});
+
+describe('mock drafts', () => {
+  it('saves files without grading them', async () => {
+    const api = createMock();
+    await api.approve({ title: 'React basics', track: 'React', installed: true, topics: ['State'] });
+    const { id, files } = await api.activity('t1.a');
+    const draft = files.map((f) => ({ ...f, text: 'draft' }));
+    await api.save(id, draft);
+    expect((await api.activity(id)).files).toEqual(draft);
+    expect((await api.course())!.topics[0].state).toBe('now');
   });
 });

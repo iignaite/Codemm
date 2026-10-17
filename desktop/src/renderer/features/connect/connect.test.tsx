@@ -25,6 +25,22 @@ describe('connect journey', () => {
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
   });
 
+  it('connects one agent at a time', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    let finish = () => {};
+    const connect = api.connect;
+    api.connect = (id) => new Promise((done) => (finish = () => done(connect(id))));
+    renderApp({ to: 'connect' }, api);
+    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+    await user.click(within(claude).getByRole('button', { name: 'Connect' }));
+    const codex = screen.getByRole('listitem', { name: 'Codex' });
+    expect(within(codex).getByRole('button', { name: 'Connect' })).toBeDisabled();
+    finish();
+    expect(await within(claude).findByText('Connected')).toBeInTheDocument();
+    expect(within(codex).getByRole('button', { name: 'Connect' })).toBeEnabled();
+  });
+
   it('shows how to fix a failed sign-in', async () => {
     const user = userEvent.setup();
     renderApp({ to: 'connect' }, createMock({ failAgent: 'codex' }));
