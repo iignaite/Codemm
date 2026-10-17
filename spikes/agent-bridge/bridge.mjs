@@ -23,11 +23,10 @@ function groupAlive(pid) {
   }
 }
 
-/** Stops the agent's whole process group: SIGTERM, then SIGKILL after `killAfterMs`; resolves once it is gone. */
+/** Stops a process group: SIGTERM, then SIGKILL after `killAfterMs`. Resolves true once it is gone, false if it survived. */
 async function stopGroup(child, killAfterMs) {
   if (process.platform === "win32") {
-    await new Promise((r) => spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" }).on("close", r).on("error", r));
-    return;
+    return new Promise((r) => spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" }).on("close", (code) => r(code === 0)).on("error", () => r(false)));
   }
   const signal = (sig) => {
     try {
@@ -44,10 +43,11 @@ async function stopGroup(child, killAfterMs) {
     }
     await sleep(50);
   }
+  return !groupAlive(child.pid);
 }
 
 /**
- * Resolves with { code, cancelled } once the agent and everything it started have exited.
+ * Resolves with { code, cancelled } once the agent has exited; a cancelled run also reports whether its whole group stopped.
  * `parse` turns one stdout line into events; a line that throws or is longer than `maxLine` is skipped.
  */
 export function run({ command, args }, parse, { onEvent, signal, cwd, maxLine = 1 << 20, killAfterMs = 3000 } = {}) {
@@ -72,7 +72,7 @@ export function run({ command, args }, parse, { onEvent, signal, cwd, maxLine = 
       buffer += chunk;
       let end;
       while ((end = buffer.indexOf("\n")) >= 0) {
-        if (!skipping) emit(buffer.slice(0, end));
+        if (!skipping && end <= maxLine) emit(buffer.slice(0, end));
         skipping = false;
         buffer = buffer.slice(end + 1);
       }
@@ -86,11 +86,10 @@ export function run({ command, args }, parse, { onEvent, signal, cwd, maxLine = 
     child.on("close", async (code) => {
       signal?.removeEventListener("abort", cancel);
       if (stopping) {
-        await stopping;
-        resolve({ code, cancelled: true });
+        resolve({ code, cancelled: true, stopped: await stopping });
         return;
       }
-      if (buffer && !skipping) emit(buffer);
+      if (buffer && !skipping && buffer.length <= maxLine) emit(buffer);
       resolve({ code, cancelled: false });
     });
   });
@@ -99,14 +98,26 @@ export function run({ command, args }, parse, { onEvent, signal, cwd, maxLine = 
 /** Runs the agent's own status command. Only the yes/no leaves this function; the output is dropped. */
 export function signedIn({ command, args, read }, { timeoutMs = 10_000, maxOutput = 65_536 } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { env: agentEnv(), stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs, killSignal: "SIGKILL" });
+    const child = spawn(command, args, { env: agentEnv(), stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32" });
     let output = "";
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    // The deadline settles the answer even if a grandchild keeps the pipes open; the group is stopped in the background.
+    const timer = setTimeout(() => {
+      finish(false);
+      if (child.pid) stopGroup(child, 0);
+    }, timeoutMs);
     const collect = (d) => {
-      if (output.length < maxOutput) output += d;
+      output = (output + d).slice(0, maxOutput);
     };
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
-    child.on("error", () => resolve(false));
-    child.on("close", (code, sig) => resolve(sig === null && read({ code, output })));
+    child.on("error", () => finish(false));
+    child.on("close", (code) => finish(read({ code, output })));
   });
 }

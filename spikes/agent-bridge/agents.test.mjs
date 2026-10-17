@@ -81,7 +81,7 @@ test("claude: resume adds the session id", () => {
 test("codex: launch runs exec --json read-only, shell off, with only the job's codemm tools", () => {
   const { command, args } = agents.codex.launch({ prompt: "hi", server, tools: ["list_tracks"], model: "gpt-6-luna" });
   assert.equal(command, "codex");
-  assert.deepEqual(args.slice(0, 3), ["exec", "--json", "--skip-git-repo-check"]);
+  assert.deepEqual(args.slice(0, 4), ["exec", "--json", "--skip-git-repo-check", "--ignore-user-config"]);
   const overrides = args.flatMap((a, i) => (args[i - 1] === "-c" ? [a] : []));
   assert.deepEqual(overrides, [
     'sandbox_mode="read-only"',
@@ -92,7 +92,7 @@ test("codex: launch runs exec --json read-only, shell off, with only the job's c
     'mcp_servers.codemm.default_tools_approval_mode="approve"',
   ]);
   const disabled = args.flatMap((a, i) => (args[i - 1] === "--disable" ? [a] : []));
-  assert.deepEqual(disabled, ["shell_tool", "unified_exec", "browser_use", "computer_use", "apps"]);
+  assert.deepEqual(disabled, ["shell_tool", "unified_exec", "browser_use", "computer_use", "apps", "multi_agent"]);
   assert.equal(args[args.indexOf("-m") + 1], "gpt-6-luna");
   assert.equal(args.at(-1), "hi");
 });

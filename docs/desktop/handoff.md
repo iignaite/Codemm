@@ -19,11 +19,11 @@
   - an isolation run with a canary file outside the workspace.
   Logs are in `spikes/agent-bridge/evidence/`.
 - Sign-in detection was run for all three agents. Cursor is not signed in on this machine.
-- Astra's review (2 blockers, 11 more findings) is resolved and logged in DESIGN §14. A re-check follows.
+- Astra's review (2 blockers, 11 more findings) and its re-check are resolved and logged in DESIGN §14, except Codex confinement, which needs owner decision O8.
 
 ### What's next
 
-1. The owner decides O1 to O7 (DESIGN §13).
+1. The owner decides O8 (Codex confinement) before the spec is approved, then O1 and O3 to O7 (DESIGN §13). O2 is decided.
 2. Core work, test-first, in this order:
    1. honest skip and the `lesson` field on `next_step`, in `learner`;
    2. proposals and `installProposal` with progress;
@@ -31,5 +31,5 @@
    4. lessons;
    5. learner file read and write.
    Each moves its rules into `docs/DESIGN.md`.
-3. The desktop shell ports `spikes/agent-bridge` into `desktop/src/main/agent/`, adding job bounds and the views boundary.
+3. The desktop shell ports `spikes/agent-bridge` into `desktop/src/main/agent/`, with the final launch flags (Claude `--tools ""`; Codex `--ignore-user-config`, the shell, subagents and automation off, and `enabled_tools`), job bounds, done checks, the reply filter and the views boundary. Then it deletes the spike.
 4. Verify Cursor once it's signed in (D16), and Codex's web search setting for the research job.

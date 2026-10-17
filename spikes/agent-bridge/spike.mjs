@@ -42,7 +42,7 @@ async function runOnce(name, prompt, { model, resume, root = mkdtempSync(join(tm
       if (event.type === cancelOn) controller.abort();
     },
   });
-  console.log(JSON.stringify({ ms: Date.now() - started, exit: out.code, cancelled: out.cancelled }));
+  console.log(JSON.stringify({ ms: Date.now() - started, ...out }));
   if (out.cancelled) {
     // run() resolves only after the group is gone. pgrep exits 0 with matches, 1 with none, and higher on failure; a failure is never reported as zero.
     const p = spawnSync("pgrep", ["-f", ws], { encoding: "utf8" });

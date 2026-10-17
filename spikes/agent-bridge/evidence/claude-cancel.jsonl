@@ -1,4 +1,4 @@
-{"ms":6079,"type":"session","id":"be8b612a-4a80-4be0-a54a-8f15b64be5af"}
-{"ms":8039,"type":"tool_call","id":"toolu_015koc7DbZ7388iz1UkGQxyX","name":"codemm.list_tracks"}
-{"ms":10639,"exit":143,"cancelled":true}
+{"ms":7192,"type":"session","id":"1c5600bb-6823-403d-a01e-30b1e060a1b8"}
+{"ms":8786,"type":"tool_call","id":"toolu_01EiYv4LRfW2XUX5f9Vjh6xp","name":"codemm.list_tracks"}
+{"ms":11231,"code":143,"cancelled":true,"stopped":true}
 {"leftoverProcesses":0}

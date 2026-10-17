@@ -61,9 +61,10 @@ const claude = {
 
 const codex = {
   launch({ prompt, server, tools = [], model, resume }) {
-    const args = ["exec", "--json", "--skip-git-repo-check"];
-    // Turn off command execution and host automation. Codex still keeps some host tools (DESIGN §3.1).
-    for (const feature of ["shell_tool", "unified_exec", "browser_use", "computer_use", "apps"]) args.push("--disable", feature);
+    // --ignore-user-config drops the learner's own MCP servers and plugins; sign-in still comes from CODEX_HOME.
+    const args = ["exec", "--json", "--skip-git-repo-check", "--ignore-user-config"];
+    // Turn off command execution, host automation and subagents. Code mode stays: Codex calls MCP tools through it (DESIGN §3.1).
+    for (const feature of ["shell_tool", "unified_exec", "browser_use", "computer_use", "apps", "multi_agent"]) args.push("--disable", feature);
     for (const c of [
       'sandbox_mode="read-only"',
       `mcp_servers.codemm.command=${toml(server.command)}`,

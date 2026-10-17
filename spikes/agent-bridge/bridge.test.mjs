@@ -55,7 +55,7 @@ test("cancel resolves only after the whole group is gone, even a child that igno
       killAfterMs: 300,
     },
   );
-  assert.equal((await out).cancelled, true);
+  assert.deepEqual(await out, { code: null, cancelled: true, stopped: true });
   assert.equal(alive(child), false);
 });
 
@@ -71,7 +71,11 @@ test("a parser that throws or an overlong line never crashes the run", async () 
     if (line === "bad") throw new Error("boom");
     return parse(line);
   };
-  const out = await run(node(`console.log('bad'); console.log('x'.repeat(5000)); console.log('{"ok":1}')`), throwing, { onEvent: (e) => events.push(e), maxLine: 1000 });
+  const long = JSON.stringify({ pad: "x".repeat(5000) });
+  const out = await run(node(`console.log('bad'); console.log('${long}'); process.stdout.write('${long}'.slice(0, 3000)); setTimeout(() => console.log('${long}'.slice(3000) + '\\n{"ok":1}'), 50)`), throwing, {
+    onEvent: (e) => events.push(e),
+    maxLine: 1000,
+  });
   assert.deepEqual(events, [{ ok: 1 }]);
   assert.equal(out.code, 0);
 });
@@ -81,5 +85,10 @@ test("signedIn runs the status command and keeps only the yes or no", async () =
   assert.equal(await signedIn(yes), true);
   assert.equal(await signedIn({ ...yes, args: ["-e", "process.exit(3)"] }), false);
   assert.equal(await signedIn({ ...yes, command: "/no/such/agent" }), false);
-  assert.equal(await signedIn({ ...yes, args: ["-e", "setInterval(() => {}, 1000)"] }, { timeoutMs: 300 }), false);
+  const started = Date.now();
+  const holdsPipe = "require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit' }); setInterval(() => {}, 1000)";
+  assert.equal(await signedIn({ ...yes, args: ["-e", holdsPipe] }, { timeoutMs: 300 }), false);
+  assert.ok(Date.now() - started < 1000, "the deadline holds even when a child keeps the pipe open");
+  const chatty = { ...yes, args: ["-e", "console.log('x'.repeat(100000) + ' logged in')"] };
+  assert.equal(await signedIn(chatty, { maxOutput: 1000 }), false, "output past the cap is not read");
 });
