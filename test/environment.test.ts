@@ -70,28 +70,44 @@ describe.runIf(posix)("installing a track", () => {
 });
 
 describe.runIf(posix)("a check that loses Docker mid-run", () => {
+  it("grades and records a program whose memory kill takes down the driver, instead of blaming the runtime", async () => {
+    const ws = await installedExercise();
+    fakeDocker("oom");
+    const r = await app.checkExercise(ws);
+    expect(r).toMatchObject({ passed: 0, total: 4, recorded: true });
+    expect(r.tests.every((t) => t.status === "error")).toBe(true);
+    expect(r.tests[0]!.message).toMatch(/memory limit/i);
+    expect(store.readEvents("shell")).toEqual([expect.objectContaining({ kind: "check", passed: 0, total: 4 })]);
+  });
+
   it.each([
     ["stops", /stopped during the run, so it wasn't counted.*Start Docker/s],
     ["drops", /failed during the run, so it wasn't counted/],
+    ["killed", /failed during the run, so it wasn't counted/],
   ] as const)("records nothing and says it wasn't counted when Docker %s", async (scenario, message) => {
-    const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
-    const spec = parseTrackYaml(track()["track.yaml"]!);
-    store.commitFolder(store.trackDir("shell-io@1"), track(), {
-      "track.json": { format_version: 1, ...spec, image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
-    });
-    await app.saveRoadmap(ws, "shell", readFileSync(join(fixtures, "roadmaps", "shell-io.yaml"), "utf8"));
-    const exercise = readFileMap(join(fixtures, "exercises", "io-max"));
-    store.commitFolder(store.exerciseDir("shell", "max-of-line"), exercise, {
-      "exercise.json": {
-        format_version: 1, slug: "max-of-line", style: "io", concepts: ["sh.loops"], difficulty: 1, track: "shell-io@1",
-        createdAt: new Date().toISOString(), expected: { "visible/01": "3\n", "hidden/01": "5\n", "hidden/02": "-1\n", "hidden/03": "7\n" },
-      },
-    });
-    const { path } = await app.getExercise(ws, "max-of-line");
-    writeFileSync(join(path, "main.sh"), "echo 3\n");
-
+    const ws = await installedExercise();
     fakeDocker(scenario);
     await expect(app.checkExercise(ws)).rejects.toThrow(message);
     expect(store.readEvents("shell")).toEqual([]);
   });
 });
+
+/** A workspace whose exercise is installed (with a fake image) and edited, ready to check. */
+async function installedExercise(): Promise<string> {
+  const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+  const spec = parseTrackYaml(track()["track.yaml"]!);
+  store.commitFolder(store.trackDir("shell-io@1"), track(), {
+    "track.json": { format_version: 1, ...spec, image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
+  });
+  await app.saveRoadmap(ws, "shell", readFileSync(join(fixtures, "roadmaps", "shell-io.yaml"), "utf8"));
+  const exercise = readFileMap(join(fixtures, "exercises", "io-max"));
+  store.commitFolder(store.exerciseDir("shell", "max-of-line"), exercise, {
+    "exercise.json": {
+      format_version: 1, slug: "max-of-line", style: "io", concepts: ["sh.loops"], difficulty: 1, track: "shell-io@1",
+      createdAt: new Date().toISOString(), expected: { "visible/01": "3\n", "hidden/01": "5\n", "hidden/02": "-1\n", "hidden/03": "7\n" },
+    },
+  });
+  const { path } = await app.getExercise(ws, "max-of-line");
+  writeFileSync(join(path, "main.sh"), "echo 3\n");
+  return ws;
+}

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { vi } from "vitest";
 
-export type Scenario = "missing" | "down" | "offline" | "disk-full" | "stops" | "drops";
+export type Scenario = "missing" | "down" | "offline" | "disk-full" | "stops" | "drops" | "oom" | "killed";
 
 /** Node can't run a shell script without a shell on Windows, so only "missing" works there. */
 export const posix = process.platform !== "win32";

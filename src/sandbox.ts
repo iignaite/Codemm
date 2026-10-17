@@ -19,7 +19,8 @@ export type SandboxRun = {
   memoryMb: number;
   deadlineMs: number;
 };
-export type SandboxResult = { exit: number; stdout: Buffer; stderr: string; flooded: boolean; timedOut: boolean; cleanupFailed: boolean };
+/** `oomKilled`: the runtime recorded that the container hit its memory limit (exit 137 from inside, not a kill from outside). */
+export type SandboxResult = { exit: number; stdout: Buffer; stderr: string; flooded: boolean; timedOut: boolean; cleanupFailed: boolean; oomKilled: boolean };
 
 const cleanupMs = () => Number(process.env.CODEMM_CLEANUP_MS ?? 30_000);
 
@@ -97,6 +98,7 @@ function hostUser(): string {
 export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
   const cli = containerCli();
   const name = `codemm-${randomBytes(6).toString("hex")}`;
+  const started = Date.now();
   return new Promise((resolve) => {
     const child = spawn(cli, sandboxArgs(run, name), { stdio: ["ignore", "pipe", "pipe"] });
     const chunks: Buffer[] = [];
@@ -133,21 +135,44 @@ export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
     child.on("close", async (code) => {
       clearTimeout(timer);
       const removed = cleanup ? await cleanup : true;
-      resolve({ exit: code ?? -1, stdout: Buffer.concat(chunks), stderr, flooded, timedOut, cleanupFailed: !removed });
+      const oomKilled = code === 137 && !cleanup && (await hadOomEvent(name, started));
+      resolve({ exit: code ?? -1, stdout: Buffer.concat(chunks), stderr, flooded, timedOut, cleanupFailed: !removed, oomKilled });
     });
     child.on("error", (e) => {
       clearTimeout(timer);
-      resolve({ exit: -1, stdout: Buffer.alloc(0), stderr: e.message, flooded, timedOut, cleanupFailed: false });
+      resolve({ exit: -1, stdout: Buffer.alloc(0), stderr: e.message, flooded, timedOut, cleanupFailed: false, oomKilled: false });
     });
   });
 }
 
+/**
+ * Asks the runtime whether it recorded a memory-limit kill for the container. The runtime keeps recent events
+ * after `--rm` removes the container. The window is in the runtime's own clock, which may differ from the
+ * host's (a VM); the container name is unique, so a few extra seconds can't match another container.
+ */
+async function hadOomEvent(name: string, startedMs: number): Promise<boolean> {
+  const clock = await cli(["info", "--format", "{{.SystemTime}}"], 20_000);
+  const now = Date.parse(clock.output.trim());
+  if (clock.exit !== 0 || Number.isNaN(now)) return false;
+  const at = (ms: number) => (ms / 1000).toFixed(3);
+  const since = now - (Date.now() - startedMs) - 5_000;
+  // The event can be published just after the exit reaches us, so the query waits until 2 s past the runtime's now.
+  const r = await cli(["events", "--since", at(since), "--until", at(now + 2_000), "--filter", `container=${name}`, "--filter", "event=oom", "--format", "{{.Action}}"], 20_000);
+  return r.exit === 0 && /\boom\b/.test(r.output);
+}
+
 /** `rm -f` with a deadline; true when the container is gone (including when `--rm` got there first). */
 async function removeContainer(name: string): Promise<boolean> {
+  const until = Date.now() + cleanupMs();
   const r = await cli(["rm", "-f", name], cleanupMs());
   if (r.exit === 0) return true;
-  const still = await cli(["container", "inspect", name], cleanupMs());
-  return still.exit !== 0 && /no such/i.test(still.output);
+  // `--rm` may already be removing it ("removal ... is already in progress"), so wait until it's gone.
+  for (let left = until - Date.now(); left > 0; left = until - Date.now()) {
+    const still = await cli(["container", "inspect", name], left);
+    if (still.exit !== 0 && /no such (container|object)/i.test(still.output)) return true;
+    await new Promise((r) => setTimeout(r, Math.min(200, Math.max(0, until - Date.now()))));
+  }
+  return false;
 }
 
 /** Runs the container CLI for housekeeping (build, inspect, remove). Not for untrusted code. */
