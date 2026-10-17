@@ -1,0 +1,9 @@
+{"type":"system","subtype":"hook_started"}
+{"type":"system","subtype":"init","session_id":"f242da1d-dc70-4d6f-96da-1f92ecc2d720","model":"claude-haiku-4-5-20251001","apiKeySource":"none","mcp_servers":[{"name":"codemm","status":"connected","source":"dynamic"}]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01MvSVPGD77trQgd9hUqhwG3","name":"ToolSearch","input":{"query":"select:mcp__codemm__list_tracks","max_results":1}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_01MvSVPGD77trQgd9hUqhwG3","content":[{"type":"tool_reference","tool_name":"mcp__codemm__list_tracks"}]}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01NfoeX7ahYrG2GZ1kmsnnnP","name":"mcp__codemm__list_tracks","input":{}}]}}
+{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01NfoeX7ahYrG2GZ1kmsnnnP","type":"tool_result","content":[{"type":"text","text":"[]"}]}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"0"}]}}
+{"type":"rate_limit_event"}
+{"type":"result","subtype":"success","is_error":false,"result":"0","session_id":"f242da1d-dc70-4d6f-96da-1f92ecc2d720","num_turns":3,"total_cost_usd":0.034289}
