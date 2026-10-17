@@ -1,0 +1,326 @@
+# Codemm 1.0 design
+
+Status: approved for implementation after the Astra design review (§13). The longer illustrated design, with research sources and the competitor survey, is the "Codemm Harness" design doc (v0.4, 17 Oct 2026). This file is the authoritative spec for what 1.0 ships.
+
+## 1. What Codemm is
+
+Codemm is an open-source, local-first harness for learning to program, in the style of CodeChum. It is a **wrapper that ships no languages**. The learner's own coding agent (Claude Code, Codex or Cursor, on the learner's own plan) writes everything:
+
+- the environment for a language or framework (a **track**),
+- the **roadmap** (a concept graph),
+- the **exercises**.
+
+Codemm runs the sandbox, checks each piece with deterministic gates, grades the learner's attempts and keeps per-concept mastery. Codemm never calls a model and never handles credentials.
+
+**What the gates guarantee:** each exercise is internally consistent and its hidden tests can tell the reference from plausible wrong answers. They do **not** prove that the statement matches the tests. A wrong reference with matching tests passes. Statement quality is the learner's and reviewer's call; an automated independent-solve check is deferred.
+
+## 2. 1.0 scope
+
+### Release requirements (acceptance criteria)
+
+Each item is verified by an automated test unless marked *journey*. Journeys run with real agents before the merge, and their evidence goes in the release notes.
+
+| # | Requirement |
+|---|---|
+| A1 | Codemm ships no tracks or toolchains. The packed npm artifact contains only `dist/`, `README.md`, `LICENSE` and `package.json`, and no code dispatches on a language or framework name. |
+| A2 | `save_track` / `codemm track add` installs `<id>@<version>` only after the track gates pass. The install is atomic and records the image ID. A conflicting `id@version` with different files is rejected. |
+| A3 | Both test styles work end to end. `io`: stdin/stdout, with expected outputs written by Codemm from the reference. `unit`: the track's runner writes a results report checked against a fixed test inventory. |
+| A4 | `save_roadmap` enforces the roadmap schema and replacement rules (§5). |
+| A5 | `save_exercise` runs the exercise gates (§6). On success it commits the exercise to the store, then writes only learner-side files to the workspace. Solutions, mutants, hidden tests and expected hidden outputs never reach the workspace or any tool output. |
+| A6 | The judge reports `pass`/`fail`/`error` per test for wrong output, crashes, timeouts, build failures, missing tests and malformed reports. Output is capped while running. |
+| A7 | Judge containers run through one function with every flag in §4.3 and are cleaned up on timeout. Adversarial tests prove: no network (with a positive control), no writes to mounted input, process and memory limits hold, output floods are capped, and no owned containers survive a timeout. |
+| A8 | Learner rules (§7) are pure functions of the event log, including repeated-pass, assistance and infrastructure-error rules. |
+| A9 | CLI: `init`, `doctor`, `track add`, `track rebuild`, `tracks`, `test`, `check`, `status`, `skip`, `assist on|off`, `mcp`, `hook claude`, `--version`. |
+| A10 | The MCP server (stdio) exposes `list_tracks`, `save_track`, `save_roadmap`, `next_step`, `save_exercise`, `get_exercise`, `check`, `progress`. A test spawns the **packed** CLI as a real stdio server and calls the tools. |
+| A11 | `codemm init [--host claude|codex|cursor]...` sets up the chosen hosts, all three by default (§9). It is idempotent and preserves unrelated config. |
+| A12 | Practice mode blocks Claude Code's `Edit`, `Write`, `MultiEdit` and `NotebookEdit` under `exercises/` unless assist mode is on. Elsewhere it is advisory, and the docs say so. |
+| A13 | v1 is removed, along with its config and conflicting docs. Build, type check and all tests pass locally and in CI. Version is `1.0.0`. README, migration guide (with tested v1 rollback steps) and release notes are updated. |
+| A14 | *Journey:* starting from an empty Codemm home, an agent installs C, Java (JUnit), Python (pytest) and React (Vitest) tracks through Codemm. At least one exercise per track passes the gates, and a person checks that each statement matches its tests. |
+| A15 | *Journey:* a learner gets an exercise, runs `test`, fails then passes `check`, and mastery, difficulty and `next_step` change as §7 says. |
+| A16 | *Journey:* Claude Code and Codex each complete an author round trip: tutor, then author subagent, then `save_exercise`, then id only. Cursor is attempted; if it can't be run here, it's marked experimental. |
+
+### Supported matrix for 1.0
+
+- **Verified:** macOS with Docker Desktop, and Linux in CI with Docker.
+- **Experimental:** Podman, and Windows through WSL2. The code supports them, but they are not verified here.
+
+### Deferred (not needed for 1.0)
+
+- Human beta (10 learners), the full cross-host model bench and the recommended-model list. These are adoption validation and need people and weeks.
+- Independent-solve gate, spaced review, placement quiz, per-test concept tags.
+- Practice hooks for Codex and Cursor; protection is advisory there.
+- Multi-container tracks, course sharing, any UI, watch mode.
+- Publishing to npm or a GitHub release. These need the owner's explicit go-ahead.
+
+## 3. Files and ids
+
+```
+$CODEMM_HOME (default ~/.codemm)
+  tracks/<id>@<version>/            installed track files + track.json (image id, styles)
+  courses/<course>/
+    course.json                     { format_version, goal, track, style, concepts }
+    exercises/<slug>/               full exercise + exercise.json (inventory, expected io outputs)
+    events.jsonl                    append-only learner events
+    .lock                           held while mutating this course
+
+<workspace>/                        bound explicitly: --workspace for the MCP server, cwd for the CLI
+  codemm.json                       { format_version, course, current, assist, assisted: [slugs] }
+  exercises/<course>/<slug>/        README.md, learner files, tests/ (visible only)
+```
+
+- **Ids.** Track ids, versions, courses, slugs and concept ids match `^[a-z0-9][a-z0-9._-]{0,63}$`, and versions are positive integers. No path is ever built from an unvalidated id.
+- **Format versions.** Only the files Codemm writes (`course.json`, `exercise.json`, `track.json`, `events.jsonl` records, `codemm.json`) carry `format_version: 1`. Loaders reject unknown versions.
+- **File maps.** Author input is a file map: `{ "relative/path": "text" }` over MCP, or a directory for the CLI.
+  - Paths must be relative, `/`-separated, with no `.` or `..` parts.
+  - At most 256 files and 1 MB in total.
+  - Directory input may not contain symlinks or special files.
+  - Roadmap YAML may be at most 64 KB and 200 concepts.
+- **Writing.** Codemm writes only into fresh temp folders that it then renames into place. The exception is workspace materialization: it refuses any path whose existing components include a symlink, and it never overwrites an existing learner file.
+- **Subprocesses** always take argument arrays. Codemm never interpolates into a host shell.
+
+## 4. Tracks and the judge
+
+### 4.1 Track contract
+
+```
+track.yaml
+Dockerfile
+...files the Dockerfile copies (test scripts, report converters)
+probe/<style>/pass/    a correct solution
+probe/<style>/fail/    a wrong solution
+probe/<style>/tests/   io: NN.in + NN.out (hand-written) · unit: test files
+```
+
+```yaml
+id: python
+version: 1
+styles: [io, unit]
+files: [main.py]            # learner-editable files
+build: "..."                # io only, optional: run once before the cases
+run: "..."                  # io: required; reads stdin, writes stdout
+test: "..."                 # unit: required; see 4.2
+limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceilings in 4.3
+```
+
+### 4.2 Running a check
+
+- **One container per check.** Learner or reference files are copied into a fresh host folder mounted read-only at `/work/src` (the working directory). Tests are mounted read-only at `/work/tests/visible` and `/work/tests/hidden`. The only writable location is a size-capped tmpfs at `/tmp`, and `HOME=/tmp`.
+- **No output mount.** The driver writes results to stdout as length-framed records (`@@codemm <kind> <name> <exit> <bytes>` followed by exactly that many bytes). The host parses them sequentially and stops reading past the cap.
+- **The driver** is a POSIX `sh` script, written by Codemm and run as PID 1 with the entrypoint overridden. It first checks for `sh`, `timeout`, `head`, `wc` and `cat`; a missing utility is a track error.
+- **io:**
+  1. Run `build` once.
+  2. Run `run` per input with `timeout`, capturing stdout to `/tmp` and keeping the first 64 KB.
+  3. Run `kill -9 -1` after each case so leftover processes can't affect the next one.
+  4. Expected outputs never enter the container. The host compares output after converting CRLF to LF and removing trailing whitespace per line and at the end.
+- **unit:**
+  1. Run `test` with `TESTS=/work/tests/<set>` and `OUT=/tmp/<set>.json`, once for `visible` and once for `hidden`.
+  2. `test` must exit 0 whenever it wrote a valid report, including when tests fail. A non-zero exit or an invalid report is `error`.
+  3. A report is `{ "tests": [ { "name", "status": "pass"|"fail"|"error", "message"? } ] }`. It must be non-empty, with unique names.
+- **Unit inventory.** When an exercise is verified, Codemm records the reference's test names for each set. At check time, a test missing from the learner's report counts as `error`, and unknown extra names are ignored, so the denominator never shrinks.
+- **Hidden-test output.** For hidden tests, tools and the CLI show only an index and a status.
+
+### 4.3 Host-owned sandbox settings
+
+Every judge container gets:
+
+- `--rm`, a unique `--name` and the label `codemm=1`;
+- `--network none`;
+- `--read-only` and `--tmpfs /tmp:rw,exec,nosuid,nodev,size=256m`;
+- `--memory`, with an equal `--memory-swap`, from `min(limits.memory_mb, 2048)`;
+- `--cpus 2` and `--pids-limit 256`;
+- `--security-opt no-new-privileges` and `--cap-drop ALL`;
+- `--user <uid>:<gid>` on POSIX;
+- `--entrypoint /bin/sh`, `--no-healthcheck`, and `--log-opt max-size=1m`.
+
+Other ceilings:
+
+- **Time:** `time_ms` is capped at 30 s per case or test run. The host kills the whole check at `build + Σ cases + 30 s`, then runs `docker rm -f <name>`.
+- **Output:** the host stops reading stdout past 4 MB.
+- **Volumes:** images that declare `VOLUME` are rejected at install.
+
+`codemm doctor` checks the container CLI and daemon. It also proves `--network none` blocks a host TCP server that a networked container can reach.
+
+### 4.4 Installing a track (a separate trust boundary)
+
+**Building runs code the agent wrote, with network access**, much like running `npm install` from someone else's project.
+
+- **The trust point** is the learner approving the `save_track` call in their agent, or running `codemm track add` themselves. Codemm's tool description says this plainly, and `init` never pre-approves it.
+- **The build context** is a fresh folder holding only the track's files. No secrets, SSH agent or Docker socket are forwarded.
+- **The build** times out after 10 minutes and the process is killed. Build resource limits are not enforced in 1.0 (a known limitation).
+- **The image** is tagged `codemm-track-<id>:<version>`, and its ID is stored in `track.json`. Every check verifies that the ID still matches. If the image is missing or has changed, the check fails with "Run `codemm track rebuild <id>@<version>`". Rebuild re-runs the track gates and records the new ID. Nothing rebuilds silently.
+
+## 5. Roadmaps (courses)
+
+```yaml
+goal: "Components and state in React"
+track: react@1              # an installed track, pinned by version
+style: unit                 # the default style for new exercises; must be offered by the track
+concepts:
+  - { id: react.jsx, title: "JSX", requires: [] }
+  - { id: react.state, title: "State with hooks", requires: [react.jsx] }
+```
+
+- **First save** creates the course. Concept order in the file is the tie-break order.
+- **Re-saving** an existing course may change `goal`, titles and order, add concepts, and change `requires` while staying acyclic.
+- **Re-saving is rejected** if it changes `track` or removes a concept that an exercise or event uses.
+- **Saving makes it active:** it sets the course in `codemm.json` for the bound workspace.
+- Course ids are global within `$CODEMM_HOME`, so the same course can be opened from any workspace.
+
+## 6. Exercises and gates
+
+```
+exercise.yaml                { slug, style?, concepts, difficulty (1..3), hint? }
+README.md
+starter/<files>              must contain every file in track.files
+solution/<files>
+mutants/<name>/<files>       2 to 4 wrong solutions
+tests/visible/...            io: NN.in only · unit: test files
+tests/hidden/...
+```
+
+A failure goes back to the caller with the failing gate and capped output. Hidden inputs and expected outputs never appear in diagnostics returned to tools.
+
+**Track gates:**
+1. The files are valid, and `id@version` is either new or identical to the installed one, in which case the install is a no-op.
+2. The image builds and declares no volumes.
+3. For each style, the pass probe passes everything.
+4. For each style, the fail probe gets at least one `fail` and no `error`.
+5. The pass probe gives identical results twice.
+
+**Roadmap gate:** the schema and §5 rules hold, there are no unknown prerequisites, and there are no cycles (Kahn's algorithm).
+
+**Exercise gates:**
+1. **Valid:**
+   - the schema validates and the slug is new in the course;
+   - the style (defaulting to the course's) is one the track offers;
+   - the concepts exist in the roadmap;
+   - the learner files are present in starter, solution and every mutant;
+   - there are at least 1 visible and 2 hidden tests, and 2 to 4 mutants.
+2. **Reference passes:**
+   - io: no `error` on any input, and identical output on two runs, which becomes the expected output;
+   - unit: everything passes on two runs with identical results, which becomes the inventory.
+3. **Reference is fast:** it still passes with a third of the time limit.
+4. **Starter is unsolved:** the starter does not pass everything.
+5. **Mutants are caught:** each mutant fails or errors on at least one hidden test. A copy of the reference is caught by this gate too.
+6. **Hidden tests matter:** at least one mutant passes every visible test.
+
+**Commit point.** After the gates pass, the exercise folder is renamed into the store under the course lock. Learner files are then materialized into the workspace. `get_exercise`, `test` and `check` re-materialize any missing learner files, so a crash between the two steps is recoverable.
+
+## 7. Learner model
+
+`events.jsonl` is the only learner state. It holds `check` and `skip` events, and everything below is recomputed by replaying them in order.
+
+- **`check` event:** `{ kind: "check", at, exercise, concepts, difficulty, passed, total, assisted }`. It is recorded only when grading completed. Infrastructure failures record nothing: no container runtime, a missing image, or a host-side kill of the whole check.
+- **`skip` event:** `{ kind: "skip", at, concept }`. It raises that concept's mastery to at least 0.85.
+
+For each `check`, in order, for each concept it lists:
+
+1. **First try:** the first `check` of this exercise.
+2. **Repeat pass:** a perfect check on an exercise that already has a perfect check. It changes nothing (no mastery, no difficulty, no streak), so re-checking a solved exercise can't inflate mastery.
+3. **Mastery:** `m += 0.3 × w × (s − m)`, where `s = passed/total`, `w` is 1, or 0.25 if `assisted`, and m starts at 0.5. A concept is mastered at `m ≥ 0.85`.
+4. **Perfect check:** sets `failStreak = 0`. If it was the first try and unassisted, difficulty goes up by 1 (max 3, starting at 1).
+5. **Otherwise:** `failStreak += 1`. If `failStreak ≥ 2` and difficulty > 1, difficulty goes down by 1 and `failStreak` resets to 0.
+6. **Stuck:** a concept is stuck while difficulty is 1 and `failStreak ≥ 2`.
+
+**Assistance.** A check is assisted if assist mode is on, or the exercise is in `codemm.json`'s `assisted` list. Turning assist mode on adds the current exercise to that list, and it stays there.
+
+**Next step**, in order:
+
+1. Candidates are concepts that aren't mastered and whose prerequisites are all mastered, in topological order with ties broken by roadmap order.
+2. Take the lowest mastery; the first in order wins ties.
+3. If that concept is stuck, return `stuck`.
+4. Otherwise, if an exercise exists for that concept at its current difficulty with no perfect check, return `practice`. The earliest-created such exercise wins.
+5. Otherwise return `author` with the concept, difficulty and the course style.
+6. If there are no candidates, return `done`.
+
+**Corrupt log.** A truncated final line, from a crash mid-append, is ignored with a warning. Any other invalid line makes state-changing commands fail with the line number until it's repaired.
+
+## 8. Interfaces
+
+The MCP tools and CLI commands are thin calls into one application module.
+
+| Tool | Input | Output |
+|---|---|---|
+| `list_tracks` | — | installed tracks: id, version, styles |
+| `save_track` | `files` | `{ installed: "id@v" }` or diagnostics |
+| `save_roadmap` | `course`, `roadmap` (YAML text) | ok or errors |
+| `next_step` | — | `practice` / `author` / `stuck` / `done` |
+| `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
+| `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint |
+| `check` | `slug?` | per-test results (hidden tests: index and status only) |
+| `progress` | — | mastery and difficulty per concept, next step |
+
+## 9. Host setup (`codemm init`)
+
+`init` writes only the files for the selected hosts. It merges with existing files, replacing only Codemm's own entries and sections. Every launch command uses absolute paths and passes `--workspace <abs>`.
+
+| File | Contents |
+|---|---|
+| `AGENTS.md` | A marked Codemm section with tutor rules: never write the learner's solution, use the tools, author through the subagent, and report only the exercise id. |
+| `CLAUDE.md` (if present) | Claude Code: add an `@AGENTS.md` import line, because Claude Code reads `CLAUDE.md` instead of `AGENTS.md` when both exist. |
+| `.claude/agents/codemm-author.md` | The author instructions. Cursor reads it, and the `AGENTS.md` section tells Codex to spawn a subagent with them. |
+| `.mcp.json` | Claude Code's MCP config. |
+| `.claude/settings.json` | Claude Code's `PreToolUse` hook on `Edit|Write|MultiEdit|NotebookEdit`, running `codemm hook claude`. |
+| `.codex/config.toml` | Codex's `[mcp_servers.codemm]` block. Codex needs the project to be trusted. |
+| `.cursor/mcp.json` | Cursor's MCP config. |
+
+**The hook:**
+- It reads Claude Code's hook JSON from stdin and resolves `tool_input.file_path` against the workspace.
+- If the path is under `exercises/` and assist mode is off, it exits 2 with a message telling the agent to give hints instead.
+- Malformed input is allowed through (exit 0) with a warning. The hook is a practice aid, not a security boundary.
+
+## 10. Failure handling
+
+- **No container runtime:** commands that need one fail with "Start Docker Desktop (or Podman) and retry." `doctor` says which part failed.
+- **Locks:** `.lock` is created exclusively and is stale after 10 minutes. A second writer gets "Course is busy; retry."
+- **Leftover containers:** found by the `codemm=1` label. `doctor` lists any and removes them with `--fix`.
+
+## 11. Compatibility, migration and rollback
+
+- **v1 data.** 1.0 shares no code or data with v1 and never touches v1's data:
+  - v1 kept its database at `<workspace>/.codemm/codemm.db`, or at the path in its workspace override.
+  - It fell back to Electron's userData folder, where it also kept encrypted API keys.
+- **No migration.** v1 progress is not imported: v1 concepts were free-text tags, and 1.0 concepts are roadmap ids.
+- **Coexistence.** 1.0 writes `codemm.json` and `exercises/` in a workspace and `~/.codemm/{tracks,courses}`. None of these collide with v1's files.
+- **Rollback.** `docs/MIGRATION.md` gives tested steps to run v1 from commit `5e3f3a7` in a separate checkout (`git worktree add`, `npm ci`, `npm run dev`). The repo-level rollback is reverting the 1.0 merge commit.
+- **Future format changes** must migrate forward and keep a backup of the original files.
+
+## 12. Tests
+
+- **Unit (vitest):**
+  - file and id validation; schemas;
+  - output normalization and frame parsing;
+  - learner rules; roadmap rules;
+  - init merging; hook decisions; lock behavior.
+- **Docker integration**, with a POSIX-shell fixture track in both styles:
+  - the judge, every gate, and the adversarial sandbox cases in A7;
+  - atomic install and recovery;
+  - these run in CI on Linux and locally where Docker is available.
+- **Packaging:** `npm pack`, then install the tarball into a temp folder, run `codemm --version`, and spawn `codemm mcp` as a real stdio server and call its tools.
+- **Journeys A14 to A16**, with real agents.
+
+## 13. Review log
+
+**Astra (gpt-6-astra), design review, 17 Oct 2026.** Verdict: "not ready for implementation as written". All findings were accepted and resolved in this document:
+
+| Finding | Resolution |
+|---|---|
+| F01 build security | §4.4 trust boundary, staged context, no secrets, timeout; build resource limits listed as a known limitation |
+| F02 symlinks and paths | §3 no symlinks in input, fresh temp folders, guarded materialization; §4.2 no output mount |
+| F03 resource exhaustion | §4.2 and §4.3 host ceilings, capped streaming output, log cap, input size limits |
+| F04 image behavior | §4.2 entrypoint override, utility check, `kill -9 -1` between cases; §4.3 no healthcheck, volumes rejected, host deadline |
+| F05 unit grading | §4.2 report contract, exit-code rule, fixed inventory |
+| F06 reproducibility | §4.4 pinned image ID and explicit rebuild; §5 courses pin `track@version` |
+| F07 atomicity and concurrency | §6 commit point and re-materialization; §10 locks |
+| F08 roadmap contract | §5 schema and replacement rules |
+| F09 event semantics | §7 `check`/`skip` events and ordered rules; stuck before practice |
+| F10 mastery inflation | §7 repeat passes earn nothing |
+| F11 assistance | §7 sticky per exercise |
+| F12 errors versus outcomes | §7 infrastructure failures record nothing; corrupt-log rules |
+| F13 hook claims | A12 narrowed; §9 |
+| F14 host setup | §9 `CLAUDE.md` import, explicit workspace, per-host init |
+| F15 verification claims | §1 narrowed guarantee; A14 manual statement check |
+| F16 sandbox acceptance | A7 adversarial tests with a positive network control |
+| F17 support claims | A10 packed-artifact stdio test; A16 per-host journeys; §2 supported matrix |
+| F18 v1 migration | §11 all v1 locations, tested rollback; A13 removes conflicting docs and config |
+| Cuts | The vocabulary blacklist, strictly increasing versions and versioning of agent-authored files were dropped; `init --host` was added |
