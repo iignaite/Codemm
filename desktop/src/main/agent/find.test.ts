@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFile
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dockerFolders, find, shimTarget, withDockerFolders, type Where } from './find';
+import { dockerFolders, find, here, shimTarget, withDockerFolders, type Where } from './find';
 
 function tree() {
   const root = mkdtempSync(join(tmpdir(), 'codemm-find-'));
@@ -73,5 +73,16 @@ describe('find (§3.1)', () => {
     const once = withDockerFolders(path, join(dir, 'docker'), []);
     expect(once).toBe([path, dir].join(delimiter));
     expect(withDockerFolders(once, join(dir, 'docker'), [])).toBe(once);
+  });
+
+  it('searches only the given folders when a test sets them: the journey\'s "no Docker" run', () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-only-')));
+    writeFileSync(join(dir, 'docker'), '#!/bin/sh\n');
+    chmodSync(join(dir, 'docker'), 0o755);
+    const w: Where = { platform: 'darwin', path: '', home: '/nowhere', searchDirs: [] };
+    expect(find('docker', w)).toBeNull();
+    expect(find('docker', { ...w, searchDirs: [dir] })).toEqual({ path: join(dir, 'docker'), js: false });
+    expect(here({ CODEMM_TEST_SEARCH_DIRS: [dir, '/also'].join(delimiter) }).searchDirs).toEqual([dir, '/also']);
+    expect(here({}).searchDirs).toBeUndefined();
   });
 });

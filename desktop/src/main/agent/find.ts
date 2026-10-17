@@ -14,14 +14,19 @@ export interface Where {
   /** %APPDATA% and %LOCALAPPDATA% on Windows. */
   appData?: string;
   localAppData?: string;
+  /** Test-only: the folders searched after PATH, in place of the usual ones (CODEMM_TEST_SEARCH_DIRS). */
+  searchDirs?: string[];
 }
 
-export function here(): Where {
-  return { platform: process.platform, path: process.env.PATH ?? '', home: homedir(), appData: process.env.APPDATA, localAppData: process.env.LOCALAPPDATA };
+export function here(env: NodeJS.ProcessEnv = process.env): Where {
+  // CODEMM_TEST_SEARCH_DIRS is set only by the macOS journey, to stage "no Docker" with Docker Desktop installed.
+  const searchDirs = env.CODEMM_TEST_SEARCH_DIRS?.split(delimiter).filter(Boolean);
+  return { platform: process.platform, path: env.PATH ?? '', home: homedir(), appData: env.APPDATA, localAppData: env.LOCALAPPDATA, ...(searchDirs ? { searchDirs } : {}) };
 }
 
 /** The usual install folders, after PATH. */
 function folders(w: Where): string[] {
+  if (w.searchDirs) return w.searchDirs;
   if (w.platform === 'win32') {
     return [
       w.appData && join(w.appData, 'npm'),
