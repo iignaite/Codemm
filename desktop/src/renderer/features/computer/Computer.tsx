@@ -7,7 +7,7 @@ import { timing, useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
-import { CHECK_NAMES, FIXES, NOT_YET } from './fixes';
+import { CHECK_NAMES, DETAILS, FIXES, NOT_YET } from './fixes';
 
 const STATE_TEXT = { ok: 'Ready', problem: 'Needs a step', waiting: 'Waiting' } as const;
 
@@ -51,7 +51,7 @@ export function Computer({ then }: { then: Route }) {
           {data.checks.map((c, i) => <CheckItem key={c.id} check={c} platform={data.platform} index={i} />)}
         </ul>
         <p className="quiet-text" role="status">
-          {data.ready ? 'This computer is ready.' : `${problem ? `${NOT_YET[problem.id]} ` : ''}Checking again every few seconds.`}
+          {data.ready ? 'This computer is ready.' : `${problem ? `${problem.detail ? DETAILS[problem.detail].notYet : NOT_YET[problem.id]} ` : ''}Checking again every few seconds.`}
         </p>
         <div className="actions">
           {data.ready ? (
@@ -70,7 +70,7 @@ export function Computer({ then }: { then: Route }) {
 
 function CheckItem({ check, platform, index }: { check: ComputerCheck; platform: Platform; index: number }) {
   const name = CHECK_NAMES[check.id];
-  const fix = check.state === 'problem' ? FIXES[platform][check.id] : undefined;
+  const fix = check.state !== 'problem' ? undefined : check.detail ? DETAILS[check.detail].fix : FIXES[platform][check.id];
   return (
     <li className={`card check a-up${check.state === 'ok' ? ' on' : ''}`} style={stagger(index + 2)} aria-label={name}>
       <div className="check-head">

@@ -4,14 +4,14 @@ import type { CodemmApi } from '../shared/api';
 
 type Valid = (value: unknown) => boolean;
 
-const MAX_FILES = 256;
 const MAX_FILE_BYTES = 1024 * 1024;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (max: number, min = 0): Valid => (v) => typeof v === 'string' && v.length >= min && v.length <= max;
-const bool: Valid = (v) => typeof v === 'boolean';
 const oneOf = (...options: string[]): Valid => (v) => typeof v === 'string' && options.includes(v);
 const id: Valid = (v) => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(v) && !v.includes('..');
+/** A track `id@version`, as core's ids. */
+const trackRef: Valid = (v) => typeof v === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}@[1-9][0-9]{0,8}$/.test(v);
 const list = (item: Valid, max: number, min = 0): Valid => (v) => Array.isArray(v) && v.length >= min && v.length <= max && v.every(item);
 const shape = (fields: Record<string, Valid>): Valid => (v) =>
   isObject(v) && Object.keys(v).every((k) => Object.hasOwn(fields, k)) && Object.entries(fields).every(([k, valid]) => valid(v[k]));
@@ -26,39 +26,36 @@ const part: Valid = (p) =>
   typeof p === 'string' && p !== '' && p !== '.' && p !== '..' && !/[<>:"|?*\\\u0000-\u001f]/.test(p) && !DEVICE.test(p) && !/[. ]$/.test(p);
 const path: Valid = (v) => typeof v === 'string' && v.length <= 512 && v.split('/').every(part);
 
-const files: Valid = (v) =>
-  list(shape({ path, text: text(MAX_FILE_BYTES) }), MAX_FILES)(v) &&
-  (v as { text: string }[]).reduce((n, f) => n + new TextEncoder().encode(f.text).length, 0) <= MAX_FILE_BYTES;
-
-const topic = text(200, 1);
-const goal = shape({ topic, known: list(text(100, 1), 20) });
-const draft = shape({ title: topic, track: text(100, 1), installed: bool, topics: list(topic, 200, 1) });
+const digest: Valid = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
+const goal = shape({ topic: text(200, 1), known: text(500) });
+const concept = shape({ id, title: text(200, 1), requires: list(id, 200) });
+const concepts = list(concept, 200, 1);
 const place: Valid = (v) => shape({ lessonId: id })(v) || shape({ activityId: id })(v);
 const words = text(2000, 1);
+const fileText: Valid = (v) => typeof v === 'string' && new TextEncoder().encode(v).length <= MAX_FILE_BYTES;
 
 const ARGS: { [K in keyof CodemmApi]: Valid[] } = {
   agents: [],
-  connect: [id],
-  suggestions: [],
+  connect: [oneOf('claude', 'codex', 'cursor')],
   computer: [],
-  research: [goal],
-  revise: [draft, words],
-  approve: [draft],
-  setUp: [],
-  course: [],
-  lesson: [id],
-  read: [id],
-  saveNote: [id, text(20_000)],
-  activity: [id],
-  save: [id, files],
-  run: [id, files],
-  check: [id, files],
-  help: [id, oneOf('hint', 'show')],
-  ask: [place, words],
-  assist: [id, bool],
-  easier: [id],
   tracks: [],
-  rebuild: [id],
+  research: [goal],
+  reviseRoadmap: [concepts, words],
+  approve: [concepts],
+  course: [],
+  install: [digest],
+  retrySetup: [],
+  lesson: [id],
+  saveNotes: [id, text(20_000)],
+  markRead: [id],
+  activity: [id],
+  saveFile: [id, path, fileText, digest],
+  tryIt: [id],
+  check: [id],
+  ask: [place, words],
+  skip: [id],
+  easier: [id],
+  rebuild: [trackRef],
 };
 
 /** Validates a renderer call and passes it to Codemm. Throws on anything unexpected. */

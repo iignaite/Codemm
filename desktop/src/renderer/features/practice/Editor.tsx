@@ -1,17 +1,16 @@
 import { useId, type ReactNode } from 'react';
-import type { CodeFile } from '../../../shared/api';
+import type { LearnerFile } from '../../../shared/api';
 
 interface Props {
-  files: CodeFile[];
+  files: LearnerFile[];
   open: string;
-  line?: number;
   onOpen: (path: string) => void;
   onChange: (text: string) => void;
   tools: ReactNode;
 }
 
-/** A plain code editor: file tabs, line numbers, and the line Codemm is pointing at. */
-export function Editor({ files, open, line, onOpen, onChange, tools }: Props) {
+/** A plain code editor: file tabs and line numbers. */
+export function Editor({ files, open, onOpen, onChange, tools }: Props) {
   const id = useId();
   const file = files.find((f) => f.path === open) ?? files[0];
   const lines = file.text.split('\n');
@@ -38,7 +37,6 @@ export function Editor({ files, open, line, onOpen, onChange, tools }: Props) {
       </div>
       <div className="ebody" role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${file.path}`}>
         <div className="code">
-          {line !== undefined && line <= lines.length && <span className="hl" style={{ top: `calc(${line - 1} * 1.8em + 16px)` }} aria-hidden="true" />}
           <div className="lnum" aria-hidden="true">
             {lines.map((_, i) => <span key={i}>{i + 1}</span>)}
           </div>

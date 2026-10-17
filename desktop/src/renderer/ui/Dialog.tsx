@@ -4,9 +4,9 @@ import { createPortal } from 'react-dom';
 const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
 /** A modal dialog: the rest of the window goes inert, focus moves in and stays in, Escape closes, focus goes back. */
-type Props = { title: string; text?: string; art?: ReactNode; onClose: () => void; children: ReactNode };
+type Props = { title: string; text?: string; art?: ReactNode; body?: ReactNode; onClose: () => void; children: ReactNode };
 
-export function Dialog({ title, text, art, onClose, children }: Props) {
+export function Dialog({ title, text, art, body, onClose, children }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
@@ -46,6 +46,7 @@ export function Dialog({ title, text, art, onClose, children }: Props) {
         {art}
         <h2 className="h2" id={titleId}>{title}</h2>
         {text && <p className="sub">{text}</p>}
+        {body}
         <div className="actions">{children}</div>
       </div>
     </div>,

@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, shell, type IpcMainInvokeEvent } from 'ele
 import { join } from 'node:path';
 import type { CodemmApi } from '../shared/api';
 import { dispatch } from './ipc';
-import { isOfficialLink } from './links';
+import { isSafeLink } from './links';
 import { createMock, scenario } from './mock';
 
 const page = join(__dirname, '../renderer/index.html');
@@ -39,7 +39,7 @@ function createWindow() {
   });
   // Links open in the learner's browser, and only to official install pages.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (isOfficialLink(url)) void shell.openExternal(url);
+    if (isSafeLink(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
   win.webContents.on('will-navigate', (event) => event.preventDefault());

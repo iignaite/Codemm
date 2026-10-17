@@ -11,6 +11,7 @@
     "noFallthroughCasesInSwitch": true,
     "isolatedModules": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "noEmit": true,
     "allowJs": true,
     "types": ["vite/client", "@testing-library/jest-dom/vitest"]

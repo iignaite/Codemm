@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { scenario } from '../../../main/mock';
@@ -6,141 +6,129 @@ import { mockWithCourse, renderApp } from '../../test-utils';
 
 async function open(options?: Parameters<typeof mockWithCourse>[0]) {
   const { api, course } = await mockWithCourse({ read: true, ...options });
-  const view = renderApp({ to: 'practice', activityId: course.topics[0].activity.id }, api);
+  const view = renderApp({ to: 'practice', concept: course.topics[0].id }, api);
   await screen.findByRole('heading', { name: 'Click Counter' });
   return { ...view, course, user: userEvent.setup() };
 }
 
 const results = () => screen.getByRole('region', { name: 'Results' });
+const code = () => screen.getByRole('textbox', { name: 'Counter.jsx' }) as HTMLTextAreaElement;
+
+async function write(user: ReturnType<typeof userEvent.setup>, text: string) {
+  await user.clear(code());
+  await user.type(code(), text);
+}
+
+async function checkUntilStuck(user: ReturnType<typeof userEvent.setup>) {
+  await write(user, 'wrong /* your code */');
+  for (let i = 0; i < 3; i++) {
+    await user.click(screen.getByRole('button', { name: 'Check' }));
+    await within(results()).findByRole('heading', { name: /passed|Try another way/ });
+  }
+}
 
 describe('practice', () => {
-  it('opens the activity with only Check graded', async () => {
+  it('opens the activity with its statement, and only Check is graded', async () => {
     await open();
-    expect((screen.getByRole('textbox', { name: 'Counter.jsx' }) as HTMLTextAreaElement).value).toContain('/* your code */');
+    expect(screen.getByRole('region', { name: 'Click Counter' })).toHaveTextContent('Make the count go up by one on each click.');
+    expect(code().value).toContain('/* your code */');
     expect(results()).toHaveAttribute('aria-live', 'polite');
     expect(results()).toHaveTextContent('Only Check is graded.');
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
   });
 
-  it('switches files with tabs', async () => {
-    const { user } = await open();
-    await user.click(screen.getByRole('tab', { name: 'App.jsx' }));
-    expect(screen.getByRole('tab', { name: 'App.jsx' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('textbox', { name: 'App.jsx' })).toBeInTheDocument();
-  });
-
-  it('runs without grading', async () => {
+  it('tries the visible tests without grading', async () => {
     const { user } = await open();
     await user.click(screen.getByRole('button', { name: 'Try it' }));
-    expect(await within(results()).findByText('Count: 0')).toBeInTheDocument();
+    expect(await within(results()).findByRole('heading', { name: '1 of 2 visible tests passed' })).toBeInTheDocument();
+    expect(results()).toHaveTextContent('Not graded');
+    expect(results()).toHaveTextContent('expected Count: 1');
+    expect(results()).toHaveTextContent('found Count: 0');
   });
 
-  it('shows expected next to found, and hidden tests as statuses only', async () => {
+  it("shows hidden tests as statuses only, and says an unedited starter isn't counted", async () => {
     const { user } = await open();
     await user.click(screen.getByRole('button', { name: 'Check' }));
     expect(await within(results()).findByRole('heading', { name: '2 of 4 passed' })).toBeInTheDocument();
-    expect(results()).toHaveTextContent('Adds one per click');
-    expect(results()).toHaveTextContent('expected Count: 1');
-    expect(results()).toHaveTextContent('found Count: 0');
+    expect(results()).toHaveTextContent("Change the code first. This check wasn't counted.");
     expect(within(results()).getByRole('img', { name: 'Hidden test 1 passed' })).toBeInTheDocument();
     expect(within(results()).getByRole('img', { name: 'Hidden test 2 not yet' })).toBeInTheDocument();
     expect(results()).toHaveTextContent('graded, not shown');
   });
 
-  it('passes once the learner writes the code, then continues to the course', async () => {
+  it("saves the learner's code, then passes and continues to the course", async () => {
     const { user } = await open();
-    const code = screen.getByRole('textbox', { name: 'Counter.jsx' });
-    await user.clear(code);
-    await user.type(code, 'my answer');
+    await write(user, 'count + 1');
     await user.click(screen.getByRole('button', { name: 'Check' }));
     expect(await within(results()).findByRole('heading', { name: '4 of 4 passed' })).toBeInTheDocument();
     expect(results()).toHaveTextContent('JavaScript basics mastered.');
     await user.click(within(results()).getByRole('button', { name: 'Continue' }));
-    expect(await screen.findByRole('heading', { name: 'React basics' })).toBeInTheDocument();
+    expect(await screen.findByRole('list', { name: 'Topics' })).toBeInTheDocument();
   });
 
   it('keeps unchecked code when the learner leaves and comes back', async () => {
     const { user } = await open();
-    const code = screen.getByRole('textbox', { name: 'Counter.jsx' });
-    await user.clear(code);
-    await user.type(code, 'draft');
+    await write(user, 'draft');
     await user.click(screen.getByRole('button', { name: 'Learn' }));
-    await screen.findByRole('heading', { name: 'React basics' });
+    await screen.findByRole('list', { name: 'Topics' });
     await user.click(screen.getByRole('button', { name: 'Practice' }));
     expect(await screen.findByRole('textbox', { name: 'Counter.jsx' })).toHaveValue('draft');
   });
 
-  it('keeps unchecked code when the learner turns on assist', async () => {
-    const { user } = await open();
-    const code = screen.getByRole('textbox', { name: 'Counter.jsx' });
-    await user.clear(code);
-    await user.type(code, 'draft');
-    await user.click(screen.getByRole('switch', { name: 'Assist' }));
-    await user.click(screen.getByRole('button', { name: 'Let Codemm edit' }));
-    expect(await screen.findByRole('switch', { name: 'Assist' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.getByRole('textbox', { name: 'Counter.jsx' })).toHaveValue('draft');
+  it('reloads a file that changed outside Codemm', async () => {
+    const { user, api, course } = await open();
+    const activity = await api.activity(course.topics[0].id);
+    await api.saveFile(activity.id, 'Counter.jsx', 'changed outside', activity.files[0].digest);
+    await user.type(code(), 'x');
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    expect(await within(screen.getByRole('log')).findByText('This file changed outside Codemm, so it was reloaded.')).toBeInTheDocument();
+    expect(code()).toHaveValue('changed outside');
   });
 
-  it('keeps practice mode: Codemm points at the line instead of writing the code', async () => {
-    const { user, container } = await open();
+  it('keeps practice mode: Codemm explains, the learner writes the code', async () => {
+    const { user } = await open();
     await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'Just fix it for me.{Enter}');
-    const log = screen.getByRole('log');
-    expect(await within(log).findByText('In practice mode, you write the code.')).toBeInTheDocument();
-    expect(within(log).getByLabelText('Line 7')).toBeInTheDocument();
-    expect(container.querySelector('.hl')).toHaveStyle({ top: 'calc(6 * 1.8em + 16px)' });
-  });
-
-  it('gives a hint and shows the line', async () => {
-    const { user } = await open();
+    expect(await within(screen.getByRole('log')).findByText(/In practice mode, you write the code\./)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Hint' }));
-    expect(await within(screen.getByRole('log')).findByText('Look at what you pass to setCount.')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Show me' }));
-    expect(await within(screen.getByRole('log')).findByText('This line sets the next value.')).toBeInTheDocument();
+    expect(await within(screen.getByRole('log')).findByText('Give me a hint.')).toBeInTheDocument();
   });
 
-  it('asks before turning on assist, and runs nothing by itself', async () => {
+  it('offers calm ways forward when stuck, including an easier topic', async () => {
     const { user } = await open();
-    const assist = screen.getByRole('switch', { name: 'Assist' });
-    await user.click(assist);
-    expect(screen.getByRole('dialog', { name: 'Let Codemm edit this activity?' })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Keep trying' }));
-    expect(assist).toHaveAttribute('aria-checked', 'false');
-
-    await user.click(assist);
-    await user.click(screen.getByRole('button', { name: 'Let Codemm edit' }));
-    await waitFor(() => expect(assist).toHaveAttribute('aria-checked', 'true'));
-    expect(results()).toHaveTextContent('Only Check is graded.');
-  });
-
-  it('offers calm ways forward when stuck', async () => {
-    const { user } = await open();
-    for (let i = 0; i < 3; i++) {
-      await user.click(screen.getByRole('button', { name: 'Check' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Check' })).toBeEnabled());
-    }
-    expect(await within(results()).findByRole('heading', { name: 'Try another way' })).toBeInTheDocument();
+    await checkUntilStuck(user);
+    expect(within(results()).getByRole('heading', { name: 'Try another way' })).toBeInTheDocument();
     await user.click(within(results()).getByRole('button', { name: 'Keep trying' }));
     expect(within(results()).getByRole('heading', { name: '2 of 4 passed' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Check' }));
     await user.click(await within(results()).findByRole('button', { name: 'Try an easier one' }));
-    expect(await screen.findByRole('heading', { name: 'Click Counter, one step' })).toBeInTheDocument();
+    const map = await screen.findByRole('list', { name: 'Topics' });
+    expect(within(map).getByText('JavaScript basics: first steps')).toBeInTheDocument();
+  });
+
+  it('comes back later without changing mastery', async () => {
+    const { user } = await open();
+    await checkUntilStuck(user);
+    await user.click(within(results()).getByRole('button', { name: 'Come back later' }));
+    const items = within(await screen.findByRole('list', { name: 'Topics' })).getAllByRole('listitem');
+    expect(within(items[0]).getByRole('img', { name: 'Later' })).toBeInTheDocument();
+    expect(within(items.find((i) => i.textContent?.includes('Lists and keys'))!).getByRole('img', { name: 'Now' })).toBeInTheDocument();
   });
 
   it('keeps the work when Docker stops mid-session, and counts nothing', async () => {
     const { user } = await open(scenario('docker-stops'));
     await user.click(screen.getByRole('button', { name: 'Check' }));
     await within(results()).findByRole('heading', { name: '2 of 4 passed' });
-    const code = screen.getByRole('textbox', { name: 'Counter.jsx' });
-    await user.clear(code);
-    await user.type(code, 'mine');
+    await write(user, 'mine');
     await user.click(screen.getByRole('button', { name: 'Check' }));
     expect(await within(results()).findByRole('heading', { name: "This check wasn't counted" })).toBeInTheDocument();
-    expect(code).toHaveValue('mine');
+    expect(code()).toHaveValue('mine');
     expect(within(screen.getByRole('log')).getByText('Your code is saved. Nothing was recorded.')).toBeInTheDocument();
+    expect(within(results()).getByRole('button', { name: 'Check this computer' })).toBeInTheDocument();
   });
 
   it('sends the learner to sign in again when it expires mid-session, then comes back', async () => {
-    const { user, course, api } = await open(scenario('sign-in-expires'));
+    const { user } = await open(scenario('sign-in-expires'));
     await user.click(screen.getByRole('button', { name: 'Hint' }));
     const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
     expect(claude).toHaveTextContent('Sign in to Claude Code, then try again.');
@@ -149,8 +137,6 @@ describe('practice', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await user.click(await screen.findByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
-    expect(course.topics[0].activity.id).toBeTruthy();
-    await expect(api.help(course.topics[0].activity.id, 'hint')).resolves.toBeTruthy();
   });
 
   it('says when the agent plan limit is reached, and records nothing', async () => {
@@ -158,14 +144,5 @@ describe('practice', () => {
     await user.click(screen.getByRole('button', { name: 'Hint' }));
     expect(await screen.findByRole('alert')).toHaveTextContent("Your agent's plan limit is reached. Try again later.");
     expect(screen.getByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
-  });
-
-  it("says when a check wasn't counted, and records nothing", async () => {
-    const { user } = await open({ docker: 'stopped' });
-    await user.click(screen.getByRole('button', { name: 'Check' }));
-    expect(await within(results()).findByRole('heading', { name: "This check wasn't counted" })).toBeInTheDocument();
-    expect(results()).toHaveTextContent("Docker isn't running. Start it, then try again.");
-    expect(within(screen.getByRole('log')).getByText('Your code is saved. Nothing was recorded.')).toBeInTheDocument();
-    expect(within(results()).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });

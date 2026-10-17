@@ -13,7 +13,7 @@ import { Research } from '../features/research/Research';
 import { Tracks } from '../features/tracks/Tracks';
 import { Button } from '../ui/Button';
 import { ApiContext } from './api';
-import { PLAN_LIMIT_TEXT, problemOf } from './errors';
+import { SAY, problemOf } from './errors';
 import { RouterContext, type Route, type Router } from './router';
 import { WithSide } from './Shell';
 
@@ -30,7 +30,7 @@ function Screen({ route }: { route: Route }) {
     case 'research':
       return <WithSide><Research goal={route.goal} /></WithSide>;
     case 'course':
-      return <WithSide><CourseEditor draft={route.draft} /></WithSide>;
+      return <WithSide><CourseEditor roadmap={route.roadmap} /></WithSide>;
     case 'topic':
       return <WithSide><TopicPage topicId={route.topicId} /></WithSide>;
     case 'learn':
@@ -40,13 +40,13 @@ function Screen({ route }: { route: Route }) {
     case 'lesson':
       return <Lesson key={route.lessonId} lessonId={route.lessonId} />;
     case 'practice':
-      return <Practice key={route.activityId} activityId={route.activityId} />;
+      return <Practice key={route.concept} concept={route.concept} />;
   }
 }
 
 export function App({ api, start = { to: 'welcome' } }: { api: CodemmApi; start?: Route }) {
   const [route, setRoute] = useState<Route>(start);
-  const [failed, setFailed] = useState<string>();
+  const [failed, setFailed] = useState<{ text: string; agent: boolean }>();
   const router = useMemo<Router>(
     () => ({
       route,
@@ -56,13 +56,13 @@ export function App({ api, start = { to: 'welcome' } }: { api: CodemmApi; start?
       },
       fail: (error, resume = route) => {
         const problem = problemOf(error);
-        if (problem === 'signed-out') {
+        if (problem === 'connect') {
           setFailed(undefined);
           setRoute({ to: 'connect', then: resume });
           return;
         }
         console.error(error);
-        setFailed(problem === 'plan-limit' ? PLAN_LIMIT_TEXT : "Codemm couldn't finish that. Try again.");
+        setFailed({ text: SAY[problem], agent: problem === 'agent' });
       },
     }),
     [route],
@@ -77,7 +77,8 @@ export function App({ api, start = { to: 'welcome' } }: { api: CodemmApi; start?
           </div>
           {failed && (
             <div className="failed" role="alert">
-              {failed}
+              {failed.text}
+              {failed.agent && <Button variant="text" onClick={() => router.go({ to: 'connect', then: route })}>Check your agent</Button>}
               <Button variant="text" onClick={() => setFailed(undefined)}>Dismiss</Button>
             </div>
           )}

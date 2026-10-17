@@ -10,10 +10,10 @@ interface Props {
   editing: boolean;
   onEdit: () => void;
   onRename: (title: string) => void;
-  onRemove: () => void;
-  onMove: (to: number) => void;
-  onDragStart: () => void;
-  onDrop: () => void;
+  onRemove?: () => void;
+  onMove?: (to: number) => void;
+  onDragStart?: () => void;
+  onDrop?: () => void;
 }
 
 /** One topic in the course editor. Dragging works, and so does the Move menu. */
@@ -65,7 +65,7 @@ export function TopicItem({ index, count, title, editing, onEdit, onRename, onRe
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
-      <button ref={grip} className="ibtn" type="button" aria-label={`Move ${title}`} aria-haspopup="menu" aria-expanded={menu} disabled={count < 2} onClick={() => setMenu(!menu)}>
+      <button ref={grip} className="ibtn" type="button" aria-label={`Move ${title}`} aria-haspopup="menu" aria-expanded={menu} disabled={count < 2 || !onMove} onClick={() => setMenu(!menu)}>
         <Icon name="grip" color="#8492A9" size={17} />
       </button>
       <span className="num" aria-hidden="true">{index + 1}</span>
@@ -88,7 +88,7 @@ export function TopicItem({ index, count, title, editing, onEdit, onRename, onRe
       {menu && (
         <div ref={menuRef} className="card menu a-pop" role="menu" aria-label={`Move ${title}`} onKeyDown={onMenuKey}>
           {moves.map((m) => (
-            <Button key={m.label} variant="text" role="menuitem" onClick={() => { closeMenu(); onMove(m.to); }}>{m.label}</Button>
+            <Button key={m.label} variant="text" role="menuitem" onClick={() => { closeMenu(); onMove?.(m.to); }}>{m.label}</Button>
           ))}
         </div>
       )}

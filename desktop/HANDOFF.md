@@ -2,14 +2,14 @@
 
 ## What this is
 
-An Electron, Vite, TypeScript and React app for the approved 1.0 scope (`~/Documents/Codemm/design/LEDGER.md`), built from the journey prototype (`~/Documents/Codemm/design/codemm-journeys.html`):
+An Electron, Vite, TypeScript and React app for the approved 1.0 scope. It follows `docs/desktop/DESIGN.md` (merged in #14), with the journey prototype (`~/Documents/Codemm/design/codemm-journeys.html`) for the look:
 
 | Journey | Screens |
 |---|---|
 | Connect | welcome (asleep), connect an agent, check this computer, welcome (connected) |
-| Choose | goal, suggested path, course editor, setup consent |
-| Lessons | topic page while lessons are written, lesson with predict and notes (reopens instantly from a cache) |
-| Practice | activity, not yet, assist consent, passed, stuck |
+| Choose | goal, research, roadmap editor (§4.2 rules), setup consent with the proposal's files (§4.1) |
+| Lessons | topic page while lessons are written, static Markdown lessons with notes (reopen instantly from a cache) |
+| Practice | activity (files saved by digest), Try it, Check, passed, stuck (reread, an easier topic, come back later) |
 | Progress | course map with mastery, course complete, tracks |
 | When things go wrong | the environment states below |
 
@@ -22,14 +22,18 @@ Each state has a mock scenario, a test, and a specific next step on screen. Infr
 | State | What the learner sees | Scenario |
 |---|---|---|
 | No Docker | Check this computer: per-OS install steps (Windows includes WSL 2), a link to Docker's install page, and a re-check | `no-docker` |
-| Docker not running | "Start Docker Desktop." (Linux: `systemctl` and the docker group), then a re-check | `docker-stopped` |
+| Docker not running | "Open Docker Desktop." (Linux: `systemctl` and the docker group), then a re-check | `docker-stopped` |
+| Docker still starting | "Docker is starting. This can take a few minutes." | `docker-starting` |
+| Docker on Windows containers | "Switch Docker Desktop to Linux containers" | `windows-containers` |
 | Docker stops mid-session | "This check wasn't counted." The code stays and is saved, with a button to check this computer | `docker-stops` |
-| Offline during setup | "Setting up React needs the internet once. Connect, then try again." | `offline-setup` |
-| Low disk during setup | "This computer is low on disk space. Free some space, then try again." | `low-disk` |
+| Offline during setup | "You're offline." Try again builds the same proposal | `offline-setup` |
+| Low disk during setup | "Not enough disk space." Try again builds the same proposal | `low-disk` |
+| Setup gates fail | "Couldn't set up React", then a new proposal: "Codemm has another way to set up React." | `setup-gates` |
 | No agent installed | "Not installed" and a link to each agent's install page | `no-agent` |
 | Agent signed out | "Sign in to Codex, then try again." Codemm never asks for or reads credentials | `signed-out` |
 | Sign-in expires mid-session | the next agent call opens connect with the same line, then returns to where the learner was | `sign-in-expires` |
 | Agent plan limit reached | "Your agent's plan limit is reached. Try again later." | `plan-limit` |
+| Untested agent CLI version | "Untested version. It may still work." on the connect row | `untested-version` |
 
 Check this computer runs three checks in order: Docker is installed, Docker is running, and the sandbox works. Only the first failing check shows its fix. It re-checks every 5 seconds, and at once when the window regains focus, until all three pass.
 
@@ -38,7 +42,9 @@ To click through a state, run `CODEMM_MOCK=no-docker npm start` (on Windows Powe
 ## Layout
 
 ```
-src/shared/api.ts      CodemmApi: the only seam between UI and core, plus agent error codes
+src/shared/api.ts      the IPC contract (D3): every call, its learner-safe view, and the error codes
+src/shared/roadmap.ts  roadmap edit rules (§4.2): stable ids, refused moves and removals
+src/shared/models.json the recommended minimum model per agent, from docs/bench (§3.3)
 src/main/main.ts       window, security settings, the IPC handler (sender check)
 src/main/ipc.ts        validates every call's method and arguments before Codemm sees them
 src/main/mock.ts       in-memory CodemmApi and its named environment scenarios
@@ -46,7 +52,7 @@ src/main/links.ts      the only pages the app opens in the browser (Docker and a
 src/preload/preload.ts exposes window.codemm.invoke(method, args) and nothing else
 src/renderer/app/      App (routing, failure banner), Shell (sidebar), api client, router, useLoad, cache
 src/renderer/features/ connect, computer, learn, research, course, lessons, practice, progress, tracks
-src/renderer/ui/       Button, Field, Switch, Dialog, Rail (the Codemm tutor), Emm, Icon, Mark
+src/renderer/ui/       Button, Field, Dialog, Markdown (safe agent text), Rail (the Codemm tutor), Emm, Icon, Mark
 src/renderer/styles/   fonts.css (all font choices), tokens.css, app.css (components and motion)
 e2e/smoke.spec.ts      Playwright: the main journey, plus the no-agent and no-Docker paths
 packaging.cjs          electron-builder settings; signing only from the environment (SIGNING.md)
@@ -71,8 +77,7 @@ packaging.cjs          electron-builder settings; signing only from the environm
 - The computer check, and each environment state above.
 - Grading: an unchanged starter fails 2 of 4, and any edit passes.
 - Hints and replies, which are canned.
-- Assist, which only turns the setting on.
-- The easier activity and track rebuilds.
+- The easier topic (a roadmap-change job in the core), skip, and track rebuilds.
 
 The mock holds no solutions and no hidden tests, and it reports hidden results as statuses only. Its React lesson content exists only for the demo and goes away with the mock.
 
@@ -81,7 +86,7 @@ The mock holds no solutions and no hidden tests, and it reports hidden results a
 1. Implement `CodemmApi` on top of the core in the main process.
 2. Replace `createMock(...)` in `src/main/main.ts`.
 
-Agent calls that fail because of sign-in or the plan limit reject with `SIGNED_OUT` or `PLAN_LIMIT` in the error message, and the renderer routes on that. The renderer doesn't change otherwise. `research()`, `revise()`, `approve()` and `help(kind)` are shaped by the prototype; align them with #14's final spec in the wiring PR.
+Failed calls reject with a code from `api.ts` in the message: `SIGNED_OUT` and `NO_AGENT` open connect, `PLAN_LIMIT` and `AGENT_FAILED` show the §5 banner, and `CHANGED` reloads the editor.
 
 Background work is polled: screens re-read the course or the research every 500 ms until it settles. If the core can push changes, swap `useLoad`'s timer for an event.
 
@@ -90,7 +95,8 @@ Background work is polled: screens re-read the course or the research every 500 
 - Usage and cost display: the runs-per-topic line.
 - Research-source display: the "Reading" list.
 - Review scheduling: the review card on the course map.
-- A separate assist-edit job: "Let Codemm edit" now only turns assist on. It no longer runs a check.
+- Assist in the app, including "Let Codemm edit" (deferred in §12: the tutor explains, the learner edits).
+- Predict questions and editable lesson text (§12); lessons are static Markdown with notes.
 - Linux installers.
 
 ## Reviews

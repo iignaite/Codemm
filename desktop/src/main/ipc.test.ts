@@ -5,31 +5,29 @@ import { dispatch } from './ipc';
 // Every call resolves to its method name and arguments, so a test can see what got through.
 const echo = new Proxy({} as CodemmApi, { get: (_t, method) => async (...args: unknown[]) => ({ method, args }) });
 
-const files = [{ path: 'src/Counter.jsx', text: 'x' }];
-const draft = { title: 'React basics', track: 'React', installed: false, topics: ['State'] };
+const concepts = [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }];
 const GOOD: Record<keyof CodemmApi, unknown[]> = {
   agents: [],
   connect: ['claude'],
-  suggestions: [],
   computer: [],
-  research: [{ topic: 'React', known: ['Python'] }],
-  revise: [draft, 'Add testing'],
-  approve: [draft],
-  setUp: [],
-  course: [],
-  lesson: ['t1.1'],
-  read: ['t1.1'],
-  saveNote: ['t1.1', 'A note'],
-  activity: ['t1.a'],
-  save: ['t1.a', files],
-  run: ['t1.a', files],
-  check: ['t1.a', files],
-  help: ['t1.a', 'hint'],
-  ask: [{ activityId: 't1.a' }, 'Why?'],
-  assist: ['t1.a', true],
-  easier: ['t1.a'],
   tracks: [],
-  rebuild: ['react'],
+  research: [{ topic: 'React', known: 'Python' }],
+  reviseRoadmap: [concepts, 'Add testing'],
+  approve: [concepts],
+  course: [],
+  install: ['a'.repeat(64)],
+  retrySetup: [],
+  lesson: ['values-1'],
+  saveNotes: ['values-1', 'A note'],
+  markRead: ['values-1'],
+  activity: ['values'],
+  saveFile: ['values-easy-1', 'src/Counter.jsx', 'x', 'b'.repeat(64)],
+  tryIt: ['values-easy-1'],
+  check: ['values-easy-1'],
+  ask: [{ activityId: 'values-easy-1' }, 'Why?'],
+  skip: ['values'],
+  easier: ['values'],
+  rebuild: ['react@1'],
 };
 
 describe('dispatch', () => {
@@ -53,45 +51,28 @@ describe('dispatch', () => {
     for (const id of ['', '../t1', 't1/../../x', 'a'.repeat(200), 7, null]) {
       expect(() => dispatch(echo, 'lesson', [id])).toThrow('Bad input');
     }
-    expect(() => dispatch(echo, 'saveNote', ['t1.1', 'x'.repeat(20_001)])).toThrow('Bad input');
-    expect(() => dispatch(echo, 'ask', [{ activityId: 't1.a' }, ''])).toThrow('Bad input');
-    expect(() => dispatch(echo, 'ask', [{ lessonId: 't1.1', activityId: 't1.a' }, 'Why?'])).toThrow('Bad input');
-    expect(() => dispatch(echo, 'help', ['t1.a', 'solve'])).toThrow('Bad input');
-    expect(() => dispatch(echo, 'assist', ['t1.a', 'yes'])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'connect', ['gemini'])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'saveNotes', ['values-1', 'x'.repeat(20_001)])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'ask', [{ activityId: 'a' }, ''])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'ask', [{ lessonId: 'a', activityId: 'b' }, 'Why?'])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'install', ['not-a-digest'])).toThrow('Bad input');
   });
 
-  it('rejects goals and drafts with the wrong shape', () => {
-    expect(() => dispatch(echo, 'research', [{ topic: '', known: [] }])).toThrow('Bad input');
+  it('rejects goals and roadmaps with the wrong shape', () => {
+    expect(() => dispatch(echo, 'research', [{ topic: '', known: '' }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'research', [{ topic: 'React' }])).toThrow('Bad input');
-    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: [], extra: 1 }])).toThrow('Bad input');
-    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: [], constructor: 1 }])).toThrow('Bad input');
-    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: [], toString: 'x' }])).toThrow('Bad input');
-    expect(() => dispatch(echo, 'approve', [{ ...draft, topics: [] }])).toThrow('Bad input');
-    expect(() => dispatch(echo, 'approve', [{ ...draft, topics: [''] }])).toThrow('Bad input');
-    expect(() => dispatch(echo, 'approve', [{ ...draft, installed: 'no' }])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', extra: 1 }])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', constructor: 1 }])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', toString: 'x' }])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'approve', [[]])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'approve', [[{ id: 'a', title: '', requires: [] }]])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'approve', [[{ id: 'a', title: 'A', requires: ['../x'] }]])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'approve', [[{ id: 'a', title: 'A' }]])).toThrow('Bad input');
   });
 
-  it('rejects file maps that could escape the workspace or are too big', () => {
-    const bad = [
-      [{ path: '/etc/passwd', text: '' }],
-      [{ path: '../x', text: '' }],
-      [{ path: 'a/../../x', text: '' }],
-      [{ path: 'a\\b', text: '' }],
-      [{ path: 'C:/x', text: '' }],
-      [{ path: 'a\u0000b', text: '' }],
-      [{ path: 'src/file:stream', text: '' }],
-      [{ path: 'what?.txt', text: '' }],
-      [{ path: 'NUL', text: '' }],
-      [{ path: 'src/con.txt', text: '' }],
-      [{ path: 'Com1', text: '' }],
-      [{ path: 'notes.', text: '' }],
-      [{ path: 'notes ', text: '' }],
-      [{ path: 'a', text: 1 }],
-      [{ path: 'a', text: '', extra: true }],
-      Array.from({ length: 257 }, (_, i) => ({ path: `f${i}`, text: '' })),
-      [{ path: 'big', text: 'x'.repeat(1_048_577) }],
-      'not files',
-    ];
-    for (const f of bad) expect(() => dispatch(echo, 'check', ['t1.a', f])).toThrow('Bad input');
+  it('rejects file paths that could escape the workspace or are unsafe on Windows', () => {
+    const bad = ['/etc/passwd', '../x', 'a/../../x', 'a\\b', 'C:/x', 'a\u0000b', 'src/file:stream', 'what?.txt', 'NUL', 'src/con.txt', 'Com1', 'notes.', 'notes ', ''];
+    for (const path of bad) expect(() => dispatch(echo, 'saveFile', ['a', path, '', 'b'.repeat(64)])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'saveFile', ['a', 'big', 'x'.repeat(1_048_577), 'b'.repeat(64)])).toThrow('Bad input');
   });
 });

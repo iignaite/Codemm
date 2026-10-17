@@ -12,16 +12,16 @@ import { stagger } from '../../ui/motion';
 export function Tracks() {
   const api = useApi();
   const { go, fail } = useRouter();
-  const { data, error, reload } = useLoad(async () => ({ tracks: await api.tracks(), suggestions: await api.suggestions() }), []);
+  const { data: tracks, error, reload } = useLoad(() => api.tracks(), []);
   const [topic, setTopic] = useState('');
   const [rebuilding, setRebuilding] = useState<string>();
   if (error) return <Failed error={error} retry={reload} />;
-  if (!data) return null;
+  if (!tracks) return null;
 
-  async function rebuild(id: string) {
-    setRebuilding(id);
+  async function rebuild(ref: string) {
+    setRebuilding(ref);
     try {
-      await api.rebuild(id);
+      await api.rebuild(ref);
     } catch (e) {
       fail(e);
     } finally {
@@ -31,19 +31,19 @@ export function Tracks() {
 
   function start(e: FormEvent) {
     e.preventDefault();
-    if (topic.trim()) go({ to: 'research', goal: { topic: topic.trim(), known: [] } });
+    if (topic.trim()) go({ to: 'research', goal: { topic: topic.trim(), known: '' } });
   }
 
   return (
     <main className="main page">
       <h1 className="h2 a-up">Tracks</h1>
-      {data.tracks.length > 0 && (
+      {tracks.length > 0 && (
         <ul className="track-grid" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-          {data.tracks.map((t, i) => (
-            <li key={t.id} className="card track a-up" style={stagger(i + 1)} aria-label={t.name}>
+          {tracks.map((t, i) => (
+            <li key={t.ref} className="card track a-up" style={stagger(i + 1)} aria-label={t.name}>
               <Emm width={140} name={t.name} perch />
               <b>{t.name}</b>
-              <Button variant="ghost" disabled={rebuilding === t.id} onClick={() => rebuild(t.id)}>Rebuild</Button>
+              <Button variant="ghost" disabled={rebuilding === t.ref} onClick={() => rebuild(t.ref)}>Rebuild</Button>
             </li>
           ))}
         </ul>
@@ -54,11 +54,6 @@ export function Tracks() {
           <Field aria-labelledby="new-t" value={topic} onChange={(e) => setTopic(e.target.value)} />
           <Button type="submit" size="lg" disabled={!topic.trim()}>Start</Button>
         </form>
-        <div className="chips">
-          {data.suggestions.next.map((s) => (
-            <button key={s} type="button" className="chip" onClick={() => setTopic(s)}>{s}</button>
-          ))}
-        </div>
       </section>
     </main>
   );

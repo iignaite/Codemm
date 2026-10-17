@@ -19,11 +19,23 @@ export const NOT_YET: Record<CheckId, string> = {
 };
 
 const START_DESKTOP: Fix = {
-  steps: ['Start Docker Desktop.', 'Wait until it says Docker Desktop is running.'],
+  steps: ['Open Docker Desktop.', 'Wait until it says Docker Desktop is running.'],
+};
+
+/** A running problem with a known cause replaces the usual fix (§6.1). */
+export const DETAILS: Record<'starting' | 'windows-containers', { fix: Fix; notYet: string }> = {
+  starting: {
+    fix: { steps: ['Docker is starting. This can take a few minutes.'] },
+    notYet: 'Docker is starting.',
+  },
+  'windows-containers': {
+    fix: { steps: ['Switch Docker Desktop to Linux containers: right-click the Docker icon, then choose Switch to Linux containers.'] },
+    notYet: 'Docker Desktop is set to Windows containers.',
+  },
 };
 
 const RESTART: Fix = {
-  steps: ['Restart Docker.', 'Codemm checks again when it is back.'],
+  steps: ['Restart Docker, then check again.'],
 };
 
 /** Step-by-step fixes per computer. Links go to Docker's official pages only. */

@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { Draft, Goal } from '../../shared/api';
+import type { Goal, Roadmap } from '../../shared/api';
 
 export type Route =
   | { to: 'welcome' }
@@ -7,10 +7,10 @@ export type Route =
   | { to: 'computer'; then: Route }
   | { to: 'goal' }
   | { to: 'research'; goal: Goal }
-  | { to: 'course'; draft: Draft }
+  | { to: 'course'; roadmap: Roadmap }
   | { to: 'topic'; topicId: string }
   | { to: 'lesson'; lessonId: string }
-  | { to: 'practice'; activityId: string }
+  | { to: 'practice'; concept: string }
   | { to: 'learn' }
   | { to: 'tracks' };
 
@@ -18,8 +18,9 @@ export interface Router {
   route: Route;
   go: (route: Route) => void;
   /**
-   * Reports a failed call. An agent that needs signing in opens connect, then
-   * returns to `resume` (default: this route). Anything else is said in a banner.
+   * Reports a failed call. An agent that is missing or signed out opens
+   * connect, then returns to `resume` (default: this route). Anything else is
+   * said in a banner.
    */
   fail: (error: unknown, resume?: Route) => void;
 }

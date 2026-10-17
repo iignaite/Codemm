@@ -12,8 +12,7 @@ describe('tracks', () => {
     await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
     expect(await within(react).findByRole('button', { name: 'Rebuild' })).toBeEnabled();
 
-    await user.click(screen.getByRole('button', { name: 'Rust' }));
-    expect(screen.getByRole('textbox', { name: 'Learn something new' })).toHaveValue('Rust');
+    await user.type(screen.getByRole('textbox', { name: 'Learn something new' }), 'Rust');
     await user.click(screen.getByRole('button', { name: 'Start' }));
     expect(await screen.findByRole('heading', { name: 'Researching Rust' })).toBeInTheDocument();
   });

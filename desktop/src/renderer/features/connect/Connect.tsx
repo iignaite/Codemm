@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Agent } from '../../../shared/api';
+import type { Agent, AgentId } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
 import { Failed } from '../../app/Shell';
@@ -19,7 +19,7 @@ export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
   if (error) return <Failed error={error} retry={reload} />;
   if (!list) return null;
 
-  async function connect(id: string) {
+  async function connect(id: AgentId) {
     setBusy(id);
     try {
       const agent = await api.connect(id);
@@ -40,7 +40,9 @@ export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
             <li key={a.id} aria-label={a.name} className={`card agent a-up${a.state === 'connected' ? ' on' : ''}`} style={stagger(i + 1)}>
               <div>
                 <b>{a.name}</b>
-                <div className="quiet-text">{a.modelHint}</div>
+                {a.experimental && <div className="quiet-text">Experimental</div>}
+                {a.recommended && <div className="quiet-text">Recommended: {a.recommended}</div>}
+                {a.untested && <div className="quiet-text">Untested version. It may still work.</div>}
                 {a.state === 'missing' && <div className="alert">Not installed</div>}
                 {a.state === 'signed-out' && <div className="alert">Sign in to {a.name}, then try again.</div>}
               </div>

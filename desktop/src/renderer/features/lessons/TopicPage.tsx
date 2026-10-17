@@ -1,4 +1,5 @@
-import type { Course, Topic } from '../../../shared/api';
+import { useState } from 'react';
+import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
 import { Failed } from '../../app/Shell';
@@ -7,33 +8,56 @@ import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
+import { SetupConsent } from './SetupConsent';
 
-const settled = (c: Course | null) => !c || (c.setup !== 'running' && !c.topics.some((t) => t.state === 'now' && t.lessons.some((l) => l.state === 'writing')));
+const settled = (c: CourseView | null) =>
+  !c || (['ready', 'failed', 'consent'].includes(c.setup) && !c.topics.some((t) => t.state === 'now' && t.lessons.some((l) => l.state === 'writing')));
 
-/** A topic's lessons, then its activity. Reading starts as soon as the first lesson exists. */
+const BUSY = { proposing: 'Preparing setup for', installing: 'Setting up' } as const;
+
+/** A topic's lessons, then its activity. Reading starts as soon as the first lesson exists; setup runs beside it. */
 export function TopicPage({ topicId }: { topicId: string }) {
   const api = useApi();
+  const { fail } = useRouter();
   const { data: course, error, reload } = useLoad(() => api.course(), [topicId], settled);
+  const [consentClosed, setConsentClosed] = useState(false);
   if (error) return <Failed error={error} retry={reload} />;
   const topic = course?.topics.find((t) => t.id === topicId);
   if (!course || !topic) return null;
   if (course.setup === 'failed') return <SetupFailed course={course} onRetry={reload} />;
+
+  async function install(digest: string) {
+    try {
+      await api.install(digest);
+      reload();
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  const proposal = course.setup === 'consent' ? course.proposal : undefined;
   return (
     <main className="center">
       <div className="topic-page">
         <h1 className="h1 a-up">{topic.title}</h1>
         <Items topic={topic} />
-        {course.setup === 'running' && (
-          <div className="busy a-up" style={stagger(3, 300)}><Status kind="run" size={18} />Setting up {course.track}</div>
+        {(course.setup === 'proposing' || course.setup === 'installing') && (
+          <div className="busy a-up" style={stagger(3, 300)}><Status kind="run" size={18} />{BUSY[course.setup]} {course.track}</div>
+        )}
+        {proposal && consentClosed && (
+          <div className="a-up"><Button onClick={() => setConsentClosed(false)}>Set up {course.track}</Button></div>
         )}
       </div>
+      {proposal && !consentClosed && (
+        <SetupConsent track={course.track} proposal={proposal} onClose={() => setConsentClosed(true)} onSetUp={() => install(proposal.digest)} />
+      )}
     </main>
   );
 }
 
-function Items({ topic }: { topic: Topic }) {
+function Items({ topic }: { topic: TopicView }) {
   const { go } = useRouter();
-  const { activity } = topic;
+  const open = topic.activity === 'open' || topic.activity === 'passed';
   return (
     <div className="card">
       {topic.lessons.map((l, i) => (
@@ -53,11 +77,11 @@ function Items({ topic }: { topic: Topic }) {
           )}
         </div>
       ))}
-      <div className={`row a-up${activity.state === 'open' || activity.state === 'passed' ? '' : ' off'}`} style={stagger(topic.lessons.length, 300)}>
+      <div className={`row a-up${open ? '' : ' off'}`} style={stagger(topic.lessons.length, 300)}>
         <Icon name="code" color="#5B6A84" size={18} />
-        <span style={{ flex: 1 }}>{activity.title}</span>
-        {activity.state === 'open' || activity.state === 'passed' ? (
-          <Button onClick={() => go({ to: 'practice', activityId: activity.id })}>{activity.state === 'passed' ? 'Again' : 'Start'}</Button>
+        <span style={{ flex: 1 }}>Activity</span>
+        {open ? (
+          <Button onClick={() => go({ to: 'practice', concept: topic.id })}>{topic.activity === 'passed' ? 'Again' : 'Start'}</Button>
         ) : (
           <span role="img" aria-label="Opens after the lessons"><Icon name="lock" color="#5B6A84" size={16} /></span>
         )}
@@ -66,33 +90,36 @@ function Items({ topic }: { topic: Topic }) {
   );
 }
 
-/** Setup failed and nothing was recorded. Offline and low disk are this computer's problems, so say how to fix them. */
-function SetupFailed({ course, onRetry }: { course: Course; onRetry: () => void }) {
+/** Setup failed and nothing was recorded. Offline and low disk are this computer's problems: fix, then try the same setup again. */
+function SetupFailed({ course, onRetry }: { course: CourseView; onRetry: () => void }) {
   const api = useApi();
   const { go, fail } = useRouter();
-  const draft = { title: course.title, track: course.track, installed: false, topics: course.topics.map((t) => t.title) };
-  const why = {
-    offline: `Setting up ${course.track} needs the internet once. Connect, then try again.`,
-    disk: 'This computer is low on disk space. Free some space, then try again.',
-    gates: 'Try again, or change the course.',
-  }[course.setupProblem ?? 'gates'];
+  const problem = course.setupProblem ?? 'gates';
+  const say = {
+    offline: { title: "You're offline.", text: 'Connect to the internet, then try again.' },
+    disk: { title: 'Not enough disk space.', text: 'Free some space on this computer, then try again.' },
+    gates: { title: `Couldn't set up ${course.track}`, text: 'Try again, or stop and pick something else.' },
+  }[problem];
+
   async function retry() {
     try {
-      await api.setUp();
+      if (problem !== 'gates' && course.proposal) await api.install(course.proposal.digest);
+      else await api.retrySetup();
       onRetry();
     } catch (e) {
       fail(e);
     }
   }
+
   return (
     <main className="center">
       <div className="card panel a-pop" role="alert">
         <Emm mood="think" width={150} name={course.track} perch />
-        <h1 className="h2">Couldn't set up {course.track}</h1>
-        <p className="sub">{why}</p>
+        <h1 className="h2">{say.title}</h1>
+        <p className="sub">{say.text}</p>
         <div className="actions">
-          <Button variant="ghost" size="lg" onClick={() => go({ to: 'course', draft })}>Stop</Button>
-          <Button size="lg" onClick={retry}>Try now</Button>
+          {problem === 'gates' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'goal' })}>Stop</Button>}
+          <Button size="lg" onClick={retry}>Try again</Button>
         </div>
       </div>
     </main>

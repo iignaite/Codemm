@@ -1,225 +1,249 @@
-// The one seam between the UI and Codemm. The renderer only ever sees these
-// types; the main process implements them (a mock today, the core later).
-// Nothing here may carry solutions, hidden inputs, expected hidden output or
-// hidden test names: hidden results are an index and a status only.
+// The IPC contract (docs/desktop/DESIGN.md §2, D3): every call the renderer can
+// make, and the learner-safe views it gets back. Main validates each call's
+// input (src/main/ipc.ts) and answers with one function. Nothing here may
+// carry a solution, mutant, hidden test, expected hidden output, author
+// transcript, tool argument or agent stderr (§2.2, D4).
+
+// ---------- errors ----------
+
+/**
+ * A failed call rejects with an Error whose message holds one of these codes.
+ * None of them records anything.
+ */
+export const SIGNED_OUT = 'codemm:signed-out';
+export const NO_AGENT = 'codemm:no-agent';
+export const PLAN_LIMIT = 'codemm:plan-limit';
+/** An agent job failed or wasn't done by its check (§5). */
+export const AGENT_FAILED = 'codemm:agent-failed';
+/** A learner file changed outside Codemm since the editor loaded it (§4.5). */
+export const CHANGED = 'codemm:changed';
+
+// ---------- connect (§3.1, §3.3) ----------
+
+export type AgentId = 'claude' | 'codex' | 'cursor';
 
 /** `missing`: not installed. `signed-out`: installed, but its sign-in check failed. */
 export type AgentState = 'connected' | 'not-connected' | 'missing' | 'signed-out';
 
 export interface Agent {
-  id: string;
+  id: AgentId;
   name: string;
   state: AgentState;
-  /** The agent's official install page. */
   installUrl: string;
-  /** One line on the weakest model known to work well, from the cross-model bench. */
-  modelHint: string;
+  /** The recommended minimum model, from models.json; null shows nothing. */
+  recommended: string | null;
+  /** The installed CLI version isn't one Codemm was tested with. It may still work. */
+  untested: boolean;
+  experimental: boolean;
 }
 
-/**
- * Calls that run the learner's agent reject with an Error whose message holds
- * one of these. Nothing is recorded when they do.
- */
-export const SIGNED_OUT = 'codemm:signed-out';
-export const PLAN_LIMIT = 'codemm:plan-limit';
+// ---------- check this computer (§6.1) ----------
 
 export type Platform = 'mac' | 'windows' | 'linux';
 export type CheckId = 'docker-installed' | 'docker-running' | 'sandbox';
 
 export interface ComputerCheck {
   id: CheckId;
-  /** `waiting` means an earlier check has to pass first. */
+  /** `waiting`: an earlier check has to pass first. */
   state: 'ok' | 'problem' | 'waiting';
+  /** For a running problem: Docker is still starting, or set to Windows containers. */
+  detail?: 'starting' | 'windows-containers';
 }
 
-/** Whether this computer can run graded checks. */
 export interface Computer {
   platform: Platform;
   checks: ComputerCheck[];
   ready: boolean;
 }
 
-export interface Suggestions {
-  /** Things the learner may already know, offered on the goal screen. */
-  known: string[];
-  /** Things to learn next, offered on the tracks screen. */
-  next: string[];
-}
+// ---------- roadmap (§4.2) ----------
 
 export interface Goal {
   topic: string;
-  known: string[];
+  /** What the learner says they already know, in their words. */
+  known: string;
 }
 
-export interface PathStep {
+export interface Concept {
+  id: string;
   title: string;
-  /** Why the step is quick, such as something the learner already knows. */
-  because?: string;
+  requires: string[];
 }
 
+export interface Roadmap {
+  goal: string;
+  /** The track's display name, from list_tracks or the agent's proposal. */
+  track: string;
+  installed: boolean;
+  concepts: Concept[];
+}
+
+export type JobState = 'running' | 'done' | 'failed';
+
+/** The research job writes the roadmap; poll until it's done. */
 export interface Research {
-  title: string;
-  track: string;
-  /** Whether the track is already set up on this computer. */
-  installed: boolean;
-  path: PathStep[];
-  done: boolean;
+  state: JobState;
+  roadmap?: Roadmap;
 }
 
-export interface Draft {
-  title: string;
-  track: string;
-  installed: boolean;
-  topics: string[];
+export interface RoadmapChange {
+  roadmap: Roadmap;
+  changed: boolean;
+  /** The agent's reply, shown when nothing changed. */
+  text: string;
 }
 
-export type SetupState = 'running' | 'ready' | 'failed';
-/** Why setup failed. `offline` and `disk` are this computer's problems, not the course's. */
+// ---------- course (§3.2, §4.1, §4.3, §4.4) ----------
+
+/**
+ * `proposing`: the setup job is writing a proposal. `consent`: waiting for the
+ * learner. `installing`: building the approved proposal.
+ */
+export type SetupState = 'proposing' | 'consent' | 'installing' | 'ready' | 'failed';
+/** Why setup failed. `offline` and `disk` are this computer's problems; `gates` means the proposals didn't pass. */
 export type SetupProblem = 'offline' | 'disk' | 'gates';
+
+/** What the learner approves before setup: exactly the files Codemm will build (§4.1). */
+export interface Proposal {
+  digest: string;
+  /** True when an earlier proposal failed its gates: "Codemm has another way". */
+  retry: boolean;
+  files: { path: string; text: string }[];
+}
+
 export type TopicState = 'mastered' | 'now' | 'later';
 export type LessonState = 'writing' | 'ready' | 'read';
 export type ActivityState = 'writing' | 'locked' | 'open' | 'passed';
 
-export interface LessonRef {
-  id: string;
-  title: string;
-  state: LessonState;
-}
-
-export interface ActivityRef {
-  id: string;
-  title: string;
-  state: ActivityState;
-}
-
-export interface Topic {
+export interface TopicView {
   id: string;
   title: string;
   state: TopicState;
   /** 0 to 1. */
   mastery: number;
-  lessons: LessonRef[];
-  activity: ActivityRef;
-  activitiesLeft: number;
+  stuck: boolean;
+  lessons: { id: string; title: string; state: LessonState }[];
+  activity: ActivityState;
 }
 
-export interface Course {
-  title: string;
+export interface CourseView {
+  goal: string;
   track: string;
   setup: SetupState;
   setupProblem?: SetupProblem;
-  topics: Topic[];
-}
-
-export interface Predict {
-  question: string;
-  choices: string[];
-  /** What actually happens, shown once the learner has chosen. */
-  shows: string;
+  proposal?: Proposal;
+  topics: TopicView[];
+  done: boolean;
 }
 
 export interface Lesson {
   id: string;
-  topicId: string;
+  concept: string;
   title: string;
-  summary: string;
-  code?: string;
-  predict?: Predict;
-  note: string;
+  /** Static Markdown, rendered with raw HTML stripped (§2.1). */
+  markdown: string;
+  notes: string;
 }
 
-export interface CodeFile {
+// ---------- activity (§4.5, D11) ----------
+
+export interface LearnerFile {
   path: string;
   text: string;
+  digest: string;
+}
+
+export interface VisibleTest {
+  name: string;
+  input?: string;
+  expected?: string;
 }
 
 export interface Activity {
   id: string;
-  topicId: string;
+  concept: string;
   title: string;
-  prompt: string;
-  /** What a correct program shows, as an example for the learner. */
-  example?: string;
-  files: CodeFile[];
-  assist: boolean;
-}
-
-export interface Message {
-  from: 'you' | 'codemm';
-  text: string;
-  /** A line in the open file this message is about. */
-  line?: number;
-  /** Codemm declined because practice mode is on. */
-  locked?: boolean;
+  /** Markdown. */
+  statement: string;
+  visibleTests: VisibleTest[];
+  files: LearnerFile[];
 }
 
 export type TestStatus = 'pass' | 'fail' | 'error';
 
-export interface VisibleTest {
-  name: string;
-  status: TestStatus;
-  expected?: string;
-  found?: string;
-}
+/** One test result. A hidden test has no name or detail: an index and a status only. */
+export type TestView =
+  | { hidden: false; name: string; status: TestStatus; message?: string; actual?: string }
+  | { hidden: true; index: number; status: TestStatus };
 
 export type CheckResult =
   | {
       kind: 'graded';
       passed: number;
       total: number;
-      visible: VisibleTest[];
-      hidden: TestStatus[];
+      tests: TestView[];
+      /** False for a check of the unedited starter (core §7). */
+      recorded: boolean;
       stuck: boolean;
-      /** Progress in words, shown after a pass. */
-      progress?: string;
+      mastered: boolean;
     }
+  /** An infrastructure failure: nothing was recorded. */
   | { kind: 'not-counted'; reason: string };
 
-export interface RunResult {
-  output: string;
-}
-
-export interface Track {
-  id: string;
-  name: string;
-}
+/** Try it: visible tests only, never recorded. */
+export type TryResult = { kind: 'ran'; passed: number; total: number; tests: TestView[] } | { kind: 'not-counted'; reason: string };
 
 export type Place = { lessonId: string } | { activityId: string };
 
+export interface Message {
+  from: 'you' | 'codemm';
+  text: string;
+}
+
+export interface Track {
+  ref: string;
+  name: string;
+}
+
 export interface CodemmApi {
   agents(): Promise<Agent[]>;
-  connect(agentId: string): Promise<Agent>;
-  suggestions(): Promise<Suggestions>;
+  /** Chooses the agent and runs its sign-in check. */
+  connect(agent: AgentId): Promise<Agent>;
   computer(): Promise<Computer>;
-
-  /** Starts research on the first call; call again to follow it. */
-  research(goal: Goal): Promise<Research>;
-  revise(draft: Draft, request: string): Promise<Draft>;
-  /** Saves the course and, if its track isn't installed, starts setting it up. */
-  approve(draft: Draft): Promise<Course>;
-  /** Retries a failed setup. */
-  setUp(): Promise<void>;
-
-  course(): Promise<Course | null>;
-  lesson(id: string): Promise<Lesson>;
-  read(lessonId: string): Promise<void>;
-  saveNote(lessonId: string, note: string): Promise<void>;
-
-  activity(id: string): Promise<Activity>;
-  /** Saves the learner's files without grading them. */
-  save(activityId: string, files: CodeFile[]): Promise<void>;
-  run(activityId: string, files: CodeFile[]): Promise<RunResult>;
-  check(activityId: string, files: CodeFile[]): Promise<CheckResult>;
-  /** `hint` nudges; `show` points at the line to look at. */
-  help(activityId: string, kind: 'hint' | 'show'): Promise<Message>;
-  /** Codemm's replies to the learner's question. */
-  ask(place: Place, text: string): Promise<Message[]>;
-  /** Turns assist on (Codemm may then write code with the learner, and the activity counts for less) or off. */
-  assist(activityId: string, on: boolean): Promise<Activity>;
-  easier(activityId: string): Promise<string>;
-
   tracks(): Promise<Track[]>;
-  rebuild(trackId: string): Promise<void>;
+
+  /** Starts the research job on the first call; call again to follow it. */
+  research(goal: Goal): Promise<Research>;
+  /** Saves the learner's edits, then runs a roadmap-change job. */
+  reviseRoadmap(concepts: Concept[], request: string): Promise<RoadmapChange>;
+  /** Saves the roadmap. If its track isn't installed, starts the setup job. */
+  approve(concepts: Concept[]): Promise<void>;
+
+  course(): Promise<CourseView | null>;
+  /** Builds the proposal the learner saw. Also retries after an offline or low-disk failure. */
+  install(digest: string): Promise<void>;
+  /** Runs the setup job again, after its proposals failed their gates. */
+  retrySetup(): Promise<void>;
+
+  lesson(id: string): Promise<Lesson>;
+  saveNotes(lessonId: string, notes: string): Promise<void>;
+  markRead(lessonId: string): Promise<void>;
+
+  /** The current activity for a concept. */
+  activity(concept: string): Promise<Activity>;
+  /** Saves one learner file. Rejects with CHANGED if it changed since `digest`. Returns the new digest. */
+  saveFile(activityId: string, path: string, text: string, digest: string): Promise<string>;
+  tryIt(activityId: string): Promise<TryResult>;
+  check(activityId: string): Promise<CheckResult>;
+
+  /** A tutor turn. A reply that shows hidden material is held back (§2.2). */
+  ask(place: Place, text: string): Promise<Message[]>;
+  /** "Come back later": defers the concept without changing mastery (§4.4). */
+  skip(concept: string): Promise<void>;
+  /** "Try an easier one": a roadmap-change job that adds a prerequisite topic (§3.2). */
+  easier(concept: string): Promise<void>;
+
+  rebuild(trackRef: string): Promise<void>;
 }
 
 /** What the preload script exposes as `window.codemm`. */

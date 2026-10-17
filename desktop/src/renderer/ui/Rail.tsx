@@ -3,17 +3,11 @@ import type { Message } from '../../shared/api';
 import { Button } from './Button';
 import { Emm } from './Emm';
 import { Field } from './Field';
-import { Icon } from './Icon';
+import { Markdown } from './Markdown';
 
 function Entry({ m }: { m: Message }) {
   if (m.from === 'you') return <p className="you a-up"><b>You:</b> {m.text}</p>;
-  return (
-    <div className={`note a-up${m.locked ? ' lock' : ''}`}>
-      {m.locked && <Icon name="lock" color="#4A5B7A" size={16} />}
-      {m.line !== undefined && <span className="ln" aria-label={`Line ${m.line}`}>{m.line}</span>}
-      <span>{m.text}</span>
-    </div>
-  );
+  return <div className="note a-up"><Markdown text={m.text} className="md small" /></div>;
 }
 
 /** The Codemm tutor beside a lesson or activity. */

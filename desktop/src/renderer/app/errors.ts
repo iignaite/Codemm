@@ -1,12 +1,18 @@
-import { PLAN_LIMIT, SIGNED_OUT } from '../../shared/api';
+import { AGENT_FAILED, NO_AGENT, PLAN_LIMIT, SIGNED_OUT } from '../../shared/api';
 
 /** What went wrong with a call, as far as the learner needs to know. */
-export type Problem = 'signed-out' | 'plan-limit' | 'other';
+export type Problem = 'connect' | 'plan-limit' | 'agent' | 'other';
 
 export function problemOf(error: unknown): Problem {
   const message = error instanceof Error ? error.message : String(error);
-  if (message.includes(SIGNED_OUT)) return 'signed-out';
-  return message.includes(PLAN_LIMIT) ? 'plan-limit' : 'other';
+  if (message.includes(SIGNED_OUT) || message.includes(NO_AGENT)) return 'connect';
+  if (message.includes(PLAN_LIMIT)) return 'plan-limit';
+  return message.includes(AGENT_FAILED) ? 'agent' : 'other';
 }
 
-export const PLAN_LIMIT_TEXT = "Your agent's plan limit is reached. Try again later.";
+/** What the failure banner says (DESIGN §5). */
+export const SAY: Record<Exclude<Problem, 'connect'>, string> = {
+  'plan-limit': "Your agent's plan limit is reached. Try again later.",
+  agent: "Codemm couldn't finish that. Try again.",
+  other: "That didn't work. Try again.",
+};

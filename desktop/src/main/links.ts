@@ -1,11 +1,8 @@
-// The only pages the app opens in the learner's browser: official install
-// docs for Docker and for each agent.
-const HOSTS = new Set(['docs.docker.com', 'code.claude.com', 'developers.openai.com', 'cursor.com']);
-
-export function isOfficialLink(url: string): boolean {
+// Links open in the learner's browser only after a click, and only for https
+// URLs (DESIGN §2.1).
+export function isSafeLink(url: string): boolean {
   try {
-    const { protocol, hostname } = new URL(url);
-    return protocol === 'https:' && HOSTS.has(hostname);
+    return new URL(url).protocol === 'https:';
   } catch {
     return false;
   }

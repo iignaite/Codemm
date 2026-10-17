@@ -1,12 +1,11 @@
-import type { Topic } from '../../../shared/api';
+import type { TopicView } from '../../../shared/api';
 import { useRouter } from '../../app/router';
 import { Icon } from '../../ui/Icon';
 
 /** The topic's lessons and activity, beside a lesson. */
-export function Outline({ topic, current }: { topic: Topic; current: string }) {
+export function Outline({ topic, current }: { topic: TopicView; current: string }) {
   const { go } = useRouter();
-  const { activity } = topic;
-  const open = activity.state === 'open' || activity.state === 'passed';
+  const open = topic.activity === 'open' || topic.activity === 'passed';
   return (
     <nav className="stmt outline" aria-label={topic.title}>
       <h2 className="h3">{topic.title}</h2>
@@ -22,12 +21,12 @@ export function Outline({ topic, current }: { topic: Topic; current: string }) {
         ),
       )}
       {open ? (
-        <button type="button" className="item link" onClick={() => go({ to: 'practice', activityId: activity.id })}>
+        <button type="button" className="item link" onClick={() => go({ to: 'practice', concept: topic.id })}>
           <Icon name="code" color="#0E2754" size={18} />
-          {activity.title}
+          Activity
         </button>
       ) : (
-        <span className="item"><Icon name="code" color="#5B6A84" size={18} />{activity.title}</span>
+        <span className="item"><Icon name="code" color="#5B6A84" size={18} />Activity</span>
       )}
     </nav>
   );

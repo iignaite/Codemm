@@ -1,4 +1,4 @@
-import type { Course, Topic } from '../../../shared/api';
+import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
 import { Failed } from '../../app/Shell';
@@ -11,11 +11,9 @@ import { Complete } from './Complete';
 
 const STATE_LABEL = { mastered: 'Mastered', now: 'Now', later: 'Later' } as const;
 
-function continueRoute(topic: Topic): Route {
-  return topic.activity.state === 'open' ? { to: 'practice', activityId: topic.activity.id } : { to: 'topic', topicId: topic.id };
+function continueRoute(topic: TopicView): Route {
+  return topic.activity === 'open' ? { to: 'practice', concept: topic.id } : { to: 'topic', topicId: topic.id };
 }
-
-const left = (n: number) => (n === 1 ? 'One more activity' : `${n} more activities`);
 
 /** Lessons, then an activity, per topic, with mastery so far. */
 export function CourseMap() {
@@ -24,11 +22,11 @@ export function CourseMap() {
   if (error) return <Failed error={error} retry={reload} />;
   if (course === undefined) return null;
   if (course === null) return <Goal />;
-  if (course.topics.every((t) => t.state === 'mastered')) return <Complete course={course} />;
+  if (course.done) return <Complete course={course} />;
   return (
     <main className="main map">
       <div className="map-main">
-        <h1 className="h2 a-up">{course.title}</h1>
+        <h1 className="h2 a-up">{course.goal}</h1>
         <ol className="graph" aria-label="Topics">
           {course.topics.map((t, i) => <MapItem key={t.id} topic={t} index={i} course={course} />)}
         </ol>
@@ -38,7 +36,7 @@ export function CourseMap() {
   );
 }
 
-function MapItem({ topic, index, course }: { topic: Topic; index: number; course: Course }) {
+function MapItem({ topic, index, course }: { topic: TopicView; index: number; course: CourseView }) {
   const { go } = useRouter();
   const prev = course.topics[index - 1];
   const icon = { mastered: <Icon name="check" color="#0E7C35" />, now: <Icon name="code" color="#0E7C35" />, later: <Icon name="lock" color="#8492A9" size={17} /> }[topic.state];
@@ -53,7 +51,6 @@ function MapItem({ topic, index, course }: { topic: Topic; index: number; course
         <div className="card now-card a-up" style={stagger(0, 500)}>
           <b>{topic.title}</b>
           {topic.lessons.every((l) => l.state === 'read') && <span className="done"><Icon name="check" color="#0E7C35" size={14} />Lessons</span>}
-          <span className="quiet-text">{left(topic.activitiesLeft)}</span>
           <Button onClick={() => go(continueRoute(topic))}>Continue</Button>
         </div>
       ) : (
@@ -63,7 +60,7 @@ function MapItem({ topic, index, course }: { topic: Topic; index: number; course
   );
 }
 
-function Aside({ course }: { course: Course }) {
+function Aside({ course }: { course: CourseView }) {
   const started = course.topics.filter((t) => t.state !== 'later');
   return (
     <aside className="map-side">

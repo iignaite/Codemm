@@ -1,11 +1,11 @@
 import { useEffect, type ReactNode } from 'react';
-import type { Course } from '../../shared/api';
+import type { CourseView } from '../../shared/api';
 import { Button } from '../ui/Button';
 import { hueColor } from '../ui/Emm';
 import { Icon, type IconName } from '../ui/Icon';
 import { Logo, Mark } from '../ui/Mark';
 import { useApi } from './api';
-import { PLAN_LIMIT_TEXT, problemOf } from './errors';
+import { SAY, problemOf } from './errors';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
 
@@ -17,11 +17,11 @@ function sectionOf(route: Route): Section {
   return 'learn';
 }
 
-function practiceRoute(course: Course | null | undefined): Route {
+function practiceRoute(course: CourseView | null | undefined): Route {
   const now = course?.topics.find((t) => t.state === 'now');
   if (!course) return { to: 'goal' };
   if (!now) return { to: 'learn' };
-  return now.activity.state === 'open' ? { to: 'practice', activityId: now.activity.id } : { to: 'topic', topicId: now.id };
+  return now.activity === 'open' ? { to: 'practice', concept: now.id } : { to: 'topic', topicId: now.id };
 }
 
 /** The main navigation: wide with labels, or slim with icons beside a workspace. */
@@ -63,8 +63,8 @@ export function Sidebar({ slim = false }: { slim?: boolean }) {
       <div className="foot">
         {course ? (
           <div className="pick">
-            <span className="badge" style={{ background: hueColor(course.track) }} aria-hidden="true">{course.title[0]}</span>
-            {course.title}
+            <span className="badge" style={{ background: hueColor(course.track) }} aria-hidden="true">{course.goal[0]}</span>
+            {course.goal}
           </div>
         ) : (
           <div className="pick none">No course yet</div>
@@ -79,18 +79,18 @@ export function WithSide({ children }: { children: ReactNode }) {
   return <><Sidebar />{children}</>;
 }
 
-/** A screen whose data couldn't load. An agent that needs signing in goes to connect instead. */
+/** A screen whose data couldn't load. An agent that is missing or signed out goes to connect instead. */
 export function Failed({ error, retry }: { error: unknown; retry: () => void }) {
   const { fail } = useRouter();
   const problem = problemOf(error);
   useEffect(() => {
-    if (problem === 'signed-out') fail(error);
+    if (problem === 'connect') fail(error);
   }, [problem, error, fail]);
-  if (problem === 'signed-out') return null;
+  if (problem === 'connect') return null;
   return (
     <main className="center">
       <div className="stack" role="alert">
-        <p className="sub">{problem === 'plan-limit' ? PLAN_LIMIT_TEXT : "Couldn't reach Codemm."}</p>
+        <p className="sub">{problem === 'other' ? "Couldn't reach Codemm." : SAY[problem]}</p>
         <Button variant="ghost" onClick={retry}>Try again</Button>
       </div>
     </main>

@@ -16,21 +16,21 @@ test('connect, computer check, goal, course, lesson and practice', async () => {
   await button('Start learning').click();
 
   await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('React');
-  await page.getByRole('group', { name: 'I already know' }).getByRole('button', { name: 'Python' }).click();
+  await page.getByRole('textbox', { name: 'I already know' }).fill('Python');
   await button('Start').click();
   await expect(heading('Researching React')).toBeVisible();
 
-  await expect(heading('React basics')).toBeVisible({ timeout: 15_000 });
+  await expect(button('Approve')).toBeVisible({ timeout: 15_000 });
   await button('Approve').click();
-  await page.getByRole('dialog', { name: 'Set up React on this computer?' }).getByRole('button', { name: 'Set up' }).click();
+  const consent = page.getByRole('dialog', { name: 'Set up React on this computer?' });
+  await consent.getByRole('button', { name: 'Set up', exact: true }).click();
 
   await expect(heading('JavaScript basics')).toBeVisible();
   await expect(button('Read useState')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText('Setting up React')).toBeHidden({ timeout: 15_000 });
+  await expect(page.getByText(/Setting up React/)).toBeHidden({ timeout: 15_000 });
   await button('Read What javascript basics is').click();
   await button('Next').click();
   await expect(heading('useState')).toBeVisible();
-  await page.getByRole('group', { name: 'Your answer' }).getByRole('button', { name: 'Count: 2' }).click();
   await button('Next').click();
 
   await expect(heading('Click Counter')).toBeVisible();

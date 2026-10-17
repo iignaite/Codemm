@@ -1,8 +1,8 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { createMock, type MockOptions } from '../../../main/mock';
-import { isOfficialLink } from '../../../main/links';
+import { createMock, scenario, type MockOptions } from '../../../main/mock';
+import { isSafeLink } from '../../../main/links';
 import { mockWithCourse, renderApp } from '../../test-utils';
 import { FIXES } from './fixes';
 
@@ -62,10 +62,20 @@ describe('check this computer', () => {
     const options: MockOptions = { docker: 'stopped', platform: 'mac' };
     open(options);
     const running = await screen.findByRole('listitem', { name: 'Docker is running' });
-    expect(running).toHaveTextContent('Start Docker Desktop.');
+    expect(running).toHaveTextContent('Open Docker Desktop.');
     expect(within(screen.getByRole('listitem', { name: 'Docker is installed' })).getByText('Ready')).toBeInTheDocument();
     options.docker = 'ready';
     expect(await screen.findByText('This computer is ready.')).toBeInTheDocument();
+  });
+
+  it('waits while Docker starts, and asks to switch from Windows containers', async () => {
+    const options: MockOptions = scenario('docker-starting');
+    const view = renderApp({ to: 'computer', then: welcome }, createMock(options));
+    expect(await screen.findByRole('listitem', { name: 'Docker is running' })).toHaveTextContent('Docker is starting. This can take a few minutes.');
+    expect(screen.getByRole('status')).toHaveTextContent('Docker is starting. Checking again every few seconds.');
+    view.unmount();
+    open(scenario('windows-containers'));
+    expect(await screen.findByRole('listitem', { name: 'Docker is running' })).toHaveTextContent('Switch Docker Desktop to Linux containers');
   });
 
   it('gives Linux the start and docker group steps', async () => {
@@ -90,7 +100,7 @@ describe('check this computer', () => {
   it('opens from a check that was not counted, then goes back to the activity', async () => {
     const user = userEvent.setup();
     const { api, course } = await mockWithCourse({ read: true, docker: 'stopped' });
-    renderApp({ to: 'practice', activityId: course.topics[0].activity.id }, api);
+    renderApp({ to: 'practice', concept: course.topics[0].id }, api);
     await user.click(await screen.findByRole('button', { name: 'Check' }));
     const results = screen.getByRole('region', { name: 'Results' });
     await user.click(await within(results).findByRole('button', { name: 'Check this computer' }));
@@ -104,7 +114,7 @@ describe('check this computer', () => {
       for (const id of ['docker-installed', 'docker-running', 'sandbox'] as const) {
         const fix = FIXES[platform][id];
         expect(fix?.steps.length).toBeGreaterThan(0);
-        if (fix?.link) expect(isOfficialLink(fix.link.url)).toBe(true);
+        if (fix?.link) expect(isSafeLink(fix.link.url)).toBe(true);
       }
     }
   });

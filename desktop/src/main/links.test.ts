@@ -1,15 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { isOfficialLink } from './links';
+import { isSafeLink } from './links';
 
-describe('isOfficialLink', () => {
-  it('opens only https links to official install pages', () => {
-    expect(isOfficialLink('https://docs.docker.com/engine/install/')).toBe(true);
-    expect(isOfficialLink('https://code.claude.com/docs/en/setup')).toBe(true);
-    expect(isOfficialLink('http://docs.docker.com/engine/install/')).toBe(false);
-    expect(isOfficialLink('https://docs.docker.com.example.com/')).toBe(false);
-    expect(isOfficialLink('https://example.com/')).toBe(false);
-    expect(isOfficialLink('javascript:alert(1)')).toBe(false);
-    expect(isOfficialLink('file:///etc/passwd')).toBe(false);
-    expect(isOfficialLink('not a url')).toBe(false);
+describe('isSafeLink', () => {
+  it('opens only https links', () => {
+    expect(isSafeLink('https://docs.docker.com/engine/install/')).toBe(true);
+    expect(isSafeLink('https://example.com/a?b')).toBe(true);
+    expect(isSafeLink('http://docs.docker.com/')).toBe(false);
+    expect(isSafeLink('javascript:alert(1)')).toBe(false);
+    expect(isSafeLink('file:///etc/passwd')).toBe(false);
+    expect(isSafeLink('not a url')).toBe(false);
   });
 });
