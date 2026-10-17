@@ -1,0 +1,47 @@
+name: Desktop
+
+on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop.yml"
+      - ".github/workflows/desktop-release.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:e2e
+      # No secrets reach PR builds, so they never get a real signature. electron-builder
+      # skips all signing on PRs unless told otherwise; allow it so macOS is signed ad hoc.
+      - run: npm run dist
+        env:
+          CSC_FOR_PULL_REQUEST: "true"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codemm-desktop-${{ runner.os }}
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.exe
+          if-no-files-found: error

@@ -1,0 +1,34 @@
+:root {
+  color-scheme: light;
+  --navy: #0E2754;
+  --navy-2: #1B3566;
+  --navy-3: #0B1F44;
+  --navy-line: #2A4677;
+  --navy-text: #C9D5EA;
+  --navy-muted: #AFC0DD;
+  --ink: #0E2754;
+  --muted: #4A5B7A;
+  --faint: #5B6A84;
+  --line: #DCE3EE;
+  --ctl: #8492A9;
+  --ground: #F5F7FA;
+  --card: #FFFFFF;
+  --soft: #F0F3F8;
+  --green-ink: #0E7C35;
+  --ok: #13883D;
+  --green-soft: #E6F7EC;
+  --green-line: #A8E3BB;
+  --orange-ink: #8A4B00;
+  --bad: #B85C00;
+  --orange-soft: #FFF2E0;
+  --orange-line: #F6C88A;
+  --blue: #3F5DB8;
+  --blue-soft: #E8EDFB;
+  --blue-line: #CDD7F4;
+  --blue-ink: #2B3F80;
+  --note: #FFF7DB;
+  /* Focus rings: navy on light surfaces, green on navy; both above 3:1. */
+  --focus: #0E2754;
+  --focus-on-navy: #3DDB6C;
+  --ease: cubic-bezier(.2, .75, .25, 1);
+}

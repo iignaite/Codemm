@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "allowJs": true,
+    "types": ["vite/client", "@testing-library/jest-dom/vitest"]
+  },
+  "include": ["src/renderer", "src/shared", "src/main/mock.ts", "src/main/ipc.ts", "src/main/links.ts", "src/main/*.test.ts", "vite.config.mts", "packaging.cjs", "packaging.test.ts", "playwright.config.ts", "e2e"]
+}

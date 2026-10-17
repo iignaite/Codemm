@@ -1,0 +1,164 @@
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it } from 'vitest';
+import { scenario, type MockOptions } from '../../../main/mock';
+import { mockWithCourse, mockWithRoadmap, renderApp } from '../../test-utils';
+
+const TOPIC = 'javascript-basics';
+
+async function approved(options?: MockOptions) {
+  const { api, roadmap } = await mockWithRoadmap(options);
+  await api.approve(roadmap.concepts);
+  return { api, roadmap };
+}
+
+describe('topic page and setup consent', () => {
+  it('asks once before setup, shows exactly what will be built, and sets up', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved();
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const dialog = await screen.findByRole('dialog', { name: 'Set up React on this computer?' });
+    expect(dialog).toHaveTextContent('Setup runs code your agent wrote, with internet access. Graded runs are offline.');
+    await user.click(within(dialog).getByText('Details'));
+    expect(within(dialog).getByRole('region', { name: 'Dockerfile' })).toHaveTextContent('FROM node:22-alpine');
+    expect(dialog).toHaveTextContent('The build stops after 10 minutes, and has no memory or CPU limit.');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Not now' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Set up React' }));
+    await user.click(screen.getByRole('button', { name: 'Set up' }));
+    expect(await screen.findByRole('button', { name: 'Read useState' })).toBeInTheDocument();
+    expect(screen.queryByText(/Setting up React/)).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Opens after the lessons' })).toBeInTheDocument();
+  });
+
+  it('reaches Details from the keyboard', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved();
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await screen.findByRole('dialog');
+    await user.tab({ shift: true });
+    expect(screen.getByText('Details')).toHaveFocus();
+  });
+
+  it('shows the latest proposal again, inside the dialog, when the setup changed', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved();
+    const install = api.install;
+    let first = true;
+    api.install = (digest) => (first ? ((first = false), Promise.reject(new Error('The setup changed. Look at it again.'))) : install(digest));
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('The setup changed. Look at it again.');
+    await user.click(within(dialog).getByRole('button', { name: 'Set up' }));
+    expect(await screen.findByRole('button', { name: 'Read useState' })).toBeInTheDocument();
+  });
+
+  it('says when setup failed offline or on low disk, and tries the same setup again', async () => {
+    const user = userEvent.setup();
+    for (const [name, text] of [['offline-setup', "You're offline."], ['low-disk', 'Not enough disk space.']] as const) {
+      const { api } = await approved(scenario(name));
+      const view = renderApp({ to: 'topic', topicId: TOPIC }, api);
+      await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent(text);
+      await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+      expect(await screen.findByRole('button', { name: 'Read useState' })).toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it('asks again with a new proposal when the gates fail', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved(scenario('setup-gates'));
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByRole('heading', { name: "Couldn't set up React" })).toBeInTheDocument();
+    await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('dialog', { name: 'Codemm has another way to set up React.' })).toBeInTheDocument();
+  });
+});
+
+describe('lessons', () => {
+  it('reads a static lesson, keeps a note, and moves on to the activity once both lessons are read', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    await api.markRead(`${TOPIC}-1`);
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+
+    expect(await screen.findByRole('heading', { name: 'useState', level: 1 })).toBeInTheDocument();
+    expect(document.querySelector('.md pre code')).toHaveTextContent('const [count, setCount] = useState(0);');
+    const outline = screen.getByRole('navigation', { name: 'JavaScript basics' });
+    expect(within(outline).getByRole('button', { name: 'useState' })).toHaveAttribute('aria-current', 'page');
+
+    await user.click(screen.getByRole('button', { name: 'Add a note' }));
+    await user.type(screen.getByRole('textbox', { name: 'My note' }), 'The setter replaces the value.');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('The setter replaces the value.')).toBeInTheDocument();
+    expect((await api.lesson(`${TOPIC}-2`)).notes).toBe('The setter replaces the value.');
+
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'Why a setter?{Enter}');
+    expect(await within(screen.getByRole('log')).findByText('Good question. Try it in the activity next.')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(await screen.findByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
+  });
+
+  it('reopens a lesson instantly from the cache', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+    await screen.findByRole('heading', { name: 'useState', level: 1 });
+    await user.click(screen.getByRole('button', { name: 'What javascript basics is' }));
+    await screen.findByRole('heading', { name: 'What javascript basics is', level: 1 });
+    api.lesson = () => new Promise(() => {});
+    await user.click(screen.getByRole('button', { name: 'useState' }));
+    expect(screen.getByRole('heading', { name: 'useState', level: 1 })).toBeInTheDocument();
+  });
+
+  it('forgets cached lessons when a new course replaces the old one', async () => {
+    const user = userEvent.setup();
+    const { api, roadmap } = await approved();
+    await api.saveNotes(`${TOPIC}-2`, 'Old course note');
+    const view = renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+    expect(await screen.findByText('Old course note')).toBeInTheDocument();
+    view.unmount();
+
+    renderApp({ to: 'course', roadmap }, api);
+    await user.click(await screen.findByRole('button', { name: 'Approve' }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Not now' }));
+    await user.click(await screen.findByRole('button', { name: 'Read useState' }));
+    await screen.findByRole('heading', { name: 'useState', level: 1 });
+    expect(screen.queryByText('Old course note')).not.toBeInTheDocument();
+  });
+
+  it('shows a saved note after reopening, even if an older read finishes later', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+    await screen.findByRole('heading', { name: 'useState', level: 1 });
+    await user.click(screen.getByRole('button', { name: 'What javascript basics is' }));
+    await screen.findByRole('heading', { name: 'What javascript basics is', level: 1 });
+
+    const lesson = api.lesson;
+    let late: () => void = () => {};
+    api.lesson = (id) => {
+      const stale = lesson(id);
+      return new Promise((done) => (late = () => done(stale)));
+    };
+    await user.click(screen.getByRole('button', { name: 'useState' }));
+    api.lesson = lesson;
+    await user.click(screen.getByRole('button', { name: 'Add a note' }));
+    await user.type(screen.getByRole('textbox', { name: 'My note' }), 'Saved note');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Saved note')).toBeInTheDocument();
+    late();
+
+    await user.click(screen.getByRole('button', { name: 'What javascript basics is' }));
+    await screen.findByRole('heading', { name: 'What javascript basics is', level: 1 });
+    await user.click(screen.getByRole('button', { name: 'useState' }));
+    expect(await screen.findByText('Saved note')).toBeInTheDocument();
+  });
+});
