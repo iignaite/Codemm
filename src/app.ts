@@ -276,10 +276,10 @@ export function nextStep(ws: string, bound?: string): NextStep {
   return step.kind === "author" ? { ...step, style: course.style, track: course.track } : step;
 }
 
-export async function saveExercise(ws: string, files: FileMap): Promise<{ exercise: string; warning?: string }> {
+export async function saveExercise(ws: string, files: FileMap, bound?: string): Promise<{ exercise: string; warning?: string }> {
   assertPortablePaths(validateFileMap(files));
-  const courseId = activeCourse(ws).course;
-  const trackId = store.parseTrackRef(activeCourse(ws).track).id;
+  const { course: courseId, track: trackRef } = activeCourse(ws, bound);
+  const trackId = store.parseTrackRef(trackRef).id;
   const { record, track } = await store.withLock(store.courseLockPath(courseId), () =>
     store.withLock(store.trackLockPath(trackId), async () => {
       // Re-read under the locks so a concurrent roadmap change or rebuild can't be missed.
@@ -333,8 +333,8 @@ function noteAssistLocked(course: string, slug: string): void {
   }
 }
 
-export async function getExercise(ws: string, slug?: string) {
-  const { course, config, record, files, track, rel } = loadExercise(ws, slug);
+export async function getExercise(ws: string, slug?: string, bound?: string) {
+  const { course, config, record, files, track, rel } = loadExercise(ws, slug, bound);
   store.materialize(ws, rel, learnerFiles(record, files, track));
   // Record assistance before the exercise becomes current, so edits are never allowed without the evidence.
   if (config.assist) await store.withLock(store.courseLockPath(course.course), async () => noteAssistLocked(course.course, record.slug));
@@ -401,8 +401,8 @@ function present(slug: string, tests: TestResult[], recorded: boolean, note?: st
   };
 }
 
-async function judge(ws: string, slug: string | undefined, includeHidden: boolean) {
-  const ctx = loadExercise(ws, slug);
+async function judge(ws: string, slug: string | undefined, includeHidden: boolean, bound?: string) {
+  const ctx = loadExercise(ws, slug, bound);
   const { record, files, rel } = ctx;
   await ensureImage(ctx.track);
   const track = { ...ctx.track, image: ctx.track.imageId };
@@ -425,8 +425,8 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
 }
 
 /** Runs the visible tests only. Never recorded. */
-export async function testExercise(ws: string, slug?: string): Promise<CheckView> {
-  const { record, tests } = await judge(ws, slug, false);
+export async function testExercise(ws: string, slug?: string, bound?: string): Promise<CheckView> {
+  const { record, tests } = await judge(ws, slug, false, bound);
   return present(record.slug, tests, false);
 }
 
@@ -434,8 +434,8 @@ export async function testExercise(ws: string, slug?: string): Promise<CheckView
  * Runs every test and records the attempt. Infrastructure failures throw before anything is recorded.
  * A check of the unedited starter is graded but records no check event: it isn't an attempt (DESIGN §7).
  */
-export async function checkExercise(ws: string, slug?: string): Promise<CheckView> {
-  const { course, config, record, files, track, src, tests } = await judge(ws, slug, true);
+export async function checkExercise(ws: string, slug?: string, bound?: string): Promise<CheckView> {
+  const { course, config, record, files, track, src, tests } = await judge(ws, slug, true, bound);
   const unedited = track.files.every((f) => src[f] === files[`starter/${f}`]);
   const passed = tests.filter((t) => t.status === "pass").length;
   await store.withLock(store.courseLockPath(course.course), async () => {
@@ -454,8 +454,8 @@ export async function checkExercise(ws: string, slug?: string): Promise<CheckVie
 
 // ---------- progress ----------
 
-export function progress(ws: string) {
-  const course = activeCourse(ws);
+export function progress(ws: string, bound?: string) {
+  const course = activeCourse(ws, bound);
   const states = replay(store.readEvents(course.course));
   return {
     course: course.course,
@@ -469,12 +469,12 @@ export function progress(ws: string) {
         mastered: mastery >= MASTERED, difficulty: s?.difficulty ?? 1, attempts: s?.attempts ?? 0, stuck: s?.stuck ?? false,
       };
     }),
-    next: nextStep(ws),
+    next: nextStep(ws, bound),
   };
 }
 
-export async function skip(ws: string, concept: string): Promise<void> {
-  const courseId = activeCourse(ws).course;
+export async function skip(ws: string, concept: string, bound?: string): Promise<void> {
+  const courseId = activeCourse(ws, bound).course;
   await store.withLock(store.courseLockPath(courseId), async () => {
     const course = store.readCourse(courseId)!;
     if (!course.concepts.some((c) => c.id === concept)) throw new CodemmError(`"${concept}" is not in the roadmap for ${courseId}.`);

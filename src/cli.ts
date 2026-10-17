@@ -9,7 +9,7 @@ import { readFileMap } from "./files.js";
 import { claudeHook } from "./hook.js";
 import { parseCli } from "./args.js";
 import { type Host, HOSTS, init } from "./init.js";
-import { serveMcp } from "./mcp.js";
+import { parseToolList, serveMcp } from "./mcp.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const VERSION = (JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8")) as { version: string }).version;
@@ -28,6 +28,7 @@ Usage:
   codemm track add <folder>                      install a track from a folder
   codemm track rebuild <id@version>              rebuild a track image and re-verify its exercises
   codemm mcp [--workspace <dir>]                 run the MCP server (your agent starts this)
+             [--course <c>] [--tools <a,b>] [--desktop]   bind it to one course, limit its tools, or propose tracks
   codemm hook claude [--workspace <dir>]         Claude Code practice hook (init sets this up)
 
 Options: --workspace <dir>. Learner commands (status, test, check, skip, assist) default to the nearest folder
@@ -136,7 +137,11 @@ async function main(argv: string[]): Promise<number> {
       throw new CodemmError("Use codemm track add <folder> or codemm track rebuild <id@version>.");
     }
     case "mcp":
-      await serveMcp(ws, VERSION);
+      await serveMcp(ws, VERSION, {
+        course: options.course?.[0],
+        tools: options.tools ? parseToolList(options.tools[0]!) : undefined,
+        desktop: options.desktop !== undefined,
+      });
       return -1; // keep running
     case "hook": {
       if (rest[0] !== "claude") throw new CodemmError("Only `codemm hook claude` is supported.");

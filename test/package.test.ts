@@ -6,6 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { beforeAll, describe, expect, it } from "vitest";
 import { readFileMap } from "../src/files.js";
+import { TOOL_NAMES } from "../src/mcp.js";
 import { dockerUp } from "./docker/helpers.js";
 import { npm } from "./npm.js";
 
@@ -61,7 +62,7 @@ describe("packed artifact", () => {
     expect(hook.stderr).toMatch(/practice mode/);
   });
 
-  it.runIf(dockerUp)("runs a full author-and-learner round trip through all eight tools over real stdio", async () => {
+  it.runIf(dockerUp)("runs a full author-and-learner round trip through the core tools over real stdio", async () => {
     const ws = mkdtempSync(join(tmpdir(), "codemm-mcp-"));
     const home = mkdtempSync(join(tmpdir(), "codemm-home-"));
     const client = new Client({ name: "codemm-test", version: "1.0.0" });
@@ -95,7 +96,7 @@ describe("packed artifact", () => {
     }
   });
 
-  it("serves all eight tools over real stdio", async () => {
+  it("serves every tool over real stdio, and only the listed ones with --tools", async () => {
     const ws = mkdtempSync(join(tmpdir(), "codemm-mcp-"));
     const client = new Client({ name: "codemm-test", version: "1.0.0" });
     await client.connect(
@@ -103,7 +104,7 @@ describe("packed artifact", () => {
     );
     try {
       const { tools } = await client.listTools();
-      expect(tools.map((t) => t.name).sort()).toEqual(["check", "get_exercise", "list_tracks", "next_step", "progress", "save_exercise", "save_roadmap", "save_track"]);
+      expect(tools.map((t) => t.name).sort()).toEqual([...TOOL_NAMES].sort());
       const list = await client.callTool({ name: "list_tracks", arguments: {} });
       expect(JSON.parse((list.content as { text: string }[])[0]!.text)).toEqual([]);
       const progress = await client.callTool({ name: "progress", arguments: {} });
@@ -113,6 +114,20 @@ describe("packed artifact", () => {
       expect(bad.isError).toBe(true);
     } finally {
       await client.close();
+    }
+    const job = new Client({ name: "codemm-test", version: "1.0.0" });
+    await job.connect(
+      new StdioClientTransport({
+        command: codemm.command,
+        args: [...codemm.args, "mcp", "--workspace", ws, "--course", "c", "--tools", "list_tracks,get_roadmap"],
+        env: { ...process.env, CODEMM_HOME: mkdtempSync(join(tmpdir(), "codemm-home-")) } as Record<string, string>,
+      }),
+    );
+    try {
+      expect((await job.listTools()).tools.map((t) => t.name).sort()).toEqual(["get_roadmap", "list_tracks"]);
+      expect((await job.callTool({ name: "save_track", arguments: { files: {} } })).isError).toBe(true);
+    } finally {
+      await job.close();
     }
   });
 });
