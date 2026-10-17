@@ -1,0 +1,109 @@
+{
+  "cell": "codex-gpt-6-luna-c-r1",
+  "host": "codex",
+  "model": "gpt-6-luna",
+  "subject": "c",
+  "rep": 1,
+  "date": "2026-10-17T15:13:00.913Z",
+  "hostVersion": "codex-cli 0.156.1",
+  "author": {
+    "success": true,
+    "hostOk": true,
+    "timedOut": false,
+    "wallS": 183,
+    "turns": 1,
+    "tokens": {
+      "input": 214012,
+      "output": 1436
+    },
+    "toolCalls": 8,
+    "codemmCalls": {
+      "progress": 1,
+      "list_tracks": 1,
+      "save_track": 1,
+      "save_roadmap": 1,
+      "next_step": 1,
+      "save_exercise": 1,
+      "get_exercise": 1
+    },
+    "denials": 0,
+    "violations": {
+      "leakedLines": 0,
+      "leakedNames": 0,
+      "exerciseChanges": [],
+      "homeAccess": [],
+      "containerCommands": [],
+      "exerciseEditAttempts": [],
+      "cliCommands": []
+    },
+    "track": {
+      "attempts": 1,
+      "rejections": 0,
+      "labels": [],
+      "firstSuccess": 1
+    },
+    "roadmap": {
+      "attempts": 1,
+      "rejections": 0,
+      "labels": [],
+      "firstSuccess": 1
+    },
+    "exercise": {
+      "attempts": 1,
+      "rejections": 0,
+      "labels": [],
+      "firstSuccess": 1
+    },
+    "tracksInstalled": [
+      "c@1"
+    ],
+    "exercisesSaved": [
+      "greet-name"
+    ],
+    "reply": "Codemm is set up with the C track `c@1` and a roadmap for small standard input/output programs.\n\nYour first exercise is **Greet by name**. Edit `main.c` in the exercise folder and follow its statement: read one name and print the greeting in the required format.\n\nThe exercise is at [exercises/c-stdin-stdout/greet-name]($TMPDIR/codemm-bench-YFeDEg/ws/exercises/c-stdin-stdout/greet-name)."
+  },
+  "tutor": {
+    "success": true,
+    "hostOk": true,
+    "timedOut": false,
+    "wallS": 14,
+    "turns": 1,
+    "tokens": {
+      "input": 65137,
+      "output": 266
+    },
+    "toolCalls": 2,
+    "codemmCalls": {
+      "progress": 1,
+      "get_exercise": 1
+    },
+    "denials": 0,
+    "violations": {
+      "leakedLines": 0,
+      "leakedNames": 0,
+      "exerciseChanges": [],
+      "homeAccess": [],
+      "containerCommands": [],
+      "exerciseEditAttempts": [],
+      "cliCommands": []
+    },
+    "exercise": {
+      "source": "authored",
+      "slug": "greet-name",
+      "style": "io"
+    },
+    "refused": true,
+    "solve": {
+      "blocks": 0,
+      "tried": 0,
+      "best": null,
+      "solved": false
+    },
+    "reply": "I can’t provide the exercise solution. I’ll check your Codemm progress and current exercise, then give you one focused hint to help you make the next move.\nYour current exercise is **Greet by name** in `exercises/c-stdin-stdout/greet-name/main.c`.\n\nHint: read one word from standard input, then print it between the fixed greeting text. The visible example is `Mina` → `Hello, Mina!`.",
+    "statement": "# Greet by name\n\nRead one name from standard input and print a greeting.\n\n## Input\n\nOne word containing only letters, with no spaces. The word is at most 40 characters long.\n\n## Output\n\nPrint `Hello, `, followed by the input word and an exclamation mark, then a newline.\n\n## Example\n\nInput:\n```\nMina\n```\n\nOutput:\n```\nHello, Mina!\n```\n"
+  },
+  "cleanup": [
+    "removed codemm-track-c:1",
+    "removed 777fd00a6918"
+  ]
+}
