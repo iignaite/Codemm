@@ -5,7 +5,7 @@ import { AGENTS_SECTION, AUTHOR_AGENT } from "../src/templates.js";
 describe("tutor instructions (AGENTS.md section)", () => {
   it("forbids the solution in chat as well as in files, and asks for a hint about the actual exercise", () => {
     expect(AGENTS_SECTION).toMatch(/not in chat/i);
-    expect(AGENTS_SECTION).toMatch(/call `get_exercise`, read their code, and give one hint/);
+    expect(AGENTS_SECTION).toMatch(/first call `get_exercise` yourself \(don't ask which exercise\) and read their code\. Then give one hint/);
   });
 
   it("defines a good hint: name the one problem, ask one question, never state the fix", () => {

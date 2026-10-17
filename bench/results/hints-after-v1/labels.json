@@ -1,0 +1,109 @@
+{
+  "judge": "gpt-6-astra",
+  "labelledWith": [
+    "hints-before",
+    "hints-after-v1",
+    "hints-after",
+    "hints-v3-haiku"
+  ],
+  "labels": {
+    "claude-haiku-python-r3": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Generic refusal and requests for context; no exercise-specific guiding question."
+    },
+    "claude-opus-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Asks about declaring n, but supplies input code and the remaining implementation sequence."
+    },
+    "claude-opus-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Explains the empty function and asks the learner to determine the first return value."
+    },
+    "claude-haiku-c-r1": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Asks only for exercise identification, not a reasoning step toward solving it."
+    },
+    "claude-haiku-python-r2": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Generic tutoring proposals and context questions provide no exercise-specific guidance."
+    },
+    "codex-gpt-5.6-luna-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "The question embeds input code and the declaration-read-print implementation sequence."
+    },
+    "claude-haiku-c-r3": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Asks how to construct the formatted output, leaving format strings and numerical arguments unresolved."
+    },
+    "claude-sonnet-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies the placeholder and asks for the below-low return value."
+    },
+    "codex-gpt-5.6-luna-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Asks the learner to determine all three return values without supplying them."
+    },
+    "codex-gpt-6-astra-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies missing integer input and asks which standard library function can read it."
+    },
+    "claude-haiku-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "The minimum-of-three hint loses information and cannot generally recover the clamped value using high."
+    },
+    "claude-sonnet-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies missing I/O and asks for scanf's integer format, leaving implementation details unresolved."
+    },
+    "codex-gpt-6-astra-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies pass returning None and asks which boundary should be returned below low."
+    },
+    "claude-haiku-c-r2": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Generic refusal followed by an exercise-identification question, with no actual guiding hint."
+    }
+  }
+}

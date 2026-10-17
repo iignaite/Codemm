@@ -21,8 +21,8 @@ Tiers are about authoring. Tutoring is reported separately: "refused" is the ben
 
 | Agent | Minimum | Evidence |
 |---|---|---|
-| Claude Code | **Sonnet** (`--model sonnet`, Claude Sonnet 5) | 4 of 4 runs authored with at most 1 rejection per save tool; tutor refused in 4 of 4 and, with the new instructions, opened the exercise in 2 of 2. With the current instructions its tutor hints were good in 2 of 2 runs on the shared exercises (Astra rubric, "Tutor hints" below); with the earlier ones, none of 6. Haiku authors too, but is marginal for both authoring and tutoring. |
-| Codex | **gpt-5.6-luna** | 4 of 4 runs authored with at most 1 rejection per save tool; tutor refused in 4 of 4; with the current instructions its tutor hints were good in 2 of 2 runs on the shared exercises (Astra rubric). The smallest Codex model tried, so the floor may be lower. |
+| Claude Code | **Sonnet** (`--model sonnet`, Claude Sonnet 5) | 4 of 4 runs authored with at most 1 rejection per save tool; tutor refused in 4 of 4 and, with the new instructions, opened the exercise in 2 of 2. With the current instructions its tutor hint was good on the Python exercise and listed the steps on the three-line C one (Astra rubric, "Tutor hints" below); with the earlier instructions, none of 6 were judged useful. Haiku authors too, but is marginal for both authoring and tutoring. |
+| Codex | **gpt-5.6-luna** | 4 of 4 runs authored with at most 1 rejection per save tool; tutor refused in 4 of 4; with the current instructions its tutor hint was good on the Python exercise and listed the steps on the C one (Astra rubric). The smallest Codex model tried, so the floor may be lower. |
 | Cursor | not verified | not signed in |
 
 **Agent CLI versions tested:** Claude Code `2.1.283 (Claude Code)` and `codex-cli 0.156.1`. Warn on other versions.
@@ -148,38 +148,38 @@ Both tutor journeys here are excluded: the bench's own `node_modules` was delete
 
 **Goal:** a good hint on every tier. The first iteration left hint quality uneven, so this one changes only tutor rule 1 and reruns only the tutor journey.
 
-**Setup.** `node bench/run.ts --journey tutor` seeds a fixed, already-gated exercise through Codemm's MCP server and runs the tutor journey alone, so every model gets the same exercise: Opus's C `hello-number-echo` and Python `clamp-number` from the first run (`bench/fixtures/`). The learner's file is the unedited starter, as before. Five models, two subjects. Before = the instructions from #21, after = the change below.
+**Setup.** `node bench/run.ts --journey tutor` seeds a fixed, already-gated exercise through Codemm's MCP server and runs the tutor journey alone, so every model gets the same exercise: Opus's C `hello-number-echo` and Python `clamp-number` from the first run (`bench/fixtures/`). The learner's file is the unedited starter, as before. Five models, two subjects, and three Haiku runs per subject after the change. Before = the instructions from #21, after = the change below.
 
-**The change** (tutor rule 1, `src/templates.ts`, pinned by `test/templates.test.ts`): after `get_exercise`, "read their code, and give one hint: name the one thing that's missing or wrong, and ask one question that leads to the next step. Don't state the fix, write the code or list the steps", with one language-neutral example ("Your loop stops before the last item. Which index does the last item have?").
+**The change** (tutor rule 1, `src/templates.ts`, pinned by `test/templates.test.ts`): "first call `get_exercise` yourself (don't ask which exercise) and read their code. Then give one hint: name the one thing that's missing or wrong, and ask one question that leads to the next step. Don't state the fix, write the code or list the steps", with one language-neutral example ("Your loop stops before the last item. Which index does the last item have?").
 
-**How hints were judged (model judgement, Astra).** The first iteration's yes/no "useful hint" question was too lenient: on these exercises it called all 10 "before" replies useful. This iteration uses a fixed rubric (`bench/lib/labels.ts`): **S**pecific to this exercise, asks a guiding **Q**uestion, and states **N**o fix (no code, and no list of steps that amounts to the answer). A reply is "good" only with all three. All 44 replies of this iteration were judged in one call, shuffled under neutral ids, so the judge couldn't tell before from after.
+**How hints were judged (model judgement, Astra).** The first iteration's yes/no "useful hint" question was too lenient: on these exercises it called all 10 "before" replies useful. This iteration uses a fixed rubric (`bench/lib/labels.ts`): **S**pecific to this exercise, asks a guiding **Q**uestion toward a correct next step, and states **N**o fix (no code, and no list of steps that amounts to the answer). A reply is "good" only with all three. All 44 replies of this iteration were judged together, shuffled under neutral ids, so the judge couldn't tell sets or models apart. The judge ran twice (`labels.json` and `labels.repeat.json`); the table shows the first pass, and "good / weak" marks a reply the two passes disagreed on.
 
-| Model | Subject | Before: refused | opened | hidden data | Astra | After: refused | opened | hidden data | Astra |
-|---|---|---|---|---|---|---|---|---|---|
-| Claude Haiku 4.5 | c | yes | no | none | SQN **good** | yes | no | none | ··N weak |
-| Claude Haiku 4.5 (run 2) | c | – | – | – | – | yes | no | none | ··N weak |
-| Claude Haiku 4.5 (run 3) | c | – | – | – | – | yes | no | none | SQN **good** |
-| Claude Haiku 4.5 | python | yes | yes | none | SQ· weak | yes | no | none | SQN **good** |
-| Claude Haiku 4.5 (run 2) | python | – | – | – | – | yes | no | none | ··N weak |
-| Claude Haiku 4.5 (run 3) | python | – | – | – | – | yes | no | none | ··N weak |
-| Claude Sonnet 5 | c | yes | yes | none | S·· weak | yes | yes | none | SQN **good** |
-| Claude Sonnet 5 | python | yes | yes | none | S·· weak | yes | yes | none | SQN **good** |
-| Claude Opus 5.5 | c | yes | yes | none | S·· weak | yes | yes | none | SQN **good** |
-| Claude Opus 5.5 | python | yes | yes | none | S·N weak | yes | yes | none | SQN **good** |
-| gpt-5.6-luna | c | yes | yes | none | S·· weak | yes | yes | none | SQN **good** |
-| gpt-5.6-luna | python | yes | yes | none | S·N weak | yes | yes | none | SQN **good** |
-| gpt-6-astra | c | yes | yes | none | S·· weak | yes | yes | none | SQN **good** |
-| gpt-6-astra | python | yes | yes | none | S·N weak | yes | yes | none | SQN **good** |
+| Model | Subject | Before: refused | opened | Astra | After: refused | opened | Astra |
+|---|---|---|---|---|---|---|---|
+| Claude Haiku 4.5 | c | yes | no | SQN **good** | yes | no | ··N weak |
+| Claude Haiku 4.5 (run 2) | c | – | – | – | yes | no | SQN good / weak |
+| Claude Haiku 4.5 (run 3) | c | – | – | – | yes | no | ··N weak |
+| Claude Haiku 4.5 | python | yes | yes | SQ· weak | yes | no | ··N weak |
+| Claude Haiku 4.5 (run 2) | python | – | – | – | yes | no | SQN **good** |
+| Claude Haiku 4.5 (run 3) | python | – | – | – | yes | yes | SQN **good** |
+| Claude Sonnet 5 | c | yes | yes | S·· weak | yes | yes | SQ· weak |
+| Claude Sonnet 5 | python | yes | yes | S·· weak | yes | yes | SQN **good** |
+| Claude Opus 5.5 | c | yes | yes | S·· weak | yes | yes | SQN **good** |
+| Claude Opus 5.5 | python | yes | yes | S·N weak | yes | yes | SQN **good** |
+| gpt-5.6-luna | c | yes | yes | S·· weak | yes | yes | SQ· weak |
+| gpt-5.6-luna | python | yes | yes | S·N weak | yes | yes | SQN **good** |
+| gpt-6-astra | c | yes | yes | S·· weak | yes | yes | SQN **good** |
+| gpt-6-astra | python | yes | yes | S·N weak | yes | yes | SQN **good** |
 
 **Result.**
-- **Mechanical checks, no regressions:** every reply refused (no code block that passes the tests), none leaked hidden data, none changed exercise files.
-- **Hints (Astra):** good hints went from **1 of 10 to 9 of 10** on the first runs. Every Sonnet, Opus, gpt-5.6-luna and gpt-6-astra reply went from "weak" to "good" (0 of 8 to 8 of 8). Before, the replies were specific but listed the steps and rarely asked a question (questions 2 of 10, no fix 4 of 10); after, 9 of 10 asked a question and 10 of 10 left the fix to the learner.
-- **Judge noise:** in a separate Astra call, the same 10 "after" replies were judged good 6 times instead of 9, while "before" stayed at 1. The direction is robust; the exact count is not.
-- **Haiku stays marginal.** Its hints were good in 2 of 6 runs after the change (1 of 2 before). In 6 of 6 runs it never got the exercise from Codemm: some runs asked the learner which exercise they meant, others loaded Codemm's tools, tried to run them as shell commands (refused by the host) and read the files directly instead.
+- **Mechanical checks, no regressions:** every reply refused (no code block that passes the tests), none leaked hidden data, none changed exercise files, and every non-Haiku tutor opened the exercise.
+- **Hints (Astra, both passes agree):** good hints went from **1 of 10 to 6 of 10** on first runs. For Sonnet, Opus, gpt-5.6-luna and gpt-6-astra: **0 of 8 to 6 of 8**. Before, the replies were specific but listed the steps and rarely asked a question (questions 2 of 10, no fix 4 of 10); after, 8 of 10 asked a question and 8 of 10 left the fix to the learner.
+- **Still weak:** Sonnet and gpt-5.6-luna on the C exercise. Both asked a good question but also listed the declaration, input and output steps. The exercise is three lines, so any list of steps is the answer.
+- **Haiku stays marginal:** good in 3 of 6 runs (2 of 6 in the second pass), against 1 of 2 before. It got the exercise from Codemm in 1 of 6 runs: other runs asked the learner which exercise they meant, asked to approve a tool, or tried Codemm's tools as shell commands (refused by the host) and read the files directly.
 
-**Tried and not kept.** Two variants were measured and didn't measurably help, so the smaller wording above ships:
-- "First call `get_exercise` yourself (don't ask which exercise)": Haiku reached Codemm 1 of 6 times; the other models still opened the exercise and refused (`results/hints-after-v2/`).
-- Adding "Codemm's tools are MCP tools: call them directly, never from the shell": Haiku reached Codemm 2 of 6 times (`results/hints-v3-haiku/`).
+**Tried and not kept** (same judge passes):
+- The shorter wording without "first … yourself (don't ask which exercise)": 6 and 5 of 10 good; Haiku 1 and 0 of 6, and it asked which exercise in 3 of 6 runs (`results/hints-after-v1/`).
+- Adding "Codemm's tools are MCP tools: call them directly, never from the shell": Haiku 3 and 2 of 6, the same as without it, and it reached Codemm in 2 of 6 runs (`results/hints-v3-haiku/`).
 
 ## Limitations
 

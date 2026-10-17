@@ -1,0 +1,53 @@
+{
+  "judge": "gpt-6-astra",
+  "labelledWith": [
+    "hints-before",
+    "hints-after-v1",
+    "hints-after",
+    "hints-v3-haiku"
+  ],
+  "labels": {
+    "claude-haiku-c-r1": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Generic refusal and preference questions provide no exercise-specific next step."
+    },
+    "claude-haiku-python-r2": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Names the empty function and asks about the lower-bound case without answering it."
+    },
+    "claude-haiku-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Suggests branching and returns but asks the learner to determine the missing boundary value."
+    },
+    "claude-haiku-python-r3": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Asks about conditions and returns, then supplies all three outcomes and the branching structure."
+    },
+    "claude-haiku-c-r2": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Asks for implementation, then gives declaration and input code plus instructions for every output line."
+    },
+    "claude-haiku-c-r3": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Asks a valid scanf question but also provides the declaration, input, and output implementation sequence."
+    }
+  }
+}

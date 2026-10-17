@@ -1,0 +1,109 @@
+{
+  "judge": "gpt-6-astra",
+  "labelledWith": [
+    "hints-before",
+    "hints-after-v1",
+    "hints-after",
+    "hints-v3-haiku"
+  ],
+  "labels": {
+    "claude-sonnet-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Asks about integer input, but outlines the implementation from declaration through all output."
+    },
+    "codex-gpt-6-astra-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies the pass stub and asks which boundary applies without supplying the answer."
+    },
+    "claude-haiku-c-r2": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Asks for exercise identification, not a guiding question about solving it."
+    },
+    "claude-haiku-python-r2": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Offers generic tutoring options and context gathering without a substantive guiding question."
+    },
+    "claude-haiku-c-r1": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Requests track and exercise information without guiding the learner through the actual task."
+    },
+    "claude-opus-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Asks about declaration but supplies the input call and a recipe for completing all output."
+    },
+    "codex-gpt-5.6-luna-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies pass and asks the learner to derive the return values for all cases."
+    },
+    "claude-haiku-python-r3": {
+      "specific": false,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Requests code and problem context, but offers no task-specific guiding question."
+    },
+    "claude-haiku-c-r3": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Gives the declaration, input, and output recipe, then asks a valid formatting question."
+    },
+    "claude-haiku-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "The proposed minimum-of-three approach loses information and cannot recover the middle value by comparing with high."
+    },
+    "claude-sonnet-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies pass and asks for the lower-bound return without supplying it."
+    },
+    "codex-gpt-5.6-luna-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Embeds the declaration, exact input pattern, and output sequence within its guiding question."
+    },
+    "claude-opus-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies pass and asks for the first return value without providing the return mappings."
+    },
+    "codex-gpt-6-astra-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Identifies missing input and asks the learner to select the appropriate standard-library function."
+    }
+  }
+}

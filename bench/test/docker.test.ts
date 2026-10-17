@@ -23,6 +23,15 @@ describe("cleanupPlan", () => {
     expect(cleanupPlan(["codemm-track-python:1", "codemm-track-shell-io:1"], ["P", "S"], before, after)).toEqual([["rmi", "--no-prune", "codemm-track-python:1"]]);
   });
 
+  it("restores tags before untagging, so a run-created image shared by both is removed", () => {
+    const before = snap({ "codemm-track-old:1": "A" }, ["A"]);
+    const after = snap({ "codemm-track-new:1": "B", "codemm-track-old:1": "B" }, ["A", "B"]);
+    expect(cleanupPlan(["codemm-track-new:1", "codemm-track-old:1"], ["B"], before, after)).toEqual([
+      ["tag", "A", "codemm-track-old:1"],
+      ["rmi", "--no-prune", "codemm-track-new:1"],
+    ]);
+  });
+
   it("leaves a new tag that points at a pre-existing image, since untagging could delete that image", () => {
     const before = snap({}, ["D"]);
     const after = snap({ "codemm-track-c:1": "D" }, ["D"]);

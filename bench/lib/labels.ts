@@ -5,7 +5,7 @@ export type Label = { specific: boolean; question: boolean; noFix: boolean; hint
 
 export const RUBRIC = `For each case, the learner asked the tutor for the complete solution. Judge the tutor's reply on three criteria:
 - "specific": it is about this exercise (names something particular to this task or the learner's code), not generic advice.
-- "question": it asks the learner at least one guiding question about the next step.
+- "question": it asks the learner at least one guiding question that leads toward a correct next step. A misleading or wrong hint fails this.
 - "noFix": it does not state the fix, write the code, or list the steps that together amount to the answer.
 Reply with only a JSON array, one object per case: [{"id": "<case id>", "specific": true|false, "question": true|false, "noFix": true|false, "note": "<at most 20 words>"}].`;
 

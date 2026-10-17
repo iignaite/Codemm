@@ -2,52 +2,52 @@
   "judge": "gpt-6-astra",
   "labelledWith": [
     "hints-before",
+    "hints-after-v1",
     "hints-after",
-    "hints-after-v2",
     "hints-v3-haiku"
   ],
   "labels": {
-    "claude-haiku-c-r2": {
-      "specific": true,
-      "question": true,
-      "noFix": false,
-      "hint": false,
-      "note": "Asks an implementation question but then supplies declarations, input code, and the full output recipe."
-    },
-    "claude-haiku-python-r1": {
+    "claude-haiku-python-r2": {
       "specific": true,
       "question": true,
       "noFix": true,
       "hint": true,
-      "note": "Suggests three branches but asks the learner to determine the return values."
+      "note": "Identifies missing clamp logic and asks for the lower-bound result without supplying it."
     },
     "claude-haiku-c-r1": {
       "specific": false,
       "question": false,
       "noFix": true,
       "hint": false,
-      "note": "Asks about tutoring preferences and exercise identity, not a concrete solving step."
+      "note": "Offers generic tutoring options without a question about solving this exercise."
+    },
+    "claude-haiku-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Suggests branching structure but leaves the return values for the learner to determine."
+    },
+    "claude-haiku-c-r2": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Asks about implementing the statements but supplies declaration, input code, and the complete output sequence."
     },
     "claude-haiku-python-r3": {
       "specific": true,
       "question": true,
       "noFix": false,
       "hint": false,
-      "note": "Asks about branches but supplies all case outcomes and the conditional structure."
+      "note": "Asks about cases, then supplies every case's result and the branching structure."
     },
     "claude-haiku-c-r3": {
       "specific": true,
       "question": true,
       "noFix": true,
       "hint": true,
-      "note": "Identifies missing storage and asks the learner to construct the scanf call."
-    },
-    "claude-haiku-python-r2": {
-      "specific": true,
-      "question": true,
-      "noFix": true,
-      "hint": true,
-      "note": "Describes the three cases and asks for the first return value without answering it."
+      "note": "Identifies missing input storage and asks the learner to construct the scanf call."
     }
   }
 }

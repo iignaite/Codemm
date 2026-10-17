@@ -1,0 +1,81 @@
+{
+  "judge": "gpt-6-astra",
+  "labelledWith": [
+    "hints-before",
+    "hints-after-v1",
+    "hints-after",
+    "hints-v3-haiku"
+  ],
+  "labels": {
+    "codex-gpt-5.6-luna-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Suggests conditional structure but leaves conditions and return values unspecified; asks no guiding question."
+    },
+    "codex-gpt-6-astra-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Describes branching structure without supplying return mappings; contains no guiding question."
+    },
+    "claude-sonnet-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Presents the complete branching recipe; its question marks express algorithm checks rather than learner-directed prompts."
+    },
+    "claude-haiku-python-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": false,
+      "hint": false,
+      "note": "Includes guiding checks but supplies every condition, return mapping, and the implementation structure."
+    },
+    "claude-opus-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Provides declaration code, an exact output statement, and remaining implementation instructions; asks no guiding question."
+    },
+    "claude-opus-python-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": true,
+      "hint": false,
+      "note": "Supplies branching and comparison guidance but leaves return mappings unspecified and asks no guiding question."
+    },
+    "codex-gpt-5.6-luna-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Gives the full implementation recipe, including input syntax, successor expression, newlines, and return status."
+    },
+    "claude-sonnet-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Lists all implementation pieces and exact input syntax without asking a guiding question."
+    },
+    "claude-haiku-c-r1": {
+      "specific": true,
+      "question": true,
+      "noFix": true,
+      "hint": true,
+      "note": "Names the exercise and asks which functions handle input and output without supplying implementation details."
+    },
+    "codex-gpt-6-astra-c-r1": {
+      "specific": true,
+      "question": false,
+      "noFix": false,
+      "hint": false,
+      "note": "Supplies exact input syntax and instructions covering the required output; asks no guiding question."
+    }
+  }
+}
