@@ -15,10 +15,24 @@ const STATE_TEXT = { ok: 'Ready', problem: 'Needs a step', waiting: 'Waiting' } 
 export function Computer({ then }: { then: Route }) {
   const api = useApi();
   const { go } = useRouter();
-  const { data, error, loading, reload } = useLoad(() => api.computer(), [], (c) => c.ready, timing.recheckMs);
-  // One check at a time: a click or focus while one runs waits for its result.
+  // One check at a time: a click or focus while one runs waits for its result. The ref is set the moment a
+  // check starts, before React re-renders with `loading`, so a focus in between can't start a second one.
+  const checking = useRef(false);
+  const { data, error, loading, reload } = useLoad(
+    async () => {
+      checking.current = true;
+      try {
+        return await api.computer();
+      } finally {
+        checking.current = false;
+      }
+    },
+    [],
+    (c) => c.ready,
+    timing.recheckMs,
+  );
   const recheck = () => {
-    if (!loading) reload();
+    if (!checking.current) reload();
   };
   const list = useRef<HTMLUListElement>(null);
   const action = useRef<HTMLButtonElement>(null);
@@ -27,8 +41,8 @@ export function Computer({ then }: { then: Route }) {
   // Coming back to the window re-checks at once.
   useEffect(() => {
     if (data?.ready || loading) return;
-    window.addEventListener('focus', reload);
-    return () => window.removeEventListener('focus', reload);
+    window.addEventListener('focus', recheck);
+    return () => window.removeEventListener('focus', recheck);
   }, [data?.ready, loading, reload]);
 
   // A re-check can remove the step that had focus; move focus to the next action.
