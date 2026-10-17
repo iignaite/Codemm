@@ -109,6 +109,14 @@ describe('mock: practice', () => {
     expect(course.topics.find((t) => t.state === 'now')!.id).toBe('lists-and-keys');
   });
 
+  it('keeps every deferral until that topic is checked again', async () => {
+    const { api, roadmap } = await roadmapped();
+    await api.approve(roadmap.concepts);
+    await api.skip('javascript-basics');
+    await api.skip('lists-and-keys');
+    expect((await api.course())!.topics.find((t) => t.state === 'now')!.id).toBe('forms');
+  });
+
   it('declines to write code in practice mode', async () => {
     const { api, activity } = await practising();
     const [reply] = await api.ask({ activityId: activity.id }, 'Just fix it for me.');

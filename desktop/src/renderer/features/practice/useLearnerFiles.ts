@@ -20,7 +20,7 @@ export function useLearnerFiles(activity: Activity, onReloaded: () => void) {
   const save = useCallback((): Promise<void> => {
     clearTimeout(timer.current);
     const s = state.current;
-    s.chain = s.chain.then(async () => {
+    const run = s.chain.then(async () => {
       for (const path of [...s.dirty]) {
         s.dirty.delete(path);
         const file = s.files.find((f) => f.path === path)!;
@@ -28,17 +28,21 @@ export function useLearnerFiles(activity: Activity, onReloaded: () => void) {
           const digest = await api.saveFile(activity.id, path, file.text, file.digest);
           s.files = s.files.map((f) => (f.path === path ? { ...f, digest } : f));
         } catch (e) {
-          if (!(e instanceof Error && e.message.includes(CHANGED))) throw e;
-          const fresh = await api.activity(activity.concept);
-          s.files = fresh.files;
-          s.dirty.clear();
-          setFiles(fresh.files);
+          if (!(e instanceof Error && e.message.includes(CHANGED))) {
+            s.dirty.add(path); // kept for the next save
+            throw e;
+          }
+          // Only this file changed outside Codemm: take its new contents, keep every other edit.
+          const fresh = (await api.activity(activity.concept)).files.find((f) => f.path === path);
+          if (fresh) s.files = s.files.map((f) => (f.path === path ? fresh : f));
+          setFiles(s.files);
           onReloaded();
-          return;
         }
       }
     });
-    return s.chain;
+    // A failed save rejects for its caller, but never blocks the saves after it.
+    s.chain = run.catch(() => {});
+    return run;
   }, [api, activity.id, activity.concept, onReloaded]);
 
   const edit = useCallback(

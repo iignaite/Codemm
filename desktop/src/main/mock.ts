@@ -107,6 +107,8 @@ export default function Counter() {
 }
 `;
 
+const APP = "import Counter from './Counter';\n\nexport default function App() {\n  return <Counter />;\n}\n";
+
 const PROPOSAL_FILES = [
   { path: 'Dockerfile', text: 'FROM node:22-alpine\nWORKDIR /work\nRUN npm install --global vitest@3\n' },
   { path: 'track.yaml', text: 'id: react\nversion: 1\nstyles: [unit]\n' },
@@ -139,6 +141,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   let roadmap: Roadmap | null = null;
   let course: CourseView | null = null;
   let checks = 0;
+  /** Concepts skipped since their last check (§4.4). */
+  const deferred = new Set<string>();
 
   const docker = () => options.docker ?? 'ready';
   const notCounted = () => ({ kind: 'not-counted' as const, reason: DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] });
@@ -187,7 +191,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         { name: 'Shows Count: 0', expected: 'Count: 0' },
         { name: 'Adds one per click', expected: 'Count: 1' },
       ],
-      files: [{ path: 'Counter.jsx', text: STARTER, digest: digestOf(STARTER) }],
+      files: [
+        { path: 'Counter.jsx', text: STARTER, digest: digestOf(STARTER) },
+        { path: 'App.jsx', text: APP, digest: digestOf(APP) },
+      ],
     };
     activities.set(activity.id, { activity, fails: 0 });
     return { id: concept.id, title: concept.title, state: 'later' as const, mastery: 0, stuck: false, lessons: own.map((l) => ({ id: l.id, title: l.title, state: 'writing' as const })), activity: 'writing' as const };
@@ -206,13 +213,13 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   }
 
   /** The next topic: not mastered, every prerequisite mastered, and a deferred one only if nothing else is ready (§4.4). */
-  function advance(deferred?: string) {
+  function advance() {
     const c = course!;
     const requires = (id: string) => roadmap!.concepts.find((x) => x.id === id)?.requires ?? [];
     const ready = c.topics.filter((t) => t.state !== 'mastered' && requires(t.id).every((r) => topicOf(r).state === 'mastered'));
     c.topics.filter((t) => t.state === 'now').forEach((t) => (t.state = 'later'));
     c.done = c.topics.every((t) => t.state === 'mastered');
-    const next = ready.find((t) => t.id !== deferred) ?? ready[0];
+    const next = ready.find((t) => !deferred.has(t.id)) ?? ready[0];
     if (next) start(next.id);
   }
 
@@ -377,6 +384,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       const record = find(activities, activityId);
       if (docker() !== 'ready') return notCounted();
       if (++checks === 1) happen('check');
+      deferred.delete(record.activity.concept);
       const text = record.activity.files[0].text;
       const done = !text.includes(PLACEHOLDER);
       const unedited = text === STARTER;
@@ -409,7 +417,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async skip(concept) {
       topicOf(concept);
-      advance(concept);
+      deferred.add(concept);
+      advance();
     },
 
     async easier(concept) {

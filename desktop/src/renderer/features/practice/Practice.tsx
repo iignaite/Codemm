@@ -65,7 +65,7 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
 
   const lastLesson = topic?.lessons[topic.lessons.length - 1];
   const ways = {
-    retry: () => check(),
+    retry: () => (shown.kind === 'try' ? tryIt() : check()),
     keepTrying: () => shown.kind === 'check' && setShown({ ...shown, keepTrying: true }),
     reread: () => go(lastLesson ? { to: 'lesson', lessonId: lastLesson.id } : { to: 'learn' }),
     easier: () => act(() => api.easier(activity.concept), { to: 'learn' }),

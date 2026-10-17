@@ -85,6 +85,46 @@ describe('practice', () => {
     expect(code()).toHaveValue('changed outside');
   });
 
+  it('reloads only the file that changed outside Codemm, keeping other unsaved edits', async () => {
+    const { user, api, course } = await open();
+    const activity = await api.activity(course.topics[0].id);
+    await user.click(screen.getByRole('tab', { name: 'App.jsx' }));
+    await user.type(screen.getByRole('textbox', { name: 'App.jsx' }), ' // mine');
+    await user.click(screen.getByRole('tab', { name: 'Counter.jsx' }));
+    await api.saveFile(activity.id, 'Counter.jsx', 'changed outside', activity.files[0].digest);
+    await user.type(code(), 'x');
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await within(screen.getByRole('log')).findByText('This file changed outside Codemm, so it was reloaded.');
+    expect(code()).toHaveValue('changed outside');
+    await user.click(screen.getByRole('tab', { name: 'App.jsx' }));
+    expect((screen.getByRole('textbox', { name: 'App.jsx' }) as HTMLTextAreaElement).value).toContain(' // mine');
+    expect((await api.activity(course.topics[0].id)).files[1].text).toContain(' // mine');
+  });
+
+  it('keeps saving after a save fails once', async () => {
+    const { user, api } = await open();
+    const saveFile = api.saveFile;
+    let failures = 1;
+    api.saveFile = (...args) => (failures-- > 0 ? Promise.reject(new Error('disk hiccup')) : saveFile(...args));
+    await write(user, 'first');
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await within(results()).findByRole('heading', { name: /visible tests passed/ });
+    expect((await api.activity('javascript-basics')).files[0].text).toBe('first');
+  });
+
+  it('retries Try it, not Check, after Docker stops', async () => {
+    const { user, api } = await open({ docker: 'stopped' });
+    let checks = 0;
+    const check = api.check;
+    api.check = (id) => (checks++, check(id));
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await user.click(await within(results()).findByRole('button', { name: 'Try again' }));
+    await within(results()).findByRole('heading', { name: "This check wasn't counted" });
+    expect(checks).toBe(0);
+  });
+
   it('keeps practice mode: Codemm explains, the learner writes the code', async () => {
     const { user } = await open();
     await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'Just fix it for me.{Enter}');

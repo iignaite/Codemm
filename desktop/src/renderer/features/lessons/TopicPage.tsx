@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
+import { problemOf } from '../../app/errors';
 import { useRouter } from '../../app/router';
 import { Failed } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
@@ -21,6 +22,7 @@ export function TopicPage({ topicId }: { topicId: string }) {
   const { fail } = useRouter();
   const { data: course, error, reload } = useLoad(() => api.course(), [topicId], settled);
   const [consentClosed, setConsentClosed] = useState(false);
+  const [consentError, setConsentError] = useState<string>();
   if (error) return <Failed error={error} retry={reload} />;
   const topic = course?.topics.find((t) => t.id === topicId);
   if (!course || !topic) return null;
@@ -29,10 +31,13 @@ export function TopicPage({ topicId }: { topicId: string }) {
   async function install(digest: string) {
     try {
       await api.install(digest);
-      reload();
+      setConsentError(undefined);
     } catch (e) {
-      fail(e);
+      if (problemOf(e) === 'connect') return fail(e);
+      // The proposal changed since the learner saw it: show the new one, and say why.
+      setConsentError((e as Error).message);
     }
+    reload();
   }
 
   const proposal = course.setup === 'consent' ? course.proposal : undefined;
@@ -49,7 +54,7 @@ export function TopicPage({ topicId }: { topicId: string }) {
         )}
       </div>
       {proposal && !consentClosed && (
-        <SetupConsent track={course.track} proposal={proposal} onClose={() => setConsentClosed(true)} onSetUp={() => install(proposal.digest)} />
+        <SetupConsent track={course.track} proposal={proposal} error={consentError} onClose={() => setConsentClosed(true)} onSetUp={() => install(proposal.digest)} />
       )}
     </main>
   );

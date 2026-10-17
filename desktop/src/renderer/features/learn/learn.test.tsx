@@ -42,6 +42,21 @@ describe('choose journey', () => {
     expect(screen.queryByText("Couldn't reach Codemm.")).not.toBeInTheDocument();
   });
 
+  it('says when research failed, and tries again', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    await api.connect('claude');
+    const research = api.research;
+    let failed = false;
+    api.research = (goal) => (failed ? research(goal) : ((failed = true), Promise.resolve({ state: 'failed' as const })));
+    renderApp({ to: 'research', goal: { topic: 'React', known: '' } }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Codemm couldn't finish that.");
+    expect(within(alert).getByRole('button', { name: 'Check your agent' })).toBeInTheDocument();
+    await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeInTheDocument();
+  });
+
   it('goes to connect when no agent is connected', async () => {
     renderApp({ to: 'research', goal: { topic: 'React', known: '' } });
     expect(await screen.findByRole('heading', { name: 'Connect an agent' })).toBeInTheDocument();

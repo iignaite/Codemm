@@ -9,10 +9,13 @@ const MAX_FILE_BYTES = 1024 * 1024;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (max: number, min = 0): Valid => (v) => typeof v === 'string' && v.length >= min && v.length <= max;
 const oneOf = (...options: string[]): Valid => (v) => typeof v === 'string' && options.includes(v);
-const id: Valid = (v) => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(v) && !v.includes('..');
+/** Core's ids: lowercase, at most 64 characters (docs/DESIGN.md §3). */
+const id: Valid = (v) => typeof v === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(v) && !v.includes('..');
 /** A track `id@version`, as core's ids. */
 const trackRef: Valid = (v) => typeof v === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}@[1-9][0-9]{0,8}$/.test(v);
-const list = (item: Valid, max: number, min = 0): Valid => (v) => Array.isArray(v) && v.length >= min && v.length <= max && v.every(item);
+/** A dense array (no holes, which `every` would skip) of valid items. */
+const list = (item: Valid, max: number, min = 0): Valid => (v) =>
+  Array.isArray(v) && v.length >= min && v.length <= max && Object.keys(v).length === v.length && v.every(item);
 const shape = (fields: Record<string, Valid>): Valid => (v) =>
   isObject(v) && Object.keys(v).every((k) => Object.hasOwn(fields, k)) && Object.entries(fields).every(([k, valid]) => valid(v[k]));
 

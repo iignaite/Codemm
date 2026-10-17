@@ -32,6 +32,29 @@ describe('topic page and setup consent', () => {
     expect(screen.getByRole('img', { name: 'Opens after the lessons' })).toBeInTheDocument();
   });
 
+  it('reaches Details from the keyboard', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved();
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await screen.findByRole('dialog');
+    await user.tab({ shift: true });
+    expect(screen.getByText('Details')).toHaveFocus();
+  });
+
+  it('shows the latest proposal again, inside the dialog, when the setup changed', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved();
+    const install = api.install;
+    let first = true;
+    api.install = (digest) => (first ? ((first = false), Promise.reject(new Error('The setup changed. Look at it again.'))) : install(digest));
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('The setup changed. Look at it again.');
+    await user.click(within(dialog).getByRole('button', { name: 'Set up' }));
+    expect(await screen.findByRole('button', { name: 'Read useState' })).toBeInTheDocument();
+  });
+
   it('says when setup failed offline or on low disk, and tries the same setup again', async () => {
     const user = userEvent.setup();
     for (const [name, text] of [['offline-setup', "You're offline."], ['low-disk', 'Not enough disk space.']] as const) {
