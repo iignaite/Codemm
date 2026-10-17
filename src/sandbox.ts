@@ -21,6 +21,8 @@ export type SandboxRun = {
   mounts: Mount[];
   memoryMb: number;
   deadlineMs: number;
+  /** Keep the program's stdin open for typed input (`docker run -i`); Run only. */
+  stdin?: boolean;
 };
 /** `oomKilled`: the runtime recorded that the container hit its memory limit (exit 137 from inside, not a kill from outside). */
 export type SandboxResult = { exit: number; stdout: Buffer; stderr: string; flooded: boolean; timedOut: boolean; cleanupFailed: boolean; oomKilled: boolean };
@@ -89,6 +91,7 @@ export function sandboxArgs(run: SandboxRun, name: string, user = hostUser()): s
   ];
   for (const [k, v] of Object.entries(run.env)) args.push("-e", `${k}=${v}`);
   for (const m of run.mounts) args.push("--mount", `type=bind,source=${m.host},target=${m.container},readonly`);
+  if (run.stdin) args.push("-i");
   args.push(run.image, "-c", run.script);
   return args;
 }
@@ -98,43 +101,67 @@ function hostUser(): string {
   return typeof process.getuid === "function" && typeof process.getgid === "function" ? `${process.getuid()}:${process.getgid()}` : "65534:65534";
 }
 
-export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
+/** Output as it arrives, within the output cap. A handler that throws is dropped; the run goes on. */
+export type SandboxOutput = { stdout?: (chunk: Buffer) => void; stderr?: (chunk: Buffer) => void };
+
+/** A started container: typed input (when `stdin` is set), a kill, and its result. */
+export type StartedSandbox = { write(text: string): void; kill(): void; done: Promise<SandboxResult> };
+
+/**
+ * Starts one sandboxed container: every flag in sandboxArgs, the output cap, the host deadline and a checked
+ * removal, for test runs and Run alike.
+ */
+export function startSandboxed(run: SandboxRun, output: SandboxOutput = {}): StartedSandbox {
   const cli = containerCli();
   const name = `codemm-${randomBytes(6).toString("hex")}`;
   const started = Date.now();
-  return new Promise((resolve) => {
-    const child = spawn(cli, sandboxArgs(run, name), { stdio: ["ignore", "pipe", "pipe"] });
-    const chunks: Buffer[] = [];
-    let bytes = 0;
-    let stderr = "";
-    let flooded = false;
-    let timedOut = false;
-    let cleanup: Promise<boolean> | undefined;
-    // Kill the CLI, then remove the container with a bounded, checked command.
-    const stop = () => {
-      if (cleanup) return;
-      child.kill("SIGKILL");
-      cleanup = removeContainer(name);
-    };
-    const count = (n: number) => {
-      bytes += n;
-      if (bytes > OUTPUT_CAP) {
-        flooded = true;
-        stop();
-      }
-    };
-    child.stdout.on("data", (b: Buffer) => {
-      if (bytes + b.length <= OUTPUT_CAP) chunks.push(b);
-      count(b.length);
-    });
-    child.stderr.on("data", (b: Buffer) => {
-      if (stderr.length < 16_384) stderr += b.toString("utf8");
-      count(b.length);
-    });
-    const timer = setTimeout(() => {
-      timedOut = true;
+  const child = spawn(cli, sandboxArgs(run, name), { stdio: [run.stdin ? "pipe" : "ignore", "pipe", "pipe"] });
+  const chunks: Buffer[] = [];
+  const handlers = { ...output };
+  let bytes = 0;
+  let stderr = "";
+  let flooded = false;
+  let timedOut = false;
+  let cleanup: Promise<boolean> | undefined;
+  // Kill the CLI, then remove the container with a bounded, checked command.
+  const stop = () => {
+    if (cleanup) return;
+    child.kill("SIGKILL");
+    cleanup = removeContainer(name);
+  };
+  const count = (n: number) => {
+    bytes += n;
+    if (bytes > OUTPUT_CAP) {
+      flooded = true;
       stop();
-    }, run.deadlineMs);
+    }
+  };
+  const tell = (stream: "stdout" | "stderr", b: Buffer) => {
+    try {
+      handlers[stream]?.(b);
+    } catch {
+      delete handlers[stream];
+    }
+  };
+  child.stdout!.on("data", (b: Buffer) => {
+    if (bytes + b.length <= OUTPUT_CAP) {
+      chunks.push(b);
+      tell("stdout", b);
+    }
+    count(b.length);
+  });
+  child.stderr!.on("data", (b: Buffer) => {
+    if (stderr.length < 16_384) stderr += b.toString("utf8");
+    if (bytes + b.length <= OUTPUT_CAP) tell("stderr", b);
+    count(b.length);
+  });
+  // A program that stops reading, or exits, closes the pipe; typing after that is dropped, not an error.
+  child.stdin?.on("error", () => undefined);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    stop();
+  }, run.deadlineMs);
+  const done = new Promise<SandboxResult>((resolve) => {
     child.on("close", async (code) => {
       clearTimeout(timer);
       const removed = cleanup ? await cleanup : true;
@@ -146,6 +173,17 @@ export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
       resolve({ exit: -1, stdout: Buffer.alloc(0), stderr: e.message, flooded, timedOut, cleanupFailed: false, oomKilled: false });
     });
   });
+  return {
+    write: (text) => {
+      if (child.stdin?.writable) child.stdin.write(text);
+    },
+    kill: stop,
+    done,
+  };
+}
+
+export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
+  return startSandboxed(run).done;
 }
 
 /**

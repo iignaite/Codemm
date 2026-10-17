@@ -28,6 +28,11 @@ case "$1" in
   image) echo "sha256:fake null" ;;
   events) if [ "$FAKE_DOCKER" = oom ]; then echo oom; fi ;;
   run)
+    # interactive: a program that asks for a name on stdin and greets it. waits: one that reads until killed.
+    case "$FAKE_DOCKER" in
+      interactive) printf 'name? '; read -r name; echo "hello $name"; echo "a warning" >&2; exit 0 ;;
+      waits) while read -r line; do :; done; exit 0 ;;
+    esac
     # An outside kill can land after the driver already reported a case.
     case "$FAKE_DOCKER" in oom) exit 137 ;; killed) printf '\n@@codemm case 01 0 2\n3\n'; exit 137 ;; esac
     # One frame gets out, then the connection drops. With "stops" the daemon stays down.
@@ -35,5 +40,6 @@ case "$1" in
     printf '\n@@codemm build build 0 0\n'
     echo "error waiting for container: unexpected EOF" >&2
     exit 125 ;;
+  rm) exit 0 ;;
   *) exit 1 ;;
 esac

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
 import { gradeIo, gradeUnit, parseFrames, type RawBuild, type RawCase, type TestResult, type TestSet } from "./grading.js";
-import { runSandboxed, runtimeDown, startHelp } from "./sandbox.js";
+import { runSandboxed, runtimeDown, startHelp, startSandboxed } from "./sandbox.js";
 
 /** What the judge needs from an installed track. */
 export type JudgeTrack = {
@@ -100,6 +100,53 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** How long Run lets a program wait for typing and run: a person types, so longer than a test case gets. */
+export const RUN_LIMIT_MS = 120_000;
+
+// The shell stays PID 1 (no exec), so timeout's kill reaches the program; a kill aimed at PID 1 from inside is
+// ignored. Then `kill -9 -1` clears what the program left behind (a script's own child can outlive its shell), and
+// a kill is reported as 124, timeout's own code, so Run says it ran out of time.
+const PROGRAM_DRIVER = `if [ -n "\${CODEMM_BUILD:-}" ]; then timeout -s KILL ${BUILD_SECONDS} sh -c "$CODEMM_BUILD" || exit $?; fi
+timeout -s KILL "$CODEMM_TIME_S" sh -c "$CODEMM_RUN"; c=$?
+kill -9 -1 2>/dev/null
+[ "$c" = 137 ] && c=124
+exit $c`;
+
+export type ProgramRun = { write(text: string): void; kill(): void; done: Promise<{ exit: number; timedOut: boolean; flooded: boolean }> };
+
+/**
+ * Run: the learner's program, interactively, with typed stdin and its output as it comes. Only the learner's
+ * files are mounted, never tests. The build, then the run command, in the full sandbox, time-limited. Not graded.
+ */
+export function runProgram(track: JudgeTrack, src: FileMap, output: (text: string, stream: "stdout" | "stderr") => void, limitMs = RUN_LIMIT_MS): ProgramRun {
+  if (!track.run) throw new CodemmError("This track has no run command, so Run isn't available.");
+  const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
+  writeFileMap(join(dir, "src"), src);
+  const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_TIME_S: seconds(limitMs) };
+  if (track.build) env.CODEMM_BUILD = track.build;
+  const started = startSandboxed(
+    {
+      image: track.image,
+      script: PROGRAM_DRIVER,
+      env,
+      mounts: [{ host: join(dir, "src"), container: "/work/src" }],
+      memoryMb: track.limits.memory_mb,
+      deadlineMs: (track.build ? BUILD_SECONDS * 1000 : 0) + limitMs + 5_000,
+      stdin: true,
+    },
+    { stdout: (b) => output(b.toString("utf8"), "stdout"), stderr: (b) => output(b.toString("utf8"), "stderr") },
+  );
+  const done = started.done.then(async (r) => {
+    rmSync(dir, { recursive: true, force: true });
+    if (r.cleanupFailed) throw new CodemmError("A run container couldn't be removed. Run `codemm doctor --fix`, then retry.");
+    // The driver reports timeout's kill as 124 (time, or memory: both kill it); the host deadline is a backstop.
+    const timedOut = r.timedOut || r.exit === 124;
+    if (!timedOut && !r.flooded && r.exit !== 0 && (await runtimeDown())) throw new CodemmError(`The container runtime stopped during the run. ${startHelp()}`);
+    return { exit: r.exit, timedOut, flooded: r.flooded };
+  });
+  return { write: started.write, kill: started.kill, done };
 }
 
 /** Runs one io test set. `inputs` holds `NN.in` files. Case names come back as `<set>/NN`. */

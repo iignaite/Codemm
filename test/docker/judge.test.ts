@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { gradeIoRun, gradeUnitRun, type JudgeTrack, runIo, runUnit } from "../../src/judge.js";
+import { gradeIoRun, gradeUnitRun, type JudgeTrack, runIo, runProgram, runUnit } from "../../src/judge.js";
 import { ownedContainers } from "../../src/sandbox.js";
 import { buildFixture, dockerUp, expectedFrom, fixtureTrack, inputsOnly, subMap } from "./helpers.js";
 
@@ -18,6 +18,21 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
   beforeAll(async () => {
     ioTrack = { ...io.spec, image: await buildFixture("shell-io") };
     unitTrack = { ...unit.spec, image: await buildFixture("shell-unit") };
+  });
+
+  it("Run: sends typed input to the learner's program and streams its output, in the sandbox", async () => {
+    let out = "";
+    const run = runProgram(ioTrack, { "main.sh": 'printf "name? "; read -r n; echo "hello $n"\n' }, (text) => (out += text));
+    run.write("Ada\n");
+    expect(await run.done).toEqual({ exit: 0, timedOut: false, flooded: false });
+    expect(out).toBe("name? hello Ada\n");
+  });
+
+  it("Run: stops a program at its time limit and leaves no container", async () => {
+    const run = runProgram(ioTrack, { "main.sh": "read -r n\n" }, () => undefined, 1_000);
+    expect((await run.done).timedOut).toBe(true);
+    // --rm finishes removing it just after the exit.
+    await expect.poll(() => ownedContainers(), { timeout: 10_000 }).toEqual([]);
   });
 
   describe("io", () => {

@@ -158,6 +158,13 @@ Other ceilings:
 - **Memory:** every track or learner command first raises its own `oom_score_adj`, so the kernel kills the program rather than the driver, and that case is an `error`. If the driver dies anyway, the runtime's `oom` event tells a memory kill from an outside one. The runtime can miss that event when a container exits quickly, and then the check counts as an infrastructure failure: nothing is recorded, never a wrong attempt.
 - **Volumes:** images that declare `VOLUME` are rejected at install.
 
+**Run (interactive).** `runInteractive` runs the learner's io program once, for the app's Run button. It is never graded or recorded.
+- **Sandbox:** the same `startSandboxed` path and every flag above. The only addition is `-i`, which keeps stdin open, so typed lines reach the program.
+- **What's mounted:** only the learner's files, at `/work/src`. No tests.
+- **Driver:** the build, if the track has one (60 s), then the run command, with stdout and stderr streamed as they come.
+- **Time limit:** 120 s, because a person is typing. A kill shows as exit 124. The host deadline, the 4 MB cap and checked removal apply as for checks.
+- **Unit tracks:** they have no run command, so they have no Run.
+
 `codemm doctor` checks the container CLI and daemon. It also proves `--network none` blocks a host TCP server that a networked container can reach.
 
 ### 4.4 Installing a track (a separate trust boundary)
