@@ -372,4 +372,19 @@ describe('live CodemmApi', () => {
     await t.api.retryJobs();
     expect(t.jobs.ran.filter((j) => j.kind === 'tutor')).toHaveLength(1);
   });
+
+  it('after a gate failure, waits for the old proposal to go before asking for a new one', async () => {
+    const t = live();
+    const drop = t.app.dropProposal;
+    // Deleting waits for the track lock.
+    t.app.dropProposal = (ref) => new Promise((r) => setTimeout(() => r(drop(ref)), 30));
+    t.c.install = async () => {
+      throw new Error('Gate 2 failed: the reference solution fails its tests');
+    };
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(proposal!.digest);
+    await until(t.api, () => t.jobs.ran.filter((j) => j.kind === 'setup').length === 2);
+  });
 });

@@ -387,7 +387,7 @@ export function createLive(d: LiveDeps): Live {
         .then(() => {
           setup.approved = undefined;
         })
-        .catch((e: Error) => {
+        .catch(async (e: Error) => {
           // This computer's problems keep the proposal for Try again; nothing is recorded and no agent runs (§6.1).
           const kind = infra(e.message);
           log('setup-failed', { problem: kind ?? 'gates' });
@@ -398,7 +398,8 @@ export function createLive(d: LiveDeps): Live {
           setup.approved = undefined;
           setup.gateFailures++;
           setup.lastGateProblem = e.message;
-          void core.dropProposal(ref).catch(() => undefined);
+          // The next proposal is asked for only once this one is gone (it waits for the track lock).
+          await core.dropProposal(ref).catch(() => undefined);
         })
         .finally(() => {
           setup.installing = undefined;
