@@ -107,6 +107,7 @@ export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
   return new Promise((resolve) => {
     const child = spawn(cli, sandboxArgs(run, name), { stdio: ["ignore", "pipe", "pipe"] });
     const chunks: Buffer[] = [];
+    let observe = run.onStdout;
     let bytes = 0;
     let stderr = "";
     let flooded = false;
@@ -128,7 +129,11 @@ export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
     child.stdout.on("data", (b: Buffer) => {
       if (bytes + b.length <= OUTPUT_CAP) {
         chunks.push(b);
-        run.onStdout?.(b);
+        try {
+          observe?.(b);
+        } catch {
+          observe = undefined; // a failing observer is dropped; the run, its accounting and cleanup go on
+        }
       }
       count(b.length);
     });

@@ -454,12 +454,21 @@ function present(slug: string, tests: TestResult[], recorded: boolean, note?: st
 }
 
 /**
- * Progress through a check. io reports each test as it finishes; unit, whose runner reports at the end,
- * reports each phase once with `total` 0. Hidden tests are counted, never named (DESIGN §4.2).
+ * Progress through a check. io reports each visible test as it finishes; hidden tests, and unit tests (whose
+ * runner reports at the end), report their phase once with `total` 0. Nothing about a test leaves but counts (DESIGN §4.2).
  */
 export type CheckProgress = { phase: "building" | "visible" | "hidden"; done: number; total: number };
 
-async function judge(ws: string, slug: string | undefined, includeHidden: boolean, bound?: string, onProgress?: (p: CheckProgress) => void) {
+async function judge(ws: string, slug: string | undefined, includeHidden: boolean, bound?: string, listener?: (p: CheckProgress) => void) {
+  // A listener that throws is dropped; the check goes on.
+  let heard = listener;
+  const onProgress = heard && ((p: CheckProgress) => {
+    try {
+      heard?.(p);
+    } catch {
+      heard = undefined;
+    }
+  });
   const ctx = loadExercise(ws, slug, bound);
   const { record, files, rel } = ctx;
   await ensureImage(ctx.track);
@@ -471,13 +480,17 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
   for (const set of sets) {
     const t = subMap(files, `tests/${set}`);
     if (record.style === "io") {
+      // Hidden tests report their phase only: per-test timing could hint at what a hidden input does.
+      if (set === "hidden") onProgress?.({ phase: "hidden", done: 0, total: 0 });
       const total = Object.keys(t).filter((p) => p.endsWith(".in")).length;
-      const report = (done: number) => onProgress?.({ phase: set, done: Math.min(done, total), total });
-      // The build runs in each set's container; showing it once, before the visible tests, keeps the bar calm.
-      if (track.build && set === "visible") onProgress?.({ phase: "building", done: 0, total: 0 });
-      else report(0);
-      const onCase = onProgress && ((done: number) => (done > 0 || set === "visible" ? report(done) : undefined));
-      const run: IoRun = await runIo(track, set, src, t, onCase ? { onCase } : {});
+      const report = (done: number) => onProgress?.({ phase: "visible", done: Math.min(done, total), total });
+      // The build runs in each set's container; it shows once, before the visible tests.
+      if (set === "visible") {
+        if (track.build) onProgress?.({ phase: "building", done: 0, total: 0 });
+        else report(0);
+      }
+      const follow = onProgress && set === "visible" ? { onProgress: (m: "built" | number) => report(m === "built" ? 0 : m) } : {};
+      const run: IoRun = await runIo(track, set, src, t, follow);
       const expected = Object.fromEntries(Object.entries(record.expected ?? {}).filter(([k]) => k.startsWith(`${set}/`)));
       tests.push(...gradeIoRun(run, expected));
     } else {

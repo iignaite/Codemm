@@ -31,6 +31,8 @@ const part: Valid = (p) =>
   typeof p === 'string' && p !== '' && p !== '.' && p !== '..' && !/[<>:"|?*\\\u0000-\u001f]/.test(p) && !DEVICE.test(p) && !/[. ]$/.test(p);
 const path: Valid = (v) => typeof v === 'string' && v.length <= 512 && v.split('/').every(part);
 
+/** The renderer's id for one Try it or Check, echoed in its progress events. */
+const runId: Valid = (v) => typeof v === 'string' && /^[a-z0-9-]{1,64}$/.test(v);
 const digest: Valid = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const goal = shape({ topic: text(200, 1), known: text(500) });
 const concept = shape({ id, title: text(200, 1), requires: list(id, 200) });
@@ -58,8 +60,8 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress'>]: Valid[] } = {
   markRead: [id],
   activity: [id],
   saveFile: [id, path, fileText, digest],
-  tryIt: [id],
-  check: [id],
+  tryIt: [id, runId],
+  check: [id, runId],
   ask: [place, words],
   skip: [id],
   easier: [id],

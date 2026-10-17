@@ -187,8 +187,10 @@ export interface Activity {
 
 export type TestStatus = 'pass' | 'fail' | 'error';
 
-/** Progress through Try it or Check. Hidden tests are counted, never named; `total` 0 means not counted (unit tests). */
+/** Progress through Try it or Check: only a phase and counts. `total` 0 means not counted (hidden and unit tests). */
 export interface CheckProgress {
+  /** The run it belongs to: the id the renderer passed to tryIt or check. */
+  run?: string;
   phase: 'building' | 'visible' | 'hidden';
   done: number;
   total: number;
@@ -262,8 +264,9 @@ export interface CodemmApi {
   activity(concept: string): Promise<Activity>;
   /** Saves one learner file. Rejects with CHANGED if it changed since `digest`. Returns the new digest. */
   saveFile(activityId: string, path: string, text: string, digest: string): Promise<string>;
-  tryIt(activityId: string): Promise<TryResult>;
-  check(activityId: string): Promise<CheckResult>;
+  /** `run` tags this run's progress events, so the renderer hears only its own. */
+  tryIt(activityId: string, run?: string): Promise<TryResult>;
+  check(activityId: string, run?: string): Promise<CheckResult>;
 
   /** A tutor turn. A reply that shows hidden material is held back (§2.2). */
   ask(place: Place, text: string): Promise<Message[]>;

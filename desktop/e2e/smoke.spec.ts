@@ -163,15 +163,15 @@ test('check progress reaches the page as phase and counts only', async () => {
     while (!(c.setup === 'ready' && c.topics[0].lessons.every((l: { state: string }) => l.state !== 'writing'))) c = await call('course');
     for (const l of c.topics[0].lessons) await call('markRead', l.id);
     const { id } = await call('activity', c.topics[0].id);
-    await call('check', id);
+    await call('check', id, 'e2e-run');
     // Events travel apart from the call's reply, so the last ones can land just after it.
     await new Promise((r) => setTimeout(r, 300));
     stop();
     const asCall = await bridge.invoke('onCheckProgress', []).then(() => 'resolved', (e: Error) => e.message);
     return { events, asCall };
   });
-  expect(events.at(-1)).toEqual({ phase: 'hidden', done: 2, total: 2 });
-  for (const e of events) expect(Object.keys(e).sort()).toEqual(['done', 'phase', 'total']);
+  expect(events.at(-1)).toEqual({ run: 'e2e-run', phase: 'hidden', done: 0, total: 0 });
+  for (const e of events) expect(Object.keys(e).sort()).toEqual(['done', 'phase', 'run', 'total']);
   expect(asCall).toBe('Unknown call');
   await app.close();
 });

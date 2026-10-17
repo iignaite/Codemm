@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
-import { gradeIo, gradeUnit, parseFrames, type RawBuild, type RawCase, type TestResult, type TestSet } from "./grading.js";
+import { frameProgress, gradeIo, gradeUnit, parseFrames, type RawBuild, type RawCase, type TestResult, type TestSet } from "./grading.js";
 import { runSandboxed, runtimeDown, startHelp } from "./sandbox.js";
 
 /** What the judge needs from an installed track. */
@@ -14,24 +14,8 @@ export type JudgeTrack = {
   test?: string | undefined;
   limits: { time_ms: number; memory_mb: number };
 };
-/** `onCase`: how many io cases have finished, as each one does, and 0 once the build is done (for progress, never grading). */
-export type RunOptions = { timeMs?: number; deadlineMs?: number; onCase?: (done: number) => void };
-
-/**
- * Counts finished io cases in the driver's output as it streams. Only the count leaves: no names or output.
- * Code in the container could print extra frames; that can only move a progress bar, never a grade.
- */
-function caseCounter(onCase: (done: number) => void): (chunk: Buffer) => void {
-  let seen = Buffer.alloc(0);
-  let reported = -1;
-  return (chunk) => {
-    seen = Buffer.concat([seen, chunk]);
-    const frames = parseFrames(seen);
-    const done = frames.filter((f) => f.kind === "case" || f.kind === "big").length;
-    const built = done > 0 || frames.some((f) => f.kind === "build");
-    if (built && done > reported) onCase((reported = done));
-  };
-}
+/** `onProgress`: "built" when the build is done, then how many io cases have finished, as each does (for progress, never grading). */
+export type RunOptions = { timeMs?: number; deadlineMs?: number; onProgress?: (milestone: "built" | number) => void };
 
 /** `flooded` and `outOfMemory` mean the program got the whole container killed, so every test in the set is an error. */
 export type IoRun = { build?: RawBuild; cases: RawCase[]; flooded: boolean; outOfMemory?: boolean };
@@ -128,7 +112,7 @@ export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, input
   const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * (timeMs + 1000) + SLACK_MS;
   const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_TIME_S: seconds(timeMs) };
   if (track.build) env.CODEMM_BUILD = track.build;
-  const { frames, flooded, outOfMemory } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, opts.onCase && caseCounter(opts.onCase));
+  const { frames, flooded, outOfMemory } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, opts.onProgress && frameProgress(opts.onProgress));
 
   const buildFrame = frames.find((f) => f.kind === "build");
   const stderrOf = new Map(frames.filter((f) => f.kind === "stderr").map((f) => [f.name, f.body]));

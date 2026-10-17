@@ -58,7 +58,7 @@ async function masterEverything(page: Page) {
       for (const l of now.lessons) await call('markRead', l.id);
       const { id, files } = await call('activity', now.id);
       await call('saveFile', id, files[0].path, 'count + 1', files[0].digest);
-      await call('check', id);
+      await call('check', id, 'e2e');
     }
   });
 }

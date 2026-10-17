@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 describe.runIf(posix)("check progress", () => {
-  it("reports the build, then each io test as it finishes, visible then hidden, while the container is still running", async () => {
+  it("reports the build, then each visible io test as it finishes, then the hidden phase without counts", async () => {
     const ws = await installedExercise();
     fakeDocker("streams");
     const seen: (CheckProgress & { at: number })[] = [];
@@ -31,14 +31,30 @@ describe.runIf(posix)("check progress", () => {
       ["building", 0, 0],
       ["visible", 0, 1],
       ["visible", 1, 1],
-      ["hidden", 0, 3],
-      ["hidden", 1, 3],
-      ["hidden", 2, 3],
-      ["hidden", 3, 3],
+      ["hidden", 0, 0],
     ]);
-    // Streamed, not reported all at once when the container exits: the fake waits 0.2 s between tests.
-    const hidden = seen.filter((p) => p.phase === "hidden" && p.done > 0);
-    expect(hidden[2]!.at - hidden[0]!.at).toBeGreaterThanOrEqual(300);
+    // Streamed, not reported all at once when the container exits: the fake waits 0.2 s after the build.
+    const visible = seen.filter((p) => p.phase === "visible");
+    expect(visible[1]!.at - seen[0]!.at).toBeGreaterThanOrEqual(150);
+  });
+
+  it("keeps checking when a progress listener throws, and records the attempt", async () => {
+    const ws = await installedExercise();
+    fakeDocker("streams");
+    const view = await app.checkExercise(ws, undefined, undefined, () => {
+      throw new Error("listener bug");
+    });
+    expect(view.recorded).toBe(true);
+    expect(store.readEvents("shell")).toHaveLength(1);
+  });
+
+  it("records nothing when Docker fails mid-check, whatever progress was reported", async () => {
+    const ws = await installedExercise();
+    fakeDocker("killed");
+    const seen: CheckProgress[] = [];
+    await expect(app.checkExercise(ws, undefined, undefined, (p) => seen.push(p))).rejects.toThrow(/wasn't counted/);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(store.readEvents("shell")).toEqual([]);
   });
 
   it("carries only a phase and counts: no test names, inputs or output", async () => {

@@ -251,8 +251,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
   // Progress as a real check reports it: each test, as counts only.
   const progressListeners = new Set<(p: CheckProgress) => void>();
-  const progress = (phase: CheckProgress['phase'], total: number) => {
-    for (let done = 0; done <= total; done++) progressListeners.forEach((l) => l({ phase, done, total }));
+  const progress = (run: string | undefined, phase: CheckProgress['phase'], total: number) => {
+    for (let done = 0; done <= total; done++) progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
   };
 
   return {
@@ -394,10 +394,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       return file.digest;
     },
 
-    async tryIt(activityId) {
+    async tryIt(activityId, run) {
       const { activity } = find(activities, activityId);
       if (docker() !== 'ready') return notCounted();
-      progress('visible', activity.visibleTests.length);
+      progress(run, 'visible', activity.visibleTests.length);
       const done = !activity.files[0].text.includes(PLACEHOLDER);
       const tests: TestView[] = activity.visibleTests.map((t, i) => ({
         hidden: false,
@@ -408,12 +408,12 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       return { kind: 'ran', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests };
     },
 
-    async check(activityId): Promise<CheckResult> {
+    async check(activityId, run): Promise<CheckResult> {
       const record = find(activities, activityId);
       if (docker() !== 'ready') return notCounted();
       if (++checks === 1) happen('check');
-      progress('visible', 2);
-      progress('hidden', 2);
+      progress(run, 'visible', 2);
+      progress(run, 'hidden', 0);
       deferred.delete(record.activity.concept);
       const text = record.activity.files[0].text;
       const done = !text.includes(PLACEHOLDER);

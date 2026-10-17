@@ -318,7 +318,7 @@ export function createLive(d: LiveDeps): Live {
 
   // Check progress goes to whoever listens (main sends it to the app window). Only the phase and counts.
   const progressListeners = new Set<(p: CheckProgress) => void>();
-  const progress = ({ phase, done, total }: CheckProgress) => progressListeners.forEach((l) => l({ phase, done, total }));
+  const progressOf = (run?: string) => ({ phase, done, total }: CheckProgress) => progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
 
   const api: Live = {
     onCheckProgress(listener) {
@@ -474,9 +474,9 @@ export function createLive(d: LiveDeps): Live {
       }
     },
 
-    async tryIt(activityId) {
+    async tryIt(activityId, run) {
       try {
-        return tryView(await whenDockerReady(() => core.testExercise(ws, activityId, undefined, progress)));
+        return tryView(await whenDockerReady(() => core.testExercise(ws, activityId, undefined, progressOf(run))));
       } catch (e) {
         const reason = notCounted(e);
         if (reason) {
@@ -487,9 +487,9 @@ export function createLive(d: LiveDeps): Live {
       }
     },
 
-    async check(activityId) {
+    async check(activityId, run) {
       try {
-        const view = await whenDockerReady(() => core.checkExercise(ws, activityId, undefined, progress));
+        const view = await whenDockerReady(() => core.checkExercise(ws, activityId, undefined, progressOf(run)));
         const concepts = core.listExercises(ws).find((e) => e.exercise === activityId)?.concepts ?? [];
         const state = core.progress(ws).concepts.find((c) => concepts.includes(c.id));
         // A graded check can move the course on: the next topic's lesson and activity.

@@ -286,14 +286,13 @@ With neither option, the server behaves as in core.
 ### 4.7 Check progress
 
 - **Core.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }` (core §4.2).
-  - io reports each test as it finishes; the build, when the track has one, shows once as `building`.
-  - unit, whose runner reports at the end, reports each phase with `total` 0.
-  - Hidden tests are counted, never named.
+  - io reports each visible test as it finishes; the build, when the track has one, shows once as `building`.
+  - Hidden tests and unit tests report their phase only (`total` 0): no names, counts or timing per hidden test.
 - **Desktop.**
-  - `live` passes the callback and keeps only `phase`, `done` and `total`.
+  - The renderer passes a run id with each Try it or Check. `live` tags that run's events with it and keeps only `phase`, `done` and `total`.
   - Main sends each event to the app's windows only, on the one-way channel `codemm:check-progress`.
   - The preload exposes it as `onCheckProgress(listener)`, which returns a function that stops listening. It isn't an IPC call: `invoke('onCheckProgress')` is refused.
-- **Renderer.** While Try it or Check runs, the results panel shows a quiet bar with the phase and "3 of 8". With no count, it shows the phase alone.
+- **Renderer.** While Try it or Check runs, the results panel shows a quiet bar with the phase and "3 of 8". With no count, it shows the phase alone. It hears only its own run's events, and stops listening when the learner leaves.
 
 ## 5. Failure states
 

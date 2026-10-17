@@ -15,8 +15,8 @@ const bridge: Bridge = {
     }),
   // One-way: main sends check progress to the app window. Only the phase and counts reach the page.
   onCheckProgress: (listener) => {
-    const forward = (_event: unknown, p: { phase: 'building' | 'visible' | 'hidden'; done: number; total: number }) =>
-      listener({ phase: p.phase, done: p.done, total: p.total });
+    const forward = (_event: unknown, p: { run?: string; phase: 'building' | 'visible' | 'hidden'; done: number; total: number }) =>
+      listener({ ...(typeof p.run === 'string' ? { run: p.run } : {}), phase: p.phase, done: p.done, total: p.total });
     ipcRenderer.on('codemm:check-progress', forward);
     return () => void ipcRenderer.removeListener('codemm:check-progress', forward);
   },
