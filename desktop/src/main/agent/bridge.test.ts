@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { ask, run, spawnable, type Executable } from './bridge';
+import { ask, groupAlive, run, spawnable, withDeadline, type Executable } from './bridge';
 
 const parse = (line: string) => (line.startsWith('{') ? [JSON.parse(line) as Record<string, unknown>] : []);
 /** A fake agent: this Node running a script, the way the app runs a JavaScript agent. */
@@ -46,7 +46,8 @@ describe('bridge (D5)', () => {
     }
   });
 
-  it.skipIf(process.platform === 'win32')('cancel resolves only after the whole group is gone, even a child that ignores SIGTERM', async () => {
+  // On Windows this checks `taskkill /t /f` on the process tree; on POSIX, SIGTERM then SIGKILL to the group.
+  it('cancel resolves only after the whole group is gone, even a child that ignores SIGTERM', async () => {
     const controller = new AbortController();
     let child = 0;
     const out = run(
@@ -62,8 +63,103 @@ describe('bridge (D5)', () => {
         killAfterMs: 300,
       },
     );
-    expect(await out).toEqual({ code: null, cancelled: true, stopped: true });
+    expect(await out).toMatchObject({ cancelled: true, stopped: true });
     expect(alive(child)).toBe(false);
+  });
+
+  // Stopping is confirmed only when it is (§3.1): anything else is unconfirmed, and blocks new jobs.
+  const withGrandchild = (detached: boolean, parentExits = false) =>
+    node(`const c = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: ${detached}, stdio: ['ignore', 'inherit', 'ignore'] });
+          ${detached ? 'c.unref();' : ''} console.log(JSON.stringify({ child: c.pid })); ${parentExits ? 'setTimeout(() => process.exit(0), 100)' : 'setInterval(() => {}, 1000)'}`);
+  const cancelAfterFirstEvent = async ([exe, args]: [Executable, string[]], waitMs = 0) => {
+    const controller = new AbortController();
+    let grandchild = 0;
+    const out = run(exe, args, parse, {
+      onEvent: (e) => {
+        grandchild = e.child as number;
+        setTimeout(() => controller.abort(), waitMs);
+      },
+      signal: controller.signal,
+      killAfterMs: 300,
+    });
+    const result = await Promise.race([out, new Promise<'still waiting'>((r) => setTimeout(() => r('still waiting'), 15_000))]);
+    const survived = grandchild > 0 && alive(grandchild);
+    if (survived) process.kill(grandchild, 'SIGKILL');
+    return { result, survived };
+  };
+
+  it('confirms a cancel once the agent and a grandchild holding its output are gone', async () => {
+    const { result, survived } = await cancelAfterFirstEvent(withGrandchild(false));
+    expect(result).toMatchObject({ cancelled: true, stopped: true });
+    expect(survived).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')('leaves a cancel unconfirmed, but settled, when a descendant left the group and holds the output', async () => {
+    const { result, survived } = await cancelAfterFirstEvent(withGrandchild(true));
+    expect(result).toMatchObject({ cancelled: true, stopped: false });
+    expect(survived).toBe(true);
+  });
+
+  // On Windows a grandchild doesn't keep Node's output pipe open, so this run ends before the cancel and can't
+  // stage the case; there, a parent that already exited is unconfirmed by one branch in killTree.
+  it.skipIf(process.platform === 'win32')('a parent that already exited: its group still confirms the cancel', async () => {
+    const { result } = await cancelAfterFirstEvent(withGrandchild(false, true), 500);
+    expect(result).toMatchObject({ cancelled: true, stopped: true });
+  });
+
+  it.skipIf(process.platform === 'win32')('a cancel asked for by the last line, as the agent exits, still waits for its group', async () => {
+    const controller = new AbortController();
+    let grandchild = 0;
+    const out = run(
+      ...node(`const c = require('node:child_process').spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: 'ignore' });
+              process.stdout.write(JSON.stringify({ child: c.pid })); process.exit(0)`),
+      parse,
+      {
+        onEvent: (e) => {
+          grandchild = e.child as number;
+          controller.abort();
+        },
+        signal: controller.signal,
+        killAfterMs: 300,
+      },
+    );
+    const result = await out;
+    const survived = alive(grandchild);
+    if (survived) process.kill(grandchild, 'SIGKILL');
+    expect(result).toMatchObject({ cancelled: true, stopped: true });
+    expect(survived).toBe(false);
+  });
+
+  it('counts a group as gone only when the system says there is no such process', () => {
+    const failing = (code: string) => () => {
+      throw Object.assign(new Error(code), { code });
+    };
+    expect(groupAlive(123, failing('ESRCH'))).toBe(false);
+    // EPERM: a member is still running, under other credentials.
+    expect(groupAlive(123, failing('EPERM'))).toBe(true);
+    expect(groupAlive(123, () => true)).toBe(true);
+  });
+
+  it('gives up on a tree kill that never answers, as unconfirmed', async () => {
+    expect(await withDeadline(new Promise<number>(() => {}), 50, null)).toBeNull();
+    expect(await withDeadline(Promise.resolve(0), 50, null)).toBe(0);
+  });
+
+  it('delivers no event after a run settles', async () => {
+    const controller = new AbortController();
+    let events = 0;
+    const out = run(...node(`setInterval(() => console.log('{"tick":1}'), 10)`), parse, {
+      onEvent: () => {
+        events++;
+        controller.abort();
+      },
+      signal: controller.signal,
+      killAfterMs: 300,
+    });
+    await out;
+    const settledAt = events;
+    await new Promise((r) => setTimeout(r, 300));
+    expect(events).toBe(settledAt);
   });
 
   it('never starts a job cancelled before it starts', async () => {

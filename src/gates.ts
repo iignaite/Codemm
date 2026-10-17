@@ -105,11 +105,22 @@ export function unpinnedBases(dockerfile: string): string[] {
 }
 
 /** Builds a track image and runs its probes (DESIGN §6, track gates 2-5). */
+const MAX_EXAMPLE_BYTES = 65_536;
+
 /** Track gate 1's file checks: track.yaml, a Dockerfile and complete probes, before anything is built. */
 export function checkTrackFiles(files: FileMap) {
   validateFileMap(files);
   if (!files["track.yaml"] || !files.Dockerfile) throw new GateError("valid", "A track needs track.yaml and a Dockerfile.");
   const spec = parseTrackYaml(files["track.yaml"]);
+  for (const style of spec.styles) {
+    // Every author receives the pass probe and its tests as the track's worked example (next_step), so keep them small.
+    const bytes = Object.entries(files)
+      .filter(([p]) => p.startsWith(`probe/${style}/pass/`) || p.startsWith(`probe/${style}/tests/`))
+      .reduce((n, [, text]) => n + Buffer.byteLength(text), 0);
+    if (bytes > MAX_EXAMPLE_BYTES) {
+      throw new GateError("valid", `probe/${style}/pass and probe/${style}/tests total ${bytes} bytes. Keep them under 64 KB: authors read them as the track's example.`);
+    }
+  }
   return { spec, probes: spec.styles.map((style) => ({ style, ...probe(files, spec, style) })) };
 }
 

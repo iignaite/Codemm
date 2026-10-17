@@ -1,0 +1,21 @@
+#!/bin/sh
+# A deliberately unusual runner: each $TESTS/*.check file holds lines "ARGS => EXPECTED". The learner's
+# src/calc.funcs must define solve(); a check passes when `solve ARGS` prints EXPECTED for every line.
+first=1
+printf '{"tests":[' > "$OUT"
+for t in "$TESTS"/*.check; do
+  [ -e "$t" ] || continue
+  name=$(basename "$t" .check)
+  status=pass
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    args=${line%% => *}
+    want=${line#* => }
+    got=$(sh -c ". /work/src/src/calc.funcs; solve $args" 2>/dev/null)
+    [ "$got" = "$want" ] || status=fail
+  done < "$t"
+  [ "$first" = 1 ] || printf ',' >> "$OUT"
+  first=0
+  printf '{"name":"%s","status":"%s"}' "$name" "$status" >> "$OUT"
+done
+printf ']}' >> "$OUT"

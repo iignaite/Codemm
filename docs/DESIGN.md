@@ -1,6 +1,6 @@
 # Codemm 1.0 design
 
-Status: revised after two Astra design reviews (§13). The longer illustrated design, with research sources and the competitor survey, is the "Codemm Harness" design doc (v0.4, 17 Oct 2026). This file is the authoritative spec for what 1.0 ships.
+Status: revised after two Astra design reviews (§13). The longer illustrated design, with research sources and the competitor survey, is the "Codemm Harness" design doc (v0.4, 17 Oct 2026). This file is the authoritative spec for the core that 1.0 ships. The desktop app that bundles it, and the core features the app needs, are specified in [desktop/DESIGN.md](desktop/DESIGN.md).
 
 ## 1. What Codemm is
 
@@ -10,7 +10,7 @@ Codemm is an open-source, local-first harness for graded coding practice. It is 
 - the **roadmap** (a concept graph),
 - the **exercises**.
 
-Codemm runs the sandbox, checks each piece with deterministic gates, grades the learner's attempts and keeps per-concept mastery. Codemm never calls a model and never handles credentials.
+Codemm runs the sandbox, checks each piece with deterministic gates, grades the learner's attempts and keeps per-concept mastery. Codemm launches the learner's own agent CLI (in the desktop app); it never calls a model API, and it never reads, stores or asks for credentials.
 
 **What the gates guarantee:** each exercise is internally consistent and its hidden tests can tell the reference from plausible wrong answers. They do **not** prove that the statement matches the tests. A wrong reference with matching tests passes. Statement quality is the learner's and reviewer's call; an automated independent-solve check is deferred.
 
@@ -41,16 +41,19 @@ Each item is verified by an automated test unless marked *journey*. Journeys run
 
 ### Supported matrix for 1.0
 
-- **Verified:** macOS with Docker Desktop, and Linux in CI with Docker.
-- **Experimental:** Podman, and Windows through WSL2. The code supports them, but they are not verified here.
+- **Desktop app:** macOS (Apple Silicon and Intel) and Windows 11 x64, with Docker Desktop. Its journeys with real agents on packaged builds (desktop D17 and D18) come before the private beta.
+- **Terminal, verified:** macOS with Docker Desktop (A14 to A16), and Linux in CI with Docker. Core unit tests also run on Windows in CI.
+- **Experimental:** Podman, and terminal use on Windows through WSL 2. The code supports them, but they are not verified with a real agent.
+
+The desktop app, the private beta and the minimum model per agent are in scope for 1.0 ([desktop/DESIGN.md](desktop/DESIGN.md), [beta-plan.md](desktop/beta-plan.md)). The minimum models come from a small bench of the terminal flow ([bench/results.md](bench/results.md)); the desktop's per-job flow isn't benchmarked yet.
 
 ### Deferred (not needed for 1.0)
 
-- Human beta (10 learners), the full cross-host model bench and the recommended-model list. These are adoption validation and need people and weeks.
+- The full cross-host model bench, including the desktop's per-job flow.
 - Independent-solve gate, spaced review, placement quiz, per-test concept tags.
-- Practice hooks for Codex and Cursor; protection is advisory there.
-- Multi-container tracks, course sharing, any UI, watch mode.
-- Publishing to npm or a GitHub release. These need the owner's explicit go-ahead.
+- Practice hooks for Codex and Cursor in the terminal; protection is advisory there.
+- Multi-container tracks, course sharing, watch mode.
+- Publishing to npm. GitHub releases are built as drafts, and only the owner publishes them.
 
 ## 3. Files and ids
 
@@ -183,7 +186,7 @@ concepts:
 ```
 
 - **First save** creates the course. Concept order in the file is the tie-break order.
-- **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is, and the style is checked once it is: `next_step` fails with "Edit the roadmap's style" if the installed track doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
+- **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is. Proposing or installing a track that a course names but whose styles lack that course's style is refused, so a course can't be stranded; an install checks this under the track lock, which roadmap saves also take (after the course lock). `next_step` fails with "Edit the roadmap's style" if an installed track still doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
 - **Re-saving** an existing course may change `goal`, titles and order, add concepts, and change `requires` while staying acyclic. Edits keep concept ids, so renaming changes only the title. It may change `track` while the course has no exercises.
 - **Re-saving is rejected** if it changes `track` after exercises exist, or removes a concept that an exercise, event or lesson uses.
 - **A fresh start.** When a re-save adds a prerequisite to a stuck concept, Codemm appends a `retry` event for it (§7).
@@ -211,7 +214,7 @@ tests/hidden/...
 A failure goes back to the caller with the failing gate and capped output. Hidden inputs and expected outputs never appear in diagnostics returned to tools.
 
 **Track gates:**
-1. The files are valid, and `id@version` is either new or identical to the installed one, in which case the install is a no-op.
+1. The files are valid, each style's pass probe and probe tests total at most 64 KB (authors receive them as the track's example), and `id@version` is either new or identical to the installed one, in which case the install is a no-op.
 2. The image builds and declares no volumes.
 3. For each style, the pass probe passes everything.
 4. For each style, the fail probe gets at least one `fail` and no `error`.
@@ -281,7 +284,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `save_track` | `files` | `{ installed: "id@v", warning? }` or diagnostics; with `--desktop`, `{ proposed: "id@v", note }` (§4.4) |
 | `save_roadmap` | `course`, `roadmap` (YAML text) | ok or errors |
 | `get_roadmap` | — | `{ course, goal, track, style, concepts }` |
-| `next_step` | — | `setup` / `practice` / `author` / `stuck` / `done` |
+| `next_step` | — | `setup` / `practice` / `author` / `stuck` / `done`; `author` carries the concept's `title`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests) |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
 | `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint |
 | `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |

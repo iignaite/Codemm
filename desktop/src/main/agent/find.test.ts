@@ -1,9 +1,9 @@
 // @vitest-environment node
-import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { find, shimTarget, type Where } from './find';
+import { dockerFolders, find, shimTarget, type Where } from './find';
 
 function tree() {
   const root = mkdtempSync(join(tmpdir(), 'codemm-find-'));
@@ -50,5 +50,19 @@ describe('find (§3.1)', () => {
       '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n"%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n',
     );
     expect(shimTarget(at('npm', 'codex.cmd'))?.replace(/\\/g, '/')).toMatch(/node_modules\/@openai\/codex\/bin\/codex\.js$/);
+  });
+
+  it("gives Docker's calls the folders its credential helpers live in, as well as the one it was found in", () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-docker-')));
+    const cellar = join(dir, 'Cellar', 'docker', 'bin');
+    const desktop = join(dir, 'Docker.app', 'Contents', 'Resources', 'bin');
+    mkdirSync(cellar, { recursive: true });
+    mkdirSync(desktop, { recursive: true });
+    mkdirSync(join(dir, 'bin'));
+    writeFileSync(join(cellar, 'docker'), '');
+    symlinkSync(join(cellar, 'docker'), join(dir, 'bin', 'docker'));
+    // Homebrew's Docker CLI, beside Docker Desktop: the helpers are only in Docker Desktop's folder.
+    expect(dockerFolders(join(dir, 'bin', 'docker'), [desktop])).toEqual([join(dir, 'bin'), cellar, desktop]);
+    expect(dockerFolders(join(cellar, 'docker'), [join(dir, 'missing')])).toEqual([cellar]);
   });
 });

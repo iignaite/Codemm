@@ -52,7 +52,7 @@ describe("roadmap draft", () => {
     expect(await app.saveRoadmap(ws, "shell", roadmap())).toEqual({ course: "shell", concepts: 2 });
     expect(app.nextStep(ws)).toEqual({ kind: "setup", track: "shell-io@1" });
     installFake();
-    expect(app.nextStep(ws)).toEqual({ kind: "author", concept: "sh.basics", difficulty: 1, lesson: null, style: "io", track: "shell-io@1" });
+    expect(app.nextStep(ws)).toMatchObject({ kind: "author", concept: "sh.basics", title: "Basics", difficulty: 1, lesson: null, style: "io", track: "shell-io@1" });
   });
 
   it("refuses a style the installed track doesn't offer, at save and at next_step", async () => {
@@ -114,6 +114,29 @@ describe("roadmap draft", () => {
     // Saving again adds no prerequisite, so there is no second retry.
     await app.saveRoadmap(ws, "shell", roadmap(withPrereq));
     expect(store.readEvents("shell").filter((e) => e.kind === "retry")).toHaveLength(1);
+  });
+});
+
+describe("the author step", () => {
+  it("gives a fresh author the exact target and the installed track's learner-safe contract", async () => {
+    const files = readFileMap(join(import.meta.dirname, "fixtures", "tracks", "custom-unit"));
+    const spec = parseTrackYaml(files["track.yaml"]!);
+    store.commitFolder(store.trackDir("custom-unit@1"), files, {
+      "track.json": { format_version: 1, ...spec, image: "codemm-track-custom-unit:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
+    });
+    await app.saveRoadmap(ws, "calc", "goal: Calculator\ntrack: custom-unit@1\nstyle: unit\nconcepts:\n  - { id: calc.add, title: Adding numbers, requires: [] }\n");
+    expect(app.nextStep(ws)).toEqual({
+      kind: "author", concept: "calc.add", title: "Adding numbers", difficulty: 1, lesson: null, style: "unit", track: "custom-unit@1",
+      contract: {
+        files: ["src/calc.funcs"],
+        test: "sh /opt/judge/run-checks",
+        limits: { time_ms: 5000, memory_mb: 128 },
+        examples: {
+          solution: { "src/calc.funcs": files["probe/unit/pass/src/calc.funcs"] },
+          tests: { "negatives.check": files["probe/unit/tests/negatives.check"], "sums.check": files["probe/unit/tests/sums.check"] },
+        },
+      },
+    });
   });
 });
 
@@ -285,6 +308,27 @@ describe("setup proposals", () => {
     change(t);
     await expect(app.proposeTrack(t)).rejects.toThrow(/Gate "valid"/);
     expect(app.listProposals()).toEqual([]);
+  });
+
+  it("refuses to install a proposal for a course whose style changed after it was proposed", async () => {
+    await app.saveRoadmap(ws, "shell", roadmap());
+    await app.proposeTrack(track());
+    const { digest } = app.listProposals()[0]!;
+    await app.saveRoadmap(ws, "shell", roadmap().replace("style: io", "style: unit"));
+    await expect(app.installProposal("shell-io@1", digest)).rejects.toThrow(/Course "shell" needs style "unit", but shell-io@1 offers io/);
+    await expect(app.saveTrack(track())).rejects.toThrow(/needs style "unit"/);
+  });
+
+  it("makes a roadmap save wait for an install of its track to finish", async () => {
+    let saved = false;
+    let save: Promise<unknown> | undefined;
+    await store.withLock(store.trackLockPath("shell-io"), async () => {
+      save = app.saveRoadmap(ws, "shell", roadmap()).then(() => (saved = true));
+      await new Promise((r) => setTimeout(r, 300));
+      expect(saved).toBe(false);
+    });
+    await save;
+    expect(saved).toBe(true);
   });
 
   it("drops a track's proposals", async () => {

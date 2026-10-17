@@ -3,7 +3,10 @@ import { createPortal } from 'react-dom';
 
 const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), textarea:not(:disabled), summary, [tabindex]:not([tabindex="-1"])';
 
-/** A modal dialog: the rest of the window goes inert, focus moves in and stays in, Escape closes, focus goes back. */
+/**
+ * A modal dialog: the rest of the window goes inert, focus moves in and stays in, Escape closes, focus goes back.
+ * It never outgrows the window: its content scrolls, and the actions stay in view below it.
+ */
 type Props = { title: string; text?: string; art?: ReactNode; body?: ReactNode; onClose: () => void; children: ReactNode };
 
 export function Dialog({ title, text, art, body, onClose, children }: Props) {
@@ -44,10 +47,12 @@ export function Dialog({ title, text, art, body, onClose, children }: Props) {
   return createPortal(
     <div className="scrim">
       <div ref={ref} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown}>
-        {art}
-        <h2 className="h2" id={titleId}>{title}</h2>
-        {text && <p className="sub">{text}</p>}
-        {body}
+        <div className="dialog-body">
+          {art}
+          <h2 className="h2" id={titleId}>{title}</h2>
+          {text && <p className="sub">{text}</p>}
+          {body}
+        </div>
         <div className="actions">{children}</div>
       </div>
     </div>,

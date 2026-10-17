@@ -2,6 +2,12 @@ name: Desktop release
 
 # A v* tag builds the macOS and Windows installers and attaches them to a
 # draft GitHub Release. Nothing goes public until the owner publishes it.
+#
+# Before tagging, merge the same version into package.json (the core the app
+# bundles) and desktop/package.json, for example 1.0.0-beta.1. The tag must
+# match both. A prerelease tag (v1.0.0-beta.1) may ship unsigned and is drafted
+# as a prerelease. A stable tag (v1.0.0) fails unless the Mac app is signed and
+# notarized and the Windows installer is signed (DESIGN §7.1).
 on:
   push:
     tags: ["v*"]
@@ -10,8 +16,47 @@ permissions:
   contents: read
 
 jobs:
+  tag:
+    name: Check the tag
+    runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        name: Tag, core version and desktop version agree
+        run: |
+          node -e '
+            const { releaseTag } = require("./desktop/packaging.cjs");
+            const versions = { core: require("./package.json").version, desktop: require("./desktop/package.json").version };
+            const { prerelease } = releaseTag(process.env.GITHUB_REF_NAME, versions);
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT, `prerelease=${prerelease}\n`);
+            console.log(`${process.env.GITHUB_REF_NAME}: ${prerelease ? "prerelease, may be unsigned" : "stable, must be signed"}`);
+          '
+
+  # The core's full suite, Docker tests included, on the tagged commit.
+  core:
+    name: Core tests (Docker)
+    needs: tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Test (Docker tests required)
+        run: npm test
+        env:
+          CODEMM_REQUIRE_DOCKER: "1"
+
   build:
     name: Build (${{ matrix.os }})
+    needs: tag
     strategy:
       matrix:
         os: [macos-latest, windows-latest]
@@ -33,11 +78,14 @@ jobs:
       - name: Install the core's dependencies
         working-directory: .
         run: npm ci
+      - name: Core unit tests
+        working-directory: .
+        run: npm run test:unit
       - run: npm ci
+      - run: npm run typecheck
       - run: npm test
-      - name: Version from the tag
-        shell: bash
-        run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
+      # The renderer journeys on the tagged commit: smoke and accessibility (D16) e2e.
+      - run: npm run test:e2e
       # Signing comes only from repository secrets (desktop/SIGNING.md). With
       # none set, every value is empty and the build is unsigned.
       - run: npm run dist
@@ -54,6 +102,39 @@ jobs:
           AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
           AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
           AZURE_SIGNING_PUBLISHER: ${{ secrets.AZURE_SIGNING_PUBLISHER }}
+      # D1, on the exact artifacts being released: the packaged app with no Node or npm on PATH.
+      - name: Packaged smoke test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            app="$(ls -d release/mac-arm64/Codemm.app release/mac/Codemm.app 2>/dev/null | head -1)"
+            export CODEMM_PACKAGED="$PWD/$app/Contents/MacOS/Codemm" CODEMM_RESOURCES="$PWD/$app/Contents/Resources"
+          else
+            export CODEMM_PACKAGED="$PWD/release/win-unpacked/Codemm.exe" CODEMM_RESOURCES="$PWD/release/win-unpacked/resources"
+          fi
+          npm run test:packaged
+      # D21: a stable release must be signed. Gatekeeper accepts only a notarized Developer ID app.
+      - name: Verify the Mac signature and notarization (stable tags)
+        if: needs.tag.outputs.prerelease != 'true' && runner.os == 'macOS'
+        shell: bash
+        run: |
+          shopt -s nullglob
+          apps=(release/mac*/Codemm.app)
+          [ ${#apps[@]} -gt 0 ] || { echo "No Mac app was built."; exit 1; }
+          for app in "${apps[@]}"; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+            spctl --assess --type execute --verbose=2 "$app"
+            xcrun stapler validate "$app"
+          done
+      - name: Verify the Windows signature (stable tags)
+        if: needs.tag.outputs.prerelease != 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem release\*.exe) + @(Get-Item release\win-unpacked\Codemm.exe)
+          foreach ($f in $files) {
+            $s = Get-AuthenticodeSignature $f.FullName
+            if ($s.Status -ne 'Valid') { throw "$($f.Name) isn't validly signed: $($s.Status)" }
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ runner.os }}
@@ -64,7 +145,7 @@ jobs:
 
   draft:
     name: Draft release
-    needs: build
+    needs: [tag, core, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -77,8 +158,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.tag.outputs.prerelease }}
         run: |
           # Create only: if a release for this tag exists (draft or published),
           # this fails and changes nothing. Delete a stale draft to rebuild it.
-          gh release create "$TAG" installers/* --draft --title "Codemm $TAG" \
-            --notes "Installers for macOS and Windows." --repo "$GITHUB_REPOSITORY"
+          flags=(--draft)
+          notes="Installers for macOS and Windows."
+          if [ "$PRERELEASE" = true ]; then
+            flags+=(--prerelease)
+            notes="Unsigned beta installers for macOS and Windows. Each needs one Open Anyway step (docs/desktop/beta-plan.md)."
+          fi
+          gh release create "$TAG" installers/* "${flags[@]}" --title "Codemm $TAG" --notes "$notes" --repo "$GITHUB_REPOSITORY"
