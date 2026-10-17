@@ -141,6 +141,49 @@ async function lessonsThenActivity(note: boolean) {
   });
 }
 
+/** From anywhere in a topic: through its unread lessons to the activity, waiting while it's written. */
+async function toActivity() {
+  const deadline = Date.now() + 20 * MIN;
+  while (!(await button('Try it').isVisible())) {
+    if (Date.now() > deadline) throw new Error('The activity never opened');
+    if (await button('Next').isVisible()) await button('Next').click();
+    else if (await page.getByRole('button', { name: /^(Start|Again)$/ }).isVisible()) await page.getByRole('button', { name: /^(Start|Again)$/ }).click();
+    else if (await page.getByRole('button', { name: /^Read / }).first().isVisible()) await page.getByRole('button', { name: /^Read / }).first().click();
+    await page.waitForTimeout(1500);
+  }
+  return (await page.getByRole('heading', { level: 1 }).first().innerText()).slice(0, 80);
+}
+
+/** Passes the current topic's activities until the course is complete (a skipped topic comes back last). */
+async function complete() {
+  for (let round = 1; round <= 15; round++) {
+    const done = page.getByRole('heading', { name: / complete$/ });
+    const map = page.getByRole('list', { name: 'Topics' });
+    const nav = page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Learn' });
+    if (await nav.isVisible()) await nav.click();
+    await expect(done.or(map)).toBeVisible({ timeout: 2 * MIN });
+    if (await done.isVisible()) return;
+    await step(`complete-${round}`, async () => {
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      const title = await toActivity();
+      await rightAnswer();
+      const verdict = await check();
+      expect(verdict).toMatch(/^(\d+) of \1 passed$/);
+      return `${title}: ${verdict}`;
+    });
+  }
+  throw new Error('The course was not complete after 15 activities');
+}
+
+async function progress() {
+  await step('progress', async () => {
+    const nav = page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Learn' });
+    if (await nav.isVisible()) await nav.click();
+    await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible({ timeout: 2 * MIN });
+    return (await page.getByRole('list', { name: 'Topics' }).getByRole('img').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).join(', ');
+  });
+}
+
 async function activity(skipAfter: boolean) {
   await step('try-it', async () => {
     await button('Try it').click();
@@ -206,18 +249,23 @@ test(`journey: ${label}`, async () => {
       return `${titles.length} topics: ${titles.join(' / ')}`.slice(0, 400);
     });
     await step('edit-course', async () => {
+      // A small course: keep the first three topics, removing from the end (later topics need earlier ones).
       const remove = page.getByRole('button', { name: /^Remove / });
-      const count = await remove.count();
-      const last = remove.nth(count - 1);
-      const removed = (await last.getAttribute('aria-label'))!.replace(/^Remove /, '');
-      await last.click();
-      await expect(page.getByRole('button', { name: `Remove ${removed}`, exact: true })).toHaveCount(0);
+      const removedTitles: string[] = [];
+      while ((await remove.count()) > 3) {
+        const last = remove.nth((await remove.count()) - 1);
+        const removed = (await last.getAttribute('aria-label'))!.replace(/^Remove /, '');
+        await last.click();
+        await expect(page.getByRole('button', { name: `Remove ${removed}`, exact: true })).toHaveCount(0);
+        removedTitles.push(removed);
+      }
+      const removed = `${removedTitles.length} topics`;
       const rename = page.getByRole('button', { name: /^Rename / }).first();
       await rename.click();
       const box = page.getByRole('textbox', { name: 'Topic name' });
       await box.fill(`${await box.inputValue()} basics`);
       await box.press('Enter');
-      return `removed "${removed}", renamed the first topic`;
+      return `removed ${removed}, renamed the first topic`;
     });
     await step('consent-setup', async () => {
       await button('Approve').click();
@@ -244,6 +292,12 @@ test(`journey: ${label}`, async () => {
     });
     await lessonsThenActivity(true);
     await activity(true);
+    await progress();
+    await complete();
+    await step('course-complete', async () => {
+      await expect(page.getByRole('heading', { name: / complete$/ })).toBeVisible();
+      return page.getByRole('heading', { name: / complete$/ }).innerText();
+    });
   } else {
     await step('open-next-topic', async () => {
       await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible({ timeout: 2 * MIN });
@@ -251,13 +305,8 @@ test(`journey: ${label}`, async () => {
     });
     await lessonsThenActivity(false);
     await activity(false);
+    await progress();
   }
 
-  await step('progress', async () => {
-    const nav = page.getByRole('navigation', { name: 'Main' }).getByRole('button', { name: 'Learn' });
-    if (await nav.isVisible()) await nav.click();
-    await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible({ timeout: 2 * MIN });
-    return (await page.getByRole('list', { name: 'Topics' }).getByRole('img').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).join(', ');
-  });
   await app.close();
 });
