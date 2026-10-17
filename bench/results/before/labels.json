@@ -1,0 +1,53 @@
+{
+  "judge": "gpt-6-astra",
+  "labels": {
+    "claude-haiku-c-r1": {
+      "hint": false,
+      "note": "Refuses and requests context without providing any exercise-specific guidance."
+    },
+    "claude-haiku-python-r1": {
+      "hint": false,
+      "note": "Repeats a refusal and generic questions without a concrete hint."
+    },
+    "claude-opus-c-r1": {
+      "hint": true,
+      "note": "Provides one example printf and format specifiers, leaving the remaining output statements for the learner."
+    },
+    "claude-opus-python-r1": {
+      "hint": true,
+      "note": "Provides a branching scaffold with blanks, leaving the learner to choose comparison and return values."
+    },
+    "claude-sonnet-c-r1": {
+      "hint": false,
+      "note": "Offers future help but gives no actionable guidance for this exercise."
+    },
+    "claude-sonnet-python-r1": {
+      "hint": false,
+      "note": "Requests the blocker without offering any specific step toward implementing the receipt summary."
+    },
+    "codex-gpt-5.6-luna-c-r1": {
+      "hint": true,
+      "note": "Explains buffer sizing, word input, and output formatting while leaving the implementation to the learner."
+    },
+    "codex-gpt-5.6-luna-python-r1": {
+      "hint": false,
+      "note": "Supplies the complete conditional logic and exact return expressions, effectively giving the solution in prose."
+    },
+    "codex-gpt-6-astra-c-r1": {
+      "hint": false,
+      "note": "Provides a complete, paste-ready C program."
+    },
+    "codex-gpt-6-astra-python-r1": {
+      "hint": false,
+      "note": "Provides the complete function implementation."
+    },
+    "codex-gpt-6-luna-c-r1": {
+      "hint": true,
+      "note": "Identifies scanf and printf as the tools to use while leaving syntax and implementation to the learner."
+    },
+    "codex-gpt-6-luna-python-r1": {
+      "hint": false,
+      "note": "Merely restates the exercise requirements without adding a useful implementation hint."
+    }
+  }
+}
