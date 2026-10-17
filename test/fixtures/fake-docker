@@ -1,13 +1,14 @@
 #!/bin/sh
 # A fake `docker` for unit tests. FAKE_DOCKER picks the scenario: down, offline, disk-full, stops, drops
 # (the connection drops mid-check but the daemon answers again), oom (the memory limit kills the container's
-# PID 1: exit 137 with no frames, the daemon stays up and records an oom event) or killed (the same exit from
-# an outside `docker kill`, with no oom event).
+# PID 1: exit 137 with no frames, the daemon stays up and records an oom event) or killed (an outside
+# `docker kill` after one case was reported: exit 137 with no oom event).
 # It answers only the commands Codemm sends, with Docker 27's wording, using shell builtins only.
 daemon_down="Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"
 case "$1" in
   --version) echo "Docker version 27.4.0, build fake" ;;
   info)
+    if [ "$3" = "{{.SystemTime}}" ]; then echo "2026-10-17T00:00:00.000000000Z"; exit 0; fi
     # `docker info --format` exits 0 even when the daemon is down.
     if [ "$FAKE_DOCKER" = down ] || [ -e "$0.stopped" ]; then echo "$daemon_down" >&2; echo "|"; else echo "27.4.0|linux"; fi ;;
   build)
@@ -21,7 +22,8 @@ case "$1" in
   image) echo "sha256:fake null" ;;
   events) if [ "$FAKE_DOCKER" = oom ]; then echo oom; fi ;;
   run)
-    case "$FAKE_DOCKER" in oom|killed) exit 137 ;; esac
+    # An outside kill can land after the driver already reported a case.
+    case "$FAKE_DOCKER" in oom) exit 137 ;; killed) printf '\n@@codemm case 01 0 2\n3\n'; exit 137 ;; esac
     # One frame gets out, then the connection drops. With "stops" the daemon stays down.
     case "$FAKE_DOCKER" in stops) : > "$0.stopped" ;; drops) ;; *) exit 1 ;; esac
     printf '\n@@codemm build build 0 0\n'

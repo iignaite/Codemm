@@ -147,12 +147,17 @@ export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
 
 /**
  * Asks the runtime whether it recorded a memory-limit kill for the container. The runtime keeps recent events
- * after `--rm` removes the container. The window allows a few seconds of clock difference between the host and
- * a runtime VM; the container name is unique, so a wide window can't match another container.
+ * after `--rm` removes the container. The window is in the runtime's own clock, which may differ from the
+ * host's (a VM); the container name is unique, so a few extra seconds can't match another container.
  */
 async function hadOomEvent(name: string, startedMs: number): Promise<boolean> {
+  const clock = await cli(["info", "--format", "{{.SystemTime}}"], 20_000);
+  const now = Date.parse(clock.output.trim());
+  if (clock.exit !== 0 || Number.isNaN(now)) return false;
   const at = (ms: number) => (ms / 1000).toFixed(3);
-  const r = await cli(["events", "--since", at(startedMs - 5_000), "--until", at(Date.now() + 2_000), "--filter", `container=${name}`, "--filter", "event=oom", "--format", "{{.Action}}"], 20_000);
+  const since = now - (Date.now() - startedMs) - 5_000;
+  // The event can be published just after the exit reaches us, so the query waits until 2 s past the runtime's now.
+  const r = await cli(["events", "--since", at(since), "--until", at(now + 2_000), "--filter", `container=${name}`, "--filter", "event=oom", "--format", "{{.Action}}"], 20_000);
   return r.exit === 0 && /\boom\b/.test(r.output);
 }
 

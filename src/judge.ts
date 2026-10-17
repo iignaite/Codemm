@@ -48,13 +48,15 @@ for f in /work/tests/*.in; do
   head -c 4096 /tmp/e > /tmp/ec
   if [ $(($(wc -c < /tmp/o))) -gt 65536 ]; then : > /tmp/oc; emit big "$n" "$c" /tmp/oc; else emit case "$n" "$c" /tmp/o; fi
   emit stderr "$n" "$c" /tmp/ec
-done`;
+done
+exit 0`;
 
 const UNIT_DRIVER = `${EMIT}
 TESTS=/work/tests OUT=/tmp/report.json timeout -s KILL "$CODEMM_TIME_S" sh -c "$OOM$CODEMM_TEST" > /tmp/o 2>&1; c=$?
 kill -9 -1 2>/dev/null
 if [ -f /tmp/report.json ] && [ $(($(wc -c < /tmp/report.json))) -le 1048576 ]; then emit report report "$c" /tmp/report.json; else : > /tmp/r; emit report report "$c" /tmp/r; fi
-head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc`;
+head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc
+exit 0`;
 
 async function runDriver(track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number) {
   const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
@@ -76,19 +78,20 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
     if (result.timedOut) throw new CodemmError("The check didn't finish in time, so nothing was recorded. Check that the container runtime is healthy and retry.");
     // A flood is the program's doing and is graded; the host kill makes the exit code meaningless.
     if (result.flooded) return { frames: [], flooded: true };
-    // The driver exits 0. Anything else may mean the runtime went away mid-run, whatever was printed so far.
+    // The driver always ends with exit 0. Anything else means it was killed or the runtime failed, whatever was
+    // printed so far. Only a memory-limit kill is the program's doing; everything else records nothing.
     if (result.exit !== 0) {
       if (await runtimeDown()) throw new CodemmError(`The container runtime stopped during the run, so it wasn't counted. ${startHelp()}`);
+      if (result.oomKilled) return { frames: [], flooded: false, outOfMemory: true };
+      // Exit 125 is the runtime's own failure. With no output, no code ran, so its stderr is the runtime's own too.
+      if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`);
+      if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.");
+      throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.");
     }
-    // The memory limit killed the driver: the program's doing, so it's graded. Any other kill from outside isn't.
-    if (result.oomKilled) return { frames: [], flooded: false, outOfMemory: true };
-    // Exit 125 is the runtime's own failure. With no output, no code ran, so its stderr is the runtime's own too.
-    if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`);
-    if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.");
     const frames = parseFrames(result.stdout);
-    // A working driver always reports at least one frame. None, exit 125 after some output, or a runtime
-    // connection error means the runtime failed, not the learner's code, so nothing may be graded or recorded.
-    if (frames.length === 0 || result.exit === 125 || /cannot connect to the docker daemon|error during connect|connection refused/i.test(result.stderr)) {
+    // A working driver always reports at least one frame. None, or a runtime connection error, means the
+    // runtime failed, not the learner's code, so nothing may be graded or recorded.
+    if (frames.length === 0 || /cannot connect to the docker daemon|error during connect|connection refused/i.test(result.stderr)) {
       throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.");
     }
     // Never echo a fatal frame's body: code in the container could forge one (DESIGN §4.2).
