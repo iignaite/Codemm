@@ -163,10 +163,16 @@ async function hadOomEvent(name: string, startedMs: number): Promise<boolean> {
 
 /** `rm -f` with a deadline; true when the container is gone (including when `--rm` got there first). */
 async function removeContainer(name: string): Promise<boolean> {
+  const until = Date.now() + cleanupMs();
   const r = await cli(["rm", "-f", name], cleanupMs());
   if (r.exit === 0) return true;
-  const still = await cli(["container", "inspect", name], cleanupMs());
-  return still.exit !== 0 && /no such/i.test(still.output);
+  // `--rm` may already be removing it ("removal ... is already in progress"), so wait until it's gone.
+  for (;;) {
+    const still = await cli(["container", "inspect", name], Math.max(1_000, until - Date.now()));
+    if (still.exit !== 0 && /no such/i.test(still.output)) return true;
+    if (Date.now() >= until) return false;
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }
 
 /** Runs the container CLI for housekeeping (build, inspect, remove). Not for untrusted code. */
