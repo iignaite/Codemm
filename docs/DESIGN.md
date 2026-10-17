@@ -309,7 +309,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `.claude/agents/codemm-author.md` | The author instructions. Cursor reads it, and the `AGENTS.md` section tells Codex to spawn a subagent with them. |
 | `.mcp.json` | Claude Code's MCP config. |
 | `.claude/settings.json` | Claude Code's `PreToolUse` hook on `Edit|Write|MultiEdit|NotebookEdit`, running `codemm hook claude`. |
-| `.codex/config.toml` | Codex's `[mcp_servers.codemm]` block. Codex needs the project to be trusted. |
+| `.codex/config.toml` | Codex's `[mcp_servers.codemm]` block, with `tool_timeout_sec = 900`: Codex's 60-second default is shorter than a track build (up to 10 minutes) or the exercise gates. Codex needs the project to be trusted. |
 | `.cursor/mcp.json` | Cursor's MCP config. |
 
 **The hook:**
