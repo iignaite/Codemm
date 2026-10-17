@@ -180,8 +180,11 @@ export async function verifyExercise(trackRecord: TrackRecord, course: CourseRec
   if (style === "io") {
     const runs = [first, second].map((r) => [...(r.visible as IoRun).cases, ...(r.hidden as IoRun).cases]);
     const [a, b] = runs as [IoRun["cases"], IoRun["cases"]];
-    const build = (first.visible as IoRun).build ?? (first.hidden as IoRun).build;
-    if (build && build.exit !== 0) throw new GateError("reference passes", `the reference doesn't build:\n${build.output.slice(0, 2000)}`);
+    // Only the visible run's build output may be shown; a hidden-run frame could carry hidden data.
+    const visibleBuild = (first.visible as IoRun).build;
+    if (visibleBuild && visibleBuild.exit !== 0) throw new GateError("reference passes", `the reference doesn't build:\n${visibleBuild.output.slice(0, 2000)}`);
+    const hiddenBuild = (first.hidden as IoRun).build;
+    if (hiddenBuild && hiddenBuild.exit !== 0) throw new GateError("reference passes", "the reference didn't build for the hidden tests.");
     const bad = a.filter((c) => c.exit !== 0 || c.big);
     if (bad.length > 0 || a.length !== counts(sets)) {
       let hidden = 0;

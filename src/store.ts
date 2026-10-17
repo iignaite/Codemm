@@ -1,12 +1,12 @@
 import {
   closeSync, constants, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
-  readFileSync, realpathSync, renameSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync,
+  readFileSync, realpathSync, renameSync, rmSync, truncateSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { CodemmError } from "./errors.js";
-import { assertId, type FileMap, readFileMap, validateFileMap, writeFileMap } from "./files.js";
+import { assertId, assertRelativePath, type FileMap, readFileMap, validateFileMap, writeFileMap } from "./files.js";
 import type { LearnerEvent } from "./learner.js";
 import { CourseRecord, ExerciseRecord, LearnerEventSchema, TrackRecord, WorkspaceConfig } from "./schemas.js";
 
@@ -72,12 +72,27 @@ function tryCreate(path: string, content: string): boolean {
 }
 function reclaimIfStale(path: string, seen: string): void {
   const mutex = `${path}.reclaim`;
-  if (!tryCreate(mutex, String(process.pid))) {
-    // The mutex is held for microseconds; one older than 10 s belongs to a crashed process.
+  if (!tryCreate(mutex, JSON.stringify({ pid: process.pid }))) {
+    // Held for microseconds. Only a mutex whose owner process is gone may be cleared, and only if unchanged.
+    let held: string | undefined;
     try {
-      if (Date.now() - statSync(mutex).mtimeMs > 10_000) unlinkSync(mutex);
+      held = readFileSync(mutex, "utf8");
     } catch {
-      // gone already
+      return;
+    }
+    const owner = (() => {
+      try {
+        return JSON.parse(held) as { pid: number };
+      } catch {
+        return undefined;
+      }
+    })();
+    if (owner && !alive(owner.pid)) {
+      try {
+        if (readFileSync(mutex, "utf8") === held) unlinkSync(mutex);
+      } catch {
+        // gone already
+      }
     }
     return;
   }
@@ -280,7 +295,8 @@ function assertInside(root: string, path: string): void {
  * Never overwrites the learner's edits and never writes through a symlink.
  */
 export function materialize(ws: string, rel: string, files: FileMap): void {
-  validateFileMap(files);
+  // Generated from already-validated data, so only paths are checked, not author size limits.
+  for (const path of Object.keys(files)) assertRelativePath(path);
   for (const [path, contents] of Object.entries(files)) {
     const parts = `${rel}/${path}`.split("/");
     let current = ws;

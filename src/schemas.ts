@@ -44,7 +44,7 @@ const TrackYaml = z
 export type TrackSpec = Omit<z.infer<typeof TrackYaml>, "limits"> & { limits: { time_ms: number; memory_mb: number } };
 
 /** Learner files share a folder with the statement and visible tests, so these names are taken. */
-const isReserved = (f: string) => f === "README.md" || f === "tests" || f.startsWith("tests/");
+const isReserved = (f: string) => ["README.md", "tests"].some((r) => f === r || f.startsWith(`${r}/`));
 
 export function parseTrackYaml(yaml: string): TrackSpec {
   const t = parseWith(TrackYaml, yaml, "track.yaml");
@@ -53,6 +53,8 @@ export function parseTrackYaml(yaml: string): TrackSpec {
     if (isReserved(f)) throw new CodemmError(`Invalid track.yaml: "${f}" is reserved for the statement and visible tests. Rename the learner file.`);
   }
   if (new Set(t.files).size !== t.files.length) throw new CodemmError("Invalid track.yaml: files lists the same file twice.");
+  const clash = t.files.find((f) => t.files.some((g) => g.startsWith(`${f}/`)));
+  if (clash) throw new CodemmError(`Invalid track.yaml: "${clash}" can't be both a file and a folder.`);
   if (t.styles.includes("io") && !t.run) throw new CodemmError("Invalid track.yaml: an io track needs a run command.");
   if (t.styles.includes("unit") && !t.test) throw new CodemmError("Invalid track.yaml: a unit track needs a test command.");
   return { ...t, limits: { time_ms: clamp(t.limits?.time_ms, LIMITS.time_ms), memory_mb: clamp(t.limits?.memory_mb, LIMITS.memory_mb) } };

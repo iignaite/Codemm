@@ -135,6 +135,10 @@ export function cli(args: string[], timeoutMs = 60_000): Promise<{ exit: number;
     // Settle at the deadline even if an orphaned grandchild keeps the pipes open.
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
+      // A grandchild may still hold the pipes; drop them so Codemm itself can exit.
+      child.stdout.destroy();
+      child.stderr.destroy();
+      child.unref();
       settle({ exit: -1, output: `${output}\n(timed out after ${timeoutMs} ms)` });
     }, timeoutMs);
     child.on("close", (code) => settle({ exit: code ?? -1, output }));

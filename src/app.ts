@@ -96,9 +96,11 @@ export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exer
       await sandboxCli(["image", "rm", candidate]);
       throw new CodemmError(`The rebuilt image behaves differently, so it wasn't accepted:\n${changed.join("\n")}`);
     }
-    await sandboxCli(["tag", verified.imageId, old.image]);
-    await sandboxCli(["image", "rm", candidate]);
+    const tagged = await sandboxCli(["tag", verified.imageId, old.image]);
+    if (tagged.exit !== 0) throw new CodemmError(`Couldn't promote the rebuilt image, so nothing changed: ${tagged.output.trim().slice(0, 300)}`);
     store.writeTrackRecord(ref, track);
+    // The image keeps its installed tag, so dropping the candidate tag only untags it.
+    await sandboxCli(["image", "rm", candidate]);
     return { rebuilt: ref, exercises: count };
   });
 }
@@ -138,7 +140,7 @@ export function nextStep(ws: string): NextStep {
   return step.kind === "author" ? { ...step, style: course.style, track: course.track } : step;
 }
 
-export async function saveExercise(ws: string, files: FileMap): Promise<{ exercise: string }> {
+export async function saveExercise(ws: string, files: FileMap): Promise<{ exercise: string; warning?: string }> {
   const courseId = activeCourse(ws).course;
   const trackId = store.parseTrackRef(activeCourse(ws).track).id;
   const { record, track } = await store.withLock(store.courseLockPath(courseId), () =>
@@ -153,7 +155,12 @@ export async function saveExercise(ws: string, files: FileMap): Promise<{ exerci
       return { record: verified, track };
     }),
   );
-  store.materialize(ws, learnerDir(courseId, record.slug), learnerFiles(record, files, track));
+  try {
+    store.materialize(ws, learnerDir(courseId, record.slug), learnerFiles(record, files, track));
+  } catch (e) {
+    // The exercise is saved; get_exercise retries writing the learner files.
+    return { exercise: record.slug, warning: `Saved, but the learner files couldn't be written yet: ${(e as Error).message}` };
+  }
   return { exercise: record.slug };
 }
 

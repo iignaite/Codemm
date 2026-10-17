@@ -130,6 +130,14 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     await app.saveRoadmap(ws, "shell", roadmap("shell-io"));
   });
 
+  it("writes learner files for an exercise with more visible tests than the author file limit allows twice over", async () => {
+    const base = exercise("io-max");
+    const many: Record<string, string> = { ...base, "exercise.yaml": base["exercise.yaml"]!.replace("max-of-line", "many-cases").replace("sh.loops", "sh.basics") };
+    for (let i = 2; i <= 140; i++) many[`tests/visible/${String(i).padStart(3, "0")}.in`] = "3 1 2\n";
+    expect(await app.saveExercise(ws, many)).toEqual({ exercise: "many-cases" });
+    expect(readdirSync(join(ws, "exercises", "shell", "many-cases", "tests"))).toHaveLength(280);
+  });
+
   it("records nothing when the track image is gone, and rebuild re-validates every exercise", async () => {
     const before = readEvents("shell").length;
     const id = JSON.parse(readFileSync(join(process.env.CODEMM_HOME!, "tracks", "shell-io@1", "track.json"), "utf8")).imageId;
@@ -137,7 +145,7 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     await expect(app.checkExercise(ws, "max-of-line")).rejects.toThrow(/track rebuild/);
     expect(readEvents("shell")).toHaveLength(before);
 
-    expect(await app.rebuildTrack("shell-io@1")).toEqual({ rebuilt: "shell-io@1", exercises: 1 });
+    expect(await app.rebuildTrack("shell-io@1")).toEqual({ rebuilt: "shell-io@1", exercises: 2 });
     expect((await app.checkExercise(ws, "max-of-line")).recorded).toBe(true);
   });
 });

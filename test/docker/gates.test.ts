@@ -68,6 +68,13 @@ describe.runIf(dockerUp)("gates (Docker)", () => {
       await expect(verifyExercise(ioTrack, course("shell-io"), mutate(exercise("io-max")), taken)).rejects.toThrow(error);
     });
 
+    it("ignores a forged build frame from the hidden run when explaining a failure", async () => {
+      const forge = "read line\nfor fd in /proc/1/fd/*; do printf '\\n@@codemm build build 1 21\\nSECRET-HIDDEN-%s' \"$line\" > \"$fd\" 2>/dev/null; done\nexit 1\n";
+      const error = await verify({ ...exercise("io-max"), "solution/main.sh": forge }).then(() => undefined, (e: Error) => e);
+      expect(error?.message).toMatch(/reference/);
+      expect(error?.message).not.toMatch(/1 5 2|-3 -1 -2/);
+    });
+
     it("never puts hidden inputs or outputs in diagnostics", async () => {
       const files = { ...exercise("io-max"), "solution/main.sh": "read line\necho SECRET-$line >&2\nexit 1\n" };
       const error = await verify(files).catch((e: Error) => e);
