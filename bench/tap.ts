@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * A transparent MCP stdio tap: `node bench/tap.ts --log <file> --home <dir> -- <command> [args...]`.
+ * A transparent MCP stdio tap: `node bench/tap.ts --log <file> --home <dir> --cli <container cli> -- <command> [args...]`.
  * Starts the real Codemm server with CODEMM_HOME=<dir>, passes every byte through unchanged,
  * and appends each tools/call request and its response to <file> as JSON lines.
  * It gives the bench one tool-call log for every host, subagents included.
@@ -16,11 +16,12 @@ const opt = (name: string) => {
   if (i < 0 || i > sep) throw new Error(`tap: missing ${name}`);
   return argv[i + 1]!;
 };
-if (sep < 0 || sep === argv.length - 1) throw new Error("usage: tap.ts --log <file> --home <dir> -- <command> [args...]");
+if (sep < 0 || sep === argv.length - 1) throw new Error("usage: tap.ts --log <file> --home <dir> --cli <container cli> -- <command> [args...]");
 const log = opt("--log");
 const [command, ...args] = argv.slice(sep + 1);
 
-const child = spawn(command!, args, { env: { ...process.env, CODEMM_HOME: opt("--home") }, stdio: ["pipe", "pipe", "inherit"] });
+// Codex hands MCP servers a reduced environment, so the tap sets Codemm's home and container CLI itself.
+const child = spawn(command!, args, { env: { ...process.env, CODEMM_HOME: opt("--home"), CODEMM_CONTAINER_CLI: opt("--cli") }, stdio: ["pipe", "pipe", "inherit"] });
 
 function watch(from: NodeJS.ReadableStream, to: NodeJS.WritableStream, dir: "in" | "out") {
   let buffer = "";
