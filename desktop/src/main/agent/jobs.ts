@@ -3,7 +3,7 @@
 // only when its check against core records passes, never on the agent's word.
 import type { AgentId } from '../../shared/api';
 import { AGENT_CLIS, type AgentEvent, type McpServer } from './agents';
-import { infra as isInfra } from '../core/failures';
+import { spendsNoRetry } from '../core/failures';
 import { run, type Executable } from './bridge';
 
 export type JobKind = 'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor';
@@ -100,7 +100,7 @@ async function once(job: Job): Promise<Attempt> {
       stop.abort();
     }
     if (e.type === 'tool_call' && spec.save && e.name === `codemm.${spec.save}`) saves.add(e.id);
-    if (e.type === 'tool_result' && e.error && e.text && isInfra(e.text)) {
+    if (e.type === 'tool_result' && e.error && e.text && spendsNoRetry(e.text)) {
       infra = 'tool';
       stop.abort();
     }

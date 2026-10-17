@@ -132,6 +132,13 @@ describe('jobs (§3.2)', () => {
     expect(Date.now() - started).toBeLessThan(15_000);
   });
 
+  it('a save that fails on a track image needing a rebuild stops the job without a relaunch', async () => {
+    const image = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: 'The image for py@1 is missing or changed. Run `codemm track rebuild py@1`, then retry.' }] } };
+    const agent = fakeAgent([init, call('a', 'save_exercise'), image], { hang: true });
+    expect(await runJob(job(agent.exe, { kind: 'author', done: () => false }))).toMatchObject({ ok: false, problem: 'infra' });
+    expect(agent.runs()).toBe(1);
+  });
+
   it("gives Codex's tool calls the job's deadline", async () => {
     const agent = fakeAgent([{ type: 'thread.started', thread_id: 't' }, { type: 'turn.completed' }]);
     await runJob(job(agent.exe, { agent: 'codex', kind: 'author', done: () => true }));
