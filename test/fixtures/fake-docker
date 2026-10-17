@@ -1,7 +1,8 @@
 #!/bin/sh
 # A fake `docker` for unit tests. FAKE_DOCKER picks the scenario: down, offline, disk-full, stops, drops
-# (the connection drops mid-check but the daemon answers again) or oom (the memory limit kills the
-# container's PID 1, so the container exits 137 with no frames while the daemon stays up).
+# (the connection drops mid-check but the daemon answers again), oom (the memory limit kills the container's
+# PID 1: exit 137 with no frames, the daemon stays up and records an oom event) or killed (the same exit from
+# an outside `docker kill`, with no oom event).
 # It answers only the commands Codemm sends, with Docker 27's wording, using shell builtins only.
 daemon_down="Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"
 case "$1" in
@@ -18,8 +19,9 @@ case "$1" in
     esac
     exit 1 ;;
   image) echo "sha256:fake null" ;;
+  events) if [ "$FAKE_DOCKER" = oom ]; then echo oom; fi ;;
   run)
-    if [ "$FAKE_DOCKER" = oom ]; then exit 137; fi
+    case "$FAKE_DOCKER" in oom|killed) exit 137 ;; esac
     # One frame gets out, then the connection drops. With "stops" the daemon stays down.
     case "$FAKE_DOCKER" in stops) : > "$0.stopped" ;; drops) ;; *) exit 1 ;; esac
     printf '\n@@codemm build build 0 0\n'

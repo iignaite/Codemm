@@ -83,6 +83,7 @@ describe.runIf(posix)("a check that loses Docker mid-run", () => {
   it.each([
     ["stops", /stopped during the run, so it wasn't counted.*Start Docker/s],
     ["drops", /failed during the run, so it wasn't counted/],
+    ["killed", /failed during the run, so it wasn't counted/],
   ] as const)("records nothing and says it wasn't counted when Docker %s", async (scenario, message) => {
     const ws = await installedExercise();
     fakeDocker(scenario);

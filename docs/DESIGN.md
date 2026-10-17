@@ -150,7 +150,7 @@ Other ceilings:
 | A case times out (the driver's `timeout`), crashes, exits non-zero or prints more than 64 KB | that test is `error` | yes |
 | Learner code fails to build | every test is `error` | yes |
 | The 4 MB stream cap is hit | every test in that set is `error` ("output limit exceeded") | yes |
-| The memory limit kills the driver (the container exits 137 while the runtime still answers; nothing inside a container can SIGKILL its PID 1) | every test in that set is `error` ("memory limit exceeded") | yes |
+| The memory limit kills the driver: the container exits 137 and the runtime recorded an `oom` event for it (an outside kill, with no such event, is an infrastructure failure) | every test in that set is `error` ("memory limit exceeded") | yes |
 | The host deadline for the whole set passes, the runtime is missing or stops during the run, or the image is missing or changed | the command fails with an infrastructure error | no |
 - **Volumes:** images that declare `VOLUME` are rejected at install.
 

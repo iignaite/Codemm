@@ -80,9 +80,8 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
     if (result.exit !== 0) {
       if (await runtimeDown()) throw new CodemmError(`The container runtime stopped during the run, so it wasn't counted. ${startHelp()}`);
     }
-    // Nothing inside a container can SIGKILL its PID 1, and the host's own kills (deadline, flood) are handled
-    // above. So with the runtime up, exit 137 means the kernel's memory limit killed the driver: graded, not infrastructure.
-    if (result.exit === 137) return { frames: [], flooded: false, outOfMemory: true };
+    // The memory limit killed the driver: the program's doing, so it's graded. Any other kill from outside isn't.
+    if (result.oomKilled) return { frames: [], flooded: false, outOfMemory: true };
     // Exit 125 is the runtime's own failure. With no output, no code ran, so its stderr is the runtime's own too.
     if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`);
     if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.");
