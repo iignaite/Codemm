@@ -3,10 +3,10 @@
 // bundled core run with this app as Node (§2, §7).
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { AGENT_CLIS } from './agent/agents';
 import { ask } from './agent/bridge';
-import { find } from './agent/find';
+import { dockerFolders, find } from './agent/find';
 import { computerCheck, waitWhileStarting } from './computer';
 import { connector } from './connect';
 import type { CoreApp } from './core/types';
@@ -43,9 +43,10 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
   const computer = computerCheck({
     find: () => {
       const docker = find('docker');
-      // GUI apps don't load shell profiles: give core's own docker calls the folder Docker was found in (§3.1).
-      if (docker && !(process.env.PATH ?? '').split(delimiter).includes(dirname(docker.path))) {
-        process.env.PATH = [process.env.PATH, dirname(docker.path)].filter(Boolean).join(delimiter);
+      // GUI apps don't load shell profiles: give core's own docker calls Docker's folders, helpers included (§3.1).
+      if (docker) {
+        const path = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
+        process.env.PATH = [...path, ...dockerFolders(docker.path).filter((f) => !path.includes(f))].join(delimiter);
       }
       return docker;
     },

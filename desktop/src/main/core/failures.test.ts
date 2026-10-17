@@ -12,6 +12,8 @@ describe('core failure messages (src/sandbox.ts, src/judge.ts, src/store.ts)', (
     expect(infra("The container runtime stopped during the run, so it wasn't counted. Start Docker Desktop.")).toBe('docker');
     expect(infra("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.")).toBe('docker');
     expect(infra('Docker is running Windows containers. Switch Docker Desktop to Linux containers and retry.')).toBe('docker');
+    // Recorded in the macOS journey: the Docker CLI found couldn't reach Docker Desktop's credential helper.
+    expect(infra('Gate "build" failed: the image didn\'t build:\n#2 ERROR: error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``')).toBe('docker');
     expect(infra('the image didn\'t build:\nnpm ERR! 404')).toBeNull();
   });
 });
