@@ -2,6 +2,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { npm } from "./npm.js";
 
@@ -12,7 +13,7 @@ beforeAll(() => {
 }, 120_000);
 
 const WORKER = `
-import { withLock } from ${JSON.stringify(join(root, "dist", "store.js"))};
+import { withLock } from ${JSON.stringify(pathToFileURL(join(root, "dist", "store.js")).href)};
 import { readFileSync, writeFileSync } from "node:fs";
 const [lock, counter] = process.argv.slice(1); // node -e has no script path in argv
 await withLock(lock, async () => {

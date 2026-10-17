@@ -86,6 +86,14 @@ describe("init", () => {
     expect(groups.flatMap((g: any) => g.hooks).filter((h: any) => h.command.includes(" hook claude "))).toHaveLength(1);
   });
 
+  it("on Windows, runs the hook without a shell, since Git Bash and PowerShell can't run a quoted C:\\ path", async () => {
+    const win = { command: "C:\\Program Files\\nodejs\\node.exe", args: ["C:\\Users\\me\\codemm\\dist\\cli.js"] };
+    await init(ws, ["claude"], win, "win32");
+    await init(ws, ["claude"], win, "win32");
+    const hooks = json(".claude/settings.json").hooks.PreToolUse.flatMap((g: any) => g.hooks);
+    expect(hooks).toEqual([{ type: "command", command: win.command, args: [...win.args, "hook", "claude", "--workspace", ws] }]);
+  });
+
   it("writes nothing when a nested setting has the wrong shape", async () => {
     mkdirSync(join(ws, ".claude"));
     writeFileSync(join(ws, ".claude", "settings.json"), JSON.stringify({ hooks: { PreToolUse: { not: "a list" } } }));

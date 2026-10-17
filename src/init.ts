@@ -79,7 +79,17 @@ function withCodexServer(existing: string, launcher: Launcher, ws: string): stri
   return next;
 }
 
-function withHook(settings: Record<string, any>, command: string, ws: string): Record<string, any> {
+/**
+ * Claude Code's hook entry. Windows runs a shell-form hook in Git Bash or PowerShell, and neither can run a
+ * quoted C:\\ path, so there the hook uses exec form: the executable and its arguments, with no shell.
+ */
+function hookEntry(launcher: Launcher, ws: string, platform: NodeJS.Platform): Record<string, unknown> {
+  if (platform === "win32") return { type: "command", command: launcher.command, args: [...launcher.args, ...hookArgs(ws)] };
+  return { type: "command", command: `${[launcher.command, ...launcher.args].map(shellQuote).join(" ")} hook claude --workspace ${shellQuote(ws)}` };
+}
+const hookArgs = (ws: string) => ["hook", "claude", "--workspace", ws];
+
+function withHook(settings: Record<string, any>, entry: Record<string, unknown>, ws: string): Record<string, any> {
   const hooks = settings.hooks ?? {};
   if (!isObject(hooks)) throw new CodemmError("Can't update .claude/settings.json: hooks must be an object.");
   const groups = hooks.PreToolUse ?? [];
@@ -87,11 +97,13 @@ function withHook(settings: Record<string, any>, command: string, ws: string): R
     throw new CodemmError("Can't update .claude/settings.json: hooks.PreToolUse must be a list of hook groups.");
   }
   // Remove only Codemm's own entries for this workspace; keep every other hook and the group around it.
-  const ours = (h: any) => typeof h?.command === "string" && h.command.endsWith(` hook claude --workspace ${shellQuote(ws)}`);
+  const ours = (h: any) =>
+    (typeof h?.command === "string" && h.command.endsWith(` hook claude --workspace ${shellQuote(ws)}`)) ||
+    (Array.isArray(h?.args) && JSON.stringify(h.args.slice(-4)) === JSON.stringify(hookArgs(ws)));
   const kept = groups
     .map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h: any) => !ours(h)) }))
     .filter((g, i) => g.hooks.length > 0 || (groups[i].hooks ?? []).length === 0);
-  return { ...settings, hooks: { ...hooks, PreToolUse: [...kept, { matcher: HOOK_MATCHER, hooks: [{ type: "command", command }] }] } };
+  return { ...settings, hooks: { ...hooks, PreToolUse: [...kept, { matcher: HOOK_MATCHER, hooks: [entry] }] } };
 }
 
 function withServer(config: Record<string, any>, rel: string, server: Record<string, unknown>): Record<string, any> {
@@ -105,11 +117,11 @@ function withServer(config: Record<string, any>, rel: string, server: Record<str
  * Every file is prepared and validated first; nothing is written unless all of it is valid.
  * Each write replaces the file atomically. Returns the files written.
  */
-export async function init(ws: string, hosts: Host[], launcher: Launcher): Promise<string[]> {
-  return withWorkspaceLock(ws, async () => prepareAndWrite(ws, hosts, launcher));
+export async function init(ws: string, hosts: Host[], launcher: Launcher, platform = process.platform): Promise<string[]> {
+  return withWorkspaceLock(ws, async () => prepareAndWrite(ws, hosts, launcher, platform));
 }
 
-function prepareAndWrite(ws: string, hosts: Host[], launcher: Launcher): string[] {
+function prepareAndWrite(ws: string, hosts: Host[], launcher: Launcher, platform: NodeJS.Platform): string[] {
   const chosen = new Set(hosts.length > 0 ? hosts : HOSTS);
   const mcpArgs = [...launcher.args, "mcp", "--workspace", ws];
   const files: [string, string][] = [
@@ -122,8 +134,7 @@ function prepareAndWrite(ws: string, hosts: Host[], launcher: Launcher): string[
     const hasImport = claudeMd.split("\n").some((l) => l.trim() === "@AGENTS.md");
     files.push(["CLAUDE.md", hasImport ? claudeMd : `${claudeMd ? claudeMd.replace(/\n*$/, "\n\n") : ""}@AGENTS.md\n`]);
     files.push([".mcp.json", json(withServer(readJson(ws, ".mcp.json"), ".mcp.json", { type: "stdio", command: launcher.command, args: mcpArgs }))]);
-    const command = `${[launcher.command, ...launcher.args].map(shellQuote).join(" ")} hook claude --workspace ${shellQuote(ws)}`;
-    files.push([".claude/settings.json", json(withHook(readJson(ws, ".claude/settings.json"), command, ws))]);
+    files.push([".claude/settings.json", json(withHook(readJson(ws, ".claude/settings.json"), hookEntry(launcher, ws, platform), ws))]);
   }
   if (chosen.has("codex")) files.push([".codex/config.toml", withCodexServer(readText(ws, ".codex/config.toml"), launcher, ws)]);
   if (chosen.has("cursor")) files.push([".cursor/mcp.json", json(withServer(readJson(ws, ".cursor/mcp.json"), ".cursor/mcp.json", { command: launcher.command, args: mcpArgs }))]);
