@@ -167,12 +167,12 @@ async function removeContainer(name: string): Promise<boolean> {
   const r = await cli(["rm", "-f", name], cleanupMs());
   if (r.exit === 0) return true;
   // `--rm` may already be removing it ("removal ... is already in progress"), so wait until it's gone.
-  for (;;) {
-    const still = await cli(["container", "inspect", name], Math.max(1_000, until - Date.now()));
-    if (still.exit !== 0 && /no such/i.test(still.output)) return true;
-    if (Date.now() >= until) return false;
-    await new Promise((r) => setTimeout(r, 200));
+  for (let left = until - Date.now(); left > 0; left = until - Date.now()) {
+    const still = await cli(["container", "inspect", name], left);
+    if (still.exit !== 0 && /no such (container|object)/i.test(still.output)) return true;
+    await new Promise((r) => setTimeout(r, Math.min(200, Math.max(0, until - Date.now()))));
   }
+  return false;
 }
 
 /** Runs the container CLI for housekeeping (build, inspect, remove). Not for untrusted code. */
