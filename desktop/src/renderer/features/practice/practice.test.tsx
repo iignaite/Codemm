@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type { Graded } from '../../../shared/api';
@@ -93,6 +93,26 @@ describe('Practice', () => {
     await user.click(screen.getByRole('button', { name: 'Try it' }));
     expect(await screen.findByText('Not graded')).toBeTruthy();
     expect(screen.queryByText('Hidden tests')).toBeNull();
+  });
+
+  it('keeps edits when the learner leaves and comes back', async () => {
+    const { user, api, exerciseId, course } = await open();
+    await user.type(editor(), 'x');
+    cleanup();
+    renderWith(<Practice exerciseId={exerciseId} />, { api, courseId: course.id });
+    await screen.findByRole('heading', { name: 'Click Counter' });
+    expect(editor().value.endsWith('x')).toBe(true);
+  });
+
+  it('retries the same run after an infrastructure failure', async () => {
+    const { user, api } = await open();
+    vi.spyOn(api, 'test').mockResolvedValueOnce({ kind: 'infra', problem: "Docker isn't running." });
+    const check = vi.spyOn(api, 'check');
+    const test = vi.spyOn(api, 'test');
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await user.click(await screen.findByRole('button', { name: 'Try again' }));
+    expect(check).not.toHaveBeenCalled();
+    expect(test).toHaveBeenCalledTimes(2);
   });
 
   it('switches between files', async () => {

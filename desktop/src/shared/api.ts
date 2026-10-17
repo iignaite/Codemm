@@ -171,6 +171,8 @@ export interface CodemmApi {
   openLesson(id: string): Promise<Lesson>;
   saveLesson(id: string, edit: LessonEdit): Promise<Lesson>;
   getExercise(id: string): Promise<Exercise>;
+  /** Keeps the learner's draft. Not graded, not recorded. */
+  saveFiles(exerciseId: string, files: SourceFile[]): Promise<void>;
   /** Visible tests only. Not graded, not recorded. */
   test(exerciseId: string, files: SourceFile[]): Promise<Tested | Infra>;
   check(exerciseId: string, files: SourceFile[]): Promise<Graded | Infra>;
@@ -186,7 +188,7 @@ export type ApiMethod = Exclude<keyof CodemmApi, 'onChange'>;
 export const API_METHODS = [
   'listAgents', 'connectAgent', 'suggestions', 'listTracks', 'rebuildTrack',
   'research', 'reviseDraft', 'approveDraft', 'setUpTrack', 'listCourses', 'getCourse',
-  'openLesson', 'saveLesson', 'getExercise', 'test', 'check', 'hint', 'ask', 'setAssist',
+  'openLesson', 'saveLesson', 'getExercise', 'saveFiles', 'test', 'check', 'hint', 'ask', 'setAssist',
 ] as const satisfies readonly ApiMethod[];
 
 export const CHANGED_CHANNEL = 'codemm:changed';

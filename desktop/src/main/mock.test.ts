@@ -95,13 +95,28 @@ describe('mock CodemmApi', () => {
     const edited = exercise.files.map((f) => ({ ...f, content: f.content + ' ' }));
     const results = [await api.check(exercise.id, edited), await api.check(exercise.id, edited)];
     const payload = JSON.stringify([exercise, ...results]).toLowerCase();
-    for (const word of ['solution', 'reference', 'mutant', 'hidden_', 'expected_output']) {
+    for (const word of ['solution', 'reference', 'mutant', 'hidden_', 'expected_output', 'count + 1']) {
       expect(payload).not.toContain(word);
     }
     for (const r of results) {
       if (r.kind !== 'graded') throw new Error('expected a graded result');
       for (const h of r.hidden) expect(['passed', 'failed']).toContain(h);
     }
+  });
+
+  it('keeps saved drafts without grading them', async () => {
+    const { api, exercise } = await openActivity();
+    const draft = exercise.files.map((f, i) => (i ? f : { ...f, content: 'draft' }));
+    await api.saveFiles(exercise.id, draft);
+    expect((await api.getExercise(exercise.id)).files[0].content).toBe('draft');
+  });
+
+  it('does not advance the course when a mastered topic passes again', async () => {
+    const { api, course, exercise } = await openActivity();
+    const edited = exercise.files.map((f) => ({ ...f, content: f.content + ' ' }));
+    for (let i = 0; i < 4; i++) await api.check(exercise.id, edited);
+    const states = (await api.getCourse(course.id)).topics.map((t) => t.state);
+    expect(states.slice(0, 3)).toEqual(['mastered', 'now', 'later']);
   });
 
   it('locks edits in practice mode until assist is on', async () => {

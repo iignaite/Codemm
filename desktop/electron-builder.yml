@@ -26,3 +26,6 @@ linux:
       arch: [x64]
   category: Education
   maintainer: Codemm contributors <noreply@codemm.dev>
+appImage:
+  # Drop electron-builder's default --no-sandbox so the Chromium sandbox stays on.
+  executableArgs: []

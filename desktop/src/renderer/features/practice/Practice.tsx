@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Exercise, Note, SourceFile } from '../../../shared/api';
 import { useApi, useLive } from '../../app/api';
 import { useNav } from '../../app/nav';
@@ -23,6 +23,7 @@ export function Practice({ exerciseId }: { exerciseId: string }) {
   const [mark, setMark] = useState<Mark>();
   const [assist, setAssist] = useState(false);
   const [asking, setAsking] = useState(false);
+  const lastRunGraded = useRef(true);
 
   useEffect(() => {
     api.getExercise(exerciseId).then((e) => {
@@ -39,6 +40,7 @@ export function Practice({ exerciseId }: { exerciseId: string }) {
   const say = (more: Note[]) => setNotes((n) => [...n, ...more]);
 
   async function run(graded: boolean) {
+    lastRunGraded.current = graded;
     setResult({ kind: 'running' });
     const r = graded ? await api.check(exerciseId, files) : await api.test(exerciseId, files);
     setResult(r);
@@ -71,13 +73,17 @@ export function Practice({ exerciseId }: { exerciseId: string }) {
       </section>
       <div className="mid">
         <Editor files={files} tab={tab} onTab={setTab} mark={mark}
-          onChange={(content) => setFiles((fs) => fs.map((f, i) => (i === tab ? { ...f, content } : f)))}
+          onChange={(content) => {
+            const next = files.map((f, i) => (i === tab ? { ...f, content } : f));
+            setFiles(next);
+            api.saveFiles(exerciseId, next);
+          }}
           actions={<>
             <Button kind="ghost" disabled={result.kind === 'running'} onClick={() => run(false)}>Try it</Button>
             <Button disabled={result.kind === 'running'} onClick={() => run(true)}>Check</Button>
           </>} />
         <Results state={result} topic={topic.title} palette={palette}
-          onRetry={() => run(true)}
+          onRetry={() => run(lastRunGraded.current)}
           onContinue={() => go({ to: 'course' })}
           onLesson={() => lastLesson && go({ to: 'lesson', lessonId: lastLesson.id })}
           onEasier={() => ask('Try an easier one')}

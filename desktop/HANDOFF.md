@@ -51,12 +51,13 @@ npm run dist         # unsigned installers in dist/
 - **Grading.** Scripted. A check of unchanged starter code is graded but not counted (`recorded: false`). The first changed check is "2 of 4"; the next passes and masters the topic. The mock holds no solution, reference or hidden tests: hidden results are statuses only, and a test enforces this.
 - **Tutor replies** (`ask`, `hint`). Canned. Asking for a fix while assist is off returns the practice-mode lock note.
 - **Assist.** Stored as a flag. "Let Codemm edit" turns it on, but nothing edits the code.
+- **Drafts.** Each edit calls `saveFiles` and is kept in memory, so leaving Practice keeps the code.
 - **Persistence.** None. A restart starts again at the welcome screen.
 
 ## Plugging in the core
 
 Replace `createMockApi()` in `src/main/index.ts` with an adapter that implements `CodemmApi` on the core's `app` module. The main process is Node, so it can import the core directly. Notes for that adapter:
-- `check` and `test` receive the editor's files. Write them to the workspace, then call `app.check` or `app.testExercise`.
+- `saveFiles` fires on every edit; write the draft to the workspace and coalesce writes if needed. `check` and `test` also receive the editor's files: write them, then call `app.check` or `app.testExercise`.
 - Map infrastructure failures to `{ kind: 'infra' }`. Learner-caused failures stay `graded`.
 - `setAssist(true)` must keep the core's semantics: sticky per exercise, weighted at 0.25.
 - `onChange` should fire after any state change, so screens reload.
@@ -71,12 +72,24 @@ Replace `createMockApi()` in `src/main/index.ts` with an adapter that implements
 - **Bundled fonts.** Fonts come from `@fontsource` (OFL), so the app needs no network and the CSP allows only `'self'`.
 - **Drag is optional.** Course topics can be dragged, and each has a Move menu (Move up / Move down) as the non-drag alternative.
 - **Unsigned builds.** macOS sets `identity: null` and `notarize: false`, and CI sets `CSC_IDENTITY_AUTO_DISCOVERY=false`.
+- **Linux sandbox.** The AppImage drops electron-builder's default `--no-sandbox`, so Chromium's sandbox stays on. electron-builder's launcher still adds `--no-sandbox` where unprivileged user namespaces are blocked (for example Ubuntu 24.04 without an AppArmor profile), because Chromium can't start sandboxed there from an AppImage. The deb installs the setuid `chrome-sandbox`, so it stays sandboxed everywhere. Prefer the deb on those systems.
 
 ## Verified
 
-- `npm run typecheck` and `npm test` pass (56 tests).
+- `npm run typecheck` and `npm test` pass (60 tests).
 - `npm run test:smoke` passes locally on macOS. It runs with reduced motion and saves a screenshot of every step to `test-results/`.
 - `electron-builder --mac --arm64` built the `.app` locally. The dmg step needs `hdiutil`, which this sandbox blocks, so the dmg itself is verified in CI.
+
+## Review
+
+Astra (gpt-6-astra) reviewed the first commit. All seven findings are fixed:
+- the AppImage default `--no-sandbox`;
+- drafts lost on navigation (now `saveFiles`);
+- a mock note that hinted at the answer;
+- re-passing a mastered topic advancing the course;
+- Try again after an infrastructure failure on Try it running a graded Check;
+- no focus ring on the editor;
+- the Assist switch's hit area below 32px.
 
 ## Next
 

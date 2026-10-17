@@ -51,9 +51,10 @@ h1:focus { outline: none; }
 .field { height: 48px; width: 100%; padding: 0 16px; border-radius: 10px; border: 1px solid var(--ctl); background: #fff; font: 14.5px var(--sans); color: var(--ink); }
 .field::placeholder { color: var(--faint); }
 textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: vertical; }
-.sw { width: 44px; height: 26px; border-radius: 13px; border: none; background: var(--ctl); position: relative; flex-shrink: 0; cursor: pointer; transition: background .25s; }
-.sw::after { content: ""; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .25s var(--ease); }
-.sw[aria-checked="true"] { background: var(--bad); }
+.sw { width: 44px; height: 32px; padding: 0; border: none; border-radius: 16px; background: none; position: relative; flex-shrink: 0; cursor: pointer; }
+.sw::before { content: ""; position: absolute; left: 0; top: 3px; width: 44px; height: 26px; border-radius: 13px; background: var(--ctl); transition: background .25s; }
+.sw::after { content: ""; position: absolute; left: 3px; top: 6px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .25s var(--ease); }
+.sw[aria-checked="true"]::before { background: var(--bad); }
 .sw[aria-checked="true"]::after { left: 21px; }
 .row-actions { display: flex; gap: 10px; }
 
@@ -118,6 +119,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .etabs { display: flex; height: 100%; }
 .etab { height: 56px; display: flex; align-items: center; padding: 0 20px; border: none; border-right: 1px solid var(--line); background: transparent; color: var(--muted); font: 500 13.5px var(--mono); cursor: pointer; }
 .etab[aria-selected="true"] { background: #fff; color: var(--ink); font-weight: 600; }
+.ebody:focus-within { outline: 3px solid var(--green-ink); outline-offset: -3px; }
 .ebody { flex: 1; min-height: 0; display: grid; grid-template-columns: 56px minmax(0, 1fr); background: #fff; font: 14px/1.8 var(--mono); overflow: hidden; }
 .lnum { overflow: hidden; padding: 16px 16px 16px 0; text-align: right; color: var(--faint); white-space: pre; user-select: none; }
 .code { position: relative; min-width: 0; overflow: hidden; }

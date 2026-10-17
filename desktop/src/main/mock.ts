@@ -122,12 +122,13 @@ export function createMockApi({ delayMs = 600, failSetup = false }: Options = {}
       kind: 'graded', passed: passed ? 4 : 2, total: 4, recorded, mastered, stuck: false,
       visible: [SHOWS, passed ? ADDS_PASS : ADDS_FAIL],
       hidden: passed ? ['passed', 'passed'] : ['passed', 'failed'],
-      ...(recorded && { note: passed ? { from: 'codemm', text: 'That is it. count + 1 is the next value.' } : HINT }),
+      ...(recorded && { note: passed ? { from: 'codemm', text: 'Every test passes.' } : HINT }),
     };
   }
 
   function master(exercise: Exercise) {
     const [course, topic] = topicOf(exercise.topicId);
+    if (topic.state === 'mastered') return;
     topic.state = 'mastered';
     topic.mastery = 0.9;
     const next = course.topics.find((t) => t.state === 'later');
@@ -197,6 +198,9 @@ export function createMockApi({ delayMs = 600, failSetup = false }: Options = {}
       return copy(lesson);
     },
     async getExercise(exerciseId) { return { ...copy(find(exercises, exerciseId).exercise), assist }; },
+    async saveFiles(exerciseId, files) {
+      find(exercises, exerciseId).exercise.files = copy(files);
+    },
     async test(exerciseId, files) {
       const entry = find(exercises, exerciseId);
       const ahead = entry.checks > 0 && !isStarter(files);
