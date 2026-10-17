@@ -238,12 +238,15 @@ export function buildProblem(log: string): string | undefined {
   return undefined;
 }
 
+/** A track build is killed after 10 minutes (DESIGN §4.4). */
+export const BUILD_TIMEOUT_MS = 600_000;
+
 /**
  * Builds a track image from a staged folder. Networked; this is the separate trust boundary in DESIGN §4.4.
  * `imageId` is the image this build produced (`--iidfile`), so another build of the same tag in the meantime can't
  * swap it. `problem` is set when the build failed for a reason outside the track (runtime, network or disk).
  */
-export async function buildImage(contextDir: string, tag: string, timeoutMs = 600_000): Promise<{ ok: boolean; log: string; imageId?: string; problem?: string }> {
+export async function buildImage(contextDir: string, tag: string, timeoutMs = BUILD_TIMEOUT_MS): Promise<{ ok: boolean; log: string; imageId?: string; problem?: string }> {
   const out = mkdtempSync(join(tmpdir(), "codemm-iid-"));
   try {
     const args = ["build", "-t", tag, "--iidfile", join(out, "iid")];

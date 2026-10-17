@@ -50,6 +50,12 @@ function withSection(existing: string): string {
 const CODEMM_TABLE = /^\s*\[\s*mcp_servers\s*\.\s*(?:codemm|"codemm"|'codemm')\s*\]\s*(?:#.*)?$/;
 const ANY_TABLE = /^\s*\[/;
 
+/**
+ * Codex stops waiting for a tool after 60 s by default. save_track can take the whole 10-minute build limit plus
+ * the probe gates, and save_exercise runs every exercise gate, so Codex waits up to 15 minutes, as the bench did.
+ */
+export const CODEX_TOOL_TIMEOUT_SEC = 900;
+
 function withCodexServer(existing: string, launcher: Launcher, ws: string): string {
   let before: Record<string, any>;
   try {
@@ -57,7 +63,7 @@ function withCodexServer(existing: string, launcher: Launcher, ws: string): stri
   } catch (e) {
     throw new CodemmError(`Can't update .codex/config.toml: it isn't valid TOML (${(e as Error).message.split("\n")[0]}). Fix it, then run codemm init again.`);
   }
-  const block = `[mcp_servers.codemm]\ncommand = ${JSON.stringify(launcher.command)}\nargs = [${[...launcher.args, "mcp", "--workspace", ws].map((a) => JSON.stringify(a)).join(", ")}]\n`;
+  const block = `[mcp_servers.codemm]\ncommand = ${JSON.stringify(launcher.command)}\nargs = [${[...launcher.args, "mcp", "--workspace", ws].map((a) => JSON.stringify(a)).join(", ")}]\ntool_timeout_sec = ${CODEX_TOOL_TIMEOUT_SEC}\n`;
   const lines = existing.split("\n");
   const start = lines.findIndex((l) => CODEMM_TABLE.test(l));
   let next: string;
