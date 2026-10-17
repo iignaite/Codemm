@@ -1,5 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
-import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
+import { _electron as electron, expect as baseExpect, test, type ElectronApplication, type Page } from '@playwright/test';
+
+// Screens change after IPC round trips to the app; slow CI runners need more than the default 5 s.
+const expect = baseExpect.configure({ timeout: 15_000 });
 
 // D16: WCAG AA on every screen, the journey by keyboard alone, and reduced motion.
 // Runs the built app with the mock (CODEMM_MOCK), like smoke.spec.ts.
@@ -259,10 +262,11 @@ test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', 
 async function tabTo(page: Page, role: 'button' | 'textbox' | 'menuitem', name: string | RegExp) {
   const target = page.getByRole(role, { name, exact: typeof name === 'string' }).first();
   for (let i = 0; i < 120; i++) {
-    if (await target.evaluate((el) => el === document.activeElement).catch(() => false)) return;
+    // count() first: evaluate() on a missing element would wait forever.
+    if ((await target.count()) > 0 && (await target.evaluate((el) => el === document.activeElement))) return;
     await page.keyboard.press('Tab');
   }
-  throw new Error(`Tab never reached ${role} "${name}"`);
+  throw new Error(`Tab never reached ${role} "${name}" on:\n${await page.locator('body').ariaSnapshot()}`);
 }
 
 async function press(page: Page, name: string | RegExp) {
@@ -277,6 +281,8 @@ async function typeInto(page: Page, name: string, text: string) {
 }
 
 test('the journey works with the keyboard alone', async () => {
+  // Every Tab is a round trip to the app; on CI runners the whole walk takes far longer than locally.
+  test.setTimeout(240_000);
   const { app, page } = await launch();
   await press(page, 'Connect an agent');
   await press(page, 'Connect');
@@ -289,7 +295,7 @@ test('the journey works with the keyboard alone', async () => {
   await press(page, 'Start');
   await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });
 
-  // Edit the roadmap: rename the last topic, then move it with the Move menu.
+  await test.step('edit the roadmap: rename the last topic, then move it with the Move menu', async () => {
   const topics = page.getByRole('list').last().getByRole('listitem');
   const last = (await topics.last().getAttribute('aria-label'))!;
   await press(page, `Rename ${last}`);
@@ -302,23 +308,25 @@ test('the journey works with the keyboard alone', async () => {
   await tabTo(page, 'menuitem', 'Move up');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('menu')).toBeHidden();
+  });
 
   await press(page, 'Approve');
   await press(page, 'Set up');
   await expect(button(page, 'Read What javascript basics is')).toBeVisible({ timeout: 15_000 });
   await press(page, 'Read What javascript basics is');
 
-  // A lesson note.
+  await test.step('add a lesson note', async () => {
   await press(page, 'Add a note');
   await page.keyboard.type('The setter replaces the value.');
   await press(page, 'Save');
   await expect(page.getByText('The setter replaces the value.')).toBeVisible();
+  });
   await press(page, 'Next');
   await press(page, 'Next');
   await expect(heading(page, 'Click Counter')).toBeVisible();
 
-  // A failing check, until stuck, then skip ("Come back later") to the course view.
   const results = page.getByRole('region', { name: 'Results' });
+  await test.step('fail a check until stuck, then skip to the course view', async () => {
   await typeInto(page, 'Counter.jsx', 'wrong /* your code */');
   for (let i = 0; i < 3; i++) {
     await press(page, 'Check');
@@ -326,16 +334,24 @@ test('the journey works with the keyboard alone', async () => {
   }
   await press(page, 'Come back later');
   await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();
+  });
 
-  // The next topic, through to a passing check.
+  await test.step('the next topic, through to a passing check', async () => {
   await press(page, 'Continue');
   await press(page, /^Read /);
-  for (let i = 0; i < 6 && !(await heading(page, 'Click Counter').isVisible()); i++) await press(page, 'Next');
+  // Next through the topic's lessons until the activity; each step waits for the screen to change.
+  const title = page.getByRole('heading', { level: 1 }).first();
+  for (let i = 0; i < 6 && (await title.textContent()) !== 'Click Counter'; i++) {
+    const before = (await title.textContent())!;
+    await press(page, 'Next');
+    await expect(title).not.toHaveText(before);
+  }
   await expect(heading(page, 'Click Counter')).toBeVisible();
   await typeInto(page, 'Counter.jsx', '// my answer');
   await press(page, 'Check');
   await expect(results.getByRole('heading', { name: '4 of 4 passed' })).toBeVisible();
   await press(page, 'Continue');
   await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();
+  });
   await app.close();
 });
