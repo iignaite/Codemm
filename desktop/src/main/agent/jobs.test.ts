@@ -24,7 +24,8 @@ ${hang ? 'setInterval(() => {}, 1000);' : `process.exit(${exitCode});`}`,
       return 0;
     }
   };
-  return { exe: { path: script, js: true }, runs };
+  const argv = () => JSON.parse(require('node:fs').readFileSync(join(dir, 'runs'), 'utf8').trim().split('\n')[0]) as string[];
+  return { exe: { path: script, js: true }, runs, argv };
 }
 
 const init = { type: 'system', subtype: 'init', session_id: 's1' };
@@ -102,6 +103,56 @@ describe('jobs (§3.2)', () => {
     const outcome = await runJob(job(agent.exe, { signal: AbortSignal.abort(), done: () => false }));
     expect(outcome).toMatchObject({ ok: false, problem: 'failed' });
     expect(agent.runs()).toBe(0);
+  });
+
+  it('a turn that says it succeeded but exits with an error is not a success', async () => {
+    const agent = fakeAgent([init, say('Done.'), success], { exitCode: 42 });
+    expect(await runJob(job(agent.exe))).toMatchObject({ ok: false, problem: 'failed' });
+  });
+
+  it('a Codemm server that failed to start is an infrastructure failure: no relaunch', async () => {
+    const failedServer = { ...init, mcp_servers: [{ name: 'codemm', status: 'failed' }] };
+    // A real agent keeps running its turn without tools; the job cancels it. (One that has already exited
+    // can't be confirmed stopped on Windows, which the bridge tests cover.)
+    const agent = fakeAgent([failedServer, say('I have no tools.')], { hang: true });
+    expect(await runJob(job(agent.exe, { kind: 'lesson', done: () => false }))).toMatchObject({ ok: false, problem: 'infra' });
+    expect(agent.runs()).toBe(1);
+  });
+
+  it('an agent that exits before it starts (Codex with a required server that failed) is not relaunched', async () => {
+    const agent = fakeAgent([], { exitCode: 1 });
+    expect(await runJob(job(agent.exe, { kind: 'lesson', done: () => false }))).toMatchObject({ ok: false, problem: 'infra' });
+    expect(agent.runs()).toBe(1);
+  });
+
+  it('a save that fails on Docker, disk or network stops the job without a relaunch', async () => {
+    const docker = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: "The container runtime isn't running. Start Docker Desktop." }] } };
+    const agent = fakeAgent([init, call('a', 'save_exercise'), docker], { hang: true });
+    const started = Date.now();
+    expect(await runJob(job(agent.exe, { kind: 'author', done: () => false }))).toMatchObject({ ok: false, problem: 'infra' });
+    expect(agent.runs()).toBe(1);
+    expect(Date.now() - started).toBeLessThan(15_000);
+  });
+
+  it('a save that fails on a track image needing a rebuild stops the job without a relaunch', async () => {
+    const image = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: 'The image for py@1 is missing or changed. Run `codemm track rebuild py@1`, then retry.' }] } };
+    const agent = fakeAgent([init, call('a', 'save_exercise'), image], { hang: true });
+    expect(await runJob(job(agent.exe, { kind: 'author', done: () => false }))).toMatchObject({ ok: false, problem: 'infra' });
+    expect(agent.runs()).toBe(1);
+  });
+
+  it("gives Codex's tool calls the job's deadline", async () => {
+    const agent = fakeAgent([{ type: 'thread.started', thread_id: 't' }, { type: 'turn.completed' }]);
+    await runJob(job(agent.exe, { agent: 'codex', kind: 'author', done: () => true }));
+    expect(agent.argv()).toContain('mcp_servers.codemm.tool_timeout_sec=900');
+  });
+
+  it('never relaunches once another job found its agent unstoppable', async () => {
+    const agent = fakeAgent([init, success]);
+    let blocked = false;
+    const outcome = await runJob(job(agent.exe, { kind: 'lesson', done: () => false, blocked: () => blocked, signedIn: async () => ((blocked = true), true) }));
+    expect(outcome).toMatchObject({ ok: false, problem: 'unstoppable' });
+    expect(agent.runs()).toBe(1);
   });
 
   it('stops at its deadline', async () => {

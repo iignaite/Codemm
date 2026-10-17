@@ -1,5 +1,5 @@
-// desktop.json in the app's userData folder (DESIGN §2): the chosen agent and
-// the tutor's session per course. It carries format_version and is written
+// desktop.json in the app's userData folder (DESIGN §2): the chosen agent, the
+// workspace folder, and the tutor's session per course. It carries format_version and is written
 // atomically, like every Codemm-owned file.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -8,11 +8,15 @@ import type { AgentId } from '../shared/api';
 export interface DesktopState {
   format_version: 1;
   agent?: AgentId;
+  /** The workspace folder, when it isn't ~/Codemm (O5). */
+  workspace?: string;
   /** Tutor session or thread ids, keyed `course|agent`. */
   sessions: Record<string, string>;
   /** The course whose roadmap the learner approved. Before that, it is a draft and no work starts (§4.2). */
   approved?: string;
 }
+
+export const workspaceOf = (state: DesktopState, home: string) => state.workspace ?? join(home, 'Codemm');
 
 export function desktopState(dir: string) {
   const file = join(dir, 'desktop.json');

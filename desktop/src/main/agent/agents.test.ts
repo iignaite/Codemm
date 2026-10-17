@@ -21,6 +21,21 @@ describe('agent stream contracts (recorded fixtures, §3.3)', () => {
     ]);
   });
 
+  it('claude: a Codemm server that failed to start is a server event (recorded)', () => {
+    expect(parseAll('claude', fixture('claude-mcp-failed.jsonl'))).toEqual([
+      { type: 'session', id: 'ae1c50df-0a98-4d41-bb1b-5e28415bdb54' },
+      { type: 'server', ok: false },
+      { type: 'done', ok: true },
+    ]);
+  });
+
+  it('a failed Codemm tool result keeps its text, so an infrastructure failure can be told apart', () => {
+    const claudeLine = JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', is_error: true, content: [{ type: 'text', text: "The container runtime isn't running." }] }] } });
+    expect(AGENT_CLIS.claude.parse!(claudeLine)).toEqual([{ type: 'tool_result', id: 't1', error: true, text: "The container runtime isn't running." }]);
+    const codexLine = JSON.stringify({ type: 'item.completed', item: { id: 'i1', type: 'mcp_tool_call', server: 'codemm', tool: 'save_exercise', status: 'failed', error: { message: 'Not enough disk space' }, result: null } });
+    expect(AGENT_CLIS.codex.parse!(codexLine)).toEqual([{ type: 'tool_result', id: 'i1', error: true, text: 'Not enough disk space' }]);
+  });
+
   it('claude: a failed result is done with ok false', () => {
     const line = JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'boom' });
     expect(AGENT_CLIS.claude.parse!(line)).toEqual([{ type: 'done', ok: false, error: 'boom' }]);
@@ -78,7 +93,7 @@ describe('launch arguments (§3.1)', () => {
   });
 
   it('codex: exec --json read-only, shell and automation off, only the job tools', () => {
-    const { args } = AGENT_CLIS.codex.launch!({ prompt: 'hi', server, tools: ['list_tracks'], model: 'gpt-5.6-luna' });
+    const { args } = AGENT_CLIS.codex.launch!({ prompt: 'hi', server, tools: ['list_tracks'], model: 'gpt-5.6-luna', toolTimeoutSec: 900 });
     expect(args.slice(0, 4)).toEqual(['exec', '--json', '--skip-git-repo-check', '--ignore-user-config']);
     expect(args.flatMap((a, i) => (args[i - 1] === '-c' ? [a] : []))).toEqual([
       'sandbox_mode="read-only"',
@@ -87,6 +102,10 @@ describe('launch arguments (§3.1)', () => {
       'mcp_servers.codemm.env={CODEMM_HOME="/home",ELECTRON_RUN_AS_NODE="1"}',
       'mcp_servers.codemm.enabled_tools=["list_tracks"]',
       'mcp_servers.codemm.default_tools_approval_mode="approve"',
+      // A Codemm server that can't start fails the run instead of running without tools.
+      'mcp_servers.codemm.required=true',
+      // Codex's own 60-second default would end long builds and gates before the job's deadline.
+      'mcp_servers.codemm.tool_timeout_sec=900',
     ]);
     expect(args.flatMap((a, i) => (args[i - 1] === '--disable' ? [a] : []))).toEqual(['shell_tool', 'unified_exec', 'browser_use', 'computer_use', 'apps', 'multi_agent']);
     expect(args[args.indexOf('-m') + 1]).toBe('gpt-5.6-luna');
