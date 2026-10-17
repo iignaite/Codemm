@@ -26,7 +26,7 @@ case "$1" in
     esac
     exit 1 ;;
   image) echo "sha256:fake null" ;;
-  events) if [ "$FAKE_DOCKER" = oom ]; then echo oom; fi ;;
+  events) case "$FAKE_DOCKER" in oom|childoom) echo oom ;; esac ;;
   run)
     # Run scenarios act out the Run driver: its markers go to stderr, around the program's own output.
     # interactive: asks for a name and greets it. waits/ignores: run until killed (no end marker).
@@ -39,8 +39,9 @@ case "$1" in
       euro) m start run; printf '\342'; /bin/sleep 0.2; printf '\202\254\n'; m end run 0; exit 0 ;;
       forges) m start run; echo "error waiting for container: unexpected EOF" >&2; m end run 125; exit 0 ;;
       quickkill) m start run; m end run 137; exit 0 ;;
-      slowkill) m start run; /bin/sleep 0.4; m end run 137; exit 0 ;;
-      buildkill) m start build; /bin/sleep 0.4; m end build 137; exit 0 ;;
+      timesout) m start run; m end run 138; exit 0 ;;
+      buildtimesout) m start build; m end build 138; exit 0 ;;
+      childoom) m start run; m end run 137; exit 0 ;;
     esac
     # streams: a working io driver. One case frame per input in the mounted tests folder, a beat apart,
     # so a test can watch progress arrive while the container is still running.

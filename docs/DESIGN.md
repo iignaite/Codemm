@@ -170,7 +170,8 @@ Other ceilings:
 - **Driver:** the build, if the track has one (60 s), then the run command, with stdout and stderr streamed as they come.
 - **How it ended:** the driver writes short markers to stderr when each stage starts and how it ended, then exits 0. The host strips the markers from what the learner sees.
   - An end marker means the driver finished, so the program's own exit code and output are reported as they are, even when they look like Docker's.
-  - A stage killed after its time limit (120 s for the run, because a person is typing; 60 s for the build) is timed out, measured from that stage's start.
+  - **Time limits:** 120 s for the run, because a person is typing, and 60 s for the build. At the limit the driver's `timeout` sends SIGUSR1, then SIGKILL a second later. Exit 138 is therefore the driver's own sign that the stage timed out; no timing is guessed.
+  - **Memory:** a stage that ends with 137 is checked against the runtime's memory-kill events, so a program killed for memory says so even though the driver went on.
   - No end marker means Codemm stopped it (the learner, the host deadline or the 4 MB cap), the runtime killed it for memory, or Docker failed. Only that last case is an infrastructure failure.
   - A program could forge markers, but only about its own unrecorded run.
 - **Input:** typed input is bounded: one write is at most 64 KB, and at most 1 MB may wait unread. Beyond that, and after the end, input is dropped.

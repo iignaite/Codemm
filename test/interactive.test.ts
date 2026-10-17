@@ -61,15 +61,22 @@ describe.runIf(posix)("interactive run", () => {
     expect(await run.done).toMatchObject({ timedOut: true });
   });
 
-  it("tells a timeout from the program's own kill by the stage's own time, build or run", async () => {
+  it("knows a timeout from the driver's own signal, not from timing: build or run", async () => {
     const ws = await installedExercise();
     const result = async (scenario: Parameters<typeof fakeDocker>[0]) => {
       fakeDocker(scenario);
-      return (await app.runInteractive(ws, undefined, undefined, () => undefined, { limitMs: 300, buildLimitMs: 300 })).done;
+      return (await app.runInteractive(ws, undefined, undefined, () => undefined)).done;
     };
     expect(await result("quickkill")).toMatchObject({ exit: 137, stage: "run", timedOut: false });
-    expect(await result("slowkill")).toMatchObject({ exit: 137, stage: "run", timedOut: true });
-    expect(await result("buildkill")).toMatchObject({ exit: 137, stage: "build", timedOut: true });
+    expect(await result("timesout")).toMatchObject({ stage: "run", timedOut: true });
+    expect(await result("buildtimesout")).toMatchObject({ stage: "build", timedOut: true });
+  });
+
+  it("says the program ran out of memory when the runtime killed it for memory, though the driver went on", async () => {
+    const ws = await installedExercise();
+    fakeDocker("childoom");
+    const run = await app.runInteractive(ws, undefined, undefined, () => undefined);
+    expect(await run.done).toMatchObject({ exit: 137, outOfMemory: true, timedOut: false });
   });
 
   it("reports what the program printed and its exit code as its own, even when they look like Docker's", async () => {
@@ -127,7 +134,8 @@ describe.runIf(posix)("interactive run", () => {
 
   it("leaves no temporary folder behind, whatever happens", async () => {
     const ws = await installedExercise();
-    const runs = () => readdirSync(tmpdir()).filter((f) => f.startsWith("codemm-run-")).length;
+    // Only folders this test made count: an earlier test's run may still be finishing its own cleanup.
+    const runs = () => new Set(readdirSync(tmpdir()).filter((f) => f.startsWith("codemm-run-")));
     const before = runs();
     fakeDocker("interactive");
     const ok = await app.runInteractive(ws, undefined, undefined, () => undefined);
@@ -137,7 +145,7 @@ describe.runIf(posix)("interactive run", () => {
     await (await app.runInteractive(ws, undefined, undefined, () => undefined)).done.catch(() => undefined);
     fakeDocker("missing");
     expect(() => runProgram({ image: "img", run: "sh main.sh", limits: { time_ms: 1000, memory_mb: 64 } }, { "main.sh": "" }, () => undefined)).toThrow();
-    expect(runs()).toBe(before);
+    expect([...runs()].filter((f) => !before.has(f))).toEqual([]);
   });
 
   it("isn't offered for a track with no run command", async () => {

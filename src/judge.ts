@@ -108,18 +108,19 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
 /** How long Run lets a program wait for typing and run: a person types, so longer than a test case gets. */
 export const RUN_LIMIT_MS = 120_000;
 
-// The shell stays PID 1 (no exec), so timeout's kill reaches the program; a kill aimed at PID 1 from inside is
-// ignored. `kill -9 -1` clears what the program left behind (a script's own child can outlive its shell).
-// Markers on stderr say when each stage starts and how it ended, then the driver exits 0: an end marker means
-// the driver finished, whatever the program printed or returned, and the host times each stage from its start.
+// The shell stays PID 1 (no exec), so timeout's signal reaches the program; a kill aimed at PID 1 from inside is
+// ignored. At the limit, timeout sends SIGUSR1 (exit 138: the driver's own sign of a timeout), then SIGKILL a second
+// later for a program that ignores it. `kill -9 -1` clears what the program left behind. Markers on stderr say when
+// each stage starts and how it ended, then the driver exits 0: an end marker means the driver finished, whatever the
+// program printed or returned.
 const PROGRAM_DRIVER = `mark() { printf '\\n@@codemm-run %s\\n' "$*" >&2; }
 if [ -n "\${CODEMM_BUILD:-}" ]; then
   mark start build
-  timeout -s KILL "$CODEMM_BUILD_S" sh -c "$CODEMM_BUILD"; c=$?
+  timeout -s USR1 -k 1 "$CODEMM_BUILD_S" sh -c "$CODEMM_BUILD"; c=$?
   if [ "$c" != 0 ]; then kill -9 -1 2>/dev/null; mark end build "$c"; exit 0; fi
 fi
 mark start run
-timeout -s KILL "$CODEMM_TIME_S" sh -c "$CODEMM_RUN"; c=$?
+timeout -s USR1 -k 1 "$CODEMM_TIME_S" sh -c "$CODEMM_RUN"; c=$?
 kill -9 -1 2>/dev/null
 mark end run "$c"
 exit 0`;
@@ -143,15 +144,12 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
   const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
   const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
   const say = (stream: "stdout" | "stderr", text: string) => text && output(text, stream);
-  const began = Date.now();
-  const stageStart: Partial<Record<"build" | "run", number>> = {};
-  let ended: { stage: "build" | "run"; code: number; at: number } | undefined;
+  let ended: { stage: "build" | "run"; code: number } | undefined;
   const markers = runMarkers(
     (text) => say("stderr", text),
     ([what, stage, code]) => {
       if (stage !== "build" && stage !== "run") return;
-      if (what === "start") stageStart[stage] = Date.now();
-      if (what === "end" && code !== undefined && /^\d+$/.test(code)) ended = { stage, code: Number(code), at: Date.now() };
+      if (what === "end" && code !== undefined && /^\d+$/.test(code)) ended = { stage, code: Number(code) };
     },
   );
   let stopped = false;
@@ -177,22 +175,20 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
     throw e;
   }
   const done = started.done
-    .then((r): ProgramResult => {
+    .then(async (r): Promise<ProgramResult> => {
       say("stdout", decoders.stdout.end());
       markers.write(decoders.stderr.end());
       markers.end();
       if (r.cleanupFailed) throw new CodemmError("A run container couldn't be removed. Run `codemm doctor --fix`, then retry.");
       // What Codemm stopped first: the learner, the host deadline or the output cap.
       if (stopped || r.timedOut || r.flooded) return { exit: r.exit, timedOut: r.timedOut, flooded: r.flooded, ...(stopped ? { stopped } : {}) };
-      const memory = r.oomKilled ? { outOfMemory: true } : {};
       if (ended) {
-        // Killed (137) once its stage's time was up: it ran out of time. Any other code is the program's own.
-        const limit = ended.stage === "build" ? buildLimitMs : limitMs;
-        const timedOut = ended.code === 137 && ended.at - (stageStart[ended.stage] ?? began) >= limit - 50;
-        return { exit: ended.code, stage: ended.stage, timedOut, flooded: false, ...memory };
+        // 138 is the driver's timeout signal. A 137 may be the memory limit killing the program while the driver went on.
+        const memory = ended.code === 137 && (await started.hadOomKill()) ? { outOfMemory: true } : {};
+        return { exit: ended.code, stage: ended.stage, timedOut: ended.code === TIMED_OUT, flooded: false, ...memory };
       }
       // No end marker: the driver itself was killed. Only a memory-limit kill is the program's doing.
-      if (r.oomKilled) return { exit: 137, timedOut: false, flooded: false, ...memory };
+      if (r.oomKilled) return { exit: 137, timedOut: false, flooded: false, outOfMemory: true };
       throw new CodemmError(`The container runtime failed during the run. ${startHelp()}`);
     })
     .finally(() => rmSync(dir, { recursive: true, force: true }));
@@ -207,6 +203,8 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
 }
 
 const MARK = "\n@@codemm-run ";
+/** 128 + SIGUSR1 (10 on Linux): the run driver's timeout signal. */
+const TIMED_OUT = 138;
 
 /**
  * Splits the driver's markers ("\n@@codemm-run <fields>\n") out of Run's stderr as it streams. The program's own

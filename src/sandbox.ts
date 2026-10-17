@@ -110,7 +110,13 @@ export type SandboxOutput = { stdout?: (chunk: Buffer) => void; stderr?: (chunk:
  * A started container: typed input (when `stdin` is set), a kill, and its result. `write` returns false, and
  * drops the text, when it's too long, when input the program isn't reading has piled up, or after the end.
  */
-export type StartedSandbox = { write(text: string): boolean; kill(): void; done: Promise<SandboxResult> };
+export type StartedSandbox = {
+  write(text: string): boolean;
+  kill(): void;
+  done: Promise<SandboxResult>;
+  /** Whether the runtime recorded a memory-limit kill in this container, for a process inside it rather than the whole container. */
+  hadOomKill(): Promise<boolean>;
+};
 
 const MAX_WRITE = 64 * 1024;
 const MAX_PENDING_INPUT = 1024 * 1024;
@@ -196,6 +202,7 @@ export function startSandboxed(run: SandboxRun, output: SandboxOutput = {}): Sta
     },
     kill: stop,
     done,
+    hadOomKill: () => hadOomEvent(name, started),
   };
 }
 
