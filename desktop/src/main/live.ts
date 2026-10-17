@@ -253,7 +253,7 @@ export function createLive(d: LiveDeps): Live {
         // Done once it proposed: the proposal may already be gone if the learner approved it and its gates failed.
         const installs = setup.installs;
         const proposed = () => setup.installs > installs || core.listProposals().some((p) => p.track === ref && !before.has(p.digest));
-        background(`setup:${progress.course}`, 'setup', briefs.setup(ref, setup.lastGateProblem), progress.course, proposed);
+        background(`setup:${progress.course}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed);
       }
       work(progress, state.state === 'ready');
     } catch (e) {
