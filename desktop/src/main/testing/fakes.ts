@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { CodemmApi, CourseView } from '../../shared/api';
 import type { Job, JobOutcome } from '../agent/jobs';
 import { connector } from '../connect';
+import { JOB_BRIEFS } from '../../../../src/templates';
 import type { CoreApp, CoreCheckView, CoreNextStep } from '../core/types';
 import { createLive } from '../live';
 import { createLog } from '../log';
@@ -46,7 +47,7 @@ export function fakeCore() {
     const lesson = own.length === 0 ? null : own.find((l) => !c.reads.has(l.id))?.id;
     const ex = [...c.exercises.entries()].find(([, e]) => e.concept === concept.id);
     const lessonField = lesson === undefined ? {} : { lesson };
-    return ex ? { kind: 'practice', exercise: ex[0], concept: concept.id, ...lessonField } : { kind: 'author', concept: concept.id, difficulty: 1, style: 'io', track: r.track, ...lessonField };
+    return ex ? { kind: 'practice', exercise: ex[0], concept: concept.id, ...lessonField } : { kind: 'author', concept: concept.id, difficulty: 1, ...lessonField };
   };
   const view = (slug: string, passed: number, recorded: boolean): CoreCheckView => ({
     exercise: slug,
@@ -56,6 +57,7 @@ export function fakeCore() {
     tests: [{ name: 'prints one', status: passed === 2 ? 'pass' : 'fail', ...(passed === 2 ? {} : { actual: '0' }) }, { name: 'hidden #1', status: 'pass' }],
   });
   const app: CoreApp = {
+    JOB_BRIEFS,
     doctor: async () => [],
     readWorkspace: () => ({ course: c.roadmap?.course, current: c.current }),
     readExercise: () => ({
@@ -132,8 +134,10 @@ type Act = (job: Job) => Partial<JobOutcome> | Promise<Partial<JobOutcome>>;
 export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Record<Job['kind'], Act>> = {}) {
   const ran: Job[] = [];
   const act: Record<Job['kind'], Act> = {
-    research: () => {
-      c.roadmap = { course: 'react', goal: 'React', track: 'react@1', style: 'io', concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }] };
+    research: (job) => {
+      // Saves under the course its server is bound to, as core requires.
+      const args = job.server([]).args;
+      c.roadmap = { course: args[args.indexOf('--course') + 1], goal: 'React', track: 'react@1', style: 'io', concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }] };
       return {};
     },
     roadmap: () => {

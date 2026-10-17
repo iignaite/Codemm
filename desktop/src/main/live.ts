@@ -16,7 +16,7 @@ import {
 } from '../shared/api';
 import models from '../shared/models.json';
 import type { McpServer } from './agent/agents';
-import { briefs } from './agent/briefs';
+import { briefsFrom, courseId } from './agent/briefs';
 import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type JobProblem } from './agent/jobs';
 import type { connector } from './connect';
 import { infra } from './core/failures';
@@ -73,6 +73,7 @@ export function createLive(d: LiveDeps): Live {
   const { core, ws } = d;
   const runJob = d.runJob ?? realRunJob;
   const log = d.log ?? noLog;
+  const briefs = briefsFrom(core.JOB_BRIEFS);
   const running = new Map<string, Running>();
   const lanes = { fg: Promise.resolve() as Promise<unknown>, bg: Promise.resolve() as Promise<unknown> };
   const outcomes = new Map<string, JobOutcome>();
@@ -280,11 +281,9 @@ export function createLive(d: LiveDeps): Live {
       }
       if (!running.has(key)) {
         await d.connect.chosen();
-        const before = roadmapOrNull()?.course;
-        start(key, 'fg', 'research', briefs.research(goal.topic, goal.known), undefined, () => {
-          const after = roadmapOrNull();
-          return Boolean(after && after.course !== before);
-        })
+        // A new course, on a server that saves only it (§4.6).
+        const course = courseId(goal.topic, Date.now());
+        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known), course, () => roadmapOrNull()?.course === course)
           .then((o) => outcomes.set(key, o))
           .catch((e: Error) => outcomes.set(key, { ok: false, problem: e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed', text: [] }));
       }
@@ -410,7 +409,9 @@ export function createLive(d: LiveDeps): Live {
       const course = core.getRoadmap(ws).course;
       const key = `${course}|${id}`;
       const where = 'lessonId' in place ? `the lesson "${place.lessonId}" (get_lesson)` : `the activity "${place.activityId}" (get_exercise)`;
-      const outcome = await foreground(`tutor:${key}`, 'tutor', briefs.tutor(where, text), course, (turn) => turn.ok, d.state.read().sessions[key]);
+      // The learner's own code goes to their own agent; nothing hidden does.
+      const files = 'activityId' in place ? Object.fromEntries(Object.entries(core.readLearnerFiles(ws, place.activityId, course)).map(([path, f]) => [path, f.text])) : undefined;
+      const outcome = await foreground(`tutor:${key}`, 'tutor', briefs.tutor(where, text, files), course, (turn) => turn.ok, d.state.read().sessions[key]);
       if (outcome.session) d.state.update((s) => ({ ...s, sessions: { ...s.sessions, [key]: outcome.session! } }));
       const filter = hidden();
       return outcome.text.map((t) => ({ from: 'codemm' as const, text: filterReply(t, filter) }));

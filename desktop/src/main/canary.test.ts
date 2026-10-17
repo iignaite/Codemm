@@ -57,6 +57,8 @@ describe('the learner-safe boundary (D4)', () => {
 
     for (const payload of payloads) expect(payload).not.toMatch(leaks);
     for (const line of logged) expect(line).not.toMatch(leaks);
+    // The learner's own agent gets their code and question, never hidden material.
+    for (const job of t.jobs.ran) expect(job.brief).not.toMatch(leaks);
     // The app log has the job lifecycle and nothing the learner or the agent wrote.
     const appLog = readFileSync(t.logFile, 'utf8');
     expect(appLog).toMatch(/ job-end kind=tutor ok=true/);

@@ -9,7 +9,6 @@ import { ask } from './agent/bridge';
 import { find } from './agent/find';
 import { computerCheck } from './computer';
 import { connector } from './connect';
-import { withAdapters } from './core/adapters';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
 import type { Log } from './log';
@@ -26,7 +25,7 @@ export interface Places {
 
 export function liveApi({ coreDir, userData, log }: Places): Live {
   // The bundled core (scripts/bundle-core.mjs), loaded in-process.
-  const core = withAdapters(require(join(coreDir, 'dist', 'app.cjs')) as Partial<CoreApp>);
+  const core = require(join(coreDir, 'dist', 'app.cjs')) as CoreApp;
   const ws = join(homedir(), 'Codemm');
   mkdirSync(ws, { recursive: true });
   const state = desktopState(userData);

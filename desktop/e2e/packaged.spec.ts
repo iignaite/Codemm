@@ -38,7 +38,7 @@ test('packaged: welcome, bundled MCP server and a JavaScript agent, with no Node
   const env = { ...process.env, PATH: fakeAgent(), CODEMM_HOME: home } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
 
-  const out = await callTool({ command: exe!, args: [join(resources!, 'core', 'dist', 'cli.mjs'), 'mcp', '--workspace', ws], env: { ...env, PATH: '', ELECTRON_RUN_AS_NODE: '1' } }, 'list_tracks');
+  const out = await callTool({ command: exe!, args: [join(resources!, 'core', 'dist', 'cli.mjs'), 'mcp', '--workspace', ws, '--tools', 'list_tracks', '--desktop'], env: { ...env, PATH: '', ELECTRON_RUN_AS_NODE: '1' } }, 'list_tracks');
   expect(out).toBe('[]');
 
   const app = await electron.launch({ executablePath: exe!, env });

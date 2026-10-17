@@ -10,13 +10,15 @@ describe('live CodemmApi', () => {
     await expect(t.api.research({ topic: 'React', known: '' })).rejects.toThrow('codemm:no-agent');
   });
 
-  it('researches with the job tools on a server bound to no course yet, then shows the roadmap', async () => {
+  it('researches a new course on a server bound to it, then shows the roadmap', async () => {
     const t = live();
     const r = await researched(t);
     expect(r).toEqual({ state: 'done', roadmap: { goal: 'React', track: 'react', installed: false, concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }] } });
     const job = t.jobs.ran[0];
-    expect(job.server(['list_tracks', 'save_roadmap']).args).toEqual(['core/cli.mjs', 'mcp', '--tools', 'list_tracks,save_roadmap']);
-    expect(job.brief).toContain('React');
+    const course = t.c.roadmap!.course;
+    expect(course).toMatch(/^react-[a-z0-9]+$/);
+    expect(job.server(['list_tracks', 'save_roadmap']).args).toEqual(['core/cli.mjs', 'mcp', '--course', course, '--tools', 'list_tracks,save_roadmap']);
+    expect(job.brief).toContain(`Course id: ${course}`);
   });
 
   it('saves edits, then asks for changes', async () => {
@@ -108,6 +110,7 @@ describe('live CodemmApi', () => {
     expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }, { from: 'codemm', text: 'Think about what changes.' }]);
     await t.api.ask({ activityId: activity.id }, 'Why?');
     expect(t.jobs.ran.filter((j) => j.kind === 'tutor').map((j) => j.resume)).toEqual([undefined, 'session-1']);
+    expect(t.jobs.ran.find((j) => j.kind === 'tutor')!.brief).toContain('int main() { /* yours */ }');
   });
 
   it('turns a plan limit or a sign-out into its code, and stalls background work instead of relaunching it', async () => {
@@ -140,10 +143,10 @@ describe('live CodemmApi', () => {
     await t.api.approve(r.roadmap!.concepts);
     const course = await until(t.api, (c) => c.topics[0].lessons.some((l) => l.state === 'ready'));
     expect(course).toMatchObject({ setup: 'proposing', topics: [{ id: 'values', state: 'now', activity: 'writing' }, {}] });
-    for (const j of t.jobs.ran.filter((x) => x.kind !== 'research')) expect(j.server(['get_lesson']).args).toEqual(['core/cli.mjs', 'mcp', '--course', 'react', '--tools', 'get_lesson']);
+    for (const j of t.jobs.ran.filter((x) => x.kind !== 'research')) expect(j.server(['get_lesson']).args).toEqual(['core/cli.mjs', 'mcp', '--course', t.c.roadmap!.course, '--tools', 'get_lesson']);
     t.c.bound.length = 0;
     await t.api.course();
-    expect(t.c.bound.every((b) => b === 'react')).toBe(true);
+    expect(t.c.bound.every((b) => b === t.c.roadmap!.course)).toBe(true);
   });
 
   it('keeps the first stall, and launches no queued background work after it', async () => {

@@ -81,7 +81,7 @@ packaging.cjs          electron-builder settings; signing only from the environm
 
 The mock holds no solutions and no hidden tests, and it reports hidden results as statuses only. Its React lesson content exists only for the demo and goes away with the mock.
 
-## Wiring: the real core and agents (stacked PR)
+## Wiring: the real core and agents
 
 The app now runs the real core and the learner's agent. The mock only runs for tests and the dev switcher (`CODEMM_MOCK`).
 
@@ -94,14 +94,16 @@ src/main/connect.ts       agents: found or not, sign-in yes or no, tested versio
 src/main/computer.ts      Check this computer: Docker found, answering with Linux containers, sandbox (§6.1)
 src/main/state.ts         desktop.json: chosen agent and tutor sessions, atomic, format_version
 src/main/agent/           agents (launch, parse, status), bridge (spawn, cancel, caps), find, jobs, briefs
-src/main/core/            the core functions used, and adapters for the ones core doesn't have yet
+src/main/core/            the core functions used, their shapes, and core's infrastructure failures
 scripts/bundle-core.mjs   esbuild bundles the repo's core into out/core: cli.mjs (the MCP server) and app.cjs (in-process)
 e2e/packaged.spec.ts      D1, in CI on macOS and Windows: no Node on PATH, the bundled MCP server, a JavaScript agent
 ```
 
-**Adapters, marked in the code:**
-- `core/adapters.ts`: functions from the core desktop additions (PR #23), such as lessons, proposals, `getRoadmap` and learner file saves. Until #23 merges, the bundled core doesn't have them, and a call says "This needs the core desktop additions (PR #23)." The `--course`, `--tools` and `--desktop` options of `codemm mcp` come with #23 too.
-- `agent/briefs.ts`: the per-job briefs. The spec puts them in core `templates.ts`.
+**The core it runs.** Main loads core's own functions from #23 in-process, with no adapters left: lessons, `getRoadmap`, consent proposals, honest skip and learner file saves.
+- Each job's server is `codemm mcp --course <c> --tools <job tools> --desktop`.
+- Each brief is core's `JOB_BRIEFS` (#26), followed by the job's details (`agent/briefs.ts`). The tutor's details include the learner's own code.
+- A research job gets a new course id and a server that saves only that course.
+- `coreApp.test.ts` checks the bundled core against the desktop's `CoreApp` types at compile time, and that each function is present at run time. It also checks that each job's tools equal core's `JOB_TOOLS`.
 
 **Verified here:**
 - Unit tests over fixtures, fake agents and a fake core:
@@ -114,10 +116,10 @@ e2e/packaged.spec.ts      D1, in CI on macOS and Windows: no Node on PATH, the b
   - the computer check;
   - the live API flows;
   - the D4 canary across every IPC handler.
-- The packaged arm64 app, locally: it launched with only a fake JavaScript agent on PATH, its bundled `codemm mcp` answered `list_tracks` through Electron as Node, and the agent connected.
+- The packaged arm64 app, locally: it launched with only a fake JavaScript agent on PATH, its bundled `codemm mcp --tools list_tracks --desktop` answered `list_tracks` through Electron as Node, and the agent connected.
 
 **Not verified yet:**
-- A real-agent journey (D17), and a real-core canary run. Both need #23 merged and Docker.
+- A real-agent journey (D17), and a real-core canary run with Docker.
 - Windows `taskkill` cancellation, except in CI's smoke test.
 - Claude Code's `--tools` value for the research job's web search.
 - The plan-limit markers, until each is recorded as a fixture.

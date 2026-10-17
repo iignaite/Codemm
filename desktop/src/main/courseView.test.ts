@@ -25,7 +25,7 @@ describe('course view', () => {
   it('keeps the activity locked until the lessons are read, and shows a lesson being written', () => {
     const unread = courseView(progress({ kind: 'practice', exercise: 'e', concept: 'state', lesson: 'state-1' }), [{ id: 'state-1', concept: 'state', title: 'What state is', read: false }], ready, new Set());
     expect(unread.topics[1]).toMatchObject({ activity: 'locked', lessons: [{ state: 'ready' }] });
-    const writing = courseView(progress({ kind: 'author', concept: 'state', difficulty: 1, style: 'io', track: 'react@1', lesson: null }), [], ready, new Set(['lesson:state']));
+    const writing = courseView(progress({ kind: 'author', concept: 'state', difficulty: 1, lesson: null }), [], ready, new Set(['lesson:state']));
     expect(writing.topics[1]).toMatchObject({ activity: 'writing', lessons: [{ state: 'writing' }] });
   });
 
