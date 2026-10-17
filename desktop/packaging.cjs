@@ -16,7 +16,8 @@ function packaging(env) {
     productName: 'Codemm',
     artifactName: '${productName}-${version}-${os}-${arch}.${ext}',
     directories: { output: 'release', buildResources: 'build' },
-    files: ['out/**', '!out/core/**', 'package.json'],
+    // The development mock (src/main/mock.ts) and its demo course never ship (#14).
+    files: ['out/**', '!out/core/**', '!out/main/mock.js', 'package.json'],
     extraResources: [
       // The core, outside the asar archive, so the agent's MCP server can run it with the app as Node (§7).
       { from: 'out/core', to: 'core' },
