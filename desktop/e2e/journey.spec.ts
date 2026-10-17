@@ -1,7 +1,7 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,7 +17,8 @@ import { join } from 'node:path';
 //   JOURNEY_AGENT=claude|codex, JOURNEY_MODEL=<model id, chosen in the connect screen's Model select>,
 //   JOURNEY_LABEL=<name>
 //   JOURNEY_TOPIC=<goal>    what to learn (default "Python functions"); JOURNEY_KNOWN=<what's known>
-//   JOURNEY_PART=full|setup|activity|no-agent|docker-stop|repair
+//   JOURNEY_PART=full|setup|activity|no-agent|docker-stop|docker-setup|low-disk|fakes
+//                           (`fakes` runs on a set-up course with e2e/fake-claude.cjs as Claude Code)
 //   JOURNEY_FLOW=<comma list> extras for `full`: edits, reopen, show-me, stuck, pages, relaunch,
 //                           relaunch-setup, switch=<agent>, new-course
 const dir = process.env.CODEMM_JOURNEY;
@@ -264,6 +265,12 @@ test(`journey: ${label}`, async () => {
     env.HOME = join(dir!, 'empty-home');
     mkdirSync(env.HOME, { recursive: true });
   }
+  const fake = join(dir!, 'fake-mode');
+  if (part === 'fakes') {
+    env.PATH = `${join(dir!, 'bin-fake')}:/usr/bin:/bin:/usr/sbin:/sbin`;
+    env.CODEMM_FAKE_FILE = fake;
+    env.CODEMM_REAL_CLAUDE = readFileSync(join(dir!, 'real-claude'), 'utf8').trim();
+  }
   const untouched = snapshot();
   await launch(env);
 
@@ -280,6 +287,111 @@ test(`journey: ${label}`, async () => {
       const alert = page.getByRole('alert');
       await expect(alert).toContainText("Codemm's records need a repair.", { timeout: 2 * MIN });
       return (await alert.innerText()).replace(/\s+/g, ' ');
+    });
+  } else if (part === 'fakes') {
+    const alertText = async () => (await page.getByRole('alert').first().innerText()).replace(/\s+/g, ' ');
+    await step('fake-infra-author-topic', async () => {
+      writeFileSync(fake, 'infra-author');
+      await toMap();
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await until('the stall banner', () => visible(page.getByRole('alert').getByRole('button', { name: 'Try again' })), 10 * MIN);
+      return alertText();
+    });
+    await step('fake-infra-author-lesson', async () => {
+      await button(/^Read /).first().click();
+      await until('the stall banner beside the lesson', () => visible(page.getByRole('alert').getByRole('button', { name: 'Try again' })), 2 * MIN);
+      const text = await alertText();
+      rmSync(fake);
+      await page.getByRole('alert').getByRole('button', { name: 'Try again' }).click();
+      return `${text}; Try again after the fix: ${await toActivity()}`;
+    });
+    await step('fake-plan-limit', async () => {
+      writeFileSync(fake, 'plan-limit');
+      await button('Hint').click();
+      await until('the plan-limit message', () => visible(page.getByRole('alert')), 3 * MIN);
+      const text = await alertText();
+      rmSync(fake);
+      return `${text}; after the reset: ${await ask('Hint')}`;
+    });
+    await step('fake-unstoppable', async () => {
+      await rightAnswer();
+      expect(await check()).toMatch(/^(\d+) of \1 passed$/);
+      writeFileSync(fake, 'unstoppable-author');
+      await toMap();
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await until('the unstoppable message', async () => /couldn't stop your agent/i.test(await page.locator('body').innerText()), 15 * MIN);
+      const text = await alertText().catch(() => '');
+      const tryAgain = await visible(page.getByRole('alert').getByRole('button', { name: 'Try again' }));
+      await app.close();
+      const pid = Number(readFileSync(`${fake}.pid`, 'utf8'));
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        // already gone
+      }
+      rmSync(fake);
+      await launch(env);
+      return `${text} (Try again offered: ${tryAgain}); after quitting and relaunching: ${await continueTopic()}`;
+    });
+    await step('fake-signed-out', async () => {
+      await app.close();
+      writeFileSync(fake, 'signed-out');
+      await launch(env);
+      await toMap();
+      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      await until('the connect screen', () => visible(heading('Connect an agent')), 5 * MIN);
+      const row = (await page.getByRole('listitem', { name: 'Claude Code' }).innerText()).replace(/\s+/g, ' ');
+      rmSync(fake);
+      await connect('claude');
+      return `${row}; signed in again: ${await toActivity()}`;
+    });
+    await step('repair', async () => {
+      await app.close();
+      const course = readdirSync(join(dir!, 'home', 'courses'))[0];
+      const events = join(dir!, 'home', 'courses', course, 'events.jsonl');
+      const before = readFileSync(events, 'utf8');
+      writeFileSync(events, `${before}{damaged\n`);
+      await launch(env);
+      await toMap().catch(() => undefined);
+      await until('the repair message', async () => /records need a repair/.test(await page.locator('body').innerText()), 2 * MIN);
+      const text = (await page.locator('main').innerText()).replace(/\s+/g, ' ').slice(0, 300);
+      await shot('repair-screen');
+      await app.close();
+      writeFileSync(events, before);
+      await launch(env);
+      await toMap();
+      return `${text}; after restoring the log: course map back`;
+    });
+  } else if (part === 'low-disk' || part === 'docker-setup') {
+    await step('connect', () => connect(agent));
+    await step('research', async () => {
+      await button('Start learning').click();
+      await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill(topic);
+      await page.getByRole('textbox', { name: 'I already know' }).fill(known);
+      await button('Start').click();
+      await until('the suggested path', () => visible(button('Approve')), 15 * MIN);
+    });
+    await step(part, async () => {
+      await button('Approve').click();
+      const consent = page.getByRole('dialog', { name: /^Set up .* on this computer\?$|^Codemm has another way/ });
+      await until('the setup consent', () => visible(consent), 20 * MIN);
+      await consent.getByRole('button', { name: 'Set up', exact: true }).click();
+      if (part === 'docker-setup') {
+        await until('setting up', () => visible(page.getByText(/^Setting up /)), MIN);
+        docker('stop');
+      }
+      await until('the setup failure', () => visible(page.getByRole('alert')), 10 * MIN);
+      const failure = (await page.getByRole('alert').innerText()).replace(/\s+/g, ' ');
+      await shot(`${part}-failure`);
+      if (part === 'low-disk') return failure;
+      await page.getByRole('alert').getByRole('button', { name: 'Check this computer' }).click();
+      execFileSync('open', ['-a', 'Docker']);
+      await until('Docker ready', () => visible(page.getByText('This computer is ready.')), 6 * MIN);
+      await button('Continue').click();
+      await until('Try again', () => visible(page.getByRole('alert').getByRole('button', { name: 'Try again' })), 2 * MIN);
+      await page.getByRole('alert').getByRole('button', { name: 'Try again' }).click();
+      await until('setup done', async () => !(await visible(page.getByText(/^(Preparing setup for|Setting up) /))) && !(await visible(page.getByRole('alert'))), 20 * MIN);
+      return `${failure}; recovered after Docker came back`;
     });
   } else if (part === 'docker-stop') {
     await step('activity-open', continueTopic);
