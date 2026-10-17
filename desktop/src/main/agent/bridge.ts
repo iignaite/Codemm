@@ -34,16 +34,8 @@ async function stopGroup(child: ChildProcess, killAfterMs: number): Promise<bool
   const pid = child.pid;
   if (pid === undefined) return true;
   if (windows) {
-    // taskkill also fails when the process already exited: that one is stopped too.
-    const gone = () => {
-      try {
-        process.kill(pid, 0);
-        return false;
-      } catch {
-        return true;
-      }
-    };
-    return new Promise((r) => spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on('close', (code) => r(code === 0 || gone())).on('error', () => r(gone())));
+    // Only a tree kill that succeeded is confirmed: with the parent gone, its descendants may still run (§3.1).
+    return new Promise((r) => spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on('close', (code) => r(code === 0)).on('error', () => r(false)));
   }
   const signal = (sig: NodeJS.Signals) => {
     try {
@@ -92,8 +84,20 @@ export function run<E>(exe: Executable, args: string[], parse: (line: string) =>
     let buffer = '';
     let skipping = false;
     let stopping: Promise<boolean> | undefined;
+    let settled = false;
+    let exited = false;
+    const settle = (result: RunResult) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', cancel);
+      resolve(result);
+    };
     const cancel = () => {
-      stopping ??= stopGroup(child, killAfterMs);
+      if (stopping) return;
+      // On Windows an agent that already exited left no tree to kill; on POSIX its group may still hold descendants.
+      stopping = windows && exited ? Promise.resolve(true) : stopGroup(child, killAfterMs);
+      // A cancelled run settles once termination is known, not on `close`: a descendant can keep the output pipe open.
+      void stopping.then((stopped) => settle({ code: null, cancelled: true, stopped }));
     };
     const emit = (line: string) => {
       try {
@@ -119,11 +123,11 @@ export function run<E>(exe: Executable, args: string[], parse: (line: string) =>
     });
     child.stderr!.resume(); // drained, never shown or logged: it can carry account details
     child.on('error', reject);
-    child.on('close', async (code) => {
-      signal?.removeEventListener('abort', cancel);
-      if (stopping) return resolve({ code, cancelled: true, stopped: await stopping });
+    child.on('exit', () => (exited = true));
+    child.on('close', (code) => {
+      if (stopping) return;
       if (buffer && !skipping && buffer.length <= maxLine) emit(buffer);
-      resolve({ code, cancelled: false });
+      settle({ code, cancelled: false });
     });
   });
 }

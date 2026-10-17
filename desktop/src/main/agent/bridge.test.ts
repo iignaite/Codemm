@@ -67,6 +67,30 @@ describe('bridge (D5)', () => {
     expect(alive(child)).toBe(false);
   });
 
+  it('a cancel resolves once the agent is stopped, even when a descendant keeps the output pipe open', async () => {
+    const controller = new AbortController();
+    let descendant = 0;
+    const out = run(
+      ...node(`const c = require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 'inherit', 'ignore'] });
+              c.unref(); console.log(JSON.stringify({ child: c.pid })); setInterval(() => {}, 1000)`),
+      parse,
+      {
+        onEvent: (e) => {
+          descendant = e.child as number;
+          controller.abort();
+        },
+        signal: controller.signal,
+        killAfterMs: 300,
+      },
+    );
+    try {
+      const result = await Promise.race([out, new Promise((r) => setTimeout(() => r('still waiting'), 10_000))]);
+      expect(result).toMatchObject({ cancelled: true });
+    } finally {
+      if (descendant && alive(descendant)) process.kill(descendant, 'SIGKILL');
+    }
+  });
+
   it('never starts a job cancelled before it starts', async () => {
     const controller = new AbortController();
     controller.abort();
