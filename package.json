@@ -1,25 +1,35 @@
 {
   "name": "codemm",
-  "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*"
+  "version": "1.0.0-rc.0",
+  "description": "Open-source harness for CodeChum-style practice: your coding agent writes the tracks and exercises, Codemm verifies, grades and tracks mastery.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "codemm": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "dev": "npm run build:contracts && npm --workspace codemm-ide run dev",
-    "dev:backend": "npm run build:contracts && npm --workspace codem-backend run dev",
-    "dev:frontend": "npm run build:contracts && npm --workspace codem-frontend run dev",
-    "build": "npm run build:contracts && npm run build:backend && npm run build:frontend",
-    "build:contracts": "npm --workspace @codemm/shared-contracts run build",
-    "build:backend": "npm run build:contracts && npm --workspace codem-backend run build",
-    "build:frontend": "npm run build:contracts && npm --workspace codem-frontend run build",
-    "rebuild:electron": "npx electron-builder install-app-deps --config electron-builder.yml",
-    "dist:mac": "npm run build && npm run rebuild:electron && npx electron-builder --mac --config electron-builder.yml",
-    "dist:win": "npm run build && npm run rebuild:electron && npx electron-builder --win --config electron-builder.yml",
-    "dist:linux": "npm run build && npm run rebuild:electron && npx electron-builder --linux --config electron-builder.yml",
-    "lint": "npm run build:contracts && npm --workspace codem-frontend run lint",
-    "test": "npm run build:contracts && npm --workspace codem-backend run test",
-    "test:unit": "npm run build:contracts && npm --workspace codem-backend run test:unit",
-    "test:integration": "npm run build:contracts && npm --workspace codem-backend run test:integration"
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run --exclude 'test/docker/**'",
+    "test:docker": "vitest run test/docker"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
   }
 }
