@@ -160,8 +160,16 @@ async function lessonsThenActivity(note: boolean) {
 /** From anywhere in a topic: through its unread lessons to the activity, waiting while it's written. */
 async function toActivity() {
   const deadline = Date.now() + 20 * MIN;
+  let retries = 0;
   while (!(await button('Try it').isVisible())) {
     if (Date.now() > deadline) throw new Error('The activity never opened');
+    // Stalled background work: the learner tries again, twice at most.
+    const stalled = page.getByRole('alert').getByRole('button', { name: 'Try again' });
+    if (await stalled.isVisible()) {
+      if (++retries > 2) throw new Error(`Still stalled after 2 tries: ${(await page.getByRole('alert').innerText()).replace(/\s+/g, ' ')}`);
+      appendFileSync(join(dir!, 'results.jsonl'), `${JSON.stringify({ label, step: 'stall-try-again', ok: true, s: 0, note: (await page.getByRole('alert').innerText()).replace(/\s+/g, ' ') })}\n`);
+      await stalled.click();
+    }
     if (await button('Next').isVisible()) await button('Next').click();
     else if (await page.getByRole('button', { name: /^(Start|Again)$/ }).isVisible()) await page.getByRole('button', { name: /^(Start|Again)$/ }).click();
     else if (await page.getByRole('button', { name: /^Read / }).first().isVisible()) await page.getByRole('button', { name: /^Read / }).first().click();
