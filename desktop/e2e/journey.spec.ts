@@ -202,7 +202,8 @@ test(`journey: ${label}`, async () => {
       await page.getByRole('textbox', { name: 'I already know' }).fill('variables and print');
       await button('Start').click();
       await expect(button('Approve')).toBeVisible({ timeout: 15 * MIN });
-      return (await page.getByRole('listitem').allInnerTexts()).map((t) => t.split('\n')[0]).join(' / ').slice(0, 300);
+      const titles = await page.getByRole('button', { name: /^Rename / }).evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.replace(/^Rename /, '')));
+      return `${titles.length} topics: ${titles.join(' / ')}`.slice(0, 400);
     });
     await step('edit-course', async () => {
       const remove = page.getByRole('button', { name: /^Remove / });
@@ -222,23 +223,24 @@ test(`journey: ${label}`, async () => {
       await button('Approve').click();
       const consent = page.getByRole('dialog', { name: /^Set up .* on this computer\?$|^Codemm has another way/ });
       const busy = page.getByText(/^(Preparing setup for|Setting up) /);
-      // Setup is proposed in the background while the first lesson is written. Wait for its consent,
-      // unless the topic page settles with nothing to set up (an installed track).
-      const deadline = Date.now() + 20 * MIN;
+      const alert = page.getByRole('alert');
+      // Setup is proposed in the background while the first lesson is written. Approve each proposal
+      // (a failed one is proposed again), and finish once the topic page settles with nothing busy.
+      const deadline = Date.now() + 40 * MIN;
+      const approved: string[] = [];
       let idle = 0;
-      while (!(await consent.isVisible())) {
-        if (Date.now() > deadline) throw new Error('No setup consent within 20 minutes');
-        if (await page.getByRole('alert').isVisible()) throw new Error(`Setup failed: ${await page.getByRole('alert').innerText()}`);
-        idle = (await busy.isVisible()) ? 0 : idle + 1;
-        if (idle >= 5 && (await page.getByRole('button', { name: /^Read / }).count())) return 'track already installed';
+      while (idle < 5) {
+        if (Date.now() > deadline) throw new Error(`Setup not done within 40 minutes (${approved.length} proposals approved)`);
+        if (await alert.isVisible()) throw new Error(`Setup failed: ${(await alert.innerText()).replace(/\s+/g, ' ')}`);
+        if (await consent.isVisible()) {
+          approved.push((await consent.getByRole('heading').first().innerText()).trim());
+          await shot(`consent-${approved.length}`);
+          await consent.getByRole('button', { name: 'Set up', exact: true }).click();
+          idle = 0;
+        } else idle = (await busy.isVisible()) ? 0 : idle + 1;
         await page.waitForTimeout(2000);
       }
-      const title = (await consent.getAttribute('aria-label')) ?? (await consent.getByRole('heading').first().innerText());
-      await shot('consent');
-      await consent.getByRole('button', { name: 'Set up', exact: true }).click();
-      await expect(busy).toBeHidden({ timeout: 25 * MIN });
-      if (await page.getByRole('alert').isVisible()) throw new Error(`Setup failed: ${await page.getByRole('alert').innerText()}`);
-      return title;
+      return approved.length ? approved.join(' / ') : 'track already installed';
     });
     await lessonsThenActivity(true);
     await activity(true);
