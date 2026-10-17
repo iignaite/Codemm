@@ -133,18 +133,31 @@ describe('practice', () => {
     expect(await within(screen.getByRole('log')).findByText('Give me a hint.')).toBeInTheDocument();
   });
 
-  it('saves pending edits before asking Codemm, so the tutor sees the latest code', async () => {
+  it('asks Codemm only after the latest code is saved, and not at all if the save fails', async () => {
     const { api, user } = await open();
-    const calls: string[] = [];
     const saveFile = api.saveFile;
-    api.saveFile = (id, path, text, digest) => (calls.push(`save ${text}`), saveFile(id, path, text, digest));
+    const saves: { text: string; finish: (ok: boolean) => void }[] = [];
+    api.saveFile = (id, path, text, digest) =>
+      new Promise((done, failed) => saves.push({ text, finish: (ok) => (ok ? done(saveFile(id, path, text, digest)) : failed(new Error('disk full'))) }));
+    const asked: string[] = [];
     const ask = api.ask;
-    api.ask = (place, text) => (calls.push(`ask ${text}`), ask(place, text));
+    api.ask = (place, text) => (asked.push(text), ask(place, text));
+
     await write(user, 'count + 1');
     await user.click(screen.getByRole('button', { name: 'Hint' }));
-    await within(screen.getByRole('log')).findByText('Give me a hint.');
+    await vi.waitFor(() => expect(saves.map((s) => s.text)).toEqual(['count + 1']));
+    expect(asked).toEqual([]); // still saving: Codemm hasn't been asked
+    saves[0].finish(true);
+    await vi.waitFor(() => expect(asked).toEqual(['Give me a hint.']));
     await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Hint' })).toBeEnabled());
-    expect(calls).toEqual(['save count + 1', 'ask Give me a hint.']);
+
+    await write(user, 'count + 2');
+    await user.click(screen.getByRole('button', { name: 'Show me' }));
+    await vi.waitFor(() => expect(saves).toHaveLength(2));
+    saves[1].finish(false);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(asked).toEqual(['Give me a hint.']); // the failed save kept the question back
+    expect(screen.getByRole('button', { name: 'Show me' })).toBeEnabled();
   });
 
   it('takes one question at a time: asking is off while Codemm answers', async () => {
