@@ -77,3 +77,17 @@ describe("materialize", () => {
     expect(readdirSync(outside)).toEqual([]);
   });
 });
+
+describe("generated records", () => {
+  it("reads an exercise at the author file limit plus Codemm's own record", async () => {
+    const { readExercise } = await import("../src/store.js");
+    const dir = join(home, "courses", "demo", "exercises", "big");
+    mkdirSync(dir, { recursive: true });
+    for (let i = 0; i < 256; i++) writeFileSync(join(dir, `f${i}`), "x");
+    const record = { format_version: 1, slug: "big", style: "io", concepts: ["c"], difficulty: 1, track: "t@1", createdAt: "now", expected: { "hidden/01": "y".repeat(2_000_000) } };
+    writeFileSync(join(dir, "exercise.json"), JSON.stringify(record));
+    const loaded = readExercise("demo", "big");
+    expect(Object.keys(loaded.files)).toHaveLength(256);
+    expect(loaded.record.slug).toBe("big");
+  });
+});

@@ -77,7 +77,7 @@ export function replay(log: LearnerEvent[]): Map<string, ConceptState> {
     if (improves) best.set(a.exercise, score);
     const assisted = a.assisted || assistedExercises.has(a.exercise);
 
-    for (const concept of a.concepts) {
+    for (const concept of new Set(a.concepts)) {
       const s = get(concept);
       if (improves) s.mastery += RATE * (assisted ? ASSISTED_WEIGHT : 1) * (score - s.mastery);
       s.attempts += 1;

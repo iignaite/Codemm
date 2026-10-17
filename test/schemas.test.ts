@@ -17,6 +17,8 @@ describe("parseTrackYaml", () => {
     ["a bad id", `id: C!\nversion: 1\nstyles: [io]\nfiles: [a]\nrun: x\n`, /id/],
     ["an unsafe file path", `id: c\nversion: 1\nstyles: [io]\nfiles: [../a]\nrun: x\n`, /path/i],
     ["version 0", `id: c\nversion: 0\nstyles: [io]\nfiles: [a]\nrun: x\n`, /version/],
+    ["a learner file named README.md", `id: c\nversion: 1\nstyles: [io]\nfiles: [README.md]\nrun: x\n`, /reserved/],
+    ["a learner file under tests/", `id: c\nversion: 1\nstyles: [io]\nfiles: [tests/01.in]\nrun: x\n`, /reserved/],
   ])("rejects %s", (_label, yaml, error) => {
     expect(() => parseTrackYaml(yaml)).toThrow(error);
   });
@@ -34,6 +36,7 @@ describe("parseRoadmapYaml", () => {
     ["an unknown prerequisite", ok.replace("requires: [c.io]", "requires: [c.ptr]"), /c\.ptr/],
     ["duplicate ids", ok.replace("id: c.loops", "id: c.io"), /duplicate/i],
     ["a cycle", ok.replace("requires: []", "requires: [c.loops]"), /cycle/i],
+    ["a repeated prerequisite", ok.replace("requires: [c.io]", "requires: [c.io, c.io]"), /more than once/],
     ["no concepts", `goal: x\ntrack: c@1\nstyle: io\nconcepts: []\n`, /concept/i],
   ])("rejects %s", (_label, yaml, error) => {
     expect(() => parseRoadmapYaml(yaml)).toThrow(error);
@@ -53,6 +56,7 @@ describe("parseExerciseYaml", () => {
     ["difficulty 4", `slug: sum\nconcepts: [c.io]\ndifficulty: 4\n`],
     ["no concepts", `slug: sum\nconcepts: []\ndifficulty: 1\n`],
     ["an unknown style", `slug: sum\nconcepts: [c.io]\ndifficulty: 1\nstyle: gui\n`],
+    ["a repeated concept", `slug: sum\nconcepts: [c.io, c.io]\ndifficulty: 1\n`],
   ])("rejects %s", (_label, yaml) => {
     expect(() => parseExerciseYaml(yaml)).toThrow();
   });

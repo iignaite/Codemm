@@ -43,9 +43,16 @@ const TrackYaml = z
 
 export type TrackSpec = Omit<z.infer<typeof TrackYaml>, "limits"> & { limits: { time_ms: number; memory_mb: number } };
 
+/** Learner files share a folder with the statement and visible tests, so these names are taken. */
+const isReserved = (f: string) => f === "README.md" || f === "tests" || f.startsWith("tests/");
+
 export function parseTrackYaml(yaml: string): TrackSpec {
   const t = parseWith(TrackYaml, yaml, "track.yaml");
-  for (const f of t.files) assertRelativePath(f);
+  for (const f of t.files) {
+    assertRelativePath(f);
+    if (isReserved(f)) throw new CodemmError(`Invalid track.yaml: "${f}" is reserved for the statement and visible tests. Rename the learner file.`);
+  }
+  if (new Set(t.files).size !== t.files.length) throw new CodemmError("Invalid track.yaml: files lists the same file twice.");
   if (t.styles.includes("io") && !t.run) throw new CodemmError("Invalid track.yaml: an io track needs a run command.");
   if (t.styles.includes("unit") && !t.test) throw new CodemmError("Invalid track.yaml: a unit track needs a test command.");
   return { ...t, limits: { time_ms: clamp(t.limits?.time_ms, LIMITS.time_ms), memory_mb: clamp(t.limits?.memory_mb, LIMITS.memory_mb) } };
@@ -73,6 +80,7 @@ export function parseRoadmapYaml(yaml: string): Roadmap {
     ids.add(c.id);
   }
   for (const c of r.concepts) {
+    if (new Set(c.requires).size !== c.requires.length) throw new CodemmError(`Invalid roadmap: "${c.id}" lists a prerequisite more than once.`);
     for (const req of c.requires) if (!ids.has(req)) throw new CodemmError(`Invalid roadmap: "${c.id}" requires unknown concept "${req}".`);
   }
   const indegree = new Map(r.concepts.map((c) => [c.id, c.requires.length]));
@@ -99,7 +107,7 @@ const ExerciseYaml = z
   .object({
     slug: Id,
     style: Style.optional(),
-    concepts: z.array(Id).min(1).max(10),
+    concepts: z.array(Id).min(1).max(10).refine((c) => new Set(c).size === c.length, "concepts must not repeat"),
     difficulty: z.number().int().min(1).max(3),
     hint: z.string().max(2000).optional(),
   })

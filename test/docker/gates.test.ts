@@ -35,7 +35,8 @@ describe.runIf(dockerUp)("gates (Docker)", () => {
       ["a pass probe that fails", (f: FileMap) => ({ ...f, "probe/io/pass/main.sh": "read a b\necho 0\n" }), /probe pass/],
       ["a missing probe", (f: FileMap) => Object.fromEntries(Object.entries(f).filter(([p]) => !p.startsWith("probe/io/fail"))), /probe/],
     ])("rejects %s", async (_label, mutate, error) => {
-      await expect(verifyTrack(mutate(fixtureTrack("shell-io").files))).rejects.toThrow(error);
+      // Its own tag: moving the shared tag would let the runtime garbage-collect the verified image.
+      await expect(verifyTrack(mutate(fixtureTrack("shell-io").files), "codemm-test-rejected:1")).rejects.toThrow(error);
     });
   });
 
@@ -82,6 +83,13 @@ describe.runIf(dockerUp)("gates (Docker)", () => {
     it("accepts a good exercise and records the test inventory", async () => {
       const r = await verifyExercise(unitTrack, course("shell-unit"), exercise("unit-max"), new Set());
       expect(r.inventory).toEqual({ visible: ["first_is_max"], hidden: ["all_negative", "middle_is_max"] });
+    });
+
+    it("never names hidden tests in diagnostics", async () => {
+      const files = { ...exercise("unit-max"), "solution/lib.sh": exercise("unit-max")["mutants/first/lib.sh"]! };
+      const error = await verifyExercise(unitTrack, course("shell-unit"), files, new Set()).then(() => undefined, (e: Error) => e);
+      expect(error?.message).toMatch(/reference passes/);
+      expect(error?.message).not.toMatch(/all_negative|middle_is_max/);
     });
 
     it("rejects a style the track doesn't offer", async () => {

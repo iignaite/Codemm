@@ -14,15 +14,21 @@ const exercise = (name: string) => readFileMap(join(FIXTURES, "exercises", name)
 describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   let ws: string;
 
+  // A label gives this file's track image its own ID, so deleting it can't affect other test files.
+  const appTrack = (): Record<string, string> => {
+    const t = fixtureTrack("shell-io").files;
+    return { ...t, Dockerfile: `${t.Dockerfile}LABEL codemm.test=app\n` };
+  };
+
   beforeAll(() => {
     process.env.CODEMM_HOME = mkdtempSync(join(tmpdir(), "codemm-home-"));
     ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
   });
 
   it("installs a track once and refuses a different track under the same version", async () => {
-    expect(await app.saveTrack(fixtureTrack("shell-io").files)).toEqual({ installed: "shell-io@1" });
-    expect(await app.saveTrack(fixtureTrack("shell-io").files)).toEqual({ installed: "shell-io@1", unchanged: true });
-    const changed = { ...fixtureTrack("shell-io").files, "track.yaml": fixtureTrack("shell-io").files["track.yaml"]!.replace("2000", "3000") };
+    expect(await app.saveTrack(appTrack())).toEqual({ installed: "shell-io@1" });
+    expect(await app.saveTrack(appTrack())).toEqual({ installed: "shell-io@1", unchanged: true });
+    const changed = { ...appTrack(), "track.yaml": appTrack()["track.yaml"]!.replace("2000", "3000") };
     await expect(app.saveTrack(changed)).rejects.toThrow(/already installed/);
     expect(app.listTracks()).toEqual([{ track: "shell-io@1", styles: ["io"], files: ["main.sh"] }]);
   });
@@ -48,8 +54,8 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     await expect(app.saveExercise(ws, files)).rejects.toThrow(/already used/);
   });
 
-  it("serves the exercise without hidden data", () => {
-    const view = app.getExercise(ws);
+  it("serves the exercise without hidden data", async () => {
+    const view = await app.getExercise(ws);
     expect(view).toMatchObject({ exercise: "max-of-line", style: "io", files: ["main.sh"], visibleTests: [{ name: "01", input: "3 1 2\n", expected: "3\n" }] });
     expect(JSON.stringify(view)).not.toMatch(/1 5 2|-3 -1 -2/);
   });
@@ -78,27 +84,27 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(app.nextStep(ws)).toMatchObject({ kind: "author", concept: "sh.basics" });
   });
 
-  it("recreates deleted learner files without touching edited ones", () => {
+  it("recreates deleted learner files without touching edited ones", async () => {
     const dir = join(ws, "exercises", "shell", "max-of-line");
     rmSync(join(dir, "README.md"));
-    app.getExercise(ws, "max-of-line");
+    await app.getExercise(ws, "max-of-line");
     expect(existsSync(join(dir, "README.md"))).toBe(true);
     expect(readFileSync(join(dir, "main.sh"), "utf8")).toBe(exercise("io-max")["solution/main.sh"]);
   });
 
   it("marks exercises assisted while assist mode is on, for good", async () => {
-    app.setAssist(ws, true);
-    app.setAssist(ws, false);
+    await app.setAssist(ws, true);
+    await app.setAssist(ws, false);
     await app.checkExercise(ws);
     const events = readEvents("shell");
     expect(events.filter((e) => e.kind === "assist")).toHaveLength(1);
     expect(events.at(-1)).toMatchObject({ kind: "check", assisted: true });
   });
 
-  it("skips a concept", () => {
-    app.skip(ws, "sh.basics");
+  it("skips a concept", async () => {
+    await app.skip(ws, "sh.basics");
     expect(app.progress(ws).concepts[0]).toMatchObject({ mastered: true });
-    expect(() => app.skip(ws, "sh.nope")).toThrow(/not in/);
+    await expect(app.skip(ws, "sh.nope")).rejects.toThrow(/not in/);
   });
 
   it("refuses roadmap changes that would orphan exercises or change the track", async () => {
@@ -106,13 +112,32 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     await expect(app.saveRoadmap(ws, "shell", without)).rejects.toThrow(/sh\.basics/);
   });
 
+  it("keeps the installed image when a rebuild is rejected", async () => {
+    const exJson = join(process.env.CODEMM_HOME!, "courses", "shell", "exercises", "max-of-line", "exercise.json");
+    const original = readFileSync(exJson, "utf8");
+    writeFileSync(exJson, original.replace('"visible/01": "3\\n"', '"visible/01": "4\\n"'));
+    await expect(app.rebuildTrack("shell-io@1")).rejects.toThrow(/behaves differently/);
+    writeFileSync(exJson, original);
+    expect((await app.checkExercise(ws)).recorded).toBe(true);
+  });
+
+  it("doesn't let a check that finishes after a course switch hijack the new course", async () => {
+    const pending = app.checkExercise(ws);
+    await app.saveRoadmap(ws, "shell-two", roadmap("shell-io"));
+    await pending;
+    expect(JSON.parse(readFileSync(join(ws, "codemm.json"), "utf8"))).toMatchObject({ course: "shell-two" });
+    expect(JSON.parse(readFileSync(join(ws, "codemm.json"), "utf8")).current).toBeUndefined();
+    await app.saveRoadmap(ws, "shell", roadmap("shell-io"));
+  });
+
   it("records nothing when the track image is gone, and rebuild re-validates every exercise", async () => {
     const before = readEvents("shell").length;
-    await cli(["image", "rm", "-f", "codemm-track-shell-io:1"]);
-    await expect(app.checkExercise(ws)).rejects.toThrow(/track rebuild/);
+    const id = JSON.parse(readFileSync(join(process.env.CODEMM_HOME!, "tracks", "shell-io@1", "track.json"), "utf8")).imageId;
+    await cli(["image", "rm", "-f", id]);
+    await expect(app.checkExercise(ws, "max-of-line")).rejects.toThrow(/track rebuild/);
     expect(readEvents("shell")).toHaveLength(before);
 
     expect(await app.rebuildTrack("shell-io@1")).toEqual({ rebuilt: "shell-io@1", exercises: 1 });
-    expect((await app.checkExercise(ws)).recorded).toBe(true);
+    expect((await app.checkExercise(ws, "max-of-line")).recorded).toBe(true);
   });
 });

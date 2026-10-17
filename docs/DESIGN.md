@@ -77,6 +77,7 @@ $CODEMM_HOME (default ~/.codemm)
   - Roadmap YAML may be at most 64 KB and 200 concepts.
 - **Writing.** Codemm writes only into fresh temp folders that it then renames into place. The exception is workspace materialization: it refuses any path whose existing components include a symlink, and it never overwrites an existing learner file.
 - **Subprocesses** always take argument arrays. Codemm never interpolates into a host shell.
+- **Known limitation: symlink race.** Node has no directory-anchored, no-follow traversal (`openat`). Codemm checks every ancestor with `realpath` and opens files with `O_NOFOLLOW` and `O_EXCL`. A local process that swaps a parent folder for a symlink in the microseconds between the check and the write could still redirect one write. Such a process already has the learner's own permissions, so it gains nothing.
 
 ## 4. Tracks and the judge
 

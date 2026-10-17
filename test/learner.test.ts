@@ -46,6 +46,12 @@ describe("replay: mastery", () => {
     expect(s.difficulty).toBe(1);
   });
 
+  it("counts a check once per concept even if the event lists a concept twice", () => {
+    const s = replay([attempt({ exercise: "e", concepts: ["x", "x", "x"] }, 0)]).get("x")!;
+    expect(s.mastery).toBeCloseTo(0.65);
+    expect(s.difficulty).toBe(2);
+  });
+
   it("moves toward the pass ratio", () => {
     const s = replay([attempt({ exercise: "e", concepts: ["x"], passed: 0, total: 4 }, 0)]).get("x")!;
     expect(s.mastery).toBeCloseTo(0.35);

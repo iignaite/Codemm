@@ -5,7 +5,7 @@ import { verifyExercise, verifyTrack } from "./gates.js";
 import type { TestResult, TestSet } from "./grading.js";
 import { gradeIoRun, gradeUnitRun, type IoRun, runIo, runUnit, type UnitRun } from "./judge.js";
 import { MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
-import { assertRuntime, inspectImage } from "./sandbox.js";
+import { assertRuntime, cli as sandboxCli, inspectImage } from "./sandbox.js";
 import { type CourseRecord, type ExerciseRecord, parseRoadmapYaml, parseTrackYaml, type TrackRecord } from "./schemas.js";
 import * as store from "./store.js";
 
@@ -33,8 +33,8 @@ function installedTrack(ref: string): TrackRecord {
 /** Fails, without recording anything, when the runtime or the verified image isn't there. */
 async function ensureImage(track: TrackRecord): Promise<void> {
   await assertRuntime();
-  const info = await inspectImage(track.image);
-  if (!info || info.id !== track.imageId) {
+  const info = await inspectImage(track.imageId);
+  if (!info) {
     throw new CodemmError(`The image for ${track.id}@${track.version} is missing or changed. Run \`codemm track rebuild ${track.id}@${track.version}\`, then retry.`);
   }
 }
@@ -70,7 +70,9 @@ const sorted = (map: FileMap) => Object.fromEntries(Object.entries(map).sort(([a
 export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exercises: number }> {
   const old = installedTrack(ref);
   return store.withLock(store.trackLockPath(old.id), async () => {
-    const verified = await verifyTrack(store.readTrackFiles(ref));
+    // Build under a candidate tag; the installed tag and ID stay untouched unless every gate passes.
+    const candidate = `${old.image}-candidate`;
+    const verified = await verifyTrack(store.readTrackFiles(ref), candidate);
     const track: TrackRecord = { ...old, imageId: verified.imageId };
     const changed: string[] = [];
     let count = 0;
@@ -90,7 +92,12 @@ export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exer
         }
       }
     }
-    if (changed.length > 0) throw new CodemmError(`The rebuilt image behaves differently, so it wasn't accepted:\n${changed.join("\n")}`);
+    if (changed.length > 0) {
+      await sandboxCli(["image", "rm", candidate]);
+      throw new CodemmError(`The rebuilt image behaves differently, so it wasn't accepted:\n${changed.join("\n")}`);
+    }
+    await sandboxCli(["tag", verified.imageId, old.image]);
+    await sandboxCli(["image", "rm", candidate]);
     store.writeTrackRecord(ref, track);
     return { rebuilt: ref, exercises: count };
   });
@@ -117,8 +124,7 @@ export async function saveRoadmap(ws: string, course: string, yaml: string): Pro
     }
     store.writeCourse(record);
   });
-  const config = store.readWorkspace(ws);
-  store.writeWorkspace(ws, { ...config, course, ...(config.course === course && config.current ? { current: config.current } : { current: undefined }) });
+  await store.updateWorkspace(ws, (config) => ({ ...config, course, current: config.course === course ? config.current : undefined }));
   return { course, concepts: roadmap.concepts.length };
 }
 
@@ -133,18 +139,21 @@ export function nextStep(ws: string): NextStep {
 }
 
 export async function saveExercise(ws: string, files: FileMap): Promise<{ exercise: string }> {
-  const course = activeCourse(ws);
-  const track = installedTrack(course.track);
-  const record = await store.withLock(store.courseLockPath(course.course), () =>
-    store.withLock(store.trackLockPath(track.id), async () => {
+  const courseId = activeCourse(ws).course;
+  const trackId = store.parseTrackRef(activeCourse(ws).track).id;
+  const { record, track } = await store.withLock(store.courseLockPath(courseId), () =>
+    store.withLock(store.trackLockPath(trackId), async () => {
+      // Re-read under the locks so a concurrent roadmap change or rebuild can't be missed.
+      const course = store.readCourse(courseId)!;
+      const track = installedTrack(course.track);
       await ensureImage(track);
-      const taken = new Set(store.listExercises(course.course).map((e) => e.slug));
+      const taken = new Set(store.listExercises(courseId).map((e) => e.slug));
       const verified = await verifyExercise(track, course, files, taken);
-      store.commitFolder(store.exerciseDir(course.course, verified.slug), files, { "exercise.json": verified });
-      return verified;
+      store.commitFolder(store.exerciseDir(courseId, verified.slug), files, { "exercise.json": verified });
+      return { record: verified, track };
     }),
   );
-  store.materialize(ws, learnerDir(course.course, record.slug), learnerFiles(record, files, track));
+  store.materialize(ws, learnerDir(courseId, record.slug), learnerFiles(record, files, track));
   return { exercise: record.slug };
 }
 
@@ -173,17 +182,18 @@ function loadExercise(ws: string, slug?: string) {
   return { course, config, record, files, track, rel: learnerDir(course.course, record.slug) };
 }
 
-function noteAssist(course: string, slug: string): void {
+/** Appends an assist event if the exercise has none. Call only while holding the course lock. */
+function noteAssistLocked(course: string, slug: string): void {
   if (!store.readEvents(course).some((e) => e.kind === "assist" && e.exercise === slug)) {
     store.appendEvent(course, { format_version: 1, kind: "assist", at: new Date().toISOString(), exercise: slug });
   }
 }
 
-export function getExercise(ws: string, slug?: string) {
-  const { course, config, record, files, track, rel } = loadExercise(ws, slug);
+export async function getExercise(ws: string, slug?: string) {
+  const { course, record, files, track, rel } = loadExercise(ws, slug);
   store.materialize(ws, rel, learnerFiles(record, files, track));
-  store.writeWorkspace(ws, { ...config, current: record.slug });
-  if (config.assist) noteAssist(course.course, record.slug);
+  const config = await store.updateWorkspace(ws, (c) => (c.course === course.course ? { ...c, current: record.slug } : c));
+  if (config.assist) await store.withLock(store.courseLockPath(course.course), async () => noteAssistLocked(course.course, record.slug));
   const visible = subMap(files, "tests/visible");
   return {
     course: course.course,
@@ -230,8 +240,9 @@ function present(slug: string, tests: TestResult[], recorded: boolean): CheckVie
 
 async function judge(ws: string, slug: string | undefined, includeHidden: boolean) {
   const ctx = loadExercise(ws, slug);
-  const { record, files, track, rel } = ctx;
-  await ensureImage(track);
+  const { record, files, rel } = ctx;
+  await ensureImage(ctx.track);
+  const track = { ...ctx.track, image: ctx.track.imageId };
   store.materialize(ws, rel, learnerFiles(record, files, track));
   const src = store.readLearnerFiles(ws, rel, track.files);
   const sets: TestSet[] = includeHidden ? ["visible", "hidden"] : ["visible"];
@@ -261,14 +272,15 @@ export async function checkExercise(ws: string, slug?: string): Promise<CheckVie
   const { course, config, record, tests } = await judge(ws, slug, true);
   const passed = tests.filter((t) => t.status === "pass").length;
   await store.withLock(store.courseLockPath(course.course), async () => {
-    if (config.assist) noteAssist(course.course, record.slug);
+    if (config.assist) noteAssistLocked(course.course, record.slug);
     const assisted = config.assist || store.readEvents(course.course).some((e) => e.kind === "assist" && e.exercise === record.slug);
     store.appendEvent(course.course, {
       format_version: 1, kind: "check", at: new Date().toISOString(), exercise: record.slug,
       concepts: record.concepts, difficulty: record.difficulty, passed, total: tests.length, assisted,
     });
   });
-  store.writeWorkspace(ws, { ...store.readWorkspace(ws), current: record.slug });
+  // Only move "current" if the workspace still points at the course that was checked.
+  await store.updateWorkspace(ws, (c) => (c.course === course.course ? { ...c, current: record.slug } : c));
   return present(record.slug, tests, true);
 }
 
@@ -293,16 +305,21 @@ export function progress(ws: string) {
   };
 }
 
-export function skip(ws: string, concept: string): void {
-  const course = activeCourse(ws);
-  if (!course.concepts.some((c) => c.id === concept)) throw new CodemmError(`"${concept}" is not in the roadmap for ${course.course}.`);
-  store.appendEvent(course.course, { format_version: 1, kind: "skip", at: new Date().toISOString(), concept });
+export async function skip(ws: string, concept: string): Promise<void> {
+  const courseId = activeCourse(ws).course;
+  await store.withLock(store.courseLockPath(courseId), async () => {
+    const course = store.readCourse(courseId)!;
+    if (!course.concepts.some((c) => c.id === concept)) throw new CodemmError(`"${concept}" is not in the roadmap for ${courseId}.`);
+    store.appendEvent(courseId, { format_version: 1, kind: "skip", at: new Date().toISOString(), concept });
+  });
 }
 
-export function setAssist(ws: string, on: boolean): void {
-  const config = store.readWorkspace(ws);
-  store.writeWorkspace(ws, { ...config, assist: on });
-  if (on && config.course && config.current) noteAssist(config.course, config.current);
+export async function setAssist(ws: string, on: boolean): Promise<void> {
+  const config = await store.updateWorkspace(ws, (c) => ({ ...c, assist: on }));
+  if (on && config.course && config.current) {
+    const { course, current } = config;
+    await store.withLock(store.courseLockPath(course), async () => noteAssistLocked(course, current));
+  }
 }
 
 export { assertRuntime };

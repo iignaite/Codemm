@@ -31,14 +31,14 @@ for u in timeout head wc cat basename; do command -v "$u" >/dev/null 2>&1 || { e
 
 const IO_DRIVER = `${EMIT}
 if [ -n "\${CODEMM_BUILD:-}" ]; then
-  timeout ${BUILD_SECONDS} sh -c "$CODEMM_BUILD" > /tmp/b 2>&1; c=$?
+  timeout -s KILL ${BUILD_SECONDS} sh -c "$CODEMM_BUILD" > /tmp/b 2>&1; c=$?
   head -c 16384 /tmp/b > /tmp/bc; emit build build "$c" /tmp/bc
   [ "$c" = 0 ] || exit 0
 fi
 for f in /work/tests/*.in; do
   [ -e "$f" ] || continue
   n=$(basename "$f" .in)
-  timeout "$CODEMM_TIME_S" sh -c "$CODEMM_RUN" < "$f" > /tmp/o 2> /tmp/e; c=$?
+  timeout -s KILL "$CODEMM_TIME_S" sh -c "$CODEMM_RUN" < "$f" > /tmp/o 2> /tmp/e; c=$?
   kill -9 -1 2>/dev/null
   head -c 4096 /tmp/e > /tmp/ec
   if [ $(($(wc -c < /tmp/o))) -gt 65536 ]; then : > /tmp/oc; emit big "$n" "$c" /tmp/oc; else emit case "$n" "$c" /tmp/o; fi
@@ -46,7 +46,7 @@ for f in /work/tests/*.in; do
 done`;
 
 const UNIT_DRIVER = `${EMIT}
-TESTS=/work/tests OUT=/tmp/report.json timeout "$CODEMM_TIME_S" sh -c "$CODEMM_TEST" > /tmp/o 2>&1; c=$?
+TESTS=/work/tests OUT=/tmp/report.json timeout -s KILL "$CODEMM_TIME_S" sh -c "$CODEMM_TEST" > /tmp/o 2>&1; c=$?
 kill -9 -1 2>/dev/null
 if [ -f /tmp/report.json ] && [ $(($(wc -c < /tmp/report.json))) -le 1048576 ]; then emit report report "$c" /tmp/report.json; else : > /tmp/r; emit report report "$c" /tmp/r; fi
 head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc`;
@@ -67,15 +67,16 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       memoryMb: track.limits.memory_mb,
       deadlineMs,
     });
+    if (result.cleanupFailed) throw new CodemmError("A check container couldn't be removed, so nothing was recorded. Run `codemm doctor --fix`, then retry.");
     if (result.timedOut) throw new CodemmError("The check didn't finish in time, so nothing was recorded. Check that the container runtime is healthy and retry.");
     // A flood is the program's doing and is graded; the host kill makes the exit code meaningless.
     if (result.flooded) return { frames: [], flooded: true };
-    if (result.exit === -1 || (result.exit === 125 && result.stdout.length === 0)) {
-      throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`);
-    }
+    // Exit 125 means the runtime failed before any code ran, so its stderr is the runtime's own.
+    if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`);
+    if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.");
     const frames = parseFrames(result.stdout);
-    const fatal = frames.find((f) => f.kind === "fatal");
-    if (fatal) throw new CodemmError(`The track image can't run checks: ${fatal.body.trim()}.`);
+    // Never echo a fatal frame's body: code in the container could forge one (DESIGN §4.2).
+    if (frames.some((f) => f.kind === "fatal")) throw new CodemmError("The track image is missing a tool Codemm needs (sh, timeout, head, wc, cat or basename).");
     return { frames, flooded: result.flooded };
   } finally {
     rmSync(dir, { recursive: true, force: true });

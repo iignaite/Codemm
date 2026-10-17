@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,6 +44,25 @@ describe("readFileMap", () => {
     writeFileSync(join(dir, "README.md"), "hi");
     writeFileSync(join(dir, "solution", "main.c"), "x");
     expect(readFileMap(dir)).toEqual({ "README.md": "hi", "solution/main.c": "x" });
+  });
+
+  it("refuses FIFOs and other special files without reading them", () => {
+    const dir = mkdtempSync(join(tmpdir(), "codemm-files-"));
+    execFileSync("mkfifo", [join(dir, "pipe")]);
+    expect(() => readFileMap(dir)).toThrow(/regular file/i);
+  });
+
+  it("stops at the limits while walking instead of reading everything first", () => {
+    const dir = mkdtempSync(join(tmpdir(), "codemm-files-"));
+    writeFileSync(join(dir, "big"), Buffer.alloc(2_000_000));
+    expect(() => readFileMap(dir)).toThrow(/1 MB/);
+  });
+
+  it("can leave out generated records so they don't count against author limits", () => {
+    const dir = mkdtempSync(join(tmpdir(), "codemm-files-"));
+    writeFileSync(join(dir, "exercise.json"), "x".repeat(2_000_000));
+    writeFileSync(join(dir, "README.md"), "hi");
+    expect(readFileMap(dir, ["exercise.json"])).toEqual({ "README.md": "hi" });
   });
 
   it("refuses symlinks so input can't point outside its folder", () => {

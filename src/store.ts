@@ -1,9 +1,10 @@
 import {
-  copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, closeSync, readdirSync, readFileSync,
-  renameSync, rmSync, truncateSync, writeFileSync,
+  closeSync, constants, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync,
+  readFileSync, realpathSync, renameSync, rmSync, statSync, truncateSync, unlinkSync, writeFileSync,
 } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { CodemmError } from "./errors.js";
 import { assertId, type FileMap, readFileMap, validateFileMap, writeFileMap } from "./files.js";
 import type { LearnerEvent } from "./learner.js";
@@ -34,42 +35,90 @@ export const trackLockPath = (id: string) => {
 export const courseLockPath = (course: string) => join(courseDir(course), ".lock");
 
 // ---------- locks ----------
+//
+// A lock file is created atomically *with* its content by hard-linking a private temp file, so no
+// one ever sees an empty lock. A lock whose owner PID is gone is stale, but only the holder of the
+// short-lived `.reclaim` mutex may delete it, and only after re-reading that it is still the same
+// stale lock. Release deletes the lock only if it still carries our token.
 
-function lockOwnerAlive(path: string): boolean {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const readOwner = (path: string): { pid: number; token: string } | undefined => {
   try {
-    const { pid } = JSON.parse(readFileSync(path, "utf8")) as { pid: number };
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return undefined;
+  }
+};
+function alive(pid: number): boolean {
+  try {
     process.kill(pid, 0);
     return true;
   } catch (e) {
-    // EPERM means the process exists but belongs to someone else.
     return (e as NodeJS.ErrnoException).code === "EPERM";
   }
 }
+function tryCreate(path: string, content: string): boolean {
+  const tmp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
+  writeFileSync(tmp, content);
+  try {
+    linkSync(tmp, path);
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw e;
+  } finally {
+    unlinkSync(tmp);
+  }
+}
+function reclaimIfStale(path: string, seen: string): void {
+  const mutex = `${path}.reclaim`;
+  if (!tryCreate(mutex, String(process.pid))) {
+    // The mutex is held for microseconds; one older than 10 s belongs to a crashed process.
+    try {
+      if (Date.now() - statSync(mutex).mtimeMs > 10_000) unlinkSync(mutex);
+    } catch {
+      // gone already
+    }
+    return;
+  }
+  try {
+    let current: string | undefined;
+    try {
+      current = readFileSync(path, "utf8");
+    } catch {
+      return;
+    }
+    if (current === seen) unlinkSync(path);
+  } finally {
+    unlinkSync(mutex);
+  }
+}
 
-/** Runs `work` while holding an exclusive lock file. A lock whose owner PID is gone is stale. */
+/** Runs `work` while holding an exclusive cross-process lock. Waits up to `waitMs` for a live owner. */
 export async function withLock<T>(path: string, work: () => Promise<T>, waitMs = 600_000): Promise<T> {
   mkdirSync(dirname(path), { recursive: true });
+  const token = randomBytes(8).toString("hex");
+  const content = JSON.stringify({ pid: process.pid, token, at: new Date().toISOString() });
   const until = Date.now() + waitMs;
-  for (;;) {
+  while (!tryCreate(path, content)) {
+    let seen: string | undefined;
     try {
-      const fd = openSync(path, "wx");
-      writeFileSync(fd, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }));
-      closeSync(fd);
-      break;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      if (!lockOwnerAlive(path)) {
-        rmSync(path, { force: true });
-        continue;
-      }
-      if (Date.now() > until) throw new CodemmError("Codemm is busy with another change to this course or track. Retry in a moment.");
-      await new Promise((r) => setTimeout(r, 200));
+      seen = readFileSync(path, "utf8");
+    } catch {
+      continue;
     }
+    const owner = readOwner(path);
+    if (!owner || !alive(owner.pid)) {
+      reclaimIfStale(path, seen);
+      continue;
+    }
+    if (Date.now() > until) throw new CodemmError("Codemm is busy with another change to this course or track. Retry in a moment.");
+    await sleep(100);
   }
   try {
     return await work();
   } finally {
-    rmSync(path, { force: true });
+    if (readOwner(path)?.token === token) rmSync(path, { force: true });
   }
 }
 
@@ -107,9 +156,7 @@ export function readTrack(ref: string): TrackRecord | undefined {
 
 /** The track's own files, without Codemm's track.json. */
 export function readTrackFiles(ref: string): FileMap {
-  const files = readFileMap(trackDir(ref));
-  delete files["track.json"];
-  return files;
+  return readFileMap(trackDir(ref), ["track.json"]);
 }
 
 export function writeTrackRecord(ref: string, record: TrackRecord): void {
@@ -156,10 +203,9 @@ export function listExercises(course: string): ExerciseRecord[] {
 export function readExercise(course: string, slug: string): { record: ExerciseRecord; files: FileMap } {
   const dir = exerciseDir(course, slug);
   if (!existsSync(join(dir, "exercise.json"))) throw new CodemmError(`No exercise "${slug}" in course "${course}".`);
-  const files = readFileMap(dir);
-  const record = ExerciseRecord.parse(JSON.parse(files["exercise.json"]!));
-  delete files["exercise.json"];
-  return { record, files };
+  // Codemm's generated record is read on its own so it never counts against the author's limits.
+  const record = ExerciseRecord.parse(JSON.parse(readFileSync(join(dir, "exercise.json"), "utf8")));
+  return { record, files: readFileMap(dir, ["exercise.json"]) };
 }
 
 export const writeExerciseRecord = (course: string, record: ExerciseRecord) =>
@@ -212,7 +258,22 @@ export function readWorkspace(ws: string): WorkspaceConfig {
   return WorkspaceConfig.parse(JSON.parse(readFileSync(file, "utf8")));
 }
 
-export const writeWorkspace = (ws: string, config: WorkspaceConfig) => writeJsonAtomic(workspaceFile(ws), config);
+const workspaceLock = (ws: string) => join(codemmHome(), "locks", `ws-${createHash("sha256").update(ws).digest("hex").slice(0, 16)}.lock`);
+
+/** Read-modify-write of codemm.json, serialized across processes. */
+export async function updateWorkspace(ws: string, change: (config: WorkspaceConfig) => WorkspaceConfig): Promise<WorkspaceConfig> {
+  return withLock(workspaceLock(ws), async () => {
+    const next = change(readWorkspace(ws));
+    writeJsonAtomic(workspaceFile(ws), next);
+    return next;
+  });
+}
+
+/** Fails if `path`'s real location escapes `root` (a symlinked ancestor). */
+function assertInside(root: string, path: string): void {
+  const rel = relative(realpathSync(root), realpathSync(path));
+  if (rel === ".." || rel.startsWith(`..${sep}`) || rel.startsWith(sep)) throw new CodemmError(`Refusing to follow a symlink out of ${root}.`);
+}
 
 /**
  * Writes learner-side files under `ws/rel`, creating only what's missing.
@@ -231,7 +292,14 @@ export function materialize(ws: string, rel: string, files: FileMap): void {
     }
     if (existsSync(current)) continue;
     mkdirSync(dirname(current), { recursive: true });
-    writeFileSync(current, contents, { flag: "wx" });
+    assertInside(ws, dirname(current));
+    // O_NOFOLLOW + O_EXCL: never write through a symlink or over an existing file.
+    const fd = openSync(current, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+    try {
+      writeFileSync(fd, contents);
+    } finally {
+      closeSync(fd);
+    }
   }
 }
 
@@ -242,7 +310,13 @@ export function readLearnerFiles(ws: string, rel: string, names: string[]): File
     const path = join(ws, rel, name);
     if (!existsSync(path)) throw new CodemmError(`${join(rel, name)} is missing. Restore it, or run get_exercise to recreate the starter.`);
     if (!lstatSync(path).isFile()) throw new CodemmError(`${join(rel, name)} must be a regular file, not a symlink or folder.`);
-    out[name] = readFileSync(path, "utf8");
+    assertInside(ws, dirname(path));
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      out[name] = readFileSync(fd, "utf8");
+    } finally {
+      closeSync(fd);
+    }
   }
   return validateFileMap(out);
 }

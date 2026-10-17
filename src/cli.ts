@@ -117,12 +117,12 @@ async function main(argv: string[]): Promise<number> {
     }
     case "skip":
       if (!rest[0]) throw new CodemmError("Name the concept to skip: codemm skip <concept>.");
-      app.skip(ws, rest[0]);
+      await app.skip(ws, rest[0]);
       print(`Marked ${rest[0]} as known.`);
       return 0;
     case "assist":
       if (rest[0] !== "on" && rest[0] !== "off") throw new CodemmError("Use codemm assist on or codemm assist off.");
-      app.setAssist(ws, rest[0] === "on");
+      await app.setAssist(ws, rest[0] === "on");
       print(rest[0] === "on" ? "Assist mode on: your agent may edit exercise files, and these exercises count for less." : "Assist mode off.");
       return 0;
     case "tracks":

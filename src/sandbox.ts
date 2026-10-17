@@ -19,7 +19,9 @@ export type SandboxRun = {
   memoryMb: number;
   deadlineMs: number;
 };
-export type SandboxResult = { exit: number; stdout: Buffer; stderr: string; flooded: boolean; timedOut: boolean };
+export type SandboxResult = { exit: number; stdout: Buffer; stderr: string; flooded: boolean; timedOut: boolean; cleanupFailed: boolean };
+
+const cleanupMs = () => Number(process.env.CODEMM_CLEANUP_MS ?? 30_000);
 
 export function containerCli(): string {
   const configured = process.env.CODEMM_CONTAINER_CLI;
@@ -65,12 +67,12 @@ export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
     let stderr = "";
     let flooded = false;
     let timedOut = false;
-    let stopped = false;
+    let cleanup: Promise<boolean> | undefined;
+    // Kill the CLI, then remove the container with a bounded, checked command.
     const stop = () => {
-      if (stopped) return;
-      stopped = true;
+      if (cleanup) return;
       child.kill("SIGKILL");
-      spawnSync(cli, ["rm", "-f", name], { stdio: "ignore" });
+      cleanup = removeContainer(name);
     };
     const count = (n: number) => {
       bytes += n;
@@ -91,15 +93,24 @@ export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
       timedOut = true;
       stop();
     }, run.deadlineMs);
-    child.on("close", (code) => {
+    child.on("close", async (code) => {
       clearTimeout(timer);
-      resolve({ exit: code ?? -1, stdout: Buffer.concat(chunks), stderr, flooded, timedOut });
+      const removed = cleanup ? await cleanup : true;
+      resolve({ exit: code ?? -1, stdout: Buffer.concat(chunks), stderr, flooded, timedOut, cleanupFailed: !removed });
     });
     child.on("error", (e) => {
       clearTimeout(timer);
-      resolve({ exit: -1, stdout: Buffer.alloc(0), stderr: e.message, flooded, timedOut });
+      resolve({ exit: -1, stdout: Buffer.alloc(0), stderr: e.message, flooded, timedOut, cleanupFailed: false });
     });
   });
+}
+
+/** `rm -f` with a deadline; true when the container is gone (including when `--rm` got there first). */
+async function removeContainer(name: string): Promise<boolean> {
+  const r = await cli(["rm", "-f", name], cleanupMs());
+  if (r.exit === 0) return true;
+  const still = await cli(["container", "inspect", name], cleanupMs());
+  return still.exit !== 0 && /no such/i.test(still.output);
 }
 
 /** Runs the container CLI for housekeeping (build, inspect, remove). Not for untrusted code. */
@@ -114,15 +125,20 @@ export function cli(args: string[], timeoutMs = 60_000): Promise<{ exit: number;
     };
     child.stdout.on("data", keep);
     child.stderr.on("data", keep);
-    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
-    child.on("close", (code) => {
+    let settled = false;
+    const settle = (result: { exit: number; output: string }) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      resolve({ exit: code ?? -1, output });
-    });
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      resolve({ exit: -1, output: e.message });
-    });
+      resolve(result);
+    };
+    // Settle at the deadline even if an orphaned grandchild keeps the pipes open.
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      settle({ exit: -1, output: `${output}\n(timed out after ${timeoutMs} ms)` });
+    }, timeoutMs);
+    child.on("close", (code) => settle({ exit: code ?? -1, output }));
+    child.on("error", (e) => settle({ exit: -1, output: e.message }));
   });
 }
 

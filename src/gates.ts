@@ -85,13 +85,13 @@ function probe(files: FileMap, spec: TrackSpec, style: Style) {
 }
 
 /** Builds a track image and runs its probes (DESIGN §6, track gates 2-5). */
-export async function verifyTrack(files: FileMap): Promise<{ spec: TrackSpec; image: string; imageId: string }> {
+export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec: TrackSpec; image: string; imageId: string }> {
   validateFileMap(files);
   if (!files["track.yaml"] || !files.Dockerfile) throw new GateError("valid", "A track needs track.yaml and a Dockerfile.");
   const spec = parseTrackYaml(files["track.yaml"]);
   const probes = spec.styles.map((style) => ({ style, ...probe(files, spec, style) }));
 
-  const image = imageTag(spec);
+  const image = tag ?? imageTag(spec);
   const context = mkdtempSync(join(tmpdir(), "codemm-build-"));
   try {
     writeFileMap(context, files);
@@ -104,7 +104,8 @@ export async function verifyTrack(files: FileMap): Promise<{ spec: TrackSpec; im
   if (!info) throw new GateError("build", "the built image can't be found.");
   if (info.hasVolumes) throw new GateError("build", "the image declares a VOLUME. Remove it; checks may only write to /tmp.");
 
-  const track: JudgeTrack = { ...spec, image };
+  // Run by immutable ID so a retagged image can't change what was verified.
+  const track: JudgeTrack = { ...spec, image: info.id };
   for (const p of probes) {
     const exp = { expected: p.expected };
     const pass1 = grade(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
@@ -155,7 +156,8 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
   if (style === "io") {
     for (const [set, tests] of Object.entries(sets)) {
       const bad = Object.keys(tests).filter((p) => !/^[A-Za-z0-9_-]+\.in$/.test(p));
-      if (bad.length > 0) throw new GateError("valid", `tests/${set}/ may only hold NN.in inputs; Codemm writes expected outputs (.out) itself. Remove: ${bad.join(", ")}.`);
+      const listed = set === "hidden" ? `${bad.length} file(s)` : bad.join(", ");
+      if (bad.length > 0) throw new GateError("valid", `tests/${set}/ may only hold NN.in inputs; Codemm writes expected outputs (.out) itself. Remove: ${listed}.`);
     }
   }
   const counts = { visible: Object.keys(sets.visible).length, hidden: Object.keys(sets.hidden).length };
@@ -166,8 +168,9 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
 }
 
 /** Runs exercise gates 1-6 (DESIGN §6). Returns the record to store, with io expected outputs or the unit inventory. */
-export async function verifyExercise(track: TrackRecord, course: CourseRecord, files: FileMap, taken: Set<string>): Promise<ExerciseRecord> {
-  const { spec, style, starter, solution, mutants, sets } = validate(track, course, files, taken);
+export async function verifyExercise(trackRecord: TrackRecord, course: CourseRecord, files: FileMap, taken: Set<string>): Promise<ExerciseRecord> {
+  const { spec, style, starter, solution, mutants, sets } = validate(trackRecord, course, files, taken);
+  const track = { ...trackRecord, image: trackRecord.imageId };
   const fast = Math.max(100, Math.floor(track.limits.time_ms / 3));
 
   // Gate 2 + 3: the reference passes, twice, the second time with a third of the time limit.
@@ -181,7 +184,12 @@ export async function verifyExercise(track: TrackRecord, course: CourseRecord, f
     if (build && build.exit !== 0) throw new GateError("reference passes", `the reference doesn't build:\n${build.output.slice(0, 2000)}`);
     const bad = a.filter((c) => c.exit !== 0 || c.big);
     if (bad.length > 0 || a.length !== counts(sets)) {
-      const lines = a.map((c) => (c.name.startsWith("hidden/") ? `  ${c.name.replace(/\d+$/, "#")}: ${c.exit === 0 && !c.big ? "ok" : "error"}` : `  ${c.name}: exit ${c.exit}${c.big ? ", printed over 64 KB" : ""}${c.stderr ? ` (${c.stderr.slice(0, 300)})` : ""}`));
+      let hidden = 0;
+      const lines = a.map((c) =>
+        c.name.startsWith("hidden/")
+          ? `  hidden #${(hidden += 1)}: ${c.exit === 0 && !c.big ? "ok" : "error"}`
+          : `  ${c.name}: exit ${c.exit}${c.big ? ", printed over 64 KB" : ""}${c.stderr ? ` (${c.stderr.slice(0, 300)})` : ""}`,
+      );
       throw new GateError("reference passes", `the reference must run every input without errors:\n${lines.join("\n")}`);
     }
     const slow = b.filter((c) => c.exit !== 0 || c.big);
@@ -200,8 +208,11 @@ export async function verifyExercise(track: TrackRecord, course: CourseRecord, f
     if (exp.inventory.visible.length < 1 || exp.inventory.hidden.length < 2) {
       throw new GateError("valid", `the tests must define at least 1 visible and 2 hidden test cases (found ${exp.inventory.visible.length} and ${exp.inventory.hidden.length}).`);
     }
-    const r2 = grade(style, second, exp);
+    // Compare the full second report (no inventory filter), so added or changed tests can't slip through.
+    const r2 = grade(style, second, {});
     if (!allPass(r2)) throw new GateError("reference fast", `the reference must still pass with a third of the time limit (${fast} ms):\n${summarize(r2)}`);
+    const shape = (tests: TestResult[]) => JSON.stringify(tests.map((t) => [t.name, t.status]).sort());
+    if (shape(r1) !== shape(r2)) throw new GateError("reference passes", "the test report differed between two identical runs. Make test names and results deterministic.");
   }
 
   // Gate 4: the starter isn't already a solution.

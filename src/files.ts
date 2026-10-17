@@ -34,15 +34,30 @@ export function validateFileMap(map: FileMap): FileMap {
   return map;
 }
 
-export function readFileMap(dir: string): FileMap {
+/**
+ * Reads a folder into a file map, enforcing the limits while walking. Only regular files
+ * and folders are allowed. `exclude` names top-level files (Codemm's own records) to skip.
+ */
+export function readFileMap(dir: string, exclude: string[] = []): FileMap {
   const map: FileMap = {};
+  let count = 0;
+  let bytes = 0;
   const walk = (rel: string) => {
     for (const name of readdirSync(join(dir, rel)).sort()) {
       const relPath = rel ? `${rel}/${name}` : name;
+      if (!rel && exclude.includes(name)) continue;
       const stat = lstatSync(join(dir, relPath));
       if (stat.isSymbolicLink()) throw new CodemmError(`"${relPath}" is a symlink. Copy the file in instead.`);
-      if (stat.isDirectory()) walk(relPath);
-      else map[relPath] = readFileSync(join(dir, relPath), "utf8");
+      if (stat.isDirectory()) {
+        walk(relPath);
+        continue;
+      }
+      if (!stat.isFile()) throw new CodemmError(`"${relPath}" isn't a regular file.`);
+      count += 1;
+      bytes += stat.size;
+      if (count > MAX_FILES) throw new CodemmError(`Too many files (over ${MAX_FILES}).`);
+      if (bytes > MAX_BYTES) throw new CodemmError(`Files total over 1 MB. The limit is 1 MB.`);
+      map[relPath] = readFileSync(join(dir, relPath), "utf8");
     }
   };
   walk("");

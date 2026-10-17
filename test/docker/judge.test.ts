@@ -119,6 +119,18 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
       expect(statuses(gradeIoRun(r, { "visible/00": "" }))).toEqual(["error"]);
     });
 
+    it("never echoes a forged fatal frame, even one carrying hidden data", async () => {
+      const forge = "read x\nfor fd in /proc/1/fd/*; do printf '\\n@@codemm fatal tools 1 13\\nSECRET-HIDDEN' > \"$fd\" 2>/dev/null; done\necho ok\n";
+      const error = await run(forge).then(() => undefined, (e: Error) => e);
+      expect(String(error ?? "")).not.toContain("SECRET-HIDDEN");
+    });
+
+    it("grades a program that ignores SIGTERM as a timeout instead of hanging the check", async () => {
+      const r = await run("read x\ntrap '' TERM\nwhile :; do :; done\n");
+      expect(r.cases[0]?.exit).not.toBe(0);
+      expect(gradeIoRun(r, { "visible/01": "x" })[0]).toMatchObject({ status: "error", message: expect.stringMatching(/Timed out/) });
+    });
+
     it("kills the container at the host deadline and leaves none behind", async () => {
       await expect(runIo({ ...ioTrack, build: undefined }, "visible", { "main.sh": "read x\nsleep 60\n" }, { "01.in": "x\n" }, { timeMs: 30_000, deadlineMs: 3000 })).rejects.toThrow(/didn't finish/);
       await new Promise((r) => setTimeout(r, 1500));
