@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { ask, run, spawnable, type Executable } from './bridge';
+import { ask, groupAlive, run, spawnable, withDeadline, type Executable } from './bridge';
 
 const parse = (line: string) => (line.startsWith('{') ? [JSON.parse(line) as Record<string, unknown>] : []);
 /** A fake agent: this Node running a script, the way the app runs a JavaScript agent. */
@@ -126,6 +126,21 @@ describe('bridge (D5)', () => {
     if (survived) process.kill(grandchild, 'SIGKILL');
     expect(result).toMatchObject({ cancelled: true, stopped: true });
     expect(survived).toBe(false);
+  });
+
+  it('counts a group as gone only when the system says there is no such process', () => {
+    const failing = (code: string) => () => {
+      throw Object.assign(new Error(code), { code });
+    };
+    expect(groupAlive(123, failing('ESRCH'))).toBe(false);
+    // EPERM: a member is still running, under other credentials.
+    expect(groupAlive(123, failing('EPERM'))).toBe(true);
+    expect(groupAlive(123, () => true)).toBe(true);
+  });
+
+  it('gives up on a tree kill that never answers, as unconfirmed', async () => {
+    expect(await withDeadline(new Promise<number>(() => {}), 50, null)).toBeNull();
+    expect(await withDeadline(Promise.resolve(0), 50, null)).toBe(0);
   });
 
   it('delivers no event after a run settles', async () => {

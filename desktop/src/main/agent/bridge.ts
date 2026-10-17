@@ -22,13 +22,28 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const CLOSE_GRACE_MS = 2000;
 const windows = process.platform === 'win32';
 
-function groupAlive(pid: number) {
+/** Whether any member of the process group still exists. Only ESRCH means none; EPERM means one runs under other credentials. */
+export function groupAlive(pid: number, kill: (pid: number, signal: 0) => unknown = process.kill): boolean {
   try {
-    process.kill(-pid, 0);
+    kill(-pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code !== 'ESRCH';
   }
+}
+
+/** How long a tree kill may take before it counts as unconfirmed. */
+const TREE_KILL_MS = 15_000;
+
+/** A promise's value, or `fallback` once `ms` pass without one. */
+export function withDeadline<T, F>(promise: Promise<T>, ms: number, fallback: F): Promise<T | F> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    void promise.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    });
+  });
 }
 
 /**
@@ -41,7 +56,9 @@ async function killTree(child: ChildProcess, killAfterMs: number, parentExited: 
   if (windows) {
     // With the parent already gone, its tree can't be found or checked.
     if (parentExited) return false;
-    const code = await new Promise<number | null>((r) => spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on('close', r).on('error', () => r(null)));
+    const taskkill = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
+    const code = await withDeadline(new Promise<number | null>((r) => taskkill.on('close', r).on('error', () => r(null))), TREE_KILL_MS, null);
+    if (code === null) taskkill.kill();
     return code === 0;
   }
   const signal = (sig: NodeJS.Signals) => {
