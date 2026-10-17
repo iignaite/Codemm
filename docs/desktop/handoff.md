@@ -49,6 +49,7 @@
   - acceptance criteria D23 to D29.
 - `docs/desktop/beta-plan.md`: recruiting, consent, setup, tasks, what to observe, exit criteria and the exit survey.
 - The spike parses usage from `done` events and agent versions from `--version`. The sign-in helper became `ask()`, shared with the version check. 19 tests pass.
+- Astra reviewed the additions and found 13 issues (8 major). All are resolved and logged in DESIGN §14.
 
 ### Notes for whoever continues
 
