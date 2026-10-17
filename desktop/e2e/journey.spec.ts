@@ -17,7 +17,7 @@ import { join } from 'node:path';
 //   JOURNEY_AGENT=claude|codex, JOURNEY_MODEL=<model id, chosen in the connect screen's Model select>,
 //   JOURNEY_LABEL=<name>
 //   JOURNEY_TOPIC=<goal>    what to learn (default "Python functions"); JOURNEY_KNOWN=<what's known>
-//   JOURNEY_PART=full|setup|activity|no-agent|docker-stop|docker-setup|low-disk|fakes
+//   JOURNEY_PART=full|setup|activity|no-agent|no-docker|docker-stop|docker-setup|low-disk|offline-setup|fake-research|fakes
 //                           (`fakes` runs on a set-up course with e2e/fake-claude.cjs as Claude Code)
 //   JOURNEY_FLOW=<comma list> extras for `full`: edits, reopen, show-me, stuck, pages, relaunch,
 //                           relaunch-setup, switch=<agent>, new-course
@@ -268,7 +268,11 @@ test(`journey: ${label}`, async () => {
     mkdirSync(env.HOME, { recursive: true });
   }
   const fake = join(dir!, 'fake-mode');
-  if (part === 'fakes') {
+  // Simulated: Docker Desktop stays installed, but this run's lookup sees only PATH, which holds just the agents.
+  if (part === 'no-docker') env.CODEMM_TEST_SEARCH_DIRS = '';
+  // Simulated: this run's track build uses a buildx builder with no network (made by the runner).
+  if (part === 'offline-setup') env.BUILDX_BUILDER = 'codemm-offline-sim';
+  if (part === 'fakes' || part === 'fake-research') {
     env.PATH = `${join(dir!, 'bin-fake')}:/usr/bin:/bin:/usr/sbin:/sbin`;
     env.CODEMM_FAKE_FILE = fake;
     env.CODEMM_REAL_CLAUDE = readFileSync(join(dir!, 'real-claude'), 'utf8').trim();
@@ -364,7 +368,35 @@ test(`journey: ${label}`, async () => {
       await toMap();
       return `${text}; after restoring the log: course map back`;
     });
-  } else if (part === 'low-disk' || part === 'docker-setup') {
+  } else if (part === 'no-docker') {
+    await step('no-docker', async () => {
+      await until('the welcome screen', () => visible(button('Connect an agent')), MIN);
+      await button('Connect an agent').click();
+      const row = page.getByRole('listitem', { name: NAMES[agent] });
+      await row.getByRole('button', { name: 'Connect' }).click();
+      await expect(row.getByText('Connected')).toBeVisible({ timeout: MIN });
+      await button('Continue').click();
+      await expect(heading('Check this computer')).toBeVisible();
+      await until('the Docker step', () => visible(page.getByRole('link', { name: /^Get Docker/ })), MIN);
+      return (await page.locator('main').innerText()).replace(/\s+/g, ' ').slice(0, 300);
+    });
+  } else if (part === 'fake-research') {
+    await step('connect', () => connect(agent));
+    await step('research-offline', async () => {
+      writeFileSync(fake, 'offline-research');
+      await button('Start learning').click();
+      await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill(topic);
+      await page.getByRole('textbox', { name: 'I already know' }).fill(known);
+      await button('Start').click();
+      await until('the research failure', () => visible(button('Try again')), 10 * MIN);
+      const text = (await page.locator('main').innerText()).replace(/\s+/g, ' ').slice(0, 300);
+      await shot('research-offline-failure');
+      rmSync(fake);
+      await button('Try again').click();
+      await until('the suggested path', () => visible(button('Approve')), 15 * MIN);
+      return `${text}; back online: a roadmap`;
+    });
+  } else if (part === 'low-disk' || part === 'docker-setup' || part === 'offline-setup') {
     await step('connect', () => connect(agent));
     await step('research', async () => {
       await button('Start learning').click();
@@ -386,6 +418,18 @@ test(`journey: ${label}`, async () => {
       const failure = (await page.getByRole('alert').innerText()).replace(/\s+/g, ' ');
       await shot(`${part}-failure`);
       if (part === 'low-disk') return failure;
+      if (part === 'offline-setup') {
+        // Back online: relaunch without the no-network builder, then Try again builds the same proposal.
+        await app.close();
+        delete env.BUILDX_BUILDER;
+        await launch(env);
+        await toMap();
+        await page.getByRole('button', { name: 'Continue', exact: true }).click();
+        await until('Try again', () => visible(page.getByRole('alert').getByRole('button', { name: 'Try again' })), 2 * MIN);
+        await page.getByRole('alert').getByRole('button', { name: 'Try again' }).click();
+        await until('setup done', async () => !(await visible(page.getByText(/^(Preparing setup for|Setting up) /))) && !(await visible(page.getByRole('alert'))), 20 * MIN);
+        return `${failure}; back online: set up`;
+      }
       await page.getByRole('alert').getByRole('button', { name: 'Check this computer' }).click();
       execFileSync('open', ['-a', 'Docker']);
       await until('Docker ready', () => visible(page.getByText('This computer is ready.')), 6 * MIN);

@@ -2,6 +2,7 @@
 // A stand-in for Claude Code in the journey's failure states (journey.spec.ts, JOURNEY_PART=fakes).
 // It runs the real CLI (CODEMM_REAL_CLAUDE) unless the file CODEMM_FAKE_FILE names a failure:
 //   signed-out          `auth status` says signed out
+//   offline-research    the research turn fails on the network
 //   plan-limit          every turn ends at a usage limit
 //   infra-author        the author's save fails because Docker can't be reached; the agent keeps running
 //   unstoppable-author  the author's saves fail, and a detached child keeps the output pipe open, so a
@@ -22,6 +23,10 @@ const failed = (id, text) => ({ type: 'user', message: { content: [{ type: 'tool
 
 if (mode === 'signed-out' && args[0] === 'auth') {
   console.log(JSON.stringify({ loggedIn: false }));
+} else if (mode === 'offline-research' && prompt.startsWith('You plan a Codemm course')) {
+  line(init);
+  line({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'API Error: Connection error. (getaddrinfo ENOTFOUND api.anthropic.com)' });
+  process.exit(1);
 } else if (mode === 'plan-limit' && prompt) {
   line(init);
   line({ type: 'result', subtype: 'error_during_execution', is_error: true, result: "You've hit your usage limit · resets 5pm" });
