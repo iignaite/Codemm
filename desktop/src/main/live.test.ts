@@ -236,6 +236,8 @@ describe('live CodemmApi', () => {
     const a = await practising(s);
     s.app.checkExercise = () => new Promise((done) => (finish = () => done({ exercise: a.id, passed: 0, total: 0, recorded: true, tests: [] })));
     const check = s.api.check(a.id);
+    // The Check is running when quitting starts.
+    await new Promise((r) => setTimeout(r, 10));
     let stopped = false;
     const stopping = s.api.stop().then(() => (stopped = true));
     await new Promise((res) => setTimeout(res, 10));
@@ -386,5 +388,22 @@ describe('live CodemmApi', () => {
     const { proposal } = await until(t.api, (c) => c.setup === 'consent');
     await t.api.install(proposal!.digest);
     await until(t.api, () => t.jobs.ran.filter((j) => j.kind === 'setup').length === 2);
+  });
+
+  it('quitting waits for a Check that is waiting for Docker, and that Check then never runs', async () => {
+    let open: () => void = () => {};
+    const started = new Promise<void>((r) => (open = r));
+    let ready = async () => {};
+    const t = live({}, { dockerReady: () => ready() });
+    const activity = await practising(t);
+    ready = () => started;
+    const check = t.api.check(activity.id).catch(() => 'not run');
+    let stopped = false;
+    const stopping = t.api.stop().then(() => (stopped = true));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stopped).toBe(false);
+    open();
+    await Promise.all([check, stopping]);
+    expect(t.c.checks).toEqual([]);
   });
 });

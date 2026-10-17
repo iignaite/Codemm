@@ -105,6 +105,17 @@ export function createLive(d: LiveDeps): Live {
     runs.add(run);
     return run.finally(() => runs.delete(run));
   };
+  /**
+   * Runs a container operation once Docker isn't starting, tracked for quitting from the start:
+   * quitting waits for it, and an operation still waiting when quitting starts never runs.
+   */
+  const whenDockerReady = <T>(operation: () => Promise<T>): Promise<T> =>
+    tracked(
+      dockerReady().then(() => {
+        if (stopping) throw new SafeError('Codemm is quitting.');
+        return operation();
+      }),
+    );
   // Containers left by an earlier run of the app, whose owner is gone (§5).
   void core.cleanupLeftovers().catch(() => undefined);
   /** The setup the learner approved, and how it went (§4.1). */
@@ -446,8 +457,7 @@ export function createLive(d: LiveDeps): Live {
 
     async tryIt(activityId) {
       try {
-        await dockerReady();
-        return tryView(await tracked(core.testExercise(ws, activityId)));
+        return tryView(await whenDockerReady(() => core.testExercise(ws, activityId)));
       } catch (e) {
         const reason = notCounted(e);
         if (reason) {
@@ -460,8 +470,7 @@ export function createLive(d: LiveDeps): Live {
 
     async check(activityId) {
       try {
-        await dockerReady();
-        const view = await tracked(core.checkExercise(ws, activityId));
+        const view = await whenDockerReady(() => core.checkExercise(ws, activityId));
         const concepts = core.listExercises(ws).find((e) => e.exercise === activityId)?.concepts ?? [];
         const state = core.progress(ws).concepts.find((c) => concepts.includes(c.id));
         // A graded check can move the course on: the next topic's lesson and activity.
