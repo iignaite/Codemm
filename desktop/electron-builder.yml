@@ -1,0 +1,28 @@
+appId: dev.codemm.desktop
+productName: Codemm
+npmRebuild: false
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  category: public.app-category.education
+  identity: null
+  notarize: false
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Education
+  maintainer: Codemm contributors <noreply@codemm.dev>
