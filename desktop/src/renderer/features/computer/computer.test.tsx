@@ -51,11 +51,11 @@ describe('check this computer', () => {
     const options: MockOptions = { docker: 'missing', platform: 'mac' };
     open(options);
     const link = await screen.findByRole('link', { name: 'Get Docker Desktop' });
-    expect(screen.getByRole('status')).toHaveTextContent("Docker isn't installed yet. Checking again every few seconds.");
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent("Docker isn't installed yet. Checking again every few seconds."));
     link.focus();
     options.docker = 'stopped';
     expect(await screen.findByText("Docker isn't running yet. Checking again every few seconds.")).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Check now' })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Check now' })).toHaveFocus());
   });
 
   it('asks to start Docker Desktop when it is installed but not running', async () => {
