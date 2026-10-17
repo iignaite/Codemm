@@ -66,3 +66,25 @@ describe("parseExerciseYaml", () => {
     expect(() => parseExerciseYaml(yaml)).toThrow();
   });
 });
+
+describe("roadmap sources", () => {
+  const base = "goal: G\ntrack: c@1\nstyle: io\nconcepts:\n  - { id: a, title: A, requires: [] }\n";
+  const withSources = (items: string) => `${base}sources:\n${items}`;
+
+  it("accepts up to 10 https sources with short titles, and none at all", () => {
+    expect(parseRoadmapYaml(base).sources).toBeUndefined();
+    const r = parseRoadmapYaml(withSources('  - { title: "MDN: Loops", url: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Loops_and_iteration" }\n'));
+    expect(r.sources).toEqual([{ title: "MDN: Loops", url: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Loops_and_iteration" }]);
+  });
+
+  it.each([
+    ["an http link", '  - { title: T, url: "http://example.com" }\n', /https/],
+    ["a javascript: link", '  - { title: T, url: "javascript:alert(1)" }\n', /https/],
+    ["a link with credentials", '  - { title: T, url: "https://user:pw@example.com" }\n', /https/],
+    ["a title over 120 characters", `  - { title: "${"t".repeat(121)}", url: "https://example.com" }\n`, /title/],
+    ["more than 10 sources", '  - { title: T, url: "https://example.com" }\n'.repeat(11), /sources/],
+    ["an unknown key", '  - { title: T, url: "https://example.com", note: x }\n', /note|Unrecognized/i],
+  ])("rejects %s", (_label, items, error) => {
+    expect(() => parseRoadmapYaml(withSources(items))).toThrow(error);
+  });
+});

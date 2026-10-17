@@ -15,6 +15,21 @@ async function open(options?: MockOptions): Promise<{ api: CodemmApi; roadmap: R
   return { api, roadmap: small, user: userEvent.setup() };
 }
 
+describe('roadmap sources', () => {
+  it('lists the sources as links that open outside the app, and shows nothing when there are none', async () => {
+    const { api, roadmap } = await mockWithRoadmap();
+    const view = renderApp({ to: 'course', roadmap: { ...roadmap, sources: [{ title: 'React docs', url: 'https://react.dev/learn' }] } }, api);
+    const sources = await screen.findByRole('region', { name: 'Sources' });
+    const link = within(sources).getByRole('link', { name: 'React docs' });
+    expect(link).toHaveAttribute('href', 'https://react.dev/learn');
+    expect(link).toHaveAttribute('target', '_blank');
+    view.unmount();
+    renderApp({ to: 'course', roadmap: { ...roadmap, sources: [] } }, api);
+    await screen.findByRole('heading', { name: 'React' });
+    expect(screen.queryByRole('region', { name: 'Sources' })).not.toBeInTheDocument();
+  });
+});
+
 describe('course editor', () => {
   it('renames, removes, adds and reorders topics without dragging', async () => {
     const { user } = await open();

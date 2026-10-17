@@ -17,7 +17,7 @@ export const CANARY = 'printf("CANARY-SOLUTION-LINE %d", count + 1);';
 /** An in-memory core with the shapes and rules the desktop relies on. */
 export function fakeCore() {
   const c = {
-    roadmap: null as null | { course: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[] },
+    roadmap: null as null | { course: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[]; sources?: { title: string; url: string }[] },
     tracks: [] as string[],
     proposals: [] as { track: string; digest: string; created: string; files: Record<string, string> }[],
     lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string }[],

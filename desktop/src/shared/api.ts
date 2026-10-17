@@ -90,6 +90,8 @@ export interface Roadmap {
   track: string;
   installed: boolean;
   concepts: Concept[];
+  /** The roadmaps and docs the agent used. Opened only in the system browser (§2.1). */
+  sources: { title: string; url: string }[];
 }
 
 export type JobState = 'running' | 'done' | 'failed';

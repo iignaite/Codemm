@@ -63,6 +63,11 @@ describe("roadmap draft", () => {
     expect(() => app.nextStep(ws)).toThrow(/Edit the roadmap's style/);
   });
 
+  it("keeps the roadmap's sources and returns them", async () => {
+    await app.saveRoadmap(ws, "shell", `${roadmap()}sources:\n  - { title: POSIX shell, url: "https://pubs.opengroup.org/onlinepubs/9799919799/" }\n`);
+    expect(app.getRoadmap(ws).sources).toEqual([{ title: "POSIX shell", url: "https://pubs.opengroup.org/onlinepubs/9799919799/" }]);
+  });
+
   it("returns the roadmap as saved", async () => {
     await app.saveRoadmap(ws, "shell", roadmap());
     expect(app.getRoadmap(ws)).toEqual({

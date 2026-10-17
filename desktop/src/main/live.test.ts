@@ -13,7 +13,7 @@ describe('live CodemmApi', () => {
   it('researches a new course on a server bound to it, then shows the roadmap', async () => {
     const t = live();
     const r = await researched(t);
-    expect(r).toEqual({ state: 'done', roadmap: { goal: 'React', track: 'react', installed: false, concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }] } });
+    expect(r).toEqual({ state: 'done', roadmap: { goal: 'React', track: 'react', installed: false, concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }], sources: [] } });
     const job = t.jobs.ran[0];
     const course = t.c.roadmap!.course;
     expect(course).toMatch(/^react-[a-z0-9]+$/);
@@ -197,6 +197,24 @@ describe('live CodemmApi', () => {
       throw new Error("The container runtime stopped during the run, so it wasn't counted. Start Docker Desktop.");
     };
     expect(await s.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: "Docker isn't running." });
+  });
+
+  it("shows the roadmap's https sources, and keeps them through the learner's own edits", async () => {
+    const t = live({
+      research: (job) => {
+        const args = job.server([]).args;
+        t.c.roadmap = {
+          course: args[args.indexOf('--course') + 1], goal: 'React', track: 'react@1', style: 'io',
+          concepts: [{ id: 'values', title: 'Values', requires: [] }],
+          sources: [{ title: 'React docs', url: 'https://react.dev/learn' }, { title: 'Not https', url: 'http://example.com' }],
+        };
+        return {};
+      },
+    });
+    const r = await researched(t);
+    expect(r.roadmap!.sources).toEqual([{ title: 'React docs', url: 'https://react.dev/learn' }]);
+    await t.api.approve([...r.roadmap!.concepts, { id: 'hooks', title: 'Hooks', requires: [] }]);
+    expect(t.c.roadmap!.sources).toEqual([{ title: 'React docs', url: 'https://react.dev/learn' }, { title: 'Not https', url: 'http://example.com' }]);
   });
 
   it('keeps a stuck activity open beside the ways forward', async () => {

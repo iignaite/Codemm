@@ -1,6 +1,7 @@
 // The CodemmApi over the real core and the learner's own agent (DESIGN §2–§6).
 // Main calls core `app` functions in-process; agent jobs run through the
 // bridge; everything returned goes through views.ts.
+import { isSafeLink } from './links';
 import {
   AGENT_FAILED,
   CHANGED,
@@ -131,7 +132,11 @@ export function createLive(d: LiveDeps): Live {
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
   const trackName = (ref: string) => ref.split('@')[0];
-  const roadmapView = (r: CoreRoadmap): Roadmap => ({ goal: r.goal, track: trackName(r.track), installed: installed(r.track), concepts: r.concepts.map((c) => ({ id: c.id, title: c.title, requires: [...c.requires] })) });
+  const roadmapView = (r: CoreRoadmap): Roadmap => ({
+    goal: r.goal, track: trackName(r.track), installed: installed(r.track), concepts: r.concepts.map((c) => ({ id: c.id, title: c.title, requires: [...c.requires] })),
+    // Core accepts only https sources; main checks again before anything reaches the window (§2.1).
+    sources: (r.sources ?? []).filter((s) => isSafeLink(s.url)).map((s) => ({ title: s.title, url: s.url })),
+  });
   const hidden = (): string[] => {
     const { course, current } = core.readWorkspace(ws);
     if (!course || !current) return [];
@@ -146,7 +151,8 @@ export function createLive(d: LiveDeps): Live {
   /** Saves the learner's edits through core's roadmap rules (§4.2). JSON is YAML. */
   async function saveConcepts(concepts: Concept[]) {
     const current = core.getRoadmap(ws);
-    await core.saveRoadmap(ws, current.course, JSON.stringify({ goal: current.goal, track: current.track, style: current.style, concepts }), current.course);
+    const { goal, track, style, sources } = current;
+    await core.saveRoadmap(ws, current.course, JSON.stringify({ goal, track, style, concepts, ...(sources ? { sources } : {}) }), current.course);
   }
 
   /**

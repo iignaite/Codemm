@@ -305,6 +305,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         track: goal.topic,
         installed: tracks.some((t) => t.name === goal.topic),
         concepts: TOPICS.map(([title, requires]) => ({ id: slugOf(title), title, requires: [...requires] })),
+        sources: [],
       };
       return { state: 'done', roadmap: structuredClone(roadmap) };
     },

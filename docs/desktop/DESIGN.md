@@ -282,6 +282,11 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 
 With neither option, the server behaves as in core.
 
+### 4.8 Research sources
+
+- **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
+- **Showing.** The roadmap and course-edit screens show a quiet "Sources" list. Each link opens only after a click, in the system browser, through main's `shell.openExternal`, and main accepts only https links. Nothing loads inside the app window.
+
 ## 5. Failure states
 
 Infrastructure failures record nothing. Learner-caused outcomes are graded as `error` and recorded (core §4.3, §7).
@@ -439,7 +444,6 @@ Cut from 1.0 by the owner's scope ledger:
 - **Usage:** recording agent usage and showing cost per topic. Lesson caching stays (§4.3).
 - **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
 - **Review scheduling** and the prototype's review card, streaks and activity history.
-- **Research sources:** storing and showing the agent's sources with the roadmap. The agent may still research before writing it.
 - **Progress:** streaming check and install progress. Jobs show `running`, `done` or `failed`.
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.
 - **Platforms:** Linux installers, Windows and Linux arm64, Colima, and Podman.

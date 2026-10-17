@@ -118,7 +118,7 @@ export const JOB_TOOLS: Record<JobKind, string[]> = {
 };
 
 const ROADMAP_YAML =
-  "The roadmap is YAML: \`goal\`, \`track\` (\`id@version\`), \`style\` (\`io\` or \`unit\`) and \`concepts\` (each with \`id\`, \`title\`, \`requires\`).";
+  "The roadmap is YAML: \`goal\`, \`track\` (\`id@version\`), \`style\` (\`io\` or \`unit\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`) and optional \`sources\` (up to 10, each with a \`title\` and an https \`url\`).";
 
 /** One short, single-purpose brief per job. The app adds the job's own details: the goal, request, concept or track. */
 export const JOB_BRIEFS: Record<JobKind, string> = {
@@ -126,14 +126,14 @@ export const JOB_BRIEFS: Record<JobKind, string> = {
 
 1. You may research the topic first.
 2. Call \`list_tracks\`. If an installed track fits, use it exactly as listed. Otherwise name a new one, like \`name@1\`; Codemm sets it up after the learner agrees.
-3. Save the roadmap with \`save_roadmap\` under the course id you were given. ${ROADMAP_YAML} Order concepts from basic to advanced.
+3. Save the roadmap with \`save_roadmap\` under the course id you were given. ${ROADMAP_YAML} Order concepts from basic to advanced. If you used roadmaps or docs, list them as \`sources\`.
 4. End your turn after the save succeeds.`,
 
   roadmap: `You change a Codemm roadmap the way the learner asked.
 
 1. Call \`get_roadmap\`.
 2. Change only what was asked. Keep the ids of the concepts you keep, and keep \`requires\` free of cycles. To make a topic easier, add a prerequisite topic that it requires.
-3. Save the whole roadmap with \`save_roadmap\` under the same course id. ${ROADMAP_YAML}
+3. Save the whole roadmap with \`save_roadmap\` under the same course id. ${ROADMAP_YAML} Keep \`sources\` unless asked to change them.
 4. If nothing should change, don't save, and say why in one sentence.`,
 
   setup: `You set up the environment for one Codemm track. ${CHECKED_RETRIES}

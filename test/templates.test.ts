@@ -85,6 +85,11 @@ describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
     expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, difficulty, style, track and contract from `next_step`/);
   });
 
+  it("asks the research job for its sources, and a roadmap change to keep them", () => {
+    expect(JOB_BRIEFS.research).toMatch(/`sources`/);
+    expect(JOB_BRIEFS.roadmap).toMatch(/Keep `sources`/);
+  });
+
   it("keeps the tutor's hint rule and keeps it away from saves", () => {
     expect(JOB_BRIEFS.tutor).toMatch(/not in chat/);
     expect(JOB_BRIEFS.tutor).toMatch(/Don't state the fix, write the code or list the steps/);

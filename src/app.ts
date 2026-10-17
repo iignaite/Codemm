@@ -226,8 +226,8 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
 }
 
 export function getRoadmap(ws: string, bound?: string) {
-  const { course, goal, track, style, concepts } = activeCourse(ws, bound);
-  return { course, goal, track, style, concepts };
+  const { course, goal, track, style, concepts, sources } = activeCourse(ws, bound);
+  return { course, goal, track, style, concepts, ...(sources ? { sources } : {}) };
 }
 
 // ---------- lessons ----------
