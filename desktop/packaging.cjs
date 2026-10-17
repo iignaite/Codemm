@@ -1,6 +1,7 @@
-// electron-builder settings. Signing comes only from the environment (CI
-// secrets or the owner's shell), never from this repository; without it the
-// build is unsigned. See SIGNING.md.
+// electron-builder settings for the macOS and Windows installers. Signing
+// comes only from the environment (CI secrets or the owner's shell), never
+// from this repository. Without it the build is unsigned (ad hoc on macOS).
+// See SIGNING.md.
 
 /** @param {Record<string, string | undefined>} env */
 function packaging(env) {
@@ -15,7 +16,7 @@ function packaging(env) {
     productName: 'Codemm',
     artifactName: '${productName}-${version}-${os}-${arch}.${ext}',
     directories: { output: 'release', buildResources: 'build' },
-    files: ['out/**', '!out/shared/**', 'package.json'],
+    files: ['out/**', 'package.json'],
     // The OFL asks that the license travel with the bundled fonts.
     extraResources: [{ from: 'src/renderer/assets/fonts', to: 'fonts', filter: ['OFL-*.txt'] }],
     // Auto-update stays off until builds are signed (planned: electron-updater on GitHub Releases).
@@ -23,21 +24,15 @@ function packaging(env) {
     mac: {
       target: [{ target: 'dmg', arch: ['arm64', 'x64'] }],
       category: 'public.app-category.education',
-      // null: never pick up a keychain identity. Notarization runs only when
+      // Without a certificate, sign ad hoc ('-'), never from the keychain. An
+      // unsealed arm64 app is "damaged" to Gatekeeper and can't be opened at
+      // all; an ad hoc one gets Open Anyway. Notarization runs only when
       // APPLE_* credentials are in the environment.
-      identity: env.CSC_LINK ? undefined : null,
+      identity: env.CSC_LINK ? undefined : '-',
     },
     win: {
       target: [{ target: 'nsis', arch: ['x64'] }],
       azureSignOptions: Object.values(azure).every(Boolean) ? azure : undefined,
-    },
-    linux: {
-      target: [
-        { target: 'AppImage', arch: ['x64'] },
-        { target: 'deb', arch: ['x64'] },
-      ],
-      category: 'Education',
-      maintainer: 'Codemm contributors',
     },
   };
 }

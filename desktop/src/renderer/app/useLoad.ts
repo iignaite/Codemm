@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 /** How often screens re-read Codemm while it is still working, and re-check this computer. */
-export const timing = { pollMs: 500, recheckMs: 3000 };
+export const timing = { pollMs: 500, recheckMs: 5000 };
 
 interface Loaded<T> {
   data?: T;

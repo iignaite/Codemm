@@ -4,6 +4,7 @@ import { isOfficialLink } from './links';
 describe('isOfficialLink', () => {
   it('opens only https links to official install pages', () => {
     expect(isOfficialLink('https://docs.docker.com/engine/install/')).toBe(true);
+    expect(isOfficialLink('https://code.claude.com/docs/en/setup')).toBe(true);
     expect(isOfficialLink('http://docs.docker.com/engine/install/')).toBe(false);
     expect(isOfficialLink('https://docs.docker.com.example.com/')).toBe(false);
     expect(isOfficialLink('https://example.com/')).toBe(false);

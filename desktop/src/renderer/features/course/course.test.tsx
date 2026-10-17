@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { Draft } from '../../../shared/api';
 import { renderApp } from '../../test-utils';
 
-const draft: Draft = { title: 'React basics', track: 'React', installed: false, runsPerTopic: 4, topics: ['JavaScript basics', 'JSX', 'Props', 'State'] };
+const draft: Draft = { title: 'React basics', track: 'React', installed: false, topics: ['JavaScript basics', 'JSX', 'Props', 'State'] };
 const names = () => screen.getAllByRole('listitem').map((li) => li.getAttribute('aria-label'));
 
 describe('course editor', () => {
@@ -45,11 +45,6 @@ describe('course editor', () => {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
-  });
-
-  it('shows the rough cost of each topic', async () => {
-    renderApp({ to: 'course', draft });
-    expect(await screen.findByText('About 4 runs of your agent per topic')).toBeInTheDocument();
   });
 
   it('asks Codemm for changes', async () => {

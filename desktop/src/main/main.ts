@@ -1,22 +1,22 @@
 import { app, BrowserWindow, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
 import { join } from 'node:path';
 import type { CodemmApi } from '../shared/api';
+import { dispatch } from './ipc';
 import { isOfficialLink } from './links';
-import { createMock } from './mock';
+import { createMock, scenario } from './mock';
 
 const page = join(__dirname, '../renderer/index.html');
 
 // Swap the mock for the Codemm core here. Nothing else changes.
-const codemm: CodemmApi = createMock();
+// In development, CODEMM_MOCK=<scenario> acts out an environment state (see mock.ts).
+const codemm: CodemmApi = createMock(app.isPackaged ? {} : scenario(process.env.CODEMM_MOCK));
 
 // Windows only ever show the app's own page (navigation and new windows are
 // blocked), so accept calls from a main frame on a file URL and nothing else.
 function handle(event: IpcMainInvokeEvent, method: unknown, args: unknown) {
   const frame = event.senderFrame;
   if (!frame || frame !== event.sender.mainFrame || !frame.url.startsWith('file:')) throw new Error('Unknown sender');
-  if (typeof method !== 'string' || !Object.hasOwn(codemm, method) || !Array.isArray(args)) throw new Error('Unknown call');
-  const call = codemm[method as keyof CodemmApi] as (...a: unknown[]) => Promise<unknown>;
-  return call(...args);
+  return dispatch(codemm, method, args);
 }
 
 function createWindow() {

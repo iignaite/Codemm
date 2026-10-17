@@ -15,5 +15,5 @@
     "allowJs": true,
     "types": ["vite/client", "@testing-library/jest-dom/vitest"]
   },
-  "include": ["src/renderer", "src/shared", "src/main/mock.ts", "src/main/mock.test.ts", "vite.config.mts", "packaging.cjs", "packaging.test.ts", "playwright.config.ts", "e2e"]
+  "include": ["src/renderer", "src/shared", "src/main/mock.ts", "src/main/ipc.ts", "src/main/links.ts", "src/main/*.test.ts", "vite.config.mts", "packaging.cjs", "packaging.test.ts", "playwright.config.ts", "e2e"]
 }

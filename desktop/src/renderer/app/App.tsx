@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { CodemmApi } from '../../shared/api';
+import { PLAN_LIMIT, SIGNED_OUT, type CodemmApi } from '../../shared/api';
 import { Connect } from '../features/connect/Connect';
 import { Welcome } from '../features/connect/Welcome';
 import { Computer } from '../features/computer/Computer';
@@ -21,7 +21,7 @@ function Screen({ route }: { route: Route }) {
     case 'welcome':
       return <Welcome />;
     case 'connect':
-      return <Connect />;
+      return <Connect then={route.then} />;
     case 'computer':
       return <Computer then={route.then} />;
     case 'goal':
@@ -45,17 +45,23 @@ function Screen({ route }: { route: Route }) {
 
 export function App({ api, start = { to: 'welcome' } }: { api: CodemmApi; start?: Route }) {
   const [route, setRoute] = useState<Route>(start);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<string>();
   const router = useMemo<Router>(
     () => ({
       route,
       go: (next) => {
-        setFailed(false);
+        setFailed(undefined);
         setRoute(next);
       },
       fail: (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes(SIGNED_OUT)) {
+          setFailed(undefined);
+          setRoute({ to: 'connect', then: route });
+          return;
+        }
         console.error(error);
-        setFailed(true);
+        setFailed(message.includes(PLAN_LIMIT) ? "Your agent's plan limit is reached. Try again later." : "Codemm couldn't finish that. Try again.");
       },
     }),
     [route],
@@ -70,8 +76,8 @@ export function App({ api, start = { to: 'welcome' } }: { api: CodemmApi; start?
           </div>
           {failed && (
             <div className="failed" role="alert">
-              That didn't work. Try again.
-              <Button variant="text" onClick={() => setFailed(false)}>Dismiss</Button>
+              {failed}
+              <Button variant="text" onClick={() => setFailed(undefined)}>Dismiss</Button>
             </div>
           )}
         </div>

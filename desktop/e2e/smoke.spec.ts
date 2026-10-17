@@ -43,3 +43,31 @@ test('connect, computer check, goal, course, lesson and practice', async () => {
 
   await app.close();
 });
+
+// Learners who lack a prerequisite get a specific next step, acted out by the mock.
+test('no agent installed: install links on the connect screen', async () => {
+  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: 'no-agent' } });
+  const page = await app.firstWindow();
+  await page.getByRole('button', { name: 'Connect an agent', exact: true }).click();
+  const claude = page.getByRole('listitem', { name: 'Claude Code' });
+  await expect(claude.getByText('Not installed')).toBeVisible();
+  await expect(claude.getByRole('link', { name: 'Get Claude Code' })).toHaveAttribute('href', 'https://code.claude.com/docs/en/setup');
+  await expect(page.getByRole('link', { name: 'Get Codex' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
+  await app.close();
+});
+
+test('no Docker: install steps, a link and a re-check', async () => {
+  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: 'no-docker' } });
+  const page = await app.firstWindow();
+  await page.getByRole('button', { name: 'Connect an agent', exact: true }).click();
+  await page.getByRole('listitem', { name: 'Claude Code' }).getByRole('button', { name: 'Connect' }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  const installed = page.getByRole('listitem', { name: 'Docker is installed' });
+  await expect(installed.getByText('Needs a step')).toBeVisible();
+  await expect(installed.getByRole('link', { name: /^Get Docker/ })).toBeVisible();
+  await expect(page.getByRole('status')).toHaveText("Docker isn't installed yet. Checking again every few seconds.");
+  await page.getByRole('button', { name: 'Later', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Ready when you are.' })).toBeVisible();
+  await app.close();
+});

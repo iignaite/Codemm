@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { scenario } from '../../../main/mock';
 import { mockWithCourse, renderApp } from '../../test-utils';
 
 async function open(options?: Parameters<typeof mockWithCourse>[0]) {
@@ -75,7 +76,7 @@ describe('practice', () => {
     await user.type(code, 'draft');
     await user.click(screen.getByRole('switch', { name: 'Assist' }));
     await user.click(screen.getByRole('button', { name: 'Let Codemm edit' }));
-    await within(results()).findByRole('heading', { name: '4 of 4 passed' });
+    expect(await screen.findByRole('switch', { name: 'Assist' })).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByRole('textbox', { name: 'Counter.jsx' })).toHaveValue('draft');
   });
 
@@ -96,7 +97,7 @@ describe('practice', () => {
     expect(await within(screen.getByRole('log')).findByText('This line sets the next value.')).toBeInTheDocument();
   });
 
-  it('asks before Codemm edits, and changes nothing until the learner says yes', async () => {
+  it('asks before turning on assist, and runs nothing by itself', async () => {
     const { user } = await open();
     const assist = screen.getByRole('switch', { name: 'Assist' });
     await user.click(assist);
@@ -106,8 +107,8 @@ describe('practice', () => {
 
     await user.click(assist);
     await user.click(screen.getByRole('button', { name: 'Let Codemm edit' }));
-    expect(await within(results()).findByRole('heading', { name: '4 of 4 passed' })).toBeInTheDocument();
-    expect(assist).toHaveAttribute('aria-checked', 'true');
+    await waitFor(() => expect(assist).toHaveAttribute('aria-checked', 'true'));
+    expect(results()).toHaveTextContent('Only Check is graded.');
   });
 
   it('offers calm ways forward when stuck', async () => {
@@ -123,6 +124,40 @@ describe('practice', () => {
     await user.click(screen.getByRole('button', { name: 'Check' }));
     await user.click(await within(results()).findByRole('button', { name: 'Try an easier one' }));
     expect(await screen.findByRole('heading', { name: 'Click Counter, one step' })).toBeInTheDocument();
+  });
+
+  it('keeps the work when Docker stops mid-session, and counts nothing', async () => {
+    const { user } = await open(scenario('docker-stops'));
+    await user.click(screen.getByRole('button', { name: 'Check' }));
+    await within(results()).findByRole('heading', { name: '2 of 4 passed' });
+    const code = screen.getByRole('textbox', { name: 'Counter.jsx' });
+    await user.clear(code);
+    await user.type(code, 'mine');
+    await user.click(screen.getByRole('button', { name: 'Check' }));
+    expect(await within(results()).findByRole('heading', { name: "This check wasn't counted" })).toBeInTheDocument();
+    expect(code).toHaveValue('mine');
+    expect(within(screen.getByRole('log')).getByText('Your code is saved. Nothing was recorded.')).toBeInTheDocument();
+  });
+
+  it('sends the learner to sign in again when it expires mid-session, then comes back', async () => {
+    const { user, course, api } = await open(scenario('sign-in-expires'));
+    await user.click(screen.getByRole('button', { name: 'Hint' }));
+    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+    expect(claude).toHaveTextContent('Sign in to Claude Code, then try again.');
+    await user.click(within(claude).getByRole('button', { name: 'Try again' }));
+    await within(claude).findByText('Connected');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
+    expect(course.topics[0].activity.id).toBeTruthy();
+    await expect(api.help(course.topics[0].activity.id, 'hint')).resolves.toBeTruthy();
+  });
+
+  it('says when the agent plan limit is reached, and records nothing', async () => {
+    const { user } = await open(scenario('plan-limit'));
+    await user.click(screen.getByRole('button', { name: 'Hint' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("Your agent's plan limit is reached. Try again later.");
+    expect(screen.getByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
   });
 
   it("says when a check wasn't counted, and records nothing", async () => {

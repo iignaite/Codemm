@@ -4,7 +4,6 @@ import { useRouter, type Route } from '../../app/router';
 import { Failed } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
-import { Emm } from '../../ui/Emm';
 import { Icon } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { Goal } from '../learn/Goal';
@@ -18,7 +17,7 @@ function continueRoute(topic: Topic): Route {
 
 const left = (n: number) => (n === 1 ? 'One more activity' : `${n} more activities`);
 
-/** Lessons, then an activity, per topic. Mastered topics come back for review. */
+/** Lessons, then an activity, per topic, with mastery so far. */
 export function CourseMap() {
   const api = useApi();
   const { data: course, error, reload } = useLoad(() => api.course(), []);
@@ -65,26 +64,10 @@ function MapItem({ topic, index, course }: { topic: Topic; index: number; course
 }
 
 function Aside({ course }: { course: Course }) {
-  const { go } = useRouter();
   const started = course.topics.filter((t) => t.state !== 'later');
   return (
     <aside className="map-side">
-      {course.review && (
-        <section className="card info a-up" style={stagger(1)} aria-labelledby="review-t">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <Emm mood="look" width={70} name={course.track} />
-            <div>
-              <b id="review-t" style={{ fontSize: 16 }}>Review {course.review.topic}</b>
-              <div style={{ fontSize: 14 }}>A quick one keeps it fresh.</div>
-            </div>
-          </div>
-          <Button onClick={() => go({ to: 'practice', activityId: course.review!.activityId })}>
-            <Icon name="review" color="#fff" size={18} />
-            Review
-          </Button>
-        </section>
-      )}
-      <section className="card a-up" style={stagger(2)} aria-labelledby="mastery-t">
+      <section className="card a-up" style={stagger(1)} aria-labelledby="mastery-t">
         <h2 className="h3" id="mastery-t">Mastery</h2>
         {started.map((t, i) => (
           <div key={t.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

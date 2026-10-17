@@ -70,9 +70,9 @@ function Workspace({ activity: initial, course }: { activity: Activity; course: 
     }
   }
 
-  const check = (current = files) =>
+  const check = () =>
     attempt('Checking', async () => {
-      const result = await api.check(activity.id, current);
+      const result = await api.check(activity.id, files);
       if (result.kind === 'not-counted') chat.add({ from: 'codemm', text: 'Your code is saved. Nothing was recorded.' });
       return { kind: 'check', result, keepTrying: false };
     });
@@ -96,14 +96,12 @@ function Workspace({ activity: initial, course }: { activity: Activity; course: 
     }
   }
 
-  async function letCodemmEdit() {
+  // Assist is a setting: from now on Codemm may write code with the learner in the chat.
+  async function turnOnAssist() {
     setConfirm(false);
     try {
       await api.save(activity.id, files);
-      const edited = await api.assist(activity.id, true);
-      setActivity(edited);
-      setFiles(edited.files);
-      await check(edited.files);
+      setActivity(await api.assist(activity.id, true));
     } catch (e) {
       fail(e);
     }
@@ -164,7 +162,7 @@ function Workspace({ activity: initial, course }: { activity: Activity; course: 
           onClose={() => setConfirm(false)}
         >
           <Button variant="ghost" size="lg" onClick={() => setConfirm(false)}>Keep trying</Button>
-          <Button size="lg" onClick={letCodemmEdit}>Let Codemm edit</Button>
+          <Button size="lg" onClick={turnOnAssist}>Let Codemm edit</Button>
         </Dialog>
       )}
     </div>

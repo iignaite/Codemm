@@ -5,6 +5,7 @@ on:
     paths:
       - "desktop/**"
       - ".github/workflows/desktop.yml"
+      - ".github/workflows/desktop-release.yml"
 
 permissions:
   contents: read
@@ -15,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     defaults:
@@ -31,37 +32,13 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - name: Let Electron use its sandbox (Ubuntu restricts user namespaces)
-        if: runner.os == 'Linux'
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-      - name: Smoke test
-        if: runner.os != 'Linux'
-        run: npm run test:e2e
-      - name: Smoke test
-        if: runner.os == 'Linux'
-        run: xvfb-run -a npm run test:e2e
-      # Signing settings come only from repository secrets (see desktop/SIGNING.md).
-      # Without them every value is empty and the build is unsigned.
+      - run: npm run test:e2e
+      # PR builds never sign: no secrets reach them. Releases sign (desktop-release.yml).
       - run: npm run dist
-        env:
-          CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.MAC_CERTS || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CERTS_PASSWORD || '' }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
-          AZURE_SIGNING_PUBLISHER: ${{ secrets.AZURE_SIGNING_PUBLISHER }}
       - uses: actions/upload-artifact@v4
         with:
           name: codemm-desktop-${{ runner.os }}
           path: |
             desktop/release/*.dmg
             desktop/release/*.exe
-            desktop/release/*.AppImage
-            desktop/release/*.deb
           if-no-files-found: error

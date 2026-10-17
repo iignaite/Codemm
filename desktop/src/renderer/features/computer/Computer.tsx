@@ -20,6 +20,13 @@ export function Computer({ then }: { then: Route }) {
   const action = useRef<HTMLButtonElement>(null);
   const focusInList = useRef(false);
 
+  // Coming back to the window re-checks at once.
+  useEffect(() => {
+    if (data?.ready) return;
+    window.addEventListener('focus', reload);
+    return () => window.removeEventListener('focus', reload);
+  }, [data?.ready, reload]);
+
   // A re-check can remove the step that had focus; move focus to the next action.
   useEffect(() => {
     if (focusInList.current && document.activeElement === document.body) {

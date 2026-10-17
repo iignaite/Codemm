@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { createMock } from '../../../main/mock';
+import { createMock, scenario } from '../../../main/mock';
 import { renderApp } from '../../test-utils';
 
 describe('connect journey', () => {
@@ -49,12 +49,24 @@ describe('connect journey', () => {
     expect(within(codex).getByText('Minimum model to be confirmed.')).toBeInTheDocument();
   });
 
-  it('shows how to fix a failed sign-in', async () => {
+  it('asks the learner to sign in to an agent, never for credentials', async () => {
     const user = userEvent.setup();
-    renderApp({ to: 'connect' }, createMock({ failAgent: 'codex' }));
+    renderApp({ to: 'connect' }, createMock(scenario('signed-out')));
     const codex = await screen.findByRole('listitem', { name: 'Codex' });
     await user.click(within(codex).getByRole('button', { name: 'Connect' }));
-    expect(await within(codex).findByText('Not signed in. Sign in to Codex first.')).toBeInTheDocument();
+    expect(await within(codex).findByText('Sign in to Codex, then try again.')).toBeInTheDocument();
     expect(within(codex).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  });
+
+  it('links to each agent\'s install page when none is installed', async () => {
+    renderApp({ to: 'connect' }, createMock(scenario('no-agent')));
+    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+    expect(within(claude).getByText('Not installed')).toBeInTheDocument();
+    expect(within(claude).getByRole('link', { name: 'Get Claude Code' })).toHaveAttribute('href', 'https://code.claude.com/docs/en/setup');
+    expect(within(screen.getByRole('listitem', { name: 'Codex' })).getByRole('link', { name: 'Get Codex' })).toBeInTheDocument();
+    expect(within(screen.getByRole('listitem', { name: 'Cursor' })).getByRole('link', { name: 'Get Cursor' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
   });
 });

@@ -1,5 +1,6 @@
-// The only pages the app opens in the learner's browser: official install docs.
-const HOSTS = new Set(['docs.docker.com']);
+// The only pages the app opens in the learner's browser: official install
+// docs for Docker and for each agent.
+const HOSTS = new Set(['docs.docker.com', 'code.claude.com', 'developers.openai.com', 'cursor.com']);
 
 export function isOfficialLink(url: string): boolean {
   try {

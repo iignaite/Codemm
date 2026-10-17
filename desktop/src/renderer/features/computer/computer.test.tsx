@@ -58,10 +58,27 @@ describe('check this computer', () => {
     expect(screen.getByRole('button', { name: 'Check now' })).toHaveFocus();
   });
 
-  it('gives Linux the docker group step', async () => {
-    open({ docker: 'no-access', platform: 'linux' });
-    const access = await screen.findByRole('listitem', { name: 'Codemm can use Docker' });
-    expect(access).toHaveTextContent('sudo usermod -aG docker $USER');
+  it('asks to start Docker Desktop when it is installed but not running', async () => {
+    const options: MockOptions = { docker: 'stopped', platform: 'mac' };
+    open(options);
+    const running = await screen.findByRole('listitem', { name: 'Docker is running' });
+    expect(running).toHaveTextContent('Start Docker Desktop.');
+    expect(within(screen.getByRole('listitem', { name: 'Docker is installed' })).getByText('Ready')).toBeInTheDocument();
+    options.docker = 'ready';
+    expect(await screen.findByText('This computer is ready.')).toBeInTheDocument();
+  });
+
+  it('gives Linux the start and docker group steps', async () => {
+    open({ docker: 'stopped', platform: 'linux' });
+    const running = await screen.findByRole('listitem', { name: 'Docker is running' });
+    expect(running).toHaveTextContent('sudo systemctl start docker');
+    expect(running).toHaveTextContent('sudo usermod -aG docker $USER');
+  });
+
+  it('asks to restart Docker when the sandbox check fails', async () => {
+    open({ docker: 'no-sandbox', platform: 'mac' });
+    const sandbox = await screen.findByRole('listitem', { name: 'The sandbox works' });
+    expect(sandbox).toHaveTextContent('Restart Docker');
   });
 
   it('lets the learner carry on later', async () => {
@@ -84,8 +101,7 @@ describe('check this computer', () => {
 
   it('only links to official pages, and has a fix for every check on every platform', () => {
     for (const platform of ['mac', 'windows', 'linux'] as const) {
-      for (const id of ['docker-installed', 'docker-running', 'docker-access'] as const) {
-        if (platform !== 'linux' && id === 'docker-access') continue;
+      for (const id of ['docker-installed', 'docker-running', 'sandbox'] as const) {
         const fix = FIXES[platform][id];
         expect(fix?.steps.length).toBeGreaterThan(0);
         if (fix?.link) expect(isOfficialLink(fix.link.url)).toBe(true);

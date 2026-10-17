@@ -3,20 +3,28 @@
 // Nothing here may carry solutions, hidden inputs, expected hidden output or
 // hidden test names: hidden results are an index and a status only.
 
-export type AgentState = 'connected' | 'not-connected' | 'failed';
+/** `missing`: not installed. `signed-out`: installed, but its sign-in check failed. */
+export type AgentState = 'connected' | 'not-connected' | 'missing' | 'signed-out';
 
 export interface Agent {
   id: string;
   name: string;
   state: AgentState;
-  /** What to do when `state` is `failed`. */
-  fix?: string;
-  /** The weakest model known to work well with Codemm, from the cross-model bench. */
-  modelHint?: string;
+  /** The agent's official install page. */
+  installUrl: string;
+  /** One line on the weakest model known to work well, from the cross-model bench. */
+  modelHint: string;
 }
 
+/**
+ * Calls that run the learner's agent reject with an Error whose message holds
+ * one of these. Nothing is recorded when they do.
+ */
+export const SIGNED_OUT = 'codemm:signed-out';
+export const PLAN_LIMIT = 'codemm:plan-limit';
+
 export type Platform = 'mac' | 'windows' | 'linux';
-export type CheckId = 'docker-installed' | 'docker-running' | 'docker-access';
+export type CheckId = 'docker-installed' | 'docker-running' | 'sandbox';
 
 export interface ComputerCheck {
   id: CheckId;
@@ -43,11 +51,6 @@ export interface Goal {
   known: string[];
 }
 
-export interface Source {
-  name: string;
-  read: boolean;
-}
-
 export interface PathStep {
   title: string;
   /** Why the step is quick, such as something the learner already knows. */
@@ -59,9 +62,6 @@ export interface Research {
   track: string;
   /** Whether the track is already set up on this computer. */
   installed: boolean;
-  /** Rough agent runs to write one topic's lessons and activity. */
-  runsPerTopic: number;
-  sources: Source[];
   path: PathStep[];
   done: boolean;
 }
@@ -70,11 +70,12 @@ export interface Draft {
   title: string;
   track: string;
   installed: boolean;
-  runsPerTopic: number;
   topics: string[];
 }
 
 export type SetupState = 'running' | 'ready' | 'failed';
+/** Why setup failed. `offline` and `disk` are this computer's problems, not the course's. */
+export type SetupProblem = 'offline' | 'disk' | 'gates';
 export type TopicState = 'mastered' | 'now' | 'later';
 export type LessonState = 'writing' | 'ready' | 'read';
 export type ActivityState = 'writing' | 'locked' | 'open' | 'passed';
@@ -105,10 +106,9 @@ export interface Topic {
 export interface Course {
   title: string;
   track: string;
-  runsPerTopic: number;
   setup: SetupState;
+  setupProblem?: SetupProblem;
   topics: Topic[];
-  review?: { topic: string; activityId: string };
 }
 
 export interface Predict {
@@ -214,7 +214,7 @@ export interface CodemmApi {
   help(activityId: string, kind: 'hint' | 'show'): Promise<Message>;
   /** Codemm's replies to the learner's question. */
   ask(place: Place, text: string): Promise<Message[]>;
-  /** Turns assist on (Codemm edits the activity, and it counts for less) or off. */
+  /** Turns assist on (Codemm may then write code with the learner, and the activity counts for less) or off. */
   assist(activityId: string, on: boolean): Promise<Activity>;
   easier(activityId: string): Promise<string>;
 

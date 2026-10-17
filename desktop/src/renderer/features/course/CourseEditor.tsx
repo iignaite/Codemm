@@ -79,7 +79,6 @@ export function CourseEditor({ draft }: { draft: Draft }) {
     <main className="main" style={{ padding: '40px 0', alignItems: 'center' }}>
       <div className="stack" style={{ width: 720, gap: 10 }}>
         <h1 className="h2 a-up">{draft.title}</h1>
-        <p className="quiet-text a-up">About {draft.runsPerTopic} runs of your agent per topic</p>
         <ol className="topics">
           {topics.map((t, i) => (
             <TopicItem

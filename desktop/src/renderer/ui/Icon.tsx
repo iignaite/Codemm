@@ -11,7 +11,6 @@ const PATHS = {
   pencil: { w: 2.2, d: <path d="M4 20h4L19 9l-4-4L4 16z" /> },
   grip: { w: 2.4, d: <path d="M5 9h14M5 15h14" /> },
   plus: { w: 2.6, d: <path d="M12 5v14M5 12h14" /> },
-  review: { w: 2.2, d: <><path d="M4 12a8 8 0 1 0 2.5-5.8" /><path d="M4 4v4h4" /></> },
 } satisfies Record<string, { w: number; d: ReactNode }>;
 
 export type IconName = keyof typeof PATHS;

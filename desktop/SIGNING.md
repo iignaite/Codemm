@@ -2,9 +2,9 @@
 
 Builds are unsigned until the owner adds the secrets below. Nothing about signing lives in the repository:
 - `packaging.cjs` reads it from the environment;
-- `.github/workflows/desktop.yml` fills the environment from repository secrets.
+- `.github/workflows/desktop-release.yml` fills the environment from repository secrets. PR builds in `desktop.yml` never sign.
 
-With no secrets, every value is empty and the build stays unsigned.
+With no secrets, every value is empty and the build stays unsigned. macOS builds are then signed ad hoc, which Gatekeeper needs before it will offer Open Anyway on Apple silicon.
 
 Prices are rough, as of late 2026. Check the vendor before buying.
 
@@ -49,10 +49,6 @@ Choose one.
 **An EV or OV certificate.** About US$250 to US$700 a year. Since 2023, private keys must live on hardware or in a cloud HSM, so CI signing usually adds a cloud HSM service. EV no longer skips SmartScreen's reputation check. Signing this way needs a custom `win.signtoolOptions` or `sign` hook in `packaging.cjs` for the HSM, so Azure is the simpler route.
 
 Unsigned or newly signed Windows builds may still show SmartScreen until the publisher builds reputation.
-
-## Linux
-
-AppImage and deb don't need signing to install. Package-repo signing (apt) comes with publishing, which isn't planned yet.
 
 ## Auto-update
 

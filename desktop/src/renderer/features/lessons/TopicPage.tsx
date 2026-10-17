@@ -66,11 +66,16 @@ function Items({ topic }: { topic: Topic }) {
   );
 }
 
-/** Setup failed: nothing is lost; try again or go back and change the course. */
+/** Setup failed and nothing was recorded. Offline and low disk are this computer's problems, so say how to fix them. */
 function SetupFailed({ course, onRetry }: { course: Course; onRetry: () => void }) {
   const api = useApi();
   const { go, fail } = useRouter();
-  const draft = { title: course.title, track: course.track, installed: false, runsPerTopic: course.runsPerTopic, topics: course.topics.map((t) => t.title) };
+  const draft = { title: course.title, track: course.track, installed: false, topics: course.topics.map((t) => t.title) };
+  const why = {
+    offline: `Setting up ${course.track} needs the internet once. Connect, then try again.`,
+    disk: 'This computer is low on disk space. Free some space, then try again.',
+    gates: 'Try again, or change the course.',
+  }[course.setupProblem ?? 'gates'];
   async function retry() {
     try {
       await api.setUp();
@@ -84,7 +89,7 @@ function SetupFailed({ course, onRetry }: { course: Course; onRetry: () => void 
       <div className="card panel a-pop" role="alert">
         <Emm mood="think" width={150} name={course.track} perch />
         <h1 className="h2">Couldn't set up {course.track}</h1>
-        <p className="sub">Try again, or change the course.</p>
+        <p className="sub">{why}</p>
         <div className="actions">
           <Button variant="ghost" size="lg" onClick={() => go({ to: 'course', draft })}>Stop</Button>
           <Button size="lg" onClick={retry}>Try now</Button>

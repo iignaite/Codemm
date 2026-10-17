@@ -29,8 +29,6 @@ describe('course map', () => {
     expect(within(items[2]).getByText('One more activity')).toBeInTheDocument();
 
     expect(screen.getByRole('img', { name: 'JavaScript basics: mastered' })).toBeInTheDocument();
-    const review = screen.getByRole('region', { name: 'Review JavaScript basics' });
-    expect(within(review).getByRole('button', { name: 'Review' })).toBeInTheDocument();
 
     await user.click(within(items[2]).getByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('heading', { name: 'Components' })).toBeInTheDocument();

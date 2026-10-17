@@ -1,13 +1,13 @@
-import { screen, within } from '@testing-library/react';
+import { cleanup, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { CodemmApi } from '../../../shared/api';
-import { createMock } from '../../../main/mock';
+import { createMock, scenario } from '../../../main/mock';
 import { renderApp } from '../../test-utils';
 
 async function approved(options?: Parameters<typeof createMock>[0]): Promise<CodemmApi> {
   const api = createMock(options);
-  await api.approve({ title: 'React basics', track: 'React', installed: false, runsPerTopic: 4, topics: ['State', 'Events'] });
+  await api.approve({ title: 'React basics', track: 'React', installed: false, topics: ['State', 'Events'] });
   return api;
 }
 
@@ -74,7 +74,7 @@ describe('lessons', () => {
     expect(await screen.findByText('Old course note')).toBeInTheDocument();
     view.unmount();
 
-    renderApp({ to: 'course', draft: { title: 'New course', track: 'React', installed: true, runsPerTopic: 4, topics: ['State'] } }, api);
+    renderApp({ to: 'course', draft: { title: 'New course', track: 'React', installed: true, topics: ['State'] } }, api);
     await user.click(await screen.findByRole('button', { name: 'Approve' }));
     await user.click(await screen.findByRole('button', { name: 'Read What state is' }));
     await user.click(await screen.findByRole('button', { name: 'Next' }));
@@ -111,9 +111,16 @@ describe('lessons', () => {
     expect(await screen.findByText('Saved note')).toBeInTheDocument();
   });
 
-  it('says when setup failed, and retries', async () => {
+  it('says when setup failed because this computer is offline or low on disk, and retries', async () => {
     const user = userEvent.setup();
-    const api = await approved({ setupFails: true });
+    const low = await approved(scenario('low-disk'));
+    renderApp({ to: 'topic', topicId: 't1' }, low);
+    expect(await screen.findByText('This computer is low on disk space. Free some space, then try again.')).toBeInTheDocument();
+    cleanup();
+
+    const api = await approved(scenario('offline-setup'));
+    renderApp({ to: 'topic', topicId: 't1' }, api);
+    expect(await screen.findByText('Setting up React needs the internet once. Connect, then try again.')).toBeInTheDocument();
     renderApp({ to: 'topic', topicId: 't1' }, api);
     const heading = await screen.findByRole('heading', { name: "Couldn't set up React" });
     const alert = heading.closest<HTMLElement>('[role="alert"]')!;

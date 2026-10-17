@@ -2,36 +2,61 @@
 // before the core is wired in. Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner changed the starter, and
 // reports hidden results as statuses only.
-import type {
-  Activity,
-  Agent,
-  CheckResult,
-  CodeFile,
-  CodemmApi,
-  ComputerCheck,
-  Course,
-  Draft,
-  Goal,
-  Lesson,
-  Message,
-  Platform,
-  Research,
-  Topic,
-  Track,
+import {
+  PLAN_LIMIT,
+  SIGNED_OUT,
+  type Activity,
+  type Agent,
+  type CheckResult,
+  type CodeFile,
+  type CodemmApi,
+  type Course,
+  type Draft,
+  type Goal,
+  type Lesson,
+  type Message,
+  type Platform,
+  type Research,
+  type Topic,
+  type Track,
 } from '../shared/api';
 
 export interface MockOptions {
-  failAgent?: string;
-  setupFails?: boolean;
   /** Read on every call, so a test can change it while the app runs. */
-  docker?: 'missing' | 'stopped' | 'no-access' | 'ready';
+  docker?: 'missing' | 'stopped' | 'no-sandbox' | 'ready';
   platform?: Platform;
+  /** Agents that aren't installed, or whose sign-in check fails. */
+  agents?: Partial<Record<string, 'missing' | 'signed-out'>>;
+  /** Read on every call: agent jobs fail with this until it's cleared. */
+  agentProblem?: 'signed-out' | 'plan-limit';
+  setupProblem?: 'offline' | 'disk' | 'gates';
+  /** Changes the options after the first approval or graded check, to act out a mid-session failure. */
+  later?: { after: 'approve' | 'check'; set: Partial<MockOptions> };
+}
+
+/** Named environment states, for tests and for `CODEMM_MOCK` in development. */
+export const SCENARIOS: Record<string, MockOptions> = {
+  'no-docker': { docker: 'missing' },
+  'docker-stopped': { docker: 'stopped' },
+  'docker-stops': { later: { after: 'check', set: { docker: 'stopped' } } },
+  'no-agent': { agents: { claude: 'missing', codex: 'missing', cursor: 'missing' } },
+  'signed-out': { agents: { claude: 'signed-out', codex: 'signed-out', cursor: 'missing' } },
+  'sign-in-expires': { later: { after: 'approve', set: { agentProblem: 'signed-out' } } },
+  'plan-limit': { later: { after: 'approve', set: { agentProblem: 'plan-limit' } } },
+  'offline-setup': { setupProblem: 'offline' },
+  'low-disk': { setupProblem: 'disk' },
+};
+
+export function scenario(name: string | undefined): MockOptions {
+  if (!name) return {};
+  if (!Object.hasOwn(SCENARIOS, name)) throw new Error(`Unknown mock scenario: ${name}`);
+  return structuredClone(SCENARIOS[name]);
 }
 
 const DOCKER_DOWN = {
   missing: "Docker isn't installed on this computer.",
   stopped: "Docker isn't running. Start it, then try again.",
-  'no-access': "Codemm can't use Docker yet.",
+  'no-sandbox': "Codemm couldn't confirm the sandbox. Restart Docker, then try again.",
 };
 
 function hostPlatform(): Platform {
@@ -42,12 +67,11 @@ function hostPlatform(): Platform {
 // The model hint is a placeholder until the cross-model bench reports.
 const MODEL_HINT = 'Minimum model to be confirmed.';
 const AGENTS: Agent[] = [
-  { id: 'claude', name: 'Claude Code', state: 'not-connected', modelHint: MODEL_HINT },
-  { id: 'codex', name: 'Codex', state: 'not-connected', modelHint: MODEL_HINT },
-  { id: 'cursor', name: 'Cursor', state: 'not-connected', modelHint: MODEL_HINT },
+  { id: 'claude', name: 'Claude Code', state: 'not-connected', installUrl: 'https://code.claude.com/docs/en/setup', modelHint: MODEL_HINT },
+  { id: 'codex', name: 'Codex', state: 'not-connected', installUrl: 'https://developers.openai.com/codex/cli', modelHint: MODEL_HINT },
+  { id: 'cursor', name: 'Cursor', state: 'not-connected', installUrl: 'https://cursor.com/docs/cli/installation', modelHint: MODEL_HINT },
 ];
 
-const SOURCES = ['Official docs', 'MDN Web Docs', 'Testing Library', 'Community roadmaps'];
 const PATH = ['JavaScript basics', 'JSX', 'Components', 'Props', 'State', 'Events', 'Lists and keys', 'Forms'];
 
 const STARTER = `import { useState } from 'react';
@@ -109,7 +133,9 @@ function activityFor(topicId: string, id = `${topicId}.a`, title = 'Click Counte
 const same = (a: CodeFile[], b: CodeFile[]) => a.length === b.length && a.every((f, i) => f.path === b[i].path && f.text === b[i].text);
 
 export function createMock(options: MockOptions = {}): CodemmApi {
-  const agents = AGENTS.map((a) => ({ ...a }));
+  const agents = AGENTS.map((a) => ({ ...a, state: options.agents?.[a.id] === 'missing' ? 'missing' : a.state }));
+  let researchCalls = 0;
+  let checks = 0;
   const tracks: Track[] = [];
   const lessons = new Map<string, Lesson>();
   const activities = new Map<string, { activity: Activity; starter: CodeFile[]; fails: number }>();
@@ -132,7 +158,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   // Background work advances one step each time the UI looks at the course.
   function tick(c: Course) {
     if (c.setup === 'running' && ++setupTicks >= 2) {
-      c.setup = options.setupFails ? 'failed' : 'ready';
+      c.setup = options.setupProblem ? 'failed' : 'ready';
+      c.setupProblem = options.setupProblem;
       if (c.setup === 'ready' && !tracks.some((t) => t.name === c.track)) tracks.push({ id: c.track.toLowerCase(), name: c.track });
     }
     const now = c.topics.find((t) => t.state === 'now');
@@ -161,32 +188,45 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     topic.activitiesLeft = 0;
     const next = course!.topics.find((t) => t.state === 'later');
     if (next) start(next);
-    const mastered = course!.topics.filter((t) => t.state === 'mastered');
-    if (mastered.length > 1) course!.review = { topic: mastered[0].title, activityId: mastered[0].activity.id };
     return `${topic.title} mastered.`;
+  }
+
+  /** Agent jobs (research, replies, hints) fail while the agent can't run. */
+  function agentJob() {
+    if (options.agentProblem === 'signed-out') throw new Error(SIGNED_OUT);
+    if (options.agentProblem === 'plan-limit') throw new Error(PLAN_LIMIT);
+  }
+
+  function happen(after: 'approve' | 'check') {
+    if (options.later?.after !== after) return;
+    Object.assign(options, options.later.set);
+    delete options.later;
   }
 
   return {
     async agents() {
-      return agents.map((a) => ({ ...a }));
+      return agents.map((a) => ({ ...a, state: a.state === 'connected' && options.agentProblem === 'signed-out' ? 'signed-out' : a.state }));
     },
 
+    // Connecting runs the agent's sign-in check. Passing it also ends a
+    // mid-session sign-out: the learner has signed in again.
     async connect(agentId) {
       const agent = agents.find((a) => a.id === agentId);
       if (!agent) throw new Error(`Unknown agent: ${agentId}`);
-      if (agentId === options.failAgent) Object.assign(agent, { state: 'failed', fix: `Not signed in. Sign in to ${agent.name} first.` });
-      else Object.assign(agent, { state: 'connected', fix: undefined });
+      if (agent.state !== 'missing') {
+        agent.state = options.agents?.[agentId] === 'signed-out' ? 'signed-out' : 'connected';
+        if (agent.state === 'connected' && options.agentProblem === 'signed-out') delete options.agentProblem;
+      }
       return { ...agent };
     },
 
     async computer() {
       const platform = options.platform ?? hostPlatform();
-      const docker = options.docker ?? 'ready';
-      const failing = { missing: 0, stopped: 1, 'no-access': 2, ready: Infinity }[docker];
-      const ids: ComputerCheck['id'][] = ['docker-installed', 'docker-running', 'docker-access'];
-      const checks = ids
-        .filter((id) => platform === 'linux' || id !== 'docker-access')
-        .map((id, i): ComputerCheck => ({ id, state: i < failing ? 'ok' : i === failing ? 'problem' : 'waiting' }));
+      const failing = { missing: 0, stopped: 1, 'no-sandbox': 2, ready: Infinity }[options.docker ?? 'ready'];
+      const checks = (['docker-installed', 'docker-running', 'sandbox'] as const).map((id, i) => ({
+        id,
+        state: i < failing ? ('ok' as const) : i === failing ? ('problem' as const) : ('waiting' as const),
+      }));
       return { platform, checks, ready: checks.every((c) => c.state === 'ok') };
     },
 
@@ -195,29 +235,26 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     },
 
     async research(goal: Goal) {
+      agentJob();
       if (!research || research.track !== goal.topic) {
         const because = goal.known[0] ? `You know ${goal.known[0]}` : undefined;
         research = {
           title: `${goal.topic} basics`,
           track: goal.topic,
           installed: tracks.some((t) => t.name === goal.topic),
-          // Two lessons and one activity, each about one run, plus a retry.
-          runsPerTopic: 4,
-          sources: SOURCES.map((name) => ({ name, read: false })),
           path: PATH.map((title, i) => (i === 0 && because ? { title, because } : { title })),
           done: false,
         };
+        researchCalls = 0;
       }
-      const unread = research.sources.find((s) => !s.read);
-      if (unread) unread.read = true;
-      else research.done = true;
-      // The path fills in as sources are read.
-      const read = research.sources.filter((s) => s.read).length;
-      const shown = research.done ? research.path : research.path.slice(0, read * 2);
-      return structuredClone({ ...research, path: shown });
+      // The path fills in over a few calls.
+      researchCalls++;
+      research.done = researchCalls * 2 > PATH.length;
+      return structuredClone({ ...research, path: research.path.slice(0, researchCalls * 2) });
     },
 
     async revise(draft: Draft, request) {
+      agentJob();
       return { ...draft, topics: [...draft.topics, request] };
     },
 
@@ -228,7 +265,6 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       course = {
         title: draft.title,
         track: draft.track,
-        runsPerTopic: draft.runsPerTopic,
         setup: draft.installed ? 'ready' : 'running',
         topics: draft.topics.map((title, i) => {
           const id = `t${i + 1}`;
@@ -248,11 +284,15 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         }),
       };
       start(course.topics[0]);
+      happen('approve');
       return structuredClone(course);
     },
 
     async setUp() {
       if (!course) throw new Error('No course');
+      // A retry after the learner fixed the problem (back online, or freed disk space).
+      delete options.setupProblem;
+      delete course.setupProblem;
       course.setup = 'running';
       setupTicks = 0;
     },
@@ -297,7 +337,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       entry.activity.files = structuredClone(files);
       const docker = options.docker ?? 'ready';
       if (docker !== 'ready') return { kind: 'not-counted', reason: DOCKER_DOWN[docker] };
-      if (same(files, entry.starter) && !entry.activity.assist) {
+      if (++checks === 1) happen('check');
+      if (same(files, entry.starter)) {
         entry.fails++;
         return {
           kind: 'graded',
@@ -326,6 +367,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     },
 
     async help(activityId, kind): Promise<Message> {
+      agentJob();
       find(activities, activityId);
       return kind === 'hint'
         ? { from: 'codemm', text: 'Look at what you pass to setCount.', line: HINT_LINE }
@@ -333,6 +375,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     },
 
     async ask(place, text) {
+      agentJob();
       if ('lessonId' in place) {
         find(lessons, place.lessonId);
         return [{ from: 'codemm', text: 'Good question. Try it in the activity next.' }];
@@ -348,14 +391,15 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     },
 
     async assist(activityId, on) {
-      // The real core lets the learner's agent edit the files. The mock has no
-      // solution to write, so the files stay as they are.
+      // Assist is a setting: Codemm may then write code with the learner when
+      // asked. The mock has no solution to write, so the files stay as they are.
       const entry = find(activities, activityId);
       entry.activity.assist = on;
       return structuredClone(entry.activity);
     },
 
     async easier(activityId) {
+      agentJob();
       const { activity } = find(activities, activityId);
       const id = `${activityId}.easier`;
       if (!activities.has(id)) addActivity(activityFor(activity.topicId, id, `${activity.title}, one step`));

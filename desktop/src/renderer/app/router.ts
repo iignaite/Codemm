@@ -3,7 +3,7 @@ import type { Draft, Goal } from '../../shared/api';
 
 export type Route =
   | { to: 'welcome' }
-  | { to: 'connect' }
+  | { to: 'connect'; then?: Route }
   | { to: 'computer'; then: Route }
   | { to: 'goal' }
   | { to: 'research'; goal: Goal }
@@ -17,7 +17,7 @@ export type Route =
 export interface Router {
   route: Route;
   go: (route: Route) => void;
-  /** Reports a failed call so the window can say so. */
+  /** Reports a failed call: an agent that needs signing in opens connect; anything else is said in a banner. */
   fail: (error: unknown) => void;
 }
 

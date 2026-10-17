@@ -21,7 +21,7 @@ describe('choose journey', () => {
 
     await user.click(screen.getByRole('button', { name: 'Start' }));
     expect(await screen.findByRole('heading', { name: 'Researching React' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Reading' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Suggested path' })).toBeInTheDocument();
 
     expect(await screen.findByRole('heading', { name: 'React basics' }, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.getAllByRole('listitem').length).toBeGreaterThan(3);
