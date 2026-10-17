@@ -86,9 +86,6 @@ function Items({ topic }: { topic: TopicView }) {
         <span style={{ flex: 1 }}>Activity</span>
         {open ? (
           <Button onClick={() => go({ to: 'practice', concept: topic.id })}>{topic.activity === 'passed' ? 'Again' : 'Start'}</Button>
-        ) : topic.activity === 'writing' ? (
-          // Codemm is writing it: not a lock, which would read as "read the lessons first".
-          <span className="shim" style={{ width: 96 }} role="img" aria-label="Writing the activity" />
         ) : (
           <span role="img" aria-label="Opens after the lessons"><Icon name="lock" color="#5B6A84" size={16} /></span>
         )}

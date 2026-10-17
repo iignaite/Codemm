@@ -141,20 +141,6 @@ describe('background work that stopped', () => {
   });
 });
 
-describe('an activity being written', () => {
-  it('says it is being written, not locked, once the lessons are read', async () => {
-    const { api } = await mockWithCourse({ read: true });
-    const course = api.course;
-    api.course = async () => {
-      const c = (await course())!;
-      return { ...c, topics: c.topics.map((t) => (t.state === 'now' ? { ...t, activity: 'writing' as const } : t)) };
-    };
-    renderApp({ to: 'topic', topicId: TOPIC }, api);
-    expect(await screen.findByRole('img', { name: 'Writing the activity' })).toBeInTheDocument();
-    expect(screen.queryByRole('img', { name: 'Opens after the lessons' })).not.toBeInTheDocument();
-  });
-});
-
 describe('lessons', () => {
   it('reads a static lesson, keeps a note, and moves on to the activity once both lessons are read', async () => {
     const user = userEvent.setup();
