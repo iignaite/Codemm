@@ -55,7 +55,7 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
       setRequest('');
     } catch (err) {
       // Come back to the edited roadmap, not the one this screen opened with.
-      fail(err, { to: 'course', roadmap: { ...roadmap, concepts } });
+      fail(err, { to: 'course', roadmap: { ...roadmap, concepts, sources } });
     } finally {
       setAsking(false);
     }
