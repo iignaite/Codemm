@@ -1,7 +1,7 @@
 {
   "name": "codemm",
   "version": "1.0.0",
-  "description": "Open-source harness for CodeChum-style practice: your coding agent writes the tracks and exercises, Codemm verifies, grades and tracks mastery.",
+  "description": "Open-source harness for graded coding practice: your coding agent writes the tracks and exercises, Codemm verifies, grades and tracks mastery.",
   "license": "MIT",
   "type": "module",
   "bin": {
