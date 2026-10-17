@@ -4,7 +4,8 @@ import { useApi } from '../../app/api';
 import { cacheFor } from '../../app/cache';
 import { useConversation } from '../../app/useConversation';
 import { useRouter, type Route } from '../../app/router';
-import { Failed, Sidebar } from '../../app/Shell';
+import { settled } from '../../app/course';
+import { Failed, Sidebar, Stalled } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
@@ -42,6 +43,7 @@ interface View {
 export function Lesson({ lessonId }: { lessonId: string }) {
   const api = useApi();
   const cache = cacheFor<View>(api, 'lessons');
+  // Keeps reading while the topic's work is pending, so a stall shows here too (§5).
   const { data, error, reload } = useLoad(async () => {
     const version = cache.version();
     const lesson = await api.lesson(lessonId);
@@ -49,14 +51,22 @@ export function Lesson({ lessonId }: { lessonId: string }) {
     const view = { lesson, course, topic: course.topics.find((t) => t.id === lesson.concept)! };
     cache.set(lessonId, view, version);
     return view;
-  }, [lessonId]);
+  }, [lessonId], (v) => settled(v.course));
   const view = data ?? cache.get(lessonId);
-  // Saved notes make every cached copy stale; read again.
-  const onSaved = () => {
+  // Saved notes and restarted work make every cached copy stale; read again.
+  const refresh = () => {
     cache.clear();
     reload();
   };
-  if (view) return <><Sidebar slim /><Reader {...view} onSaved={onSaved} /></>;
+  if (view) {
+    return (
+      <>
+        <Sidebar slim />
+        <Reader {...view} onSaved={refresh} />
+        {view.course.stalled && <Stalled stalled={view.course.stalled} retry={refresh} />}
+      </>
+    );
+  }
   if (error) return <><Sidebar slim /><Failed error={error} retry={reload} /></>;
   return <Sidebar slim />;
 }
