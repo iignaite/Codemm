@@ -11,7 +11,8 @@ import { join } from 'node:path';
 //   CODEMM_JOURNEY=<dir>   holds home/ (CODEMM_HOME), ws/, userData/ and bin/ (the agents' launchers)
 //   CODEMM_APP=<exe>       the installed app's executable
 //   JOURNEY_AGENT=claude|codex
-//   JOURNEY_PART=full|activity    `activity`: only the next topic's lesson, activity and tutor
+//   JOURNEY_PART=full|setup|activity   `setup`: through setup and the first lesson, then quit;
+//                                      `activity`: only the next activity (author) and the tutor, on that course
 //   JOURNEY_LABEL=<name>   names screenshots and result rows
 const dir = process.env.CODEMM_JOURNEY;
 const exe = process.env.CODEMM_APP;
@@ -277,7 +278,7 @@ test(`journey: ${label}`, async () => {
   page = await app.firstWindow();
   expect(await app.evaluate(({ app: a }) => a.getPath('userData'))).toBe(join(dir!, 'userData'));
 
-  if (part === 'full') {
+  if (part === 'full' || part === 'setup') {
     await step('connect', async () => {
       await button('Connect an agent').click();
       const row = page.getByRole('listitem', { name: AGENT_NAME });
@@ -338,20 +339,28 @@ test(`journey: ${label}`, async () => {
       }
       return approved.length ? approved.join(' / ') : 'track already installed';
     });
-    await lessonsThenActivity(true);
-    await activity(true);
-    await progress();
-    await complete();
-    await step('course-complete', async () => {
-      await expect(page.getByRole('heading', { name: / complete$/ })).toBeVisible();
-      return page.getByRole('heading', { name: / complete$/ }).innerText();
-    });
+    if (part === 'setup') {
+      await step('lesson', async () => {
+        const read = page.getByRole('button', { name: /^Read / }).first();
+        await expect(read).toBeVisible({ timeout: 10 * MIN });
+        await read.click();
+      });
+    } else {
+      await lessonsThenActivity(true);
+      await activity(true);
+      await progress();
+      await complete();
+      await step('course-complete', async () => {
+        await expect(page.getByRole('heading', { name: / complete$/ })).toBeVisible();
+        return page.getByRole('heading', { name: / complete$/ }).innerText();
+      });
+    }
   } else {
-    await step('open-next-topic', async () => {
+    await step('activity-open', async () => {
       await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible({ timeout: 2 * MIN });
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      return toActivity();
     });
-    await lessonsThenActivity(false);
     await activity(false);
     await progress();
   }
