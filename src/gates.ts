@@ -116,6 +116,8 @@ export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec:
   try {
     writeFileMap(context, files);
     const built = await buildImage(context, image);
+    // Offline, out of disk or no runtime isn't the track's fault, so it's no gate failure.
+    if (built.problem) throw new CodemmError(built.problem);
     if (!built.ok) throw new GateError("build", `the image didn't build:\n${built.log}`);
   } finally {
     rmSync(context, { recursive: true, force: true });

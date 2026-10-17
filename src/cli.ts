@@ -111,9 +111,12 @@ async function main(argv: string[]): Promise<number> {
       await app.setAssist(ws, rest[0] === "on");
       print(rest[0] === "on" ? "Assist mode on: your agent may edit exercise files, and these exercises count for less." : "Assist mode off.");
       return 0;
-    case "tracks":
-      for (const t of app.listTracks()) print(`${t.track}  styles: ${t.styles.join(", ")}  files: ${t.files.join(", ")}`);
+    case "tracks": {
+      const tracks = app.listTracks();
+      if (tracks.length === 0) print("No tracks installed yet. Ask your agent to set one up, or run codemm track add <folder>.");
+      for (const t of tracks) print(`${t.track}  styles: ${t.styles.join(", ")}  files: ${t.files.join(", ")}`);
       return 0;
+    }
     case "track": {
       if (rest[0] === "add") {
         const r = await app.saveTrack(readFileMap(resolve(rest[1]!)));
