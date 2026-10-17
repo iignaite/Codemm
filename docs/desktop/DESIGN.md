@@ -312,6 +312,7 @@ Infrastructure failures record nothing. Learner-caused outcomes are graded as `e
 | Track image missing or changed | "Rebuild" on the track; runs `rebuildTrack` | nothing |
 | No agent found, or signed out | the connect screen with its fix | nothing |
 | Agent plan limit reached | "Your agent's plan limit is reached. Try again later." | nothing; no relaunch |
+| Offline during an agent job (the agent can't reach its service, or a Codemm tool can't reach the network) | "You're offline. Connect to the internet, then try again." Try again | nothing; no relaunch |
 | Another agent failure (model refused, crash, deadline) or not done by its check | "Codemm couldn't finish that." Try again, or Check your agent (opens connect) | nothing; saves are atomic |
 | Track gates fail | "Couldn't set up React." A new proposal asks again; after the bound, Stop or Try again | nothing |
 | Author bound reached | "Couldn't write this activity." Try again | nothing |
@@ -351,6 +352,7 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 - **Agent problems.**
   - No agent found and signed out go to the connect screen.
   - A plan limit is recognized from the agent's `done` error, by known per-agent limit markers ("usage limit", "rate limit", HTTP 429). A plan limit is never relaunched and spends no retry. An unrecognized error is a generic failure.
+  - Offline is recognized the same way, from network errors in the agent's `done` error ("Connection error", ENOTFOUND, EAI_AGAIN, "network is unreachable", "could not resolve host", "error sending request", "connection lost"), or from core's offline markers in a failed tool result. It is never relaunched, spends no retry, and never offers Check your agent.
   - The markers are recorded as fixtures the first time each one is seen; until then they are unverified.
 
 ## 7. Packaging and release

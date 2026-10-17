@@ -13,6 +13,8 @@
 export const SIGNED_OUT = 'codemm:signed-out';
 export const NO_AGENT = 'codemm:no-agent';
 export const PLAN_LIMIT = 'codemm:plan-limit';
+/** This computer couldn't reach the network: the agent's service, or a build's downloads. */
+export const OFFLINE = 'codemm:offline';
 /** An agent job failed or wasn't done by its check (§5). */
 export const AGENT_FAILED = 'codemm:agent-failed';
 /** A damaged Codemm record. The message's next lines are core's repair guidance (§5). */
@@ -157,7 +159,7 @@ export interface CourseView {
   topics: TopicView[];
   done: boolean;
   /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
-  stalled?: 'plan-limit' | 'signed-out' | 'failed' | 'unstoppable';
+  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'failed' | 'unstoppable';
 }
 
 export interface Lesson {

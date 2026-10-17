@@ -60,6 +60,15 @@ describe('choose journey', () => {
     expect(screen.queryByText("Couldn't reach Codemm.")).not.toBeInTheDocument();
   });
 
+  it('says when research found the computer offline, with no Check your agent', async () => {
+    const api = createMock({ agentProblem: 'offline' });
+    await api.connect('claude');
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("You're offline. Connect to the internet, then try again.");
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
+  });
+
   it('says when research failed, and tries again', async () => {
     const user = userEvent.setup();
     const api = createMock();

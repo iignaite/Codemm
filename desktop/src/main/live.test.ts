@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { CHANGED, PLAN_LIMIT, REPAIR, UNSTOPPABLE } from '../shared/api';
+import { CHANGED, OFFLINE, PLAN_LIMIT, REPAIR, UNSTOPPABLE } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
 import { HELD_BACK } from './views';
 
@@ -173,6 +173,16 @@ describe('live CodemmApi', () => {
     t.c.bound.length = 0;
     await t.api.course();
     expect(t.c.bound.every((b) => b === t.c.roadmap!.course)).toBe(true);
+  });
+
+  it('an offline job stalls background work as offline, and research says so', async () => {
+    const t = live({ setup: () => ({ ok: false, problem: 'offline' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'offline' });
+
+    const s = live({ research: () => ({ ok: false, problem: 'offline' }) });
+    await expect(researched(s)).rejects.toThrow(OFFLINE);
   });
 
   it('keeps the first stall, and launches no queued background work after it', async () => {
