@@ -1,7 +1,8 @@
 import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
+import { settled } from '../../app/course';
 import { useRouter, type Route } from '../../app/router';
-import { Failed } from '../../app/Shell';
+import { Failed, Stalled } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
@@ -18,7 +19,7 @@ function continueRoute(topic: TopicView): Route {
 /** Lessons, then an activity, per topic, with mastery so far. */
 export function CourseMap() {
   const api = useApi();
-  const { data: course, error, reload } = useLoad(() => api.course(), []);
+  const { data: course, error, reload } = useLoad(() => api.course(), [], settled);
   if (error) return <Failed error={error} retry={reload} />;
   if (course === undefined) return null;
   if (course === null) return <Goal />;
@@ -32,6 +33,7 @@ export function CourseMap() {
         </ol>
       </div>
       <Aside course={course} />
+      {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
     </main>
   );
 }

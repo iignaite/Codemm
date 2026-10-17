@@ -100,8 +100,8 @@ export interface RoadmapChange {
  * learner. `installing`: building the approved proposal.
  */
 export type SetupState = 'proposing' | 'consent' | 'installing' | 'ready' | 'failed';
-/** Why setup failed. `offline` and `disk` are this computer's problems; `gates` means the proposals didn't pass. */
-export type SetupProblem = 'offline' | 'disk' | 'gates';
+/** Why setup failed. `offline`, `disk` and `docker` are this computer's problems; `gates` means the proposals didn't pass. */
+export type SetupProblem = 'offline' | 'disk' | 'docker' | 'gates';
 
 /** What the learner approves before setup: exactly the files Codemm will build (§4.1). */
 export interface Proposal {
@@ -134,6 +134,8 @@ export interface CourseView {
   proposal?: Proposal;
   topics: TopicView[];
   done: boolean;
+  /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
+  stalled?: 'plan-limit' | 'signed-out' | 'failed';
 }
 
 export interface Lesson {
@@ -224,6 +226,8 @@ export interface CodemmApi {
   install(digest: string): Promise<void>;
   /** Runs the setup job again, after its proposals failed their gates. */
   retrySetup(): Promise<void>;
+  /** Starts stalled background work again. */
+  retryJobs(): Promise<void>;
 
   lesson(id: string): Promise<Lesson>;
   saveNotes(lessonId: string, notes: string): Promise<void>;

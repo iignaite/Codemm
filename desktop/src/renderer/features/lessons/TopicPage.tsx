@@ -1,18 +1,16 @@
 import { useState } from 'react';
 import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
+import { settled } from '../../app/course';
 import { problemOf } from '../../app/errors';
 import { useRouter } from '../../app/router';
-import { Failed } from '../../app/Shell';
+import { Failed, Stalled } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { SetupConsent } from './SetupConsent';
-
-const settled = (c: CourseView | null) =>
-  !c || (['ready', 'failed', 'consent'].includes(c.setup) && !c.topics.some((t) => t.state === 'now' && t.lessons.some((l) => l.state === 'writing')));
 
 const BUSY = { proposing: 'Preparing setup for', installing: 'Setting up' } as const;
 
@@ -26,7 +24,7 @@ export function TopicPage({ topicId }: { topicId: string }) {
   if (error) return <Failed error={error} retry={reload} />;
   const topic = course?.topics.find((t) => t.id === topicId);
   if (!course || !topic) return null;
-  if (course.setup === 'failed') return <SetupFailed course={course} onRetry={reload} />;
+  if (course.setup === 'failed') return <SetupFailed course={course} topicId={topicId} onRetry={reload} />;
 
   async function install(digest: string) {
     try {
@@ -56,6 +54,7 @@ export function TopicPage({ topicId }: { topicId: string }) {
       {proposal && !consentClosed && (
         <SetupConsent track={course.track} proposal={proposal} error={consentError} onClose={() => setConsentClosed(true)} onSetUp={() => install(proposal.digest)} />
       )}
+      {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
     </main>
   );
 }
@@ -95,14 +94,15 @@ function Items({ topic }: { topic: TopicView }) {
   );
 }
 
-/** Setup failed and nothing was recorded. Offline and low disk are this computer's problems: fix, then try the same setup again. */
-function SetupFailed({ course, onRetry }: { course: CourseView; onRetry: () => void }) {
+/** Setup failed and nothing was recorded. Offline, low disk and Docker are this computer's problems: fix, then try the same setup again. */
+function SetupFailed({ course, topicId, onRetry }: { course: CourseView; topicId: string; onRetry: () => void }) {
   const api = useApi();
   const { go, fail } = useRouter();
   const problem = course.setupProblem ?? 'gates';
   const say = {
     offline: { title: "You're offline.", text: 'Connect to the internet, then try again.' },
     disk: { title: 'Not enough disk space.', text: 'Free some space on this computer, then try again.' },
+    docker: { title: 'Docker stopped.', text: 'Start Docker, then try again.' },
     gates: { title: `Couldn't set up ${course.track}`, text: 'Try again, or stop and pick something else.' },
   }[problem];
 
@@ -124,6 +124,7 @@ function SetupFailed({ course, onRetry }: { course: CourseView; onRetry: () => v
         <p className="sub">{say.text}</p>
         <div className="actions">
           {problem === 'gates' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'goal' })}>Stop</Button>}
+          {problem === 'docker' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'computer', then: { to: 'topic', topicId } })}>Check this computer</Button>}
           <Button size="lg" onClick={retry}>Try again</Button>
         </div>
       </div>

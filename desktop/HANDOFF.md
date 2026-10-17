@@ -81,14 +81,68 @@ packaging.cjs          electron-builder settings; signing only from the environm
 
 The mock holds no solutions and no hidden tests, and it reports hidden results as statuses only. Its React lesson content exists only for the demo and goes away with the mock.
 
-## Plugging in the core
+## Wiring: the real core and agents
 
-1. Implement `CodemmApi` on top of the core in the main process.
-2. Replace `createMock(...)` in `src/main/main.ts`.
+The app now runs the real core and the learner's agent. The mock only runs for tests and the dev switcher (`CODEMM_MOCK`).
 
-Failed calls reject with a code from `api.ts` in the message: `SIGNED_OUT` and `NO_AGENT` open connect, `PLAN_LIMIT` and `AGENT_FAILED` show the §5 banner, and `CHANGED` reloads the editor.
+```
+src/main/wire.ts          composition root: bundled core, Docker and agent lookup, the live API
+src/main/live.ts          CodemmApi over core app functions, agent jobs and views
+src/main/views.ts         learner-safe projections and the reply filter (§2.2, D4)
+src/main/courseView.ts    the course as the learner sees it, from progress, lessons, setup and jobs
+src/main/connect.ts       agents: found or not, sign-in yes or no, tested version, recommended model
+src/main/computer.ts      Check this computer: Docker found, answering with Linux containers, sandbox (§6.1)
+src/main/state.ts         desktop.json: chosen agent and tutor sessions, atomic, format_version
+src/main/agent/           agents (launch, parse, status), bridge (spawn, cancel, caps), find, jobs, briefs
+src/main/core/            the core functions used, their shapes, and core's infrastructure failures
+scripts/bundle-core.mjs   esbuild bundles the repo's core into out/core: cli.mjs (the MCP server) and app.cjs (in-process)
+e2e/packaged.spec.ts      D1, in CI on macOS and Windows: no Node on PATH, the bundled MCP server, a JavaScript agent
+```
 
-Background work is polled: screens re-read the course or the research every 500 ms until it settles. If the core can push changes, swap `useLoad`'s timer for an event.
+**The core it runs.** Main loads core's own functions from #23 in-process, with no adapters left: lessons, `getRoadmap`, consent proposals, honest skip and learner file saves.
+- Each job's server is `codemm mcp --course <c> --tools <job tools> --desktop`.
+- Each brief is core's `JOB_BRIEFS` (#26), followed by the job's details (`agent/briefs.ts`). The tutor's details include the learner's own code.
+- A research job gets a new course id and a server that saves only that course.
+- `coreApp.test.ts` checks the bundled core against the desktop's `CoreApp` types at compile time, and that each function is present at run time. It also checks that each job's tools equal core's `JOB_TOOLS`.
+
+**Verified here:**
+- Unit tests over fixtures, fake agents and a fake core:
+  - agent stream contracts from the recorded fixtures;
+  - launch flags;
+  - cancel of the whole process group, line caps, and status commands with a deadline and cap;
+  - executable lookup, including `.cmd` shims;
+  - job bounds, the done check, plan-limit and sign-out handling, and at most one relaunch;
+  - views and the reply filter;
+  - the computer check;
+  - the live API flows;
+  - the D4 canary across every IPC handler.
+- The packaged arm64 app, locally: it launched with only a fake JavaScript agent on PATH, its bundled `codemm mcp --tools list_tracks --desktop` answered `list_tracks` through Electron as Node, and the agent connected.
+
+**Not verified yet:**
+- A real-agent journey (D17), and a real-core canary run with Docker.
+- Windows `taskkill` cancellation, except in CI's smoke test.
+- Claude Code's `--tools` value for the research job's web search.
+- The plan-limit markers, until each is recorded as a fixture.
+
+## Logs
+
+The main process writes a log for support to Electron's logs folder:
+
+- macOS: `~/Library/Logs/Codemm/codemm.log`
+- Windows: `%APPDATA%\Codemm\logs\codemm.log`
+
+The log records:
+- app start: version, platform and whether the app is packaged;
+- agent and Docker detection results;
+- connects;
+- agent job start and end, with kind, lane, outcome and duration;
+- setup failures and not-counted runs, by kind;
+- IPC and main-process errors;
+- quit.
+
+It never records learner code, hidden data, briefs, tutor or agent text, or sign-in output (`src/main/log.ts`). Every value is redacted (home folder, tokens, keys, long secrets) and cut to one short line. The file rotates at 2 MB and keeps one older file, `codemm.1.log`. `log.test.ts` covers the redaction, the canary test checks the log holds no hidden material or learner text, and the packaged test checks the path and the connect line.
+
+`desktop/package.json` now sets `productName: Codemm`, so the logs and `desktop.json` live under `Codemm`, not `codemm-desktop`: `~/Library/Application Support/Codemm` and `%APPDATA%\Codemm`.
 
 ## Removed for 1.0 (owner's scope, 2026-10-17)
 
@@ -121,6 +175,24 @@ Background work is polled: screens re-read the course or the research every 500 
   - Windows-unsafe file paths;
   - PR builds skipping the ad-hoc signature (electron-builder skips signing on PRs unless `CSC_FOR_PULL_REQUEST` is set);
   - a release re-run able to change a published release.
+- **Wiring Astra review**, thirteen findings, all fixed:
+  - jobs started outside their lane, and a cancelled job that could still launch;
+  - background work that relaunched on every look instead of stalling, and no stalled banner;
+  - no lesson for the current topic while setup waited, and a stuck activity that couldn't reopen;
+  - core calls and done checks not bound to the course;
+  - a roadmap change that kept the old track's setup jobs and proposals;
+  - roadmap replies that skipped the reply filter;
+  - setup failures that lost the approved proposal, and Docker stopping during setup or a Check counted as a failure;
+  - quitting that didn't wait for jobs to stop, or remove leftover containers;
+  - a shebang check that read the whole executable.
+- **Wiring re-check**, eight findings, all fixed:
+  - work started before the learner approved the roadmap; approval now lives in `desktop.json`;
+  - the first lesson waited behind setup; it runs in the foreground, as §3.2 says;
+  - a later failure overwrote the first stall, and queued background work still launched;
+  - polling stopped mid-install, and the course map never polled;
+  - jobs could start during shutdown, a second Quit skipped the wait, and a running Check's containers escaped cleanup.
+
+**Leftover containers:** Codemm removes containers whose owner process is gone (`cleanupLeftovers` in `scripts/core-entry.ts`) at startup and on quit. Quitting first stops every job and waits for running Checks and Try its. Containers from a build still running at quit, or from a crash, go at the next start.
 
 ## Decisions
 

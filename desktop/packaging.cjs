@@ -16,9 +16,13 @@ function packaging(env) {
     productName: 'Codemm',
     artifactName: '${productName}-${version}-${os}-${arch}.${ext}',
     directories: { output: 'release', buildResources: 'build' },
-    files: ['out/**', 'package.json'],
-    // The OFL asks that the license travel with the bundled fonts.
-    extraResources: [{ from: 'src/renderer/assets/fonts', to: 'fonts', filter: ['OFL-*.txt'] }],
+    files: ['out/**', '!out/core/**', 'package.json'],
+    extraResources: [
+      // The core, outside the asar archive, so the agent's MCP server can run it with the app as Node (§7).
+      { from: 'out/core', to: 'core' },
+      // The OFL asks that the license travel with the bundled fonts.
+      { from: 'src/renderer/assets/fonts', to: 'fonts', filter: ['OFL-*.txt'] },
+    ],
     // Auto-update stays off until builds are signed (planned: electron-updater on GitHub Releases).
     publish: null,
     mac: {

@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { scenario, type MockOptions } from '../../../main/mock';
@@ -69,6 +69,17 @@ describe('topic page and setup consent', () => {
     }
   });
 
+  it('says when Docker stopped during setup, and offers Check this computer', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved({ setupProblem: 'docker' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Docker stopped.');
+    await user.click(within(alert).getByRole('button', { name: 'Check this computer' }));
+    expect(await screen.findByRole('heading', { name: 'Check this computer' })).toBeInTheDocument();
+  });
+
   it('asks again with a new proposal when the gates fail', async () => {
     const user = userEvent.setup();
     const { api } = await approved(scenario('setup-gates'));
@@ -78,6 +89,47 @@ describe('topic page and setup consent', () => {
     expect(within(alert).getByRole('heading', { name: "Couldn't set up React" })).toBeInTheDocument();
     await user.click(within(alert).getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('dialog', { name: 'Codemm has another way to set up React.' })).toBeInTheDocument();
+  });
+});
+
+describe('background work that stopped', () => {
+  it('says so, and starts it again', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse({ stalled: 'failed' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Codemm couldn't finish that.");
+    expect(within(alert).getByRole('button', { name: 'Check your agent' })).toBeInTheDocument();
+    await user.click(within(alert).getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+  });
+
+  it('names a plan limit', async () => {
+    const { api } = await mockWithCourse({ stalled: 'plan-limit' });
+    renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('alert')).toHaveTextContent("Your agent's plan limit is reached. Try again later.");
+  });
+
+  it('goes to connect when the agent signed out, and goes on once it is connected again', async () => {
+    const options: MockOptions = {};
+    const { api } = await mockWithCourse(options);
+    options.stalled = 'signed-out';
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    expect(await screen.findByRole('heading', { name: 'Connect an agent' })).toBeInTheDocument();
+    await api.connect('claude');
+    expect((await api.course())!.stalled).toBeUndefined();
+  });
+
+  it('keeps looking while the activity is being written', async () => {
+    const { api } = await mockWithCourse({ read: true });
+    const course = api.course;
+    let writing = 3;
+    api.course = async () => {
+      const c = (await course())!;
+      return writing-- > 0 ? { ...c, topics: c.topics.map((t) => (t.state === 'now' ? { ...t, activity: 'writing' as const } : t)) } : c;
+    };
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    expect(await screen.findByRole('button', { name: 'Start' })).toBeInTheDocument();
   });
 });
 

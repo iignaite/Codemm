@@ -1,0 +1,72 @@
+// Builds the live CodemmApi (DESIGN §2): the bundled core in-process, agents
+// and Docker found on this computer, and agent jobs whose MCP server is the
+// bundled core run with this app as Node (§2, §7).
+import { mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { delimiter, dirname, join } from 'node:path';
+import { AGENT_CLIS } from './agent/agents';
+import { ask } from './agent/bridge';
+import { find } from './agent/find';
+import { computerCheck } from './computer';
+import { connector } from './connect';
+import type { CoreApp } from './core/types';
+import { createLive, type Live } from './live';
+import type { Log } from './log';
+import { desktopState } from './state';
+
+const RUNTIME_INFO = ['info', '--format', '{{.ServerVersion}}|{{.OSType}}'];
+
+export interface Places {
+  /** out/core in development, <resources>/core when packaged. */
+  coreDir: string;
+  userData: string;
+  log: Log;
+}
+
+export function liveApi({ coreDir, userData, log }: Places): Live {
+  // The bundled core (scripts/bundle-core.mjs), loaded in-process.
+  const core = require(join(coreDir, 'dist', 'app.cjs')) as CoreApp;
+  const ws = join(homedir(), 'Codemm');
+  mkdirSync(ws, { recursive: true });
+  const state = desktopState(userData);
+  const runtime = process.execPath;
+
+  const connect = connector(
+    {
+      find: (bin) => find(bin),
+      signedIn: async (id, exe) => (await ask(exe, AGENT_CLIS[id].signIn.args, AGENT_CLIS[id].signIn.read)) === true,
+      version: (id, exe) => ask(exe, AGENT_CLIS[id].version.args, AGENT_CLIS[id].version.read),
+    },
+    state,
+  );
+
+  const computer = computerCheck({
+    find: () => {
+      const docker = find('docker');
+      // GUI apps don't load shell profiles: give core's own docker calls the folder Docker was found in (§3.1).
+      if (docker && !(process.env.PATH ?? '').split(delimiter).includes(dirname(docker.path))) {
+        process.env.PATH = [process.env.PATH, dirname(docker.path)].filter(Boolean).join(delimiter);
+      }
+      return docker;
+    },
+    info: async (docker) => (await ask(docker, RUNTIME_INFO, ({ code, output }) => ({ exit: code ?? -1, output }), { timeoutMs: 20_000 })) ?? { exit: -1, output: '' },
+    sandbox: async () => (await core.doctor(false)).some((c) => c.name === 'network isolation' && c.ok),
+    now: () => Date.now(),
+  });
+
+  return createLive({
+    core,
+    connect,
+    computer,
+    state,
+    ws,
+    runtime,
+    log,
+    server: (course, tools) => ({
+      command: runtime,
+      args: [join(coreDir, 'dist', 'cli.mjs'), 'mcp', '--workspace', ws, ...(course ? ['--course', course] : []), '--tools', tools.join(','), '--desktop'],
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+    }),
+  });
+}
+

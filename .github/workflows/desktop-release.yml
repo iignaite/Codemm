@@ -26,7 +26,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+      # The app bundles the core from this repository (DESIGN §7).
+      - name: Install the core's dependencies
+        working-directory: .
+        run: npm ci
       - run: npm ci
       - run: npm test
       - name: Version from the tag

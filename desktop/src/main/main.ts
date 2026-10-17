@@ -3,20 +3,35 @@ import { join } from 'node:path';
 import type { CodemmApi } from '../shared/api';
 import { dispatch } from './ipc';
 import { isSafeLink } from './links';
+import { createLog } from './log';
 import { createMock, scenario } from './mock';
+import { liveApi } from './wire';
 
 const page = join(__dirname, '../renderer/index.html');
 
-// Swap the mock for the Codemm core here. Nothing else changes.
-// In development, CODEMM_MOCK=<scenario> acts out an environment state (see mock.ts).
-const codemm: CodemmApi = createMock(app.isPackaged ? {} : scenario(process.env.CODEMM_MOCK));
+// The real core and the learner's agent. In development only, CODEMM_MOCK=<scenario>
+// runs the in-memory mock instead, to click through environment states (mock.ts).
+// ~/Library/Logs/Codemm on macOS, %APPDATA%\Codemm\logs on Windows (HANDOFF.md).
+const log = createLog(app.getPath('logs'));
+log('start', { version: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged });
+process.on('uncaughtExceptionMonitor', (e) => log('error', { where: 'main', message: e.message }));
+process.on('unhandledRejection', (e) => log('error', { where: 'main', message: e instanceof Error ? e.message : String(e) }));
+
+const mock = !app.isPackaged && process.env.CODEMM_MOCK !== undefined;
+const live = mock ? null : liveApi({ coreDir: app.isPackaged ? join(process.resourcesPath, 'core') : join(__dirname, '../core'), userData: app.getPath('userData'), log });
+const codemm: CodemmApi = live ?? createMock(scenario(process.env.CODEMM_MOCK || undefined));
 
 // Windows only ever show the app's own page (navigation and new windows are
 // blocked), so accept calls from a main frame on a file URL and nothing else.
 function handle(event: IpcMainInvokeEvent, method: unknown, args: unknown) {
   const frame = event.senderFrame;
   if (!frame || frame !== event.sender.mainFrame || !frame.url.startsWith('file:')) throw new Error('Unknown sender');
-  return dispatch(codemm, method, args);
+  return Promise.resolve()
+    .then(() => dispatch(codemm, method, args))
+    .catch((e: Error) => {
+      log('ipc-error', { method: typeof method === 'string' ? method : '?', message: e.message });
+      throw e;
+    });
 }
 
 function createWindow() {
@@ -52,6 +67,22 @@ void app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+// Quitting first stops running agent jobs with their whole process groups and removes leftover containers (§5).
+// Every quit waits for that, however often the learner asks.
+let stopping: Promise<void> | undefined;
+let stopped = false;
+app.on('before-quit', (event) => {
+  if (!live || stopped) return;
+  event.preventDefault();
+  stopping ??= live
+    .stop()
+    .catch(() => undefined)
+    .finally(() => {
+      stopped = true;
+      app.quit();
+    });
 });
 
 app.on('window-all-closed', () => {

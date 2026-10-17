@@ -18,6 +18,7 @@ import {
   type Lesson,
   type Platform,
   type Roadmap,
+  type SetupProblem,
   type TestView,
   type Track,
 } from '../shared/api';
@@ -35,7 +36,9 @@ export interface MockOptions {
   /** Read on every call: agent jobs fail with this until it's cleared. */
   agentProblem?: 'signed-out' | 'plan-limit' | 'failed';
   untested?: boolean;
-  setupProblem?: 'offline' | 'disk' | 'gates';
+  setupProblem?: SetupProblem;
+  /** Read on every call: background work stopped with this until the learner tries again or connects again. */
+  stalled?: CourseView['stalled'];
   /** Changes the options after the first approval or check, to act out a mid-session failure. */
   later?: { after: 'approve' | 'check'; set: Partial<MockOptions> };
 }
@@ -263,6 +266,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         agent.state = options.agents?.[id] === 'signed-out' ? 'signed-out' : 'connected';
         if (agent.state === 'connected') {
           if (options.agentProblem === 'signed-out') delete options.agentProblem;
+          if (options.stalled === 'signed-out') delete options.stalled;
           agents.filter((a) => a.id !== id && a.state === 'connected').forEach((a) => (a.state = 'not-connected'));
         }
       }
@@ -318,7 +322,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async course() {
       if (!course) return null;
       tick(course);
-      return structuredClone(course);
+      return { ...structuredClone(course), ...(options.stalled ? { stalled: options.stalled } : {}) };
     },
 
     async install(digest) {
@@ -335,6 +339,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       delete options.setupProblem;
       delete course.setupProblem;
       course.setup = 'proposing';
+    },
+
+    async retryJobs() {
+      delete options.agentProblem;
+      delete options.stalled;
     },
 
     async lesson(id) {

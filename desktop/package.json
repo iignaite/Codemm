@@ -1,5 +1,6 @@
 {
   "name": "codemm-desktop",
+  "productName": "Codemm",
   "version": "1.0.0",
   "private": true,
   "description": "Codemm desktop app",
@@ -13,10 +14,11 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json --noEmit",
     "test": "vitest run",
-    "build": "vite build && tsc -p tsconfig.node.json",
+    "build": "vite build && tsc -p tsconfig.node.json && node scripts/bundle-core.mjs",
     "start": "npm run build && electron .",
-    "test:e2e": "npm run build && playwright test",
-    "dist": "npm run build && electron-builder --config electron-builder.config.cjs --publish never"
+    "test:e2e": "npm run build && playwright test e2e/smoke.spec.ts",
+    "dist": "npm run build && electron-builder --config electron-builder.config.cjs --publish never",
+    "test:packaged": "playwright test e2e/packaged.spec.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
@@ -30,6 +32,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^44.9.0",
     "electron-builder": "^26.17.0",
+    "esbuild": "^0.28.2",
     "jsdom": "^26.1.0",
     "markdown-it": "^14.3.3",
     "react": "^19.3.1",
