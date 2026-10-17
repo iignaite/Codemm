@@ -14,9 +14,7 @@ describe('job briefs', () => {
     expect(research).toContain('They already know: HTML');
     expect(briefs.easier('state', 'State').startsWith(JOB_BRIEFS.roadmap)).toBe(true);
     expect(briefs.setup('react@1', 'no test runner')).toContain('no test runner');
-    expect(briefs.author({ concept: 'loops', title: 'Loops', difficulty: 2, style: 'unit', track: 'py@1', files: ['main.py', 'helpers.py'] })).toBe(
-      `${JOB_BRIEFS.author}\n\nConcept: \`loops\` (Loops), difficulty 2\n\nTrack: \`py@1\`, style \`unit\`\n\nLearner files: \`main.py\`, \`helpers.py\``,
-    );
+    expect(briefs.author()).toBe(JOB_BRIEFS.author);
   });
 
   it("gives the tutor the learner's own code and question", () => {

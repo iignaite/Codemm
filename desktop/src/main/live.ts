@@ -213,13 +213,11 @@ export function createLive(d: LiveDeps): Live {
     }
     if (ready && progress.next.kind === 'author') {
       // Done only by a new exercise for this concept at the requested difficulty (§3.2).
+      // The agent reads its target and the track's contract from next_step (core JOB_BRIEFS.author).
       const { difficulty } = progress.next;
-      const roadmap = core.getRoadmap(ws, course);
-      const files = core.listTracks().find((t) => t.track === roadmap.track)?.files ?? [];
       const before = new Set(core.listExercises(ws, course).map((e) => e.exercise));
       const made = () => core.listExercises(ws, course).some((e) => !before.has(e.exercise) && e.concepts.includes(concept.id) && e.difficulty === difficulty);
-      const target = { concept: concept.id, title: concept.title, difficulty, style: roadmap.style, track: roadmap.track, files };
-      background(`author:${course}:${concept.id}:${difficulty}`, 'author', briefs.author(target), course, made);
+      background(`author:${course}:${concept.id}:${difficulty}`, 'author', briefs.author(), course, made);
     }
   }
 

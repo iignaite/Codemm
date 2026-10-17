@@ -264,12 +264,4 @@ describe('live CodemmApi', () => {
     expect(t.jobs.ran.filter((j) => j.kind === 'author')).toHaveLength(1);
   });
 
-  it("gives the author the exact target and the track's learner files", async () => {
-    const t = live();
-    await practising(t);
-    const brief = t.jobs.ran.find((j) => j.kind === 'author')!.brief;
-    expect(brief).toContain('Concept: `values` (Values), difficulty 1');
-    expect(brief).toContain('Track: `react@1`, style `io`');
-    expect(brief).toContain('Learner files: `main.c`');
-  });
 });
