@@ -19,11 +19,11 @@
   - an isolation run with a canary file outside the workspace.
   Logs are in `spikes/agent-bridge/evidence/`.
 - Sign-in detection was run for all three agents. Cursor is not signed in on this machine.
-- Astra's review (2 blockers, 11 more findings) and its re-check are resolved and logged in DESIGN §14, except Codex confinement, which needs owner decision O8.
+- Astra's review (2 blockers, 11 more findings) and its re-check are resolved and logged in DESIGN §14. Codex confinement was settled by owner decision O8 (see the latest section).
 
 ### What's next
 
-1. The owner decides O8 (Codex confinement) before the spec is approved, then O1 and O3 to O7 (DESIGN §13). O2 is decided.
+1. The owner decides O1 and O3 to O7 (DESIGN §13). O2, O8 and O9 are decided.
 2. Core work, test-first, in this order:
    1. honest skip and the `lesson` field on `next_step`, in `learner`;
    2. proposals and `installProposal` with progress;
@@ -55,3 +55,11 @@
 
 - Merges now ask the owner first. Commits and PRs carry no attribution lines.
 - The bench results for the minimum model aren't committed yet (`docs/bench`). `models.json` stays `null` until they are.
+
+## 2026-10-17 (later): owner decisions O8 and O9
+
+- **O8 = (a).** `AGENTS.md` now reads: "Hidden data never leaves Codemm through Codemm's own outputs (tools, CLI, IPC and diagnostics). An agent with file access can read Codemm's files; Codemm removes that access where the agent allows." Codex ships with the reply filter.
+- **O9 = confirmed.** Beta builds are unsigned, with open-anyway instructions, and the public 1.0 is signed.
+- Both are recorded as decisions 10 and 11 in DESIGN.md.
+- `docs/DESIGN.md` §1 has no hidden-data sentence, so it is unchanged. The closest are §4.2 "Disclosure" and A5, which already limit themselves to tool output, CLI output and gate diagnostics.
+- Scope freeze: no new items. The scope review's cut list comes next.

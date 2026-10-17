@@ -1,6 +1,6 @@
 # Codemm desktop 1.0 design
 
-Status: revised after Astra's review and re-check, with the owner's approved additions (lesson gate, usage, CLI pinning, minimum model, Docker onboarding, beta, signing) reviewed by Astra (§14). Approving it needs the owner's decision O8. It extends the core spec, `docs/DESIGN.md`, which stays authoritative for the harness. The core changes in §4 move into `docs/DESIGN.md` in the same PR as their code. The journeys follow the approved prototype (`codemm-journeys.html`, outside this repo). Agent CLI evidence: [agent-bridge.md](agent-bridge.md).
+Status: revised after Astra's review and re-check, with the owner's approved additions (lesson gate, usage, CLI pinning, minimum model, Docker onboarding, beta, signing) reviewed by Astra (§14). The owner decided O8 and O9 (decisions 10 and 11). Approving it needs the owner's decision O8. It extends the core spec, `docs/DESIGN.md`, which stays authoritative for the harness. The core changes in §4 move into `docs/DESIGN.md` in the same PR as their code. The journeys follow the approved prototype (`codemm-journeys.html`, outside this repo). Agent CLI evidence: [agent-bridge.md](agent-bridge.md).
 
 ## Decisions
 
@@ -13,8 +13,10 @@ Status: revised after Astra's review and re-check, with the owner's approved add
 | 5 | Each agent run is one job. A job has a short brief, a Codemm server bound to its course that exposes only that job's tools, the narrowest built-in tools the agent allows, a deadline, a retry bound and a check for whether it worked. Authoring runs in its own process and is never streamed. |
 | 6 | Installing a track stays its own decision. In the app, `save_track` only proposes a track. Codemm builds exactly the files the learner approved, after they click Set up, and never on roadmap approval. |
 | 7 | New core features are the smallest needed: lessons with sandbox-checked runnable examples, roadmap read, research sources, a `setup` step, honest skip, install progress events, per-job servers and learner file saves. Review scheduling is deferred. |
-| 8 | Installers are built with electron-builder. Beta builds are unsigned. The public 1.0 is signed and auto-updates (§7.1), unless the owner waives that under O9. |
+| 8 | Installers are built with electron-builder. Beta builds are unsigned. The public 1.0 is signed and auto-updates (§7.1). |
 | 9 | A private beta with 5 to 10 learners comes before the public 1.0 ([beta-plan.md](beta-plan.md)). |
+| 10 | **O8, decided by the owner:** the invariant now reads "Hidden data never leaves Codemm through Codemm's own outputs (tools, CLI, IPC and diagnostics). An agent with file access can read Codemm's files; Codemm removes that access where the agent allows." (`AGENTS.md`). Codex ships in the app with the reply filter (§2.2). |
+| 11 | **O9, decided by the owner:** beta testers get unsigned builds with open-anyway instructions, and the public 1.0 is signed (D29). |
 
 ## 1. Scope
 
@@ -106,7 +108,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor i
   - `--ignore-user-config` drops the learner's own MCP servers and plugins. Without it, the owner's computer-use server loaded even with `computer_use` disabled. It also means Codex uses its default model rather than the learner's (O6), which made runs about three times faster.
   - `enabled_tools` limits the Codemm tools, and `multi_agent` is off.
   - What remains is Codex's code mode (`functions.exec`). It can't be turned off, because Codex calls MCP tools through it: disabling `code_mode_host` also removed the Codemm tools. Asked to read the canary through it, the model declined to try. **Whether code mode can read files is unproven**, so Codex is not proven confined.
-  - For Codex, hidden data is protected by the reply filter (§2.2) and the honor system until O8 is decided.
+  - For Codex, hidden data is protected by the reply filter (§2.2) and the honor system, under the reworded invariant (decision 10).
 - **The invariant.** Codemm never runs agent-written code on the host. Codemm runs untrusted code only through `sandbox.ts`. What the agent's own tools do happens under the agent's own sandbox, exactly as in a terminal. Turning those tools off is defense in depth.
 
 **Running processes.**
@@ -386,7 +388,7 @@ The first run, and every Docker failure in §5, opens "Check this computer". It 
 
 ### 7.1 Signing and auto-update (decision)
 
-**Decision.** Beta builds stay unsigned. The public 1.0 is gated on D29: the macOS build signed and notarized, and the Windows build signed. Only the owner can waive that gate (O9). Then turn on auto-update with electron-updater, publishing to GitHub Releases. Auto-update stays off until builds are signed:
+**Decision.** Beta builds stay unsigned. The public 1.0 is gated on D29: the macOS build signed and notarized, and the Windows build signed. The owner confirmed this (O9, decision 11). Then turn on auto-update with electron-updater, publishing to GitHub Releases. Auto-update stays off until builds are signed:
 
 - macOS updates (Squirrel.Mac) work only for signed apps.
 - An unsigned Windows update shows SmartScreen warnings. Signing doesn't remove them at once, because reputation builds over time, but it is the requirement for building it.
@@ -456,7 +458,7 @@ Each item is verified by an automated test unless marked *journey*.
 | D26 | Minimum model: with `models.json` entries set, the connect row shows "Recommended: ‹model›" and Codex launches with `-m` and exactly that model. With `null`, neither happens. |
 | D27 | Check this computer: with a fake runtime, a missing CLI, a stopped daemon and a failed network check each show only their row's fix, per OS. Fixing the fake makes the screen pass on its own within one re-check. With a slow probe, repeated focus events never start a second check. |
 | D28 | *Beta*: the exit criteria in [beta-plan.md](beta-plan.md) pass before the public 1.0, and the results go in the release notes. |
-| D29 | *Public release gate* (§7.1, waived only by the owner under O9): the macOS build is notarized, the Windows installer is signed, and electron-updater updates N to N+1 on each OS. Auto-update is off in unsigned builds (automated test). |
+| D29 | *Public release gate* (§7.1, decision 11): the macOS build is notarized, the Windows installer is signed, and electron-updater updates N to N+1 on each OS. Auto-update is off in unsigned builds (automated test). |
 
 ## 10. Test strategy
 
@@ -524,8 +526,8 @@ The MCP server, `doctor`, `track add`, `track rebuild` and `tracks` stay either 
 | O5 | Default workspace folder | `~/Codemm`, changeable in settings. A switch moves nothing: the new folder gets its own `codemm.json`, learner files are re-created there on demand (core §6), the old folder stays as it is, and tutor sessions start fresh. |
 | O6 | Model choice. Codex jobs use the bench's recommended model when one is set, and Codex's default otherwise (§8). Claude Code jobs use the learner's default. Add a model setting? | No for 1.0. The bench picks the Codex model and checks the defaults, and a failure shows "Check your agent". |
 | O7 | Keep the terminal path (`init`, the Claude hook, the author subagent, the learner CLI) in 1.0, or make the app the only way in and delete it (§11) | Keep it for 1.0: it is built, tested and journey-verified (A9 to A16), and the app shares its `app` functions. Revisit after D14. |
-| O8 | **Required before approval.** Codex can't be proven confined (§3.1), and Astra rejects shipping it under the current invariant wording. Choose: (a) clarify the invariant in `AGENTS.md` and core §1 to "hidden data never leaves Codemm through Codemm's own outputs (tools, CLI, IPC and diagnostics); an agent with file access can read Codemm's files, and Codemm removes that access where the agent allows", then ship Codex with the reply filter; or (b) keep the wording and mark Codex experimental in the app until confinement is verified. | (a). The terminal path in core 1.0 already lets every agent read `~/.codemm`, so (a) states what 1.0 already accepts, and the app narrows it: no file tools for Claude Code, and no shell for Codex. |
-| O9 | Confirm the D29 gate (signed public 1.0), or waive it and ship the public 1.0 unsigned | Confirm it. Unsigned installers need workarounds that most learners won't follow, and auto-update needs signing on macOS. |
+| O8 | Codex confinement | **Decided (a)** by the owner: the invariant is reworded (decision 10) and Codex ships with the reply filter. |
+| O9 | The D29 signing gate | **Decided** by the owner: unsigned beta builds with open-anyway instructions; the public 1.0 is signed. |
 
 ## 14. Review log
 
