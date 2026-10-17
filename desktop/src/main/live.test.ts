@@ -301,4 +301,19 @@ describe('live CodemmApi', () => {
     expect((await t.api.course())!.stalled).toBeUndefined();
     expect(t.jobs.ran.filter((j) => j.kind === 'setup')[1].brief).toContain('reference solution fails');
   });
+
+  it('a Check or Try it started while Docker is starting waits for it first', async () => {
+    let open: () => void = () => {};
+    const started = new Promise<void>((r) => (open = r));
+    let ready = async () => {};
+    const t = live({}, { dockerReady: () => ready() });
+    const activity = await practising(t);
+    ready = () => started;
+    const check = t.api.check(activity.id);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.c.checks).toEqual([]);
+    open();
+    await check;
+    expect(t.c.checks).toEqual([activity.id]);
+  });
 });
