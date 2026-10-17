@@ -4,7 +4,7 @@ Status: revised after two Astra design reviews (§13). The longer illustrated de
 
 ## 1. What Codemm is
 
-Codemm is an open-source, local-first harness for learning to program, in the style of CodeChum. It is a **wrapper that ships no languages**. The learner's own coding agent (Claude Code, Codex or Cursor, on the learner's own plan) writes everything:
+Codemm is an open-source, local-first harness for graded coding practice. It is a **wrapper that ships no languages**. The learner's own coding agent (Claude Code, Codex or Cursor, on the learner's own plan) writes everything:
 
 - the environment for a language or framework (a **track**),
 - the **roadmap** (a concept graph),
@@ -37,7 +37,7 @@ Each item is verified by an automated test unless marked *journey*. Journeys run
 | A13 | v1 is removed, along with its config and conflicting docs. Build, type check and all tests pass locally and in CI. Version is `1.0.0`. README, migration guide (with tested v1 rollback steps) and release notes are updated. |
 | A14 | *Journey:* starting from an empty Codemm home, an agent installs C, Java (JUnit), Python (pytest) and React (Vitest) tracks through Codemm, and at least one exercise per track passes the gates. Each statement is checked against its tests by a reviewer other than its author. A person's spot-check is a release step before publishing, not a merge requirement, because the gates explicitly don't guarantee statement quality (§1). |
 | A15 | *Journey:* a learner gets an exercise, runs `test`, fails then passes `check`, and mastery, difficulty and `next_step` change as §7 says. |
-| A16 | *Journey:* Claude Code and Codex each complete an author round trip: tutor, then author subagent, then `save_exercise`, then id only. Cursor is attempted; if it can't be run here, it's marked experimental. |
+| A16 | *Journey:* Claude Code and Codex each complete an author round trip: tutor, then author subagent, then `save_exercise`, then the subagent replies to the tutor with the id only. Cursor is attempted; if it can't be run here, it's marked experimental. |
 
 ### Supported matrix for 1.0
 
@@ -73,6 +73,7 @@ $CODEMM_HOME (default ~/.codemm)
 - **Format versions.** Only the files Codemm writes (`course.json`, `exercise.json`, `track.json`, `events.jsonl` records, `codemm.json`) carry `format_version: 1`. Loaders reject unknown versions.
 - **File maps.** Author input is a file map: `{ "relative/path": "text" }` over MCP, or a directory for the CLI.
   - Paths must be relative, `/`-separated, with no `.` or `..` parts.
+  - Track and exercise paths may not contain `:` or have a name ending in `.` or a space (`assertPortablePaths`). These are the cases that break a checkout on Windows; other names Windows rejects are not checked.
   - At most 256 files and 1 MB in total.
   - Directory input may not contain symlinks or special files.
   - Roadmap YAML may be at most 64 KB and 200 concepts.
@@ -132,7 +133,7 @@ Every judge container gets:
 - `--memory`, with an equal `--memory-swap`, from `min(limits.memory_mb, 2048)`;
 - `--cpus 2` and `--pids-limit 256`;
 - `--security-opt no-new-privileges` and `--cap-drop ALL`;
-- `--user <uid>:<gid>` on POSIX;
+- `--user <uid>:<gid>` on POSIX, and `--user 65534:65534` (the unprivileged "nobody") on Windows, which has no uid;
 - `--entrypoint /bin/sh`, `--no-healthcheck`, and `--log-opt max-size=1m`.
 
 Other ceilings:
@@ -147,7 +148,7 @@ Other ceilings:
 | A case times out (the driver's `timeout`), crashes, exits non-zero or prints more than 64 KB | that test is `error` | yes |
 | Learner code fails to build | every test is `error` | yes |
 | The 4 MB stream cap is hit | every test in that set is `error` ("output limit exceeded") | yes |
-| The host deadline for the whole set passes, the runtime is missing, or the image is missing or changed | the command fails with an infrastructure error | no |
+| The host deadline for the whole set passes, the runtime is missing or stops during the run, or the image is missing or changed | the command fails with an infrastructure error | no |
 - **Volumes:** images that declare `VOLUME` are rejected at install.
 
 `codemm doctor` checks the container CLI and daemon. It also proves `--network none` blocks a host TCP server that a networked container can reach.
@@ -159,6 +160,7 @@ Other ceilings:
 - **The trust point** is the learner approving the `save_track` call in their agent, or running `codemm track add` themselves. Codemm's tool description says this plainly, and `init` never pre-approves it.
 - **The build context** is a fresh folder holding only the track's files. No secrets, SSH agent or Docker socket are forwarded.
 - **The build** times out after 10 minutes and the process is killed. Build resource limits are not enforced in 1.0 (a known limitation).
+- **Infrastructure failures.** A build that fails because the runtime is down, the network is unreachable or the disk is full is reported as that, not as a gate failure, and installs nothing. The agent retries the same files instead of rewriting a correct track.
 - **The image** is tagged `codemm-track-<id>:<version>`, and its ID is stored in `track.json`. Every check verifies that the ID still matches. If the image is missing or has changed, the check fails with "Run `codemm track rebuild <id>@<version>`".
 - **Base images.** Each `FROM` should pin its image by digest (`image@sha256:…`). An unpinned `FROM` (other than `scratch` or an earlier stage) installs with a warning rather than failing a gate: checks run by the recorded image ID, and a rebuild that pulls a different base must pass every gate below, so an unpinned base can make a rebuild fail but can't change results silently.
 - **Rebuild** re-runs the track gates, then re-runs exercise gates 2 to 6 for every stored exercise on the new image. io outputs must also equal the stored expected outputs, and unit inventories must match. Only then is the new image ID recorded. Otherwise rebuild fails and lists the exercises that changed. Nothing rebuilds silently.
@@ -291,7 +293,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 
 ## 10. Failure handling
 
-- **No container runtime:** commands that need one fail with "Start Docker Desktop (or Podman) and retry." `doctor` says which part failed.
+- **No container runtime:** commands that need one fail and say what to do on that OS. When none is installed, they say what to install (`runtimeHelp`): Docker Desktop on macOS; Docker Desktop with the WSL 2 backend set to Linux containers on Windows; Docker Engine on Linux. When one is installed but not running, they say how to start it (`startHelp`). A Docker Desktop running Windows containers is reported as such. `doctor` says which part failed.
 - **Locks** (per course and per track): the file is created exclusively and records the owner's PID. A lock whose PID is no longer running is stale and removed. A second writer waits up to 10 minutes, then gets "Course is busy; retry."
 - **Leftover containers:** found by the `codemm=1` label. Each container also carries its owner's PID (`codemm.pid`). `doctor --fix` removes only containers whose owner is gone, verifies they're gone, and reports listing or removal failures.
 - **`doctor`'s network check** passes only when an ordinary container reaches the test server and the sandbox doesn't. Anything else is reported as a failure ("inconclusive"), never as success.

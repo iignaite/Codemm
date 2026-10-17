@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"01a14a25-cfba-7b41-a5d4-d7f42843ba87"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll locate the available Codemm tool and call `list_tracks` exactly once."}}
+{"type":"item.started","item":{"id":"item_1","type":"mcp_tool_call","server":"codemm","tool":"list_tracks","arguments":{},"result":null,"error":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"mcp_tool_call","server":"codemm","tool":"list_tracks","arguments":{},"result":{"content":[{"type":"text","text":"[]"}],"structured_content":null},"error":null,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"0"}}
+{"type":"turn.completed","usage":{"input_tokens":65870,"cached_input_tokens":43392,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0}}

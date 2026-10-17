@@ -1,0 +1,2 @@
+# Keep LF everywhere: fixture tracks run their scripts in Linux containers, even from a Windows checkout.
+* text=auto eol=lf

@@ -24,6 +24,19 @@ export function assertRelativePath(path: string): void {
   if (!ok) throw new CodemmError(`Invalid path ${describePath(path)}. Use a relative path with "/" separators and no "." or ".." parts.`);
 }
 
+/**
+ * New author input must also be safe to write on Windows, where ":" names a stream or a drive and a trailing
+ * "." or " " is dropped, so such a name could overwrite another entry. Stored data keeps the rules above.
+ */
+export function assertPortablePaths(map: FileMap): FileMap {
+  for (const path of Object.keys(map)) {
+    if (path.includes(":") || path.split("/").some((p) => /[. ]$/.test(p))) {
+      throw new CodemmError(`Invalid path ${describePath(path)}. Names may not contain ":" or end in "." or a space.`);
+    }
+  }
+  return map;
+}
+
 export function validateFileMap(map: FileMap): FileMap {
   const entries = Object.entries(map);
   if (entries.length > MAX_FILES) throw new CodemmError(`Too many files (${entries.length}). The limit is ${MAX_FILES}.`);

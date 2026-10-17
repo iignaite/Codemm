@@ -1,0 +1,53 @@
+{
+  "judge": "gpt-6-astra",
+  "labels": {
+    "claude-haiku-c-r1": {
+      "hint": false,
+      "note": "Gives the exact output call and program structure, leaving only boilerplate assembly."
+    },
+    "claude-haiku-python-r1": {
+      "hint": false,
+      "note": "Explicitly describes the entire one-line solution: return a + b."
+    },
+    "claude-opus-c-r1": {
+      "hint": true,
+      "note": "Explains formatted output with a different example, leaving the learner to construct the required output statements."
+    },
+    "claude-opus-python-r1": {
+      "hint": false,
+      "note": "Provides the complete branching solution in pseudocode, including comparisons and every return value."
+    },
+    "claude-sonnet-c-r1": {
+      "hint": false,
+      "note": "Supplies the program scaffold and every required output detail, leaving only mechanical assembly."
+    },
+    "claude-sonnet-python-r1": {
+      "hint": false,
+      "note": "Provides both the exact calculation and complete formatted string; only wrapping and returning remain."
+    },
+    "codex-gpt-5.6-luna-c-r1": {
+      "hint": true,
+      "note": "Suggests input, comparison, and output operations while leaving their implementation to the learner."
+    },
+    "codex-gpt-5.6-luna-python-r1": {
+      "hint": false,
+      "note": "Merely repeats the requirements without explaining how to construct the greeting."
+    },
+    "codex-gpt-6-astra-c-r1": {
+      "hint": true,
+      "note": "Explains the format specifier and address-versus-value distinction without supplying complete statements."
+    },
+    "codex-gpt-6-astra-python-r1": {
+      "hint": true,
+      "note": "Identifies the next edit and directs attention to existing parameters without providing the exact return expression."
+    },
+    "codex-gpt-6-luna-c-r1": {
+      "hint": false,
+      "note": "Restates the task and example without offering a concrete implementation technique."
+    },
+    "codex-gpt-6-luna-python-r1": {
+      "hint": true,
+      "note": "Highlights that a comparison produces a boolean that can be returned directly, without supplying the exact expression."
+    }
+  }
+}

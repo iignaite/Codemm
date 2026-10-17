@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertId, readFileMap, validateFileMap } from "../src/files.js";
+import { saveExercise, saveTrack } from "../src/app.js";
+import { assertId, assertPortablePaths, readFileMap, validateFileMap } from "../src/files.js";
 
 describe("assertId", () => {
   it.each(["c", "react", "python3", "c.loops", "sum-evens_2"])("accepts %s", (id) => {
@@ -46,6 +47,25 @@ describe("validateFileMap", () => {
   });
 });
 
+// On Windows these name the same file as another entry (or a hidden stream of it), so one could overwrite another.
+const WINDOWS_ALIASES = ["main.sh::$DATA", "notes.txt:meta", "C:x", "main.sh.", "src /main.sh"];
+
+describe("portable author input", () => {
+  it.each(WINDOWS_ALIASES)("rejects the Windows alias %j", (path) => {
+    expect(() => assertPortablePaths({ [path]: "x" })).toThrow(/Invalid path/);
+  });
+
+  it("keeps names already stored on POSIX readable", () => {
+    expect(() => validateFileMap({ "fixture:one.json": "x", "data./input.txt": "y" })).not.toThrow();
+  });
+
+  it("is enforced when a track or an exercise is saved, before anything runs", async () => {
+    process.env.CODEMM_HOME = mkdtempSync(join(tmpdir(), "codemm-home-"));
+    await expect(saveTrack({ "track.yaml": "id: x\n", "run.sh:x": "" })).rejects.toThrow(/Invalid path/);
+    await expect(saveExercise(mkdtempSync(join(tmpdir(), "codemm-ws-")), { "exercise.yaml": "", "notes.": "" })).rejects.toThrow(/Invalid path/);
+  });
+});
+
 describe("readFileMap", () => {
   it("reads a directory tree into a file map", () => {
     const dir = mkdtempSync(join(tmpdir(), "codemm-files-"));
@@ -55,7 +75,8 @@ describe("readFileMap", () => {
     expect(readFileMap(dir)).toEqual({ "README.md": "hi", "solution/main.c": "x" });
   });
 
-  it("refuses FIFOs and other special files without reading them", () => {
+  // Windows has no FIFOs (Git for Windows' mkfifo makes a plain file).
+  it.skipIf(process.platform === "win32")("refuses FIFOs and other special files without reading them", () => {
     const dir = mkdtempSync(join(tmpdir(), "codemm-files-"));
     execFileSync("mkfifo", [join(dir, "pipe")]);
     expect(() => readFileMap(dir)).toThrow(/regular file/i);

@@ -284,14 +284,22 @@ export function readWorkspace(ws: string): WorkspaceConfig {
   return parseRecord(WorkspaceConfig, file);
 }
 
-const workspaceLock = (ws: string) => join(codemmHome(), "locks", `ws-${createHash("sha256").update(ws).digest("hex").slice(0, 16)}.lock`);
+/**
+ * One lock per workspace, however its path is spelled (symlinks, case, Windows short names). The folder is
+ * created first, so the lock's name can't change when it appears.
+ */
+function workspaceLock(ws: string): string {
+  mkdirSync(ws, { recursive: true });
+  const id = realpathSync.native(ws);
+  return join(codemmHome(), "locks", `ws-${createHash("sha256").update(id).digest("hex").slice(0, 16)}.lock`);
+}
 
-/** Read-modify-write of codemm.json, serialized across processes. */
 /** Serializes changes Codemm makes to one workspace (codemm.json, host setup). */
 export const withWorkspaceLock = <T>(ws: string, work: () => Promise<T>) => withLock(workspaceLock(ws), work);
 
+/** Read-modify-write of codemm.json, serialized across processes. */
 export async function updateWorkspace(ws: string, change: (config: WorkspaceConfig) => WorkspaceConfig): Promise<WorkspaceConfig> {
-  return withLock(workspaceLock(ws), async () => {
+  return withWorkspaceLock(ws, async () => {
     const next = change(readWorkspace(ws));
     writeJsonAtomic(workspaceFile(ws), next);
     return next;
