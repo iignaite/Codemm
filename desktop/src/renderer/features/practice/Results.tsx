@@ -121,17 +121,21 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
   );
 }
 
+/** The core names visible results "visible/<name>"; the exercise names its tests "<name>". */
+const testName = (name: string): string => name.replace(/^visible\//, '');
+
 /** Visible results, with what was expected next to what was found. */
 function TestLines({ tests, visibleTests }: { tests: TestView[]; visibleTests: VisibleTest[] }) {
   return (
     <>
       {tests.map((t, i) => {
         if (t.hidden) return null;
-        const expected = visibleTests.find((v) => v.name === t.name)?.expected;
+        const name = testName(t.name);
+        const expected = visibleTests.find((v) => v.name === name)?.expected;
         return (
           <div className="tline a-up" key={t.name} style={stagger(i, 350)}>
             <Status kind={t.status === 'pass' ? 'ok' : 'fail'} />
-            {t.name}
+            {name}
             {t.status !== 'pass' && (t.actual !== undefined || t.message) && (
               <span className="cmp">
                 {expected !== undefined && <span className="e">expected {expected}</span>}
