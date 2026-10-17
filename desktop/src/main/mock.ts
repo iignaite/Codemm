@@ -2,7 +2,7 @@
 // development (CODEMM_MOCK). Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner replaced the starter's
 // placeholder, and reports hidden results as statuses only.
-import {
+import { type CheckProgress,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
@@ -249,6 +249,12 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     unlock(now.id);
   }
 
+  // Progress as a real check reports it: each test, as counts only.
+  const progressListeners = new Set<(p: CheckProgress) => void>();
+  const progress = (run: string | undefined, phase: CheckProgress['phase'], total: number) => {
+    for (let done = 0; done <= total; done++) progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
+  };
+
   return {
     async agents() {
       return agents.map((a) => ({
@@ -256,6 +262,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         state: a.state === 'connected' && options.agentProblem === 'signed-out' ? 'signed-out' : a.state,
         untested: Boolean(options.untested) && a.state !== 'missing',
       }));
+    },
+
+    onCheckProgress(listener) {
+      progressListeners.add(listener);
+      return () => void progressListeners.delete(listener);
     },
 
     async chooseModel(id, model) {
@@ -390,9 +401,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       return { kind: 'ran', exit: 0, output: `${example.files.map((f) => f.path).join('\n')}\n`, errors: '' };
     },
 
-    async tryIt(activityId) {
+    async tryIt(activityId, run) {
       const { activity } = find(activities, activityId);
       if (docker() !== 'ready') return notCounted();
+      progress(run, 'visible', activity.visibleTests.length);
       const done = !activity.files[0].text.includes(PLACEHOLDER);
       const tests: TestView[] = activity.visibleTests.map((t, i) => ({
         hidden: false,
@@ -403,10 +415,12 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       return { kind: 'ran', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests };
     },
 
-    async check(activityId): Promise<CheckResult> {
+    async check(activityId, run): Promise<CheckResult> {
       const record = find(activities, activityId);
       if (docker() !== 'ready') return notCounted();
       if (++checks === 1) happen('check');
+      progress(run, 'visible', 2);
+      progress(run, 'hidden', 0);
       deferred.delete(record.activity.concept);
       const text = record.activity.files[0].text;
       const done = !text.includes(PLACEHOLDER);

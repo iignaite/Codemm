@@ -21,6 +21,8 @@ export type SandboxRun = {
   mounts: Mount[];
   memoryMb: number;
   deadlineMs: number;
+  /** Each stdout chunk as it arrives, within the output cap (for progress; the result still carries all of it). */
+  onStdout?: (chunk: Buffer) => void;
 };
 /** `oomKilled`: the runtime recorded that the container hit its memory limit (exit 137 from inside, not a kill from outside). */
 export type SandboxResult = { exit: number; stdout: Buffer; stderr: string; flooded: boolean; timedOut: boolean; cleanupFailed: boolean; oomKilled: boolean };
@@ -105,6 +107,7 @@ export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
   return new Promise((resolve) => {
     const child = spawn(cli, sandboxArgs(run, name), { stdio: ["ignore", "pipe", "pipe"] });
     const chunks: Buffer[] = [];
+    let observe = run.onStdout;
     let bytes = 0;
     let stderr = "";
     let flooded = false;
@@ -124,7 +127,14 @@ export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
       }
     };
     child.stdout.on("data", (b: Buffer) => {
-      if (bytes + b.length <= OUTPUT_CAP) chunks.push(b);
+      if (bytes + b.length <= OUTPUT_CAP) {
+        chunks.push(b);
+        try {
+          observe?.(b);
+        } catch {
+          observe = undefined; // a failing observer is dropped; the run, its accounting and cleanup go on
+        }
+      }
       count(b.length);
     });
     child.stderr.on("data", (b: Buffer) => {
