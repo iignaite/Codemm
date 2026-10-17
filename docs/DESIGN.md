@@ -195,9 +195,15 @@ concepts:
 
 ### Lessons
 
-- **Saving.** `save_lesson { id, concept, title, markdown }`: the id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. Lessons are static text; nothing in them runs, and they are checked for structure only. A lesson needs the course, not an installed track.
+- **Saving.** `save_lesson { id, concept, title, markdown, examples? }`: the id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. The text is checked for structure only. A lesson without examples needs the course, not an installed track.
+- **Examples.** A lesson may carry up to 5 runnable examples, each a file map of at most 64 KB:
+  - Each holds exactly the installed track's learner files; for a unit course, it adds test files under `tests/`.
+  - The Markdown places example N as a fenced code block whose info string is `example` and whose only line is N. Every example is placed, and every placement names an example.
+  - The gate: under the course lock, then the track lock, each example runs in the track's image exactly as a check runs code, with the same sandbox and limits. io runs the build and run commands once, with empty input; unit runs the test command on the example's tests. Each must exit 0 within the limits. A runtime failure is infrastructure and saves nothing.
+  - Examples need the installed track, and `get_roadmap` over MCP includes the track's contract once it's installed.
+- **Running.** `runExample(ws, lesson, n)` runs a saved example the same way and returns its exit code, output (capped at 16 KB) and errors (capped at 4 KB). It is never recorded.
 - **Storage.** `lesson.md` never changes after saving. The learner's `notes.md` (at most 64 KB) sits beside it. Writes are atomic and hold the course lock.
-- **Reading.** `get_lesson` returns the text and the notes and records nothing. Only an acknowledgement records a read: `mark_lesson_read` appends a `read` event the first time.
+- **Reading.** `get_lesson` returns the text, the notes and the examples, and records nothing. Only an acknowledgement records a read: `mark_lesson_read` appends a `read` event the first time.
 
 ## 6. Exercises and gates
 

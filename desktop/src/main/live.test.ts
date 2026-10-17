@@ -199,6 +199,16 @@ describe('live CodemmApi', () => {
     expect(await s.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: "Docker isn't running." });
   });
 
+  it("shows a lesson's examples and runs one in core's sandbox; a stopped Docker means it didn't run", async () => {
+    const t = live();
+    await practising(t);
+    t.c.lessons.push({ id: 'ex', concept: 'values', title: 'Run it', markdown: 'See:\n\n```example\n1\n```\n', notes: '', examples: [{ 'main.c': 'int main(){}' }] });
+    expect((await t.api.lesson('ex')).examples).toEqual([{ files: [{ path: 'main.c', text: 'int main(){}' }] }]);
+    expect(await t.api.runExample('ex', 1)).toEqual({ kind: 'ran', exit: 0, output: 'ran main.c\n', errors: '' });
+    t.c.down = true;
+    expect(await t.api.runExample('ex', 1)).toEqual({ kind: 'not-run', reason: "Docker isn't running." });
+  });
+
   it('keeps a stuck activity open beside the ways forward', async () => {
     const t = live();
     const activity = await practising(t);

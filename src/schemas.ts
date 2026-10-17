@@ -184,16 +184,38 @@ export const LearnerEventSchema = z.discriminatedUnion("kind", [
 ]);
 
 const MAX_LESSON_BYTES = 65_536;
+const mapBytes = (m: Record<string, string>) => Object.values(m).reduce((n, t) => n + Buffer.byteLength(t), 0);
 const LessonInput = z
-  .object({ id: Id, concept: Id, title: z.string().min(1).max(200), markdown: z.string().min(1) })
+  .object({
+    id: Id,
+    concept: Id,
+    title: z.string().min(1).max(200),
+    markdown: z.string().min(1),
+    /** Runnable examples: file maps that follow the installed track's contract (checked by save_lesson). */
+    examples: z
+      .array(z.record(z.string(), z.string()).refine((m) => mapBytes(m) <= MAX_LESSON_BYTES, "an example is larger than 64 KB"))
+      .max(5, "add at most 5 examples")
+      .optional(),
+  })
   .strict()
   .refine((l) => Buffer.byteLength(l.markdown) <= MAX_LESSON_BYTES, { message: "markdown is larger than 64 KB", path: ["markdown"] });
 export type LessonInput = z.infer<typeof LessonInput>;
 
-/** A lesson as the agent saves it: static Markdown for one roadmap concept. */
+/** Where the Markdown places example N: a fenced code block whose info string is `example` and whose content is N. */
+const EXAMPLE_FENCE = /^```example[ \t]*\r?\n[ \t]*(\d+)[ \t]*\r?\n```[ \t]*$/gm;
+export const exampleRefs = (markdown: string): number[] => [...markdown.matchAll(EXAMPLE_FENCE)].map((m) => Number(m[1]));
+
+/** A lesson as the agent saves it: static Markdown for one roadmap concept, and optional runnable examples. */
 export function parseLesson(input: unknown): LessonInput {
   const parsed = LessonInput.safeParse(input);
   if (!parsed.success) throw new CodemmError(`Invalid lesson: ${describe(parsed.error)}`);
+  const count = parsed.data.examples?.length ?? 0;
+  const refs = exampleRefs(parsed.data.markdown);
+  const missing = refs.find((n) => n < 1 || n > count);
+  if (missing !== undefined) throw new CodemmError(`Invalid lesson: the markdown places example ${missing}, but there are ${count} examples.`);
+  for (let n = 1; n <= count; n++) {
+    if (!refs.includes(n)) throw new CodemmError(`Invalid lesson: example ${n} is never placed. Put a block "\`\`\`example" with the line ${n} where it belongs.`);
+  }
   return parsed.data;
 }
 
@@ -203,7 +225,7 @@ export function assertNotes(text: string): string {
   return text;
 }
 
-export const LessonRecord = z.object({ format_version: z.literal(1), id: Id, concept: Id, title: z.string(), created: z.string() });
+export const LessonRecord = z.object({ format_version: z.literal(1), id: Id, concept: Id, title: z.string(), created: z.string(), examples: z.number().int().nonnegative().optional() });
 export type LessonRecord = z.infer<typeof LessonRecord>;
 
 /** A track the agent proposed in the desktop app, waiting for the learner's consent. */

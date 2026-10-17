@@ -160,10 +160,15 @@ export interface Lesson {
   id: string;
   concept: string;
   title: string;
-  /** Static Markdown, rendered with raw HTML stripped (§2.1). */
+  /** Static Markdown, rendered with raw HTML stripped (§2.1). It places example N as a fenced block `example` holding N. */
   markdown: string;
   notes: string;
+  /** Runnable examples, in order: each runs in the sandbox on request and is never recorded (§4.3). */
+  examples: { files: { path: string; text: string }[] }[];
 }
+
+/** One run of a lesson example (output capped by core), or why it didn't run (Docker, §6.1). */
+export type ExampleRun = { kind: 'ran'; exit: number; output: string; errors: string } | { kind: 'not-run'; reason: string };
 
 // ---------- activity (§4.5, D11) ----------
 
@@ -258,6 +263,8 @@ export interface CodemmApi {
   /** Saves one learner file. Rejects with CHANGED if it changed since `digest`. Returns the new digest. */
   saveFile(activityId: string, path: string, text: string, digest: string): Promise<string>;
   tryIt(activityId: string): Promise<TryResult>;
+  /** Runs a lesson's example `index` (from 1) in the sandbox. Never recorded. */
+  runExample(lessonId: string, index: number): Promise<ExampleRun>;
   check(activityId: string): Promise<CheckResult>;
 
   /** A tutor turn. A reply that shows hidden material is held back (§2.2). */

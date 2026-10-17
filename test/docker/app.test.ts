@@ -205,4 +205,15 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(existsSync(join(ws, "exercises", "shell", "bound-save", "main.sh"))).toBe(true);
     expect(JSON.parse(readFileSync(join(ws, "codemm.json"), "utf8")).course).toBe("shell-other");
   });
+
+  it("runs a lesson's examples in the sandbox before saving it, and runs one again on request without recording", async () => {
+    const lesson = (id: string, files: Record<string, string>) => ({ id, concept: "sh.basics", title: "Echo", markdown: "Run this:\n\n```example\n1\n```\n", examples: [files] });
+    await expect(app.saveLesson(ws, lesson("broken", { "main.sh": "echo oops >&2\nexit 3\n" }), "shell")).rejects.toThrow(/Example 1 didn't run cleanly \(exit 3\)[\s\S]*oops/);
+    expect(await app.saveLesson(ws, lesson("echo", { "main.sh": "echo hello\n" }), "shell")).toEqual({ lesson: "echo" });
+    expect(app.getLesson(ws, "echo", "shell").examples).toEqual([{ "main.sh": "echo hello\n" }]);
+    const before = readEvents("shell").length;
+    expect(await app.runExample(ws, "echo", 1, "shell")).toEqual({ exit: 0, output: "hello\n", errors: "" });
+    await expect(app.runExample(ws, "echo", 2, "shell")).rejects.toThrow(/no example 2/);
+    expect(readEvents("shell")).toHaveLength(before);
+  });
 });

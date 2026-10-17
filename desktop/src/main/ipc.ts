@@ -37,6 +37,8 @@ const concept = shape({ id, title: text(200, 1), requires: list(id, 200) });
 const concepts = list(concept, 200, 1);
 const place: Valid = (v) => shape({ lessonId: id })(v) || shape({ activityId: id })(v);
 const words = text(2000, 1);
+/** A lesson example's number: core keeps at most 5. */
+const exampleNumber: Valid = (v) => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5;
 const fileText: Valid = (v) => typeof v === 'string' && new TextEncoder().encode(v).length <= MAX_FILE_BYTES;
 
 const ARGS: { [K in keyof CodemmApi]: Valid[] } = {
@@ -58,6 +60,7 @@ const ARGS: { [K in keyof CodemmApi]: Valid[] } = {
   activity: [id],
   saveFile: [id, path, fileText, digest],
   tryIt: [id],
+  runExample: [id, exampleNumber],
   check: [id],
   ask: [place, words],
   skip: [id],

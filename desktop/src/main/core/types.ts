@@ -58,6 +58,8 @@ export interface CoreLesson {
   title: string;
   markdown: string;
   notes: string;
+  /** Runnable examples: file maps that follow the track's contract. */
+  examples: Record<string, string>[];
 }
 
 export interface CoreApp {
@@ -83,6 +85,8 @@ export interface CoreApp {
   installProposal(ref: string, digest: string): Promise<unknown>;
   dropProposal(ref: string): Promise<void>;
   getLesson(ws: string, id: string, bound?: string): CoreLesson;
+  /** Runs a saved lesson example in the sandbox; output and errors are capped. Never recorded. */
+  runExample(ws: string, lessonId: string, index: number, bound?: string): Promise<{ exit: number; output: string; errors: string }>;
   listLessons(ws: string, bound?: string): { id: string; concept: string; title: string; read: boolean }[];
   listExercises(ws: string, bound?: string): { exercise: string; concepts: string[]; difficulty: number; created: string }[];
   saveNotes(ws: string, id: string, text: string, bound?: string): Promise<void>;

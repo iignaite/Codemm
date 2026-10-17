@@ -12,6 +12,8 @@ import { Icon } from '../../ui/Icon';
 import { Markdown } from '../../ui/Markdown';
 import { stagger } from '../../ui/motion';
 import { Rail } from '../../ui/Rail';
+import { splitExamples } from '../../../shared/examples';
+import { Example } from './Example';
 import { NoteEditor } from './NoteEditor';
 import { Outline } from './Outline';
 
@@ -113,7 +115,11 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
             </Button>
           )}
         </div>
-        <Markdown text={withoutTitle(lesson.markdown)} className="md a-up" />
+        <div className="a-up">
+          {splitExamples(withoutTitle(lesson.markdown)).map((part, i) =>
+            'example' in part ? <Example key={i} lesson={lesson} index={part.example} /> : <Markdown key={i} text={part.markdown} />,
+          )}
+        </div>
         {editing ? (
           <NoteEditor note={notes} onSave={save} onCancel={() => setEditing(false)} />
         ) : (

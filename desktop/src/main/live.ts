@@ -442,7 +442,21 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async lesson(id) {
-      return core.getLesson(ws, id);
+      const { examples, ...lesson } = core.getLesson(ws, id);
+      return { ...lesson, examples: examples.map((files) => ({ files: Object.entries(files).map(([path, text]) => ({ path, text })) })) };
+    },
+
+    async runExample(lessonId, index) {
+      try {
+        return { kind: 'ran', ...(await whenDockerReady(() => core.runExample(ws, lessonId, index))) };
+      } catch (e) {
+        const reason = notCounted(e);
+        if (reason) {
+          log('not-counted', { run: 'example', reason });
+          return { kind: 'not-run', reason };
+        }
+        throw e;
+      }
     },
     saveNotes: (id, notes) => core.saveNotes(ws, id, notes),
     async markRead(id) {

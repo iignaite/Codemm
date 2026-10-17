@@ -146,9 +146,10 @@ ${TRACK_RULES}`,
   lesson: `You write one lesson for a Codemm course.
 
 1. Call \`get_roadmap\` to see where the concept sits.
-2. Write a short Markdown lesson (at most 64 KB) for the concept you were given: what it is, why it matters, and one small worked example. Code blocks are shown, never run.
+2. Write a short Markdown lesson (at most 64 KB) for the concept you were given: what it is, why it matters, and one small worked example.
 3. Teach the idea; don't solve the activity that follows.
-4. Save it with \`save_lesson\`: a new lowercase id, the concept id exactly as given, and a short title. ${CHECKED_RETRIES}`,
+4. If \`get_roadmap\` shows a \`contract\`, the track is set up and you may add up to 5 runnable \`examples\`. Each is a file map with exactly \`contract.files\` (for unit, add tests in \`tests/\` like \`contract.examples.tests\`). Codemm runs each with the track's command and empty input; it must exit 0. Place example N where it belongs as a fenced block with info string \`example\` whose only line is N. Without a contract, use plain code blocks.
+5. Save it with \`save_lesson\`: a new lowercase id, the concept id exactly as given, and a short title. ${CHECKED_RETRIES}`,
 
   author: `You write one Codemm exercise. ${SAVE_RETRIES}
 
