@@ -84,6 +84,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # The renderer journeys on the tagged commit: smoke and accessibility (D16) e2e.
+      - run: npm run test:e2e
       # Signing comes only from repository secrets (desktop/SIGNING.md). With
       # none set, every value is empty and the build is unsigned.
       - run: npm run dist
