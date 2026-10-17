@@ -17,6 +17,8 @@ export const PLAN_LIMIT = 'codemm:plan-limit';
 export const AGENT_FAILED = 'codemm:agent-failed';
 /** A damaged Codemm record. The message's next lines are core's repair guidance (§5). */
 export const REPAIR = 'codemm:repair';
+/** A cancel the agent's process group survived: "Codemm couldn't stop your agent" (§3.1). */
+export const UNSTOPPABLE = 'codemm:unstoppable';
 /** A learner file changed outside Codemm since the editor loaded it (§4.5). */
 export const CHANGED = 'codemm:changed';
 
@@ -137,7 +139,7 @@ export interface CourseView {
   topics: TopicView[];
   done: boolean;
   /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
-  stalled?: 'plan-limit' | 'signed-out' | 'failed';
+  stalled?: 'plan-limit' | 'signed-out' | 'failed' | 'unstoppable';
 }
 
 export interface Lesson {

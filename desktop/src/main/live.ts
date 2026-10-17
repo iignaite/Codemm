@@ -7,6 +7,7 @@ import {
   PLAN_LIMIT,
   REPAIR,
   SIGNED_OUT,
+  UNSTOPPABLE,
   type CodemmApi,
   type Computer,
   type Concept,
@@ -53,7 +54,9 @@ export interface Live extends CodemmApi {
 
 /** Setup proposals per setup before the learner gets Stop or Try again (§3.2). */
 const PROPOSAL_BOUND = 3;
-const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, failed: AGENT_FAILED }[problem]);
+const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, failed: AGENT_FAILED, infra: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
+/** Why background work stalled: an infrastructure failure is a plain failure the learner retries. */
+const stallOf = (problem: JobProblem = 'failed'): NonNullable<CourseView['stalled']> => (problem === 'infra' ? 'failed' : problem);
 const NOT_COUNTED: Record<'docker' | 'disk' | 'offline', string> = {
   docker: "Docker isn't running.",
   disk: 'Docker ran out of disk space.',
@@ -186,7 +189,7 @@ export function createLive(d: LiveDeps): Live {
     // The first stall is the one the learner sees.
     outcome
       .then((o) => {
-        if (!o.ok && !controller?.signal.aborted) stalled ??= o.problem ?? 'failed';
+        if (!o.ok && !controller?.signal.aborted) stalled ??= stallOf(o.problem);
         // A finished job can make the next one due: the lesson before the activity, a proposal after gates.
         else if (o.ok) schedule();
       })
@@ -322,7 +325,7 @@ export function createLive(d: LiveDeps): Live {
       if (outcome) {
         outcomes.delete(key);
         if (!outcome.ok) {
-          if (outcome.problem && outcome.problem !== 'failed') throw problemError(outcome.problem);
+          if (outcome.problem && outcome.problem !== 'failed' && outcome.problem !== 'infra') throw problemError(outcome.problem);
           return { state: 'failed' };
         }
         return { state: 'done', roadmap: roadmapView(core.getRoadmap(ws)) };

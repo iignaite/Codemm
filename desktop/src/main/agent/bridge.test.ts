@@ -46,7 +46,8 @@ describe('bridge (D5)', () => {
     }
   });
 
-  it.skipIf(process.platform === 'win32')('cancel resolves only after the whole group is gone, even a child that ignores SIGTERM', async () => {
+  // On Windows this checks `taskkill /t /f` on the process tree; on POSIX, SIGTERM then SIGKILL to the group.
+  it('cancel resolves only after the whole group is gone, even a child that ignores SIGTERM', async () => {
     const controller = new AbortController();
     let child = 0;
     const out = run(
@@ -62,7 +63,7 @@ describe('bridge (D5)', () => {
         killAfterMs: 300,
       },
     );
-    expect(await out).toEqual({ code: null, cancelled: true, stopped: true });
+    expect(await out).toMatchObject({ cancelled: true, stopped: true });
     expect(alive(child)).toBe(false);
   });
 

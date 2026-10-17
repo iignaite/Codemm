@@ -34,7 +34,16 @@ async function stopGroup(child: ChildProcess, killAfterMs: number): Promise<bool
   const pid = child.pid;
   if (pid === undefined) return true;
   if (windows) {
-    return new Promise((r) => spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on('close', (code) => r(code === 0)).on('error', () => r(false)));
+    // taskkill also fails when the process already exited: that one is stopped too.
+    const gone = () => {
+      try {
+        process.kill(pid, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    };
+    return new Promise((r) => spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on('close', (code) => r(code === 0 || gone())).on('error', () => r(gone())));
   }
   const signal = (sig: NodeJS.Signals) => {
     try {

@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CHANGED } from '../shared/api';
-import { INTERNAL } from './errors';
+import { CHANGED, UNSTOPPABLE } from '../shared/api';
+import { INTERNAL, safeError } from './errors';
 import { handler } from './ipc';
 import { createLog } from './log';
 import { live, practising } from './testing/fakes';
@@ -40,5 +40,9 @@ describe('errors at the IPC boundary (D4)', () => {
     await expect(handle({ fromApp: false }, 'agents', [])).rejects.toThrow('Unknown sender');
     await expect(handle(appFrame, 'nope', [])).rejects.toThrow('Unknown call');
     expect(readFileSync(t.logFile, 'utf8')).toContain('ipc-error method=unknown kind=desktop name=SafeError');
+  });
+
+  it("passes the code for an agent Codemm couldn't stop", () => {
+    expect(safeError(new Error(UNSTOPPABLE)).message).toBe(UNSTOPPABLE);
   });
 });
