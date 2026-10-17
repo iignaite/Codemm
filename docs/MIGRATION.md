@@ -37,6 +37,11 @@ npm ci
 npm run dev
 ```
 
-Open your old workspace folder when v1 asks, and your v1 data is there. These steps were verified for the 1.0 release: `npm ci`, `npm run build` and the v1 unit suite pass at `5e3f3a7`.
+Open your old workspace folder when v1 asks.
+
+- **If you set `CODEMM_WORKSPACE_DATA_DIR` for v1**, set it to the same value again.
+- **If you used a packaged build**, its data may be under a different Electron userData folder than a development run (`npm run dev`) uses.
+
+What was verified for the 1.0 release: `npm ci`, `npm run build` and the v1 unit suite pass at `5e3f3a7`. Reopening existing v1 data with the rolled-back app was not tested.
 
 To roll back the repository itself, revert the 1.0 merge commit on `main`.

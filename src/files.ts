@@ -15,19 +15,26 @@ export function assertId(kind: string, value: string): void {
   }
 }
 
+/** How a path may appear in messages: anything under tests/hidden/ is never echoed. */
+export const describePath = (path: string) => (/^tests\/hidden(\/|$)/i.test(path) ? "a file under tests/hidden/" : `"${path}"`);
+
 export function assertRelativePath(path: string): void {
   const parts = path.split("/");
   const ok = path.length > 0 && !path.includes("\\") && !path.includes("\0") && parts.every((p) => p !== "" && p !== "." && p !== "..");
-  if (!ok) throw new CodemmError(`Invalid path "${path}". Use a relative path with "/" separators and no "." or ".." parts.`);
+  if (!ok) throw new CodemmError(`Invalid path ${describePath(path)}. Use a relative path with "/" separators and no "." or ".." parts.`);
 }
 
 export function validateFileMap(map: FileMap): FileMap {
   const entries = Object.entries(map);
   if (entries.length > MAX_FILES) throw new CodemmError(`Too many files (${entries.length}). The limit is ${MAX_FILES}.`);
   let bytes = 0;
+  const seen = new Set<string>();
   for (const [path, contents] of entries) {
     assertRelativePath(path);
-    if (typeof contents !== "string") throw new CodemmError(`File "${path}" must be text.`);
+    // Paths that differ only by case would overwrite each other on macOS and Windows.
+    if (seen.has(path.toLowerCase())) throw new CodemmError(`Two files differ only by case (${describePath(path)}). Rename one.`);
+    seen.add(path.toLowerCase());
+    if (typeof contents !== "string") throw new CodemmError(`File ${describePath(path)} must be text.`);
     bytes += Buffer.byteLength(contents);
   }
   if (bytes > MAX_BYTES) throw new CodemmError(`Files total ${bytes} bytes. The limit is 1 MB.`);
@@ -47,12 +54,12 @@ export function readFileMap(dir: string, exclude: string[] = []): FileMap {
       const relPath = rel ? `${rel}/${name}` : name;
       if (!rel && exclude.includes(name)) continue;
       const stat = lstatSync(join(dir, relPath));
-      if (stat.isSymbolicLink()) throw new CodemmError(`"${relPath}" is a symlink. Copy the file in instead.`);
+      if (stat.isSymbolicLink()) throw new CodemmError(`${describePath(relPath)} is a symlink. Copy the file in instead.`);
       if (stat.isDirectory()) {
         walk(relPath);
         continue;
       }
-      if (!stat.isFile()) throw new CodemmError(`"${relPath}" isn't a regular file.`);
+      if (!stat.isFile()) throw new CodemmError(`${describePath(relPath)} isn't a regular file.`);
       count += 1;
       bytes += stat.size;
       if (count > MAX_FILES) throw new CodemmError(`Too many files (over ${MAX_FILES}).`);

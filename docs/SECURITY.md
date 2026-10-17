@@ -17,7 +17,7 @@ Codemm runs code that an AI agent wrote and code that a learner wrote. This page
 | `--log-opt max-size=1m`, a 4 MB stream cap, 64 KB per case | Output can't fill your disk or memory |
 | `timeout -s KILL` per case, a host deadline per set, labelled containers | Hung code is killed and cleaned up |
 
-`codemm doctor` proves the network is blocked. It first checks that an ordinary container can reach a test server on your machine, then that the sandbox can't.
+`codemm doctor` proves the network is blocked. It first checks that an ordinary container can reach a test server on your machine, then that the sandbox can't. If the first step fails, it reports the check as inconclusive (a failure), not as passed.
 
 **Hidden tests from your agent's tools.** Hidden inputs, expected outputs and test names never appear in tool output, CLI output or gate diagnostics. Hidden results show an index and a status only, and visible tests run in a separate container that can't read hidden ones.
 

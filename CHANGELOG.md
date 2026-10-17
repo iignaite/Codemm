@@ -36,7 +36,7 @@ Codemm 1.0 is a rewrite. The v1 desktop app is replaced by a small, open-source 
 
 ### Verification for this release
 
-- **Automated:** 178 tests across unit, Docker integration, multi-process locking and the packed npm artifact. They cover every gate, adversarial sandbox cases (network with a positive control, read-only mounts, fork bomb, memory, output flood, programs that ignore SIGTERM, leftover containers) and the disclosure rules.
+- **Automated:** 200 tests across unit, Docker integration, multi-process locking and the packed npm artifact. They cover every gate, adversarial sandbox cases (network with a positive control, read-only mounts, fork bomb, memory, output flood, programs that ignore SIGTERM, leftover containers) and the disclosure rules.
 - **Real tracks**, written by an agent (Claude) and installed through the MCP server from an empty Codemm home:
 
   | Track | Styles | Install time |

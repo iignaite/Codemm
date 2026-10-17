@@ -21,6 +21,9 @@ describe("parseTrackYaml", () => {
     ["a learner file under tests/", `id: c\nversion: 1\nstyles: [io]\nfiles: [tests/01.in]\nrun: x\n`, /reserved/],
     ["a learner file under README.md/", `id: c\nversion: 1\nstyles: [io]\nfiles: [README.md/main.sh]\nrun: x\n`, /reserved/],
     ["a file that is also a folder", `id: c\nversion: 1\nstyles: [io]\nfiles: [lib, lib/a.sh]\nrun: x\n`, /folder/],
+    ["readme.md in another case", `id: c\nversion: 1\nstyles: [io]\nfiles: [readme.md]\nrun: x\n`, /reserved/],
+    ["Tests/ in another case", `id: c\nversion: 1\nstyles: [io]\nfiles: [Tests/a]\nrun: x\n`, /reserved/],
+    ["a version too long to reference", `id: c\nversion: 1000000000\nstyles: [io]\nfiles: [a]\nrun: x\n`, /version/],
   ])("rejects %s", (_label, yaml, error) => {
     expect(() => parseTrackYaml(yaml)).toThrow(error);
   });

@@ -75,6 +75,11 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
     if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`);
     if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.");
     const frames = parseFrames(result.stdout);
+    // A working driver always reports at least one frame. None at all, or a runtime connection error,
+    // means the runtime failed, not the learner's code, so nothing may be graded or recorded.
+    if (frames.length === 0 || /cannot connect to the docker daemon|error during connect|connection refused/i.test(result.stderr)) {
+      throw new CodemmError("The container runtime failed during the check, so nothing was recorded. Run `codemm doctor`, then retry.");
+    }
     // Never echo a fatal frame's body: code in the container could forge one (DESIGN §4.2).
     if (frames.some((f) => f.kind === "fatal")) throw new CodemmError("The track image is missing a tool Codemm needs (sh, timeout, head, wc, cat or basename).");
     return { frames, flooded: result.flooded };

@@ -35,7 +35,7 @@ export function containerCli(): string {
 /** The full `run` argument list. Pure, so the isolation flags are easy to test. */
 export function sandboxArgs(run: SandboxRun, name: string, user = posixUser()): string[] {
   const args = [
-    "run", "--rm", "--name", name, "--label", OWNER_LABEL,
+    "run", "--rm", "--name", name, "--label", OWNER_LABEL, "--label", `codemm.pid=${process.pid}`,
     "--network", "none",
     "--read-only",
     "--tmpfs", "/tmp:rw,exec,nosuid,nodev,size=256m",
@@ -167,7 +167,23 @@ export async function inspectImage(tag: string): Promise<{ id: string; hasVolume
   return { id: id!, hasVolumes: !!volumes && volumes !== "null" && volumes !== "{}" };
 }
 
-export async function ownedContainers(): Promise<string[]> {
-  const r = await cli(["ps", "-aq", "--filter", `label=${OWNER_LABEL}`]);
-  return r.exit === 0 ? r.output.split(/\s+/).filter(Boolean) : [];
+/** Every container Codemm started, with the PID of the Codemm process that owns it. Throws if listing fails. */
+export async function ownedContainers(): Promise<{ id: string; pid: number }[]> {
+  const r = await cli(["ps", "-a", "--filter", `label=${OWNER_LABEL}`, "--format", '{{.ID}} {{.Label "codemm.pid"}}']);
+  if (r.exit !== 0) throw new CodemmError(`Couldn't list Codemm's containers: ${r.output.trim().slice(0, 300)}`);
+  return r.output.split("\n").filter((l) => l.trim()).map((l) => {
+    const [id, pid] = l.trim().split(/\s+/);
+    return { id: id!, pid: Number(pid) || 0 };
+  });
+}
+
+/** True when the Codemm process that started a container is gone, so the container is abandoned. */
+export function ownerGone(pid: number): boolean {
+  if (!pid) return true;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code !== "EPERM";
+  }
 }

@@ -1,9 +1,25 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { readWorkspace } from "./store.js";
+
+const WARN = "Codemm hook: couldn't read the file path from the hook input; allowing the edit.";
+
+/** Resolves symlinks and aliases (e.g. /tmp vs /private/tmp) through the deepest existing ancestor. */
+function canonical(path: string): string {
+  let existing = path;
+  const rest: string[] = [];
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) break;
+    rest.unshift(basename(existing));
+    existing = parent;
+  }
+  return join(realpathSync(existing), ...rest);
+}
 
 /**
  * Claude Code PreToolUse hook. Exit 2 blocks the edit and shows the message to the agent.
- * A practice aid, not a security boundary: bad input is let through rather than breaking the agent.
+ * A practice aid, not a security boundary: bad input is let through, with a warning, rather than breaking the agent.
  */
 export function claudeHook(ws: string, stdin: string): { exit: 0 | 2; message?: string } {
   let path: unknown;
@@ -11,12 +27,15 @@ export function claudeHook(ws: string, stdin: string): { exit: 0 | 2; message?: 
     const input = JSON.parse(stdin);
     path = input?.tool_input?.file_path ?? input?.tool_input?.notebook_path;
   } catch {
-    return { exit: 0, message: "Codemm hook: couldn't read the hook input; allowing the edit." };
+    return { exit: 0, message: WARN };
   }
-  if (typeof path !== "string" || path === "") return { exit: 0 };
+  if (typeof path !== "string" || path === "") return { exit: 0, message: WARN };
 
-  const rel = relative(resolve(ws, "exercises"), resolve(ws, path));
-  const inside = rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
+  const root = canonical(resolve(ws, "exercises"));
+  const target = canonical(resolve(ws, path));
+  const rel = relative(root, target);
+  // Compare whole path components: "..notes" is a name, ".." is a step out.
+  const inside = rel !== "" && !isAbsolute(rel) && rel.split(sep)[0] !== "..";
   if (!inside) return { exit: 0 };
 
   let assist = false;

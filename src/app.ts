@@ -197,10 +197,11 @@ function noteAssistLocked(course: string, slug: string): void {
 }
 
 export async function getExercise(ws: string, slug?: string) {
-  const { course, record, files, track, rel } = loadExercise(ws, slug);
+  const { course, config, record, files, track, rel } = loadExercise(ws, slug);
   store.materialize(ws, rel, learnerFiles(record, files, track));
-  const config = await store.updateWorkspace(ws, (c) => (c.course === course.course ? { ...c, current: record.slug } : c));
+  // Record assistance before the exercise becomes current, so edits are never allowed without the evidence.
   if (config.assist) await store.withLock(store.courseLockPath(course.course), async () => noteAssistLocked(course.course, record.slug));
+  await store.updateWorkspace(ws, (c) => (c.course === course.course ? { ...c, current: record.slug } : c));
   const visible = subMap(files, "tests/visible");
   return {
     course: course.course,
@@ -322,11 +323,10 @@ export async function skip(ws: string, concept: string): Promise<void> {
 }
 
 export async function setAssist(ws: string, on: boolean): Promise<void> {
-  const config = await store.updateWorkspace(ws, (c) => ({ ...c, assist: on }));
-  if (on && config.course && config.current) {
-    const { course, current } = config;
-    await store.withLock(store.courseLockPath(course), async () => noteAssistLocked(course, current));
-  }
+  // Turning assistance on records the evidence first, then grants the permission.
+  const { course, current } = store.readWorkspace(ws);
+  if (on && course && current) await store.withLock(store.courseLockPath(course), async () => noteAssistLocked(course, current));
+  await store.updateWorkspace(ws, (c) => ({ ...c, assist: on }));
 }
 
 export { assertRuntime };

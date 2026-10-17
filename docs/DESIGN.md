@@ -30,12 +30,12 @@ Each item is verified by an automated test unless marked *journey*. Journeys run
 | A6 | The judge reports `pass`/`fail`/`error` per test for wrong output, crashes, timeouts, build failures, missing tests and malformed reports. Output is capped while running. |
 | A7 | Judge containers run through one function with every flag in §4.3 and are cleaned up on timeout. Adversarial tests prove: no network (with a positive control), no writes to mounted input, process and memory limits hold, output floods are capped, and no owned containers survive a timeout. |
 | A8 | Learner rules (§7) are pure functions of the event log, including repeated-pass, assistance and infrastructure-error rules. |
-| A9 | CLI: `init`, `doctor`, `track add`, `track rebuild`, `tracks`, `test`, `check`, `status`, `skip`, `assist on|off`, `mcp`, `hook claude`, `--version`. |
+| A9 | CLI: `init`, `doctor`, `track add`, `track rebuild`, `tracks`, `test`, `check`, `status`, `skip`, `assist on|off`, `mcp`, `hook claude`, `--version`. Parsing is strict per command: unknown options, missing values and wrong argument counts are errors. |
 | A10 | The MCP server (stdio) exposes `list_tracks`, `save_track`, `save_roadmap`, `next_step`, `save_exercise`, `get_exercise`, `check`, `progress`. A test spawns the **packed** CLI as a real stdio server and calls the tools. |
 | A11 | `codemm init [--host claude|codex|cursor]...` sets up the chosen hosts, all three by default (§9). It is idempotent and preserves unrelated config. |
 | A12 | Practice mode blocks Claude Code's `Edit`, `Write`, `MultiEdit` and `NotebookEdit` under `exercises/` unless assist mode is on. Elsewhere it is advisory, and the docs say so. |
 | A13 | v1 is removed, along with its config and conflicting docs. Build, type check and all tests pass locally and in CI. Version is `1.0.0`. README, migration guide (with tested v1 rollback steps) and release notes are updated. |
-| A14 | *Journey:* starting from an empty Codemm home, an agent installs C, Java (JUnit), Python (pytest) and React (Vitest) tracks through Codemm. At least one exercise per track passes the gates, and a person checks that each statement matches its tests. |
+| A14 | *Journey:* starting from an empty Codemm home, an agent installs C, Java (JUnit), Python (pytest) and React (Vitest) tracks through Codemm, and at least one exercise per track passes the gates. Each statement is checked against its tests by a reviewer other than its author. A person's spot-check is a release step before publishing, not a merge requirement, because the gates explicitly don't guarantee statement quality (§1). |
 | A15 | *Journey:* a learner gets an exercise, runs `test`, fails then passes `check`, and mastery, difficulty and `next_step` change as §7 says. |
 | A16 | *Journey:* Claude Code and Codex each complete an author round trip: tutor, then author subagent, then `save_exercise`, then id only. Cursor is attempted; if it can't be run here, it's marked experimental. |
 
@@ -63,7 +63,8 @@ $CODEMM_HOME (default ~/.codemm)
     events.jsonl                    append-only learner events (check, skip, assist)
     .lock                           held while mutating this course
 
-<workspace>/                        bound explicitly: --workspace for the MCP server, cwd for the CLI
+<workspace>/                        --workspace if given; otherwise learner commands use the nearest folder with
+                                    codemm.json, and every other command (init included) uses the current folder
   codemm.json                       { format_version, course, current, assist }
   exercises/<course>/<slug>/        README.md, learner files, tests/ (visible only)
 ```
@@ -266,7 +267,11 @@ The MCP tools and CLI commands are thin calls into one application module.
 
 ## 9. Host setup (`codemm init`)
 
-`init` writes only the files for the selected hosts. It merges with existing files, replacing only Codemm's own entries and sections. Every launch command uses absolute paths and passes `--workspace <abs>`.
+`init` writes only the files for the selected hosts, under the workspace lock.
+
+- **Merging:** it merges with existing files, replacing only Codemm's own entries and sections. In a shared hook group it removes only Codemm's own hook entry. TOML is parsed and the result re-validated.
+- **Writes:** every file is prepared and validated before any is written. Each is then replaced atomically, never through a symlink.
+- **Launch commands** use absolute paths and pass `--workspace <abs>`.
 
 | File | Contents |
 |---|---|
@@ -287,7 +292,9 @@ The MCP tools and CLI commands are thin calls into one application module.
 
 - **No container runtime:** commands that need one fail with "Start Docker Desktop (or Podman) and retry." `doctor` says which part failed.
 - **Locks** (per course and per track): the file is created exclusively and records the owner's PID. A lock whose PID is no longer running is stale and removed. A second writer waits up to 10 minutes, then gets "Course is busy; retry."
-- **Leftover containers:** found by the `codemm=1` label. `doctor` lists any and removes them with `--fix`.
+- **Leftover containers:** found by the `codemm=1` label. Each container also carries its owner's PID (`codemm.pid`). `doctor --fix` removes only containers whose owner is gone, verifies they're gone, and reports listing or removal failures.
+- **`doctor`'s network check** passes only when an ordinary container reaches the test server and the sandbox doesn't. Anything else is reported as a failure ("inconclusive"), never as success.
+- **Unexpected errors** reach tools and the CLI only as a generic message; details appear with `CODEMM_DEBUG=1`. Damaged records are reported by file name, never by content.
 
 ## 11. Compatibility, migration and rollback
 
@@ -353,6 +360,24 @@ The MCP tools and CLI commands are thin calls into one application module.
 | F14 ancestor `CLAUDE.md` | §9 always ensure a workspace `CLAUDE.md` with the import |
 | New: truncated output false pass | §4.2 output over 64 KB is an error |
 | New: hidden tests leaking through visible diagnostics | §4.2 separate containers per set and a disclosure policy |
+
+**Astra entry-point and integration reviews, 17 Oct 2026.** Resolved:
+
+- unexpected-error and record-error sanitizing;
+- atomic, locked, symlink-safe and fully pre-validated `init`, with structural TOML editing and per-entry hook removal;
+- owner-aware, verified `doctor` with inconclusive network checks;
+- a strict CLI parser and the cwd binding for `init`;
+- canonical, component-wise hook paths with a shape warning;
+- hidden-path redaction in validation errors;
+- case-insensitive name collisions;
+- atomic no-clobber learner files;
+- infrastructure failures (no frames or runtime connection errors) recorded as nothing;
+- assist evidence before permission;
+- one version bound;
+- a full eight-tool stdio round trip;
+- precise rollback claims.
+
+A14's person-check became a release step (above).
 
 **Astra second re-check, 17 Oct 2026.** Five narrow gaps, no new major issues. Resolutions:
 

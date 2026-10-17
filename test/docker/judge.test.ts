@@ -134,7 +134,7 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
     it("kills the container at the host deadline and leaves none behind", async () => {
       await expect(runIo({ ...ioTrack, build: undefined }, "visible", { "main.sh": "read x\nsleep 60\n" }, { "01.in": "x\n" }, { timeMs: 30_000, deadlineMs: 3000 })).rejects.toThrow(/didn't finish/);
       await new Promise((r) => setTimeout(r, 1500));
-      expect(await ownedContainers()).toEqual([]);
+      expect((await ownedContainers()).filter((c) => c.pid === process.pid)).toEqual([]);
     });
   });
 });

@@ -27,6 +27,15 @@ describe("validateFileMap", () => {
     expect(() => validateFileMap({ [path]: "x" })).toThrow(/path/i);
   });
 
+  it("never echoes a path under tests/hidden/", () => {
+    expect(() => validateFileMap({ "tests/hidden/secret-name/../x": "x" })).toThrow(/under tests\/hidden/);
+    expect(() => validateFileMap({ "tests/hidden/secret-name/../x": "x" })).not.toThrow(/secret-name/);
+  });
+
+  it("rejects paths that differ only by case", () => {
+    expect(() => validateFileMap({ "Main.c": "a", "main.c": "b" })).toThrow(/case/);
+  });
+
   it("rejects maps over the size limit", () => {
     expect(() => validateFileMap({ big: "x".repeat(1_048_577) })).toThrow(/1 MB/);
   });

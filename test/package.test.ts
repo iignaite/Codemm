@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { beforeAll, describe, expect, it } from "vitest";
+import { readFileMap } from "../src/files.js";
+import { dockerUp } from "./docker/helpers.js";
 
 const root = join(import.meta.dirname, "..");
 let bin: string;
@@ -49,6 +51,38 @@ describe("packed artifact", () => {
     const hook = run(["hook", "claude", "--workspace", ws], { input: JSON.stringify({ tool_name: "Edit", tool_input: { file_path: join(ws, "exercises/x/y/main.c") } }) });
     expect(hook.status).toBe(2);
     expect(hook.stderr).toMatch(/practice mode/);
+  });
+
+  it.runIf(dockerUp)("runs a full author-and-learner round trip through all eight tools over real stdio", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "codemm-mcp-"));
+    const home = mkdtempSync(join(tmpdir(), "codemm-home-"));
+    const client = new Client({ name: "codemm-test", version: "1.0.0" });
+    await client.connect(new StdioClientTransport({ command: bin, args: ["mcp", "--workspace", ws], env: { ...process.env, CODEMM_HOME: home } as Record<string, string> }));
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const r = await client.callTool({ name, arguments: args }, undefined, { timeout: 600_000 });
+      const text = (r.content as { text: string }[])[0]!.text;
+      if (r.isError) throw new Error(`${name}: ${text}`);
+      return JSON.parse(text);
+    };
+    const fixtures = join(root, "test", "fixtures");
+    try {
+      // A label keeps this image distinct so other test files can't remove it.
+      const track = readFileMap(join(fixtures, "tracks", "shell-io"));
+      track.Dockerfile += "LABEL codemm.test=package\n";
+      expect(await call("save_track", { files: track })).toEqual({ installed: "shell-io@1" });
+      expect(await call("list_tracks")).toEqual([{ track: "shell-io@1", styles: ["io"], files: ["main.sh"] }]);
+      await call("save_roadmap", { course: "shell", roadmap: readFileSync(join(fixtures, "roadmaps", "shell-io.yaml"), "utf8").replace("sh.loops", "sh.more").replace("Loops", "More") });
+      expect(await call("next_step")).toMatchObject({ kind: "author", concept: "sh.basics" });
+      const ex = readFileMap(join(fixtures, "exercises", "io-max"));
+      ex["exercise.yaml"] = ex["exercise.yaml"]!.replace("sh.loops", "sh.basics");
+      expect(await call("save_exercise", { files: ex })).toEqual({ exercise: "max-of-line" });
+      expect(await call("get_exercise", { slug: "max-of-line" })).toMatchObject({ exercise: "max-of-line", files: ["main.sh"] });
+      expect(await call("check")).toMatchObject({ passed: 0, total: 4, recorded: true });
+      await expect(call("get_exercise", { slug: "nope" })).rejects.toThrow(/No exercise/);
+      expect((await call("progress")).concepts[0]).toMatchObject({ id: "sh.basics", attempts: 1 });
+    } finally {
+      await client.close();
+    }
   });
 
   it("serves all eight tools over real stdio", async () => {

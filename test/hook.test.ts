@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -31,6 +31,23 @@ describe("claudeHook", () => {
 
   it("resolves relative paths against the workspace", () => {
     expect(claudeHook(ws, input("Edit", "exercises/c/sum/main.c")).exit).toBe(2);
+  });
+
+  it("sees through symlinked aliases of the workspace", () => {
+    const alias = join(mkdtempSync(join(tmpdir(), "codemm-alias-")), "ws");
+    symlinkSync(ws, alias);
+    expect(claudeHook(ws, input("Edit", join(alias, "exercises/c/sum/main.c"))).exit).toBe(2);
+    expect(claudeHook(alias, input("Edit", join(ws, "exercises/c/sum/main.c"))).exit).toBe(2);
+  });
+
+  it("treats names that start with dots as ordinary names, not as a step out", () => {
+    expect(claudeHook(ws, input("Write", join(ws, "exercises/..notes/file"))).exit).toBe(2);
+    expect(claudeHook(ws, input("Write", join(ws, "..exercises/file"))).exit).toBe(0);
+  });
+
+  it("warns on well-formed JSON with no usable path", () => {
+    const r = claudeHook(ws, JSON.stringify({ tool_name: "Edit", tool_input: { file_path: 42 } }));
+    expect(r).toMatchObject({ exit: 0, message: expect.stringMatching(/couldn't read/i) });
   });
 
   it("lets malformed input through with a warning instead of breaking the agent", () => {

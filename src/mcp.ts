@@ -6,14 +6,16 @@ import { CodemmError } from "./errors.js";
 
 type Result = { content: { type: "text"; text: string }[]; isError?: boolean };
 
-/** Runs a use case and turns its result, or a Codemm error, into tool output. Other errors propagate. */
+/** Runs a use case and turns its result, or any error, into tool output the agent may see. */
 async function respond(work: () => unknown): Promise<Result> {
   try {
     const value = await work();
     return { content: [{ type: "text", text: JSON.stringify(value ?? { ok: true }, null, 2) }] };
   } catch (e) {
     if (e instanceof CodemmError) return { isError: true, content: [{ type: "text", text: e.message }] };
-    throw e;
+    // Unexpected errors may carry internal data (paths, record contents); never pass their text to the agent.
+    if (process.env.CODEMM_DEBUG === "1") process.stderr.write(`${(e as Error).stack ?? String(e)}\n`);
+    return { isError: true, content: [{ type: "text", text: "Codemm hit an unexpected error. Run `codemm doctor`; set CODEMM_DEBUG=1 for details." }] };
   }
 }
 

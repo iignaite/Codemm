@@ -7,6 +7,7 @@ import { doctor } from "./doctor.js";
 import { CodemmError } from "./errors.js";
 import { readFileMap } from "./files.js";
 import { claudeHook } from "./hook.js";
+import { parseCli } from "./args.js";
 import { type Host, HOSTS, init } from "./init.js";
 import { serveMcp } from "./mcp.js";
 
@@ -29,27 +30,15 @@ Usage:
   codemm mcp [--workspace <dir>]                 run the MCP server (your agent starts this)
   codemm hook claude [--workspace <dir>]         Claude Code practice hook (init sets this up)
 
-Options: --workspace <dir> (default: the nearest folder with codemm.json, else the current folder)`;
+Options: --workspace <dir>. Learner commands (status, test, check, skip, assist) default to the nearest folder
+with codemm.json; every other command uses the current folder. Set CODEMM_HOME to move Codemm's data.`;
 
-/** Splits `--name value` flags (repeatable) from positional arguments. */
-function parseArgs(argv: string[]) {
-  const flags = new Map<string, string[]>();
-  const positional: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
-    if (a.startsWith("--")) {
-      const name = a.slice(2);
-      const takesValue = name === "workspace" || name === "host";
-      const value = takesValue ? argv[++i] : "true";
-      if (value === undefined) throw new CodemmError(`--${name} needs a value.`);
-      flags.set(name, [...(flags.get(name) ?? []), value]);
-    } else positional.push(a);
-  }
-  return { flags, positional };
-}
+/** Learner commands find the nearest folder with codemm.json; everything else uses the current folder. */
+const LEARNER_COMMANDS = new Set(["status", "test", "check", "skip", "assist"]);
 
-function findWorkspace(explicit?: string): string {
+function workspaceFor(command: string, explicit?: string): string {
   if (explicit) return resolve(explicit);
+  if (!LEARNER_COMMANDS.has(command)) return process.cwd();
   let dir = process.cwd();
   for (;;) {
     if (existsSync(join(dir, "codemm.json"))) return dir;
@@ -80,22 +69,20 @@ function describeStep(step: app.NextStep): string {
 }
 
 async function main(argv: string[]): Promise<number> {
-  const { flags, positional } = parseArgs(argv);
-  const [command, ...rest] = positional;
-  const ws = findWorkspace(flags.get("workspace")?.[0]);
+  const { command, args: rest, options } = parseCli(argv);
+  const ws = workspaceFor(command, options.workspace?.[0]);
 
-  if (flags.has("version") || command === "version") return print(VERSION), 0;
   switch (command) {
     case "init": {
-      const hosts = (flags.get("host") ?? []) as Host[];
+      const hosts = (options.host ?? []) as Host[];
       for (const h of hosts) if (!HOSTS.includes(h)) throw new CodemmError(`Unknown host "${h}". Use ${HOSTS.join(", ")}.`);
-      const written = init(ws, hosts, { command: process.execPath, args: [fileURLToPath(import.meta.url)] });
+      const written = await init(ws, hosts, { command: process.execPath, args: [fileURLToPath(import.meta.url)] });
       print(`Set up ${ws}:\n${written.map((f) => `  ${f}`).join("\n")}`);
       print("Next: open this folder in your agent and ask it to teach you something. Codex needs this project marked as trusted to load .codex/config.toml.");
       return 0;
     }
     case "doctor": {
-      const checks = await doctor(flags.has("fix"));
+      const checks = await doctor(options.fix !== undefined);
       for (const c of checks) print(`${c.ok ? "✓" : "✗"} ${c.name}: ${c.detail}`);
       return checks.every((c) => c.ok) ? 0 : 1;
     }
@@ -116,8 +103,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "skip":
-      if (!rest[0]) throw new CodemmError("Name the concept to skip: codemm skip <concept>.");
-      await app.skip(ws, rest[0]);
+      await app.skip(ws, rest[0]!);
       print(`Marked ${rest[0]} as known.`);
       return 0;
     case "assist":
@@ -129,13 +115,13 @@ async function main(argv: string[]): Promise<number> {
       for (const t of app.listTracks()) print(`${t.track}  styles: ${t.styles.join(", ")}  files: ${t.files.join(", ")}`);
       return 0;
     case "track": {
-      if (rest[0] === "add" && rest[1]) {
-        const r = await app.saveTrack(readFileMap(resolve(rest[1])));
+      if (rest[0] === "add") {
+        const r = await app.saveTrack(readFileMap(resolve(rest[1]!)));
         print(r.unchanged ? `${r.installed} is already installed.` : `Installed ${r.installed}.`);
         return 0;
       }
-      if (rest[0] === "rebuild" && rest[1]) {
-        const r = await app.rebuildTrack(rest[1]);
+      if (rest[0] === "rebuild") {
+        const r = await app.rebuildTrack(rest[1]!);
         print(`Rebuilt ${r.rebuilt}; ${r.exercises} exercise(s) re-verified.`);
         return 0;
       }
@@ -151,7 +137,9 @@ async function main(argv: string[]): Promise<number> {
       if (r.message) process.stderr.write(`${r.message}\n`);
       return r.exit;
     }
-    case undefined:
+    case "version":
+      print(VERSION);
+      return 0;
     case "help":
       print(USAGE);
       return 0;
@@ -169,7 +157,9 @@ main(process.argv.slice(2)).then(
       process.stderr.write(`${e.message}\n`);
       process.exitCode = 1;
     } else {
-      process.stderr.write(`Unexpected error: ${(e as Error).stack ?? String(e)}\n`);
+      // Unexpected errors may carry internal data; show details only on request.
+      const detail = process.env.CODEMM_DEBUG === "1" ? `\n${(e as Error).stack ?? String(e)}` : " Set CODEMM_DEBUG=1 for details.";
+      process.stderr.write(`Codemm hit an unexpected error.${detail}\n`);
       process.exitCode = 2;
     }
   },

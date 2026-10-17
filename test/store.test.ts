@@ -78,6 +78,17 @@ describe("materialize", () => {
   });
 });
 
+describe("corrupted records", () => {
+  it("reports a bad exercise record without echoing its contents", async () => {
+    const { listExercises } = await import("../src/store.js");
+    const dir = join(home, "courses", "demo", "exercises", "x");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "exercise.json"), JSON.stringify({ format_version: 1, slug: "x", expected: { "hidden/SECRET_TEST_NAME": 5 } }));
+    expect(() => listExercises("demo")).toThrow(/exercise\.json/);
+    expect(() => listExercises("demo")).not.toThrow(/SECRET_TEST_NAME/);
+  });
+});
+
 describe("generated records", () => {
   it("reads an exercise at the author file limit plus Codemm's own record", async () => {
     const { readExercise } = await import("../src/store.js");

@@ -31,7 +31,7 @@ function parseWith<T>(schema: z.ZodType<T>, yaml: string, what: string): T {
 const TrackYaml = z
   .object({
     id: Id,
-    version: z.number().int().positive("version must be a positive integer"),
+    version: z.number().int().positive("version must be a positive integer").max(999_999_999, "version must have at most 9 digits"),
     styles: z.array(Style).min(1),
     files: z.array(z.string()).min(1).max(20),
     build: z.string().min(1).max(2000).optional(),
@@ -44,7 +44,7 @@ const TrackYaml = z
 export type TrackSpec = Omit<z.infer<typeof TrackYaml>, "limits"> & { limits: { time_ms: number; memory_mb: number } };
 
 /** Learner files share a folder with the statement and visible tests, so these names are taken. */
-const isReserved = (f: string) => ["README.md", "tests"].some((r) => f === r || f.startsWith(`${r}/`));
+const isReserved = (f: string) => ["readme.md", "tests"].some((r) => f.toLowerCase() === r || f.toLowerCase().startsWith(`${r}/`));
 
 export function parseTrackYaml(yaml: string): TrackSpec {
   const t = parseWith(TrackYaml, yaml, "track.yaml");
@@ -53,7 +53,9 @@ export function parseTrackYaml(yaml: string): TrackSpec {
     if (isReserved(f)) throw new CodemmError(`Invalid track.yaml: "${f}" is reserved for the statement and visible tests. Rename the learner file.`);
   }
   if (new Set(t.files).size !== t.files.length) throw new CodemmError("Invalid track.yaml: files lists the same file twice.");
-  const clash = t.files.find((f) => t.files.some((g) => g.startsWith(`${f}/`)));
+  const lower = t.files.map((f) => f.toLowerCase());
+  if (new Set(lower).size !== lower.length) throw new CodemmError("Invalid track.yaml: two learner files differ only by case.");
+  const clash = t.files.find((f) => lower.some((g) => g.startsWith(`${f.toLowerCase()}/`)));
   if (clash) throw new CodemmError(`Invalid track.yaml: "${clash}" can't be both a file and a folder.`);
   if (t.styles.includes("io") && !t.run) throw new CodemmError("Invalid track.yaml: an io track needs a run command.");
   if (t.styles.includes("unit") && !t.test) throw new CodemmError("Invalid track.yaml: a unit track needs a test command.");

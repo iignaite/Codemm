@@ -137,6 +137,17 @@ export async function withLock<T>(path: string, work: () => Promise<T>, waitMs =
   }
 }
 
+// ---------- records ----------
+
+/** Parses one of Codemm's own records. A bad record is reported by file, never by echoing its contents. */
+function parseRecord<T>(schema: { parse: (v: unknown) => T }, file: string): T {
+  try {
+    return schema.parse(JSON.parse(readFileSync(file, "utf8")));
+  } catch {
+    throw new CodemmError(`Codemm's record ${file} is damaged. Restore it from a backup, or remove that track, course or exercise.`);
+  }
+}
+
 // ---------- atomic writes ----------
 
 function writeJsonAtomic(path: string, value: unknown): void {
@@ -166,7 +177,7 @@ export function commitFolder(target: string, files: FileMap, records: Record<str
 export function readTrack(ref: string): TrackRecord | undefined {
   const file = join(trackDir(ref), "track.json");
   if (!existsSync(file)) return undefined;
-  return TrackRecord.parse(JSON.parse(readFileSync(file, "utf8")));
+  return parseRecord(TrackRecord, file);
 }
 
 /** The track's own files, without Codemm's track.json. */
@@ -191,7 +202,7 @@ export function listTracks(): TrackRecord[] {
 export function readCourse(course: string): CourseRecord | undefined {
   const file = join(courseDir(course), "course.json");
   if (!existsSync(file)) return undefined;
-  return CourseRecord.parse(JSON.parse(readFileSync(file, "utf8")));
+  return parseRecord(CourseRecord, file);
 }
 
 export const writeCourse = (record: CourseRecord) => writeJsonAtomic(join(courseDir(record.course), "course.json"), record);
@@ -211,7 +222,7 @@ export function listExercises(course: string): ExerciseRecord[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((n) => !n.startsWith("."))
-    .map((slug) => ExerciseRecord.parse(JSON.parse(readFileSync(join(dir, slug, "exercise.json"), "utf8"))))
+    .map((slug) => parseRecord(ExerciseRecord, join(dir, slug, "exercise.json")))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
@@ -219,7 +230,7 @@ export function readExercise(course: string, slug: string): { record: ExerciseRe
   const dir = exerciseDir(course, slug);
   if (!existsSync(join(dir, "exercise.json"))) throw new CodemmError(`No exercise "${slug}" in course "${course}".`);
   // Codemm's generated record is read on its own so it never counts against the author's limits.
-  const record = ExerciseRecord.parse(JSON.parse(readFileSync(join(dir, "exercise.json"), "utf8")));
+  const record = parseRecord(ExerciseRecord, join(dir, "exercise.json"));
   return { record, files: readFileMap(dir, ["exercise.json"]) };
 }
 
@@ -270,12 +281,15 @@ const workspaceFile = (ws: string) => join(ws, "codemm.json");
 export function readWorkspace(ws: string): WorkspaceConfig {
   const file = workspaceFile(ws);
   if (!existsSync(file)) return { format_version: 1, assist: false };
-  return WorkspaceConfig.parse(JSON.parse(readFileSync(file, "utf8")));
+  return parseRecord(WorkspaceConfig, file);
 }
 
 const workspaceLock = (ws: string) => join(codemmHome(), "locks", `ws-${createHash("sha256").update(ws).digest("hex").slice(0, 16)}.lock`);
 
 /** Read-modify-write of codemm.json, serialized across processes. */
+/** Serializes changes Codemm makes to one workspace (codemm.json, host setup). */
+export const withWorkspaceLock = <T>(ws: string, work: () => Promise<T>) => withLock(workspaceLock(ws), work);
+
 export async function updateWorkspace(ws: string, change: (config: WorkspaceConfig) => WorkspaceConfig): Promise<WorkspaceConfig> {
   return withLock(workspaceLock(ws), async () => {
     const next = change(readWorkspace(ws));
@@ -309,12 +323,21 @@ export function materialize(ws: string, rel: string, files: FileMap): void {
     if (existsSync(current)) continue;
     mkdirSync(dirname(current), { recursive: true });
     assertInside(ws, dirname(current));
-    // O_NOFOLLOW + O_EXCL: never write through a symlink or over an existing file.
-    const fd = openSync(current, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+    // Write a complete temp file, then hard-link it into place: the file appears whole or not at all,
+    // and linking fails rather than replacing anything that appeared in the meantime.
+    const tmp = join(dirname(current), `.codemm-${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
+    const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
     try {
       writeFileSync(fd, contents);
     } finally {
       closeSync(fd);
+    }
+    try {
+      linkSync(tmp, current);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    } finally {
+      unlinkSync(tmp);
     }
   }
 }
