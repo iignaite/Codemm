@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { packaging } from './packaging.cjs';
+import { packaging, releaseTag } from './packaging.cjs';
 
 describe('packaging', () => {
   it('signs ad hoc, with no auto-update, when no signing settings are given', () => {
@@ -44,5 +44,26 @@ describe('packaging', () => {
       publisherName: 'Codemm',
     });
     expect(packaging({ ...env, AZURE_SIGNING_PROFILE: '' }).win.azureSignOptions).toBeUndefined();
+  });
+});
+
+describe('releaseTag', () => {
+  const both = (v: string) => ({ core: v, desktop: v });
+
+  it('accepts a stable tag whose version both packages carry, and requires signing for it', () => {
+    expect(releaseTag('v1.0.0', both('1.0.0'))).toEqual({ version: '1.0.0', prerelease: false });
+  });
+
+  it('marks a tag with a prerelease suffix as a prerelease, which may ship unsigned', () => {
+    expect(releaseTag('v1.0.0-beta.1', both('1.0.0-beta.1'))).toEqual({ version: '1.0.0-beta.1', prerelease: true });
+  });
+
+  it('refuses a tag when either package carries another version', () => {
+    expect(() => releaseTag('v1.0.0-beta.1', both('1.0.0'))).toThrow('The core package is 1.0.0, but the tag is v1.0.0-beta.1.');
+    expect(() => releaseTag('v1.0.0', { core: '1.0.0', desktop: '0.9.0' })).toThrow('The desktop package is 0.9.0, but the tag is v1.0.0.');
+  });
+
+  it('refuses anything that is not a version tag', () => {
+    for (const tag of ['1.0.0', 'v1.0', 'v1.0.0+build', 'vnext', 'v1.0.0-']) expect(() => releaseTag(tag, both(tag.slice(1)))).toThrow(/isn't a release tag/);
   });
 });

@@ -42,4 +42,23 @@ describe('course map', () => {
     await user.click(screen.getByRole('button', { name: 'Learn something new' }));
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
   });
+
+  it("says Codemm's records need a repair, and how", async () => {
+    const { api } = await mockWithCourse();
+    api.course = () => Promise.reject(new Error("codemm:repair\nThe learning log /h/events.jsonl has an invalid entry on line 3. Fix or remove that line, then retry."));
+    renderApp({ to: 'learn' }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Codemm's records need a repair.");
+    expect(alert).toHaveTextContent('The learning log /h/events.jsonl has an invalid entry on line 3. Fix or remove that line, then retry.');
+    expect(alert).not.toHaveTextContent('codemm:repair');
+  });
+
+  it("shows Codemm's own message for any other failure, not a connection problem", async () => {
+    const { api } = await mockWithCourse();
+    api.course = () => Promise.reject(new Error('Track python@3 offers unit, not style "io".'));
+    renderApp({ to: 'learn' }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Track python@3 offers unit, not style "io".');
+    expect(alert).not.toHaveTextContent("Couldn't reach Codemm.");
+  });
 });

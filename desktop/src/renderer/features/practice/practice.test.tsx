@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { scenario } from '../../../main/mock';
 import { mockWithCourse, renderApp } from '../../test-utils';
 
@@ -131,6 +131,52 @@ describe('practice', () => {
     expect(await within(screen.getByRole('log')).findByText(/In practice mode, you write the code\./)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Hint' }));
     expect(await within(screen.getByRole('log')).findByText('Give me a hint.')).toBeInTheDocument();
+  });
+
+  it('asks Codemm only after the latest code is saved, and not at all if the save fails', async () => {
+    const { api, user } = await open();
+    const saveFile = api.saveFile;
+    const saves: { text: string; finish: (ok: boolean) => void }[] = [];
+    api.saveFile = (id, path, text, digest) =>
+      new Promise((done, failed) => saves.push({ text, finish: (ok) => (ok ? done(saveFile(id, path, text, digest)) : failed(new Error('disk full'))) }));
+    const asked: string[] = [];
+    const ask = api.ask;
+    api.ask = (place, text) => (asked.push(text), ask(place, text));
+
+    await write(user, 'count + 1');
+    await user.click(screen.getByRole('button', { name: 'Hint' }));
+    await vi.waitFor(() => expect(saves.map((s) => s.text)).toEqual(['count + 1']));
+    expect(asked).toEqual([]); // still saving: Codemm hasn't been asked
+    saves[0].finish(true);
+    await vi.waitFor(() => expect(asked).toEqual(['Give me a hint.']));
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Hint' })).toBeEnabled());
+
+    await write(user, 'count + 2');
+    await user.click(screen.getByRole('button', { name: 'Show me' }));
+    await vi.waitFor(() => expect(saves).toHaveLength(2));
+    saves[1].finish(false);
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(asked).toEqual(['Give me a hint.']); // the failed save kept the question back
+    expect(screen.getByRole('button', { name: 'Show me' })).toBeEnabled();
+  });
+
+  it('takes one question at a time: asking is off while Codemm answers', async () => {
+    const { api, user } = await open();
+    let answer!: () => void;
+    let asked = 0;
+    const ask = api.ask;
+    api.ask = (place, text) => (asked++, new Promise((done) => (answer = () => done(ask(place, text)))));
+    await user.click(screen.getByRole('button', { name: 'Hint' }));
+    await vi.waitFor(() => expect(asked).toBe(1));
+    expect(screen.getByRole('button', { name: 'Hint' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Show me' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'And now?{Enter}');
+    expect(asked).toBe(1);
+    answer();
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    expect(asked).toBe(2);
   });
 
   it('offers calm ways forward when stuck, including an easier topic', async () => {

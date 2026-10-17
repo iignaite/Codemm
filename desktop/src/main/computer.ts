@@ -49,3 +49,11 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
     return { platform: platformOf(platform), checks, ready: !problem };
   };
 }
+
+/**
+ * Waits while Docker is starting: setup and checks started then wait for the daemon,
+ * within the same 3-minute window Check this computer shows, before they fail (§6.1).
+ */
+export async function waitWhileStarting(computer: () => Promise<Computer>, nap: () => Promise<void>): Promise<void> {
+  while ((await computer()).checks.some((c) => c.id === 'docker-running' && c.detail === 'starting')) await nap();
+}

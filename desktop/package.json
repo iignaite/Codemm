@@ -16,11 +16,12 @@
     "test": "vitest run",
     "build": "vite build && tsc -p tsconfig.node.json && node scripts/bundle-core.mjs",
     "start": "npm run build && electron .",
-    "test:e2e": "npm run build && playwright test e2e/smoke.spec.ts",
+    "test:e2e": "npm run build && playwright test e2e/smoke.spec.ts e2e/a11y.spec.ts",
     "dist": "npm run build && electron-builder --config electron-builder.config.cjs --publish never",
     "test:packaged": "playwright test e2e/packaged.spec.ts e2e/artifact.spec.ts"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@electron/asar": "^3.4.1",
     "@playwright/test": "^1.64.1",
     "@testing-library/jest-dom": "~6.9.1",
