@@ -73,6 +73,7 @@ $CODEMM_HOME (default ~/.codemm)
 - **Format versions.** Only the files Codemm writes (`course.json`, `exercise.json`, `track.json`, `events.jsonl` records, `codemm.json`) carry `format_version: 1`. Loaders reject unknown versions.
 - **File maps.** Author input is a file map: `{ "relative/path": "text" }` over MCP, or a directory for the CLI.
   - Paths must be relative, `/`-separated, with no `.` or `..` parts.
+  - Track and exercise paths may not contain `:` or have a name ending in `.` or a space (`assertPortablePaths`). These are the cases that break a checkout on Windows; other names Windows rejects are not checked.
   - At most 256 files and 1 MB in total.
   - Directory input may not contain symlinks or special files.
   - Roadmap YAML may be at most 64 KB and 200 concepts.
@@ -132,7 +133,7 @@ Every judge container gets:
 - `--memory`, with an equal `--memory-swap`, from `min(limits.memory_mb, 2048)`;
 - `--cpus 2` and `--pids-limit 256`;
 - `--security-opt no-new-privileges` and `--cap-drop ALL`;
-- `--user <uid>:<gid>` on POSIX;
+- `--user <uid>:<gid>` on POSIX, and `--user 65534:65534` (the unprivileged "nobody") on Windows, which has no uid;
 - `--entrypoint /bin/sh`, `--no-healthcheck`, and `--log-opt max-size=1m`.
 
 Other ceilings:
@@ -291,7 +292,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 
 ## 10. Failure handling
 
-- **No container runtime:** commands that need one fail with "Start Docker Desktop (or Podman) and retry." `doctor` says which part failed.
+- **No container runtime:** commands that need one fail with what to install and start on that OS (`runtimeHelp`): Docker Desktop on macOS; Docker Desktop with the WSL 2 backend set to Linux containers on Windows; Docker Engine on Linux. A Docker Desktop running Windows containers is reported as such. `doctor` says which part failed.
 - **Locks** (per course and per track): the file is created exclusively and records the owner's PID. A lock whose PID is no longer running is stale and removed. A second writer waits up to 10 minutes, then gets "Course is busy; retry."
 - **Leftover containers:** found by the `codemm=1` label. Each container also carries its owner's PID (`codemm.pid`). `doctor --fix` removes only containers whose owner is gone, verifies they're gone, and reports listing or removal failures.
 - **`doctor`'s network check** passes only when an ordinary container reaches the test server and the sandbox doesn't. Anything else is reported as a failure ("inconclusive"), never as success.
