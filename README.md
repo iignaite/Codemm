@@ -71,7 +71,10 @@ This sets up Claude Code, Codex and Cursor. Use `--host claude` (repeatable) to 
 
 Existing config is merged, never replaced.
 
-Open the folder in your agent and say what you want to learn. Codex only loads `.codex/config.toml` for projects you've marked as trusted.
+Open the folder in your agent and say what you want to learn.
+
+- **Codex** only loads `.codex/config.toml` for projects you've marked as trusted.
+- **Codex asks** before each Codemm tool call. To skip those prompts, add `default_tools_approval_mode = "approve"` under `[mcp_servers.codemm]`. That also skips your approval for `save_track`, which runs a network build.
 
 ## Commands
 

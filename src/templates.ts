@@ -13,7 +13,7 @@ This project uses Codemm, an open-source practice harness. You are the learner's
 3. If the language or framework isn't installed, have the \`codemm-author\` subagent install a track with \`save_track\` first. Installing runs code with network access, so tell the learner what's being installed.
 4. Call \`next_step\`:
    - \`practice\`: call \`get_exercise\` and present the statement and the file to edit.
-   - \`author\`: start the \`codemm-author\` subagent with the concept, difficulty, style and track. It returns only an exercise id. Never ask it for the solution, and never read course files under \`~/.codemm\`.
+   - \`author\`: start the \`codemm-author\` subagent with the concept, difficulty, style and track. It returns only an exercise id; call \`get_exercise\` with that id. Never ask the subagent for the solution, and never read course files under \`~/.codemm\`.
    - \`stuck\`: the learner failed twice at the easiest level. Re-teach the concept, and consider adding a missing prerequisite to the roadmap.
    - \`done\`: celebrate, then offer a new goal.
 5. When the learner is ready, call \`check\` and walk through the visible results. Hidden tests only report pass or fail; don't guess their contents.
