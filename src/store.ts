@@ -284,14 +284,13 @@ export function readWorkspace(ws: string): WorkspaceConfig {
   return parseRecord(WorkspaceConfig, file);
 }
 
-/** One lock per workspace, however its path is spelled (symlinks, case, Windows short names). */
+/**
+ * One lock per workspace, however its path is spelled (symlinks, case, Windows short names). The folder is
+ * created first, so the lock's name can't change when it appears.
+ */
 function workspaceLock(ws: string): string {
-  let id = ws;
-  try {
-    id = realpathSync.native(ws);
-  } catch {
-    // Not created yet; nothing else can have spelled it differently.
-  }
+  mkdirSync(ws, { recursive: true });
+  const id = realpathSync.native(ws);
   return join(codemmHome(), "locks", `ws-${createHash("sha256").update(id).digest("hex").slice(0, 16)}.lock`);
 }
 

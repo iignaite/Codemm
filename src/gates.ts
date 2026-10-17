@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
-import { type FileMap, subMap, validateFileMap, writeFileMap } from "./files.js";
+import { assertPortablePaths, type FileMap, subMap, validateFileMap, writeFileMap } from "./files.js";
 import type { TestResult, TestSet } from "./grading.js";
 import { gradeIoRun, gradeUnitRun, type IoRun, type JudgeTrack, runIo, runUnit, type UnitRun } from "./judge.js";
 import { buildImage, inspectImage } from "./sandbox.js";
@@ -155,7 +155,7 @@ function pickFiles(files: FileMap, folder: string, names: string[], label: strin
 }
 
 function validate(track: TrackRecord, course: CourseRecord, files: FileMap, taken: Set<string>) {
-  validateFileMap(files);
+  assertPortablePaths(validateFileMap(files));
   if (!files["exercise.yaml"]) throw new GateError("valid", "exercise.yaml is missing.");
   if (!files["README.md"]?.trim()) throw new GateError("valid", "README.md (the statement) is missing or empty.");
   let spec: ExerciseSpec;

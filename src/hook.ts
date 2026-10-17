@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { readWorkspace } from "./store.js";
 
@@ -21,10 +21,17 @@ function canonical(path: string): string {
   return join(realpathSync.native(existing), ...rest);
 }
 
-/** True when the disk holding `dir` ignores case: the same folder answers to another case. */
+/** True when the disk holding `dir` ignores case: its own name in another case is the same folder. */
 function caseInsensitive(dir: string): boolean {
-  const swapped = dir.replace(/[a-z]/gi, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
-  return swapped !== dir && existsSync(swapped);
+  const name = basename(dir);
+  const swapped = name.replace(/[a-z]/gi, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
+  if (swapped === name) return false;
+  try {
+    const [a, b] = [statSync(dir, { bigint: true }), statSync(join(dirname(dir), swapped), { bigint: true })];
+    return a.dev === b.dev && a.ino === b.ino;
+  } catch {
+    return false;
+  }
 }
 
 /**

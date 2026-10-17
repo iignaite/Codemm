@@ -55,6 +55,15 @@ describe("claudeHook", () => {
     expect(claudeHook(ws, input("Edit", join(ws, "EXERCISES/C/sum/main.c"))).exit).toBe(caseInsensitive ? 2 : 0);
   });
 
+  it("doesn't mistake a different folder of another case for the same one", () => {
+    // A case-sensitive disk can hold both "ws" and "WS": they are different folders.
+    const parent = mkdtempSync(join(tmpdir(), "codemm-case-"));
+    mkdirSync(join(parent, "ws"));
+    mkdirSync(join(parent, "WS"), { recursive: true });
+    const lower = join(parent, "ws");
+    expect(claudeHook(lower, input("Edit", join(lower, "EXERCISES/c/main.c"))).exit).toBe(caseInsensitive ? 2 : 0);
+  });
+
   it("treats names that start with dots as ordinary names, not as a step out", () => {
     expect(claudeHook(ws, input("Write", join(ws, "exercises/..notes/file"))).exit).toBe(2);
     expect(claudeHook(ws, input("Write", join(ws, "..exercises/file"))).exit).toBe(0);

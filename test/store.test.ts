@@ -77,6 +77,24 @@ describe("withWorkspaceLock", () => {
   });
 });
 
+describe("withWorkspaceLock for a folder that doesn't exist yet", () => {
+  it("is the same lock before and after the folder is created", async () => {
+    const real = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+    const alias = join(mkdtempSync(join(tmpdir(), "codemm-alias-")), "ws");
+    symlinkSync(real, alias);
+    const order: string[] = [];
+    const slow = withWorkspaceLock(join(alias, "new"), async () => {
+      order.push("first in");
+      await new Promise((r) => setTimeout(r, 300));
+      order.push("first out");
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    await withWorkspaceLock(join(real, "new"), async () => order.push("second"));
+    await slow;
+    expect(order).toEqual(["first in", "first out", "second"]);
+  });
+});
+
 describe("materialize", () => {
   it("writes missing files and never overwrites the learner's edits", () => {
     const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));

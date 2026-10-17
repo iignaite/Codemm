@@ -20,11 +20,21 @@ export const describePath = (path: string) => (/^tests\/hidden(\/|$)/i.test(path
 
 export function assertRelativePath(path: string): void {
   const parts = path.split("/");
-  // ":" (streams, drive-relative paths) and names ending in "." or " " are other names for another file on Windows.
-  const ok = path.length > 0 && !/[\\\0:]/.test(path) && parts.every((p) => p !== "" && !/[. ]$/.test(p));
-  if (!ok) {
-    throw new CodemmError(`Invalid path ${describePath(path)}. Use a relative path with "/" separators, no "." or ".." parts, no ":" and no names ending in "." or a space.`);
+  const ok = path.length > 0 && !path.includes("\\") && !path.includes("\0") && parts.every((p) => p !== "" && p !== "." && p !== "..");
+  if (!ok) throw new CodemmError(`Invalid path ${describePath(path)}. Use a relative path with "/" separators and no "." or ".." parts.`);
+}
+
+/**
+ * New author input must also be safe to write on Windows, where ":" names a stream or a drive and a trailing
+ * "." or " " is dropped, so such a name could overwrite another entry. Stored data keeps the rules above.
+ */
+export function assertPortablePaths(map: FileMap): FileMap {
+  for (const path of Object.keys(map)) {
+    if (path.includes(":") || path.split("/").some((p) => /[. ]$/.test(p))) {
+      throw new CodemmError(`Invalid path ${describePath(path)}. Names may not contain ":" or end in "." or a space.`);
+    }
   }
+  return map;
 }
 
 export function validateFileMap(map: FileMap): FileMap {
