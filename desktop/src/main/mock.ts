@@ -337,6 +337,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       course.setup = 'proposing';
     },
 
+    async retryJobs() {
+      delete options.agentProblem;
+    },
+
     async lesson(id) {
       return structuredClone(find(lessons, id));
     },

@@ -1,8 +1,8 @@
 import { _electron as electron, expect, test } from '@playwright/test';
 
-// Launches the built app (with the mock core) and walks the main journey.
+// Launches the built app with the mock (CODEMM_MOCK) and walks the main journey.
 test('connect, computer check, goal, course, lesson and practice', async () => {
-  const app = await electron.launch({ args: ['.'] });
+  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: '' } });
   const page = await app.firstWindow();
   const button = (name: string) => page.getByRole('button', { name, exact: true });
   const heading = (name: string) => page.getByRole('heading', { name, exact: true });

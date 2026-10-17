@@ -17,6 +17,7 @@ const GOOD: Record<keyof CodemmApi, unknown[]> = {
   course: [],
   install: ['a'.repeat(64)],
   retrySetup: [],
+  retryJobs: [],
   lesson: ['values-1'],
   saveNotes: ['values-1', 'A note'],
   markRead: ['values-1'],

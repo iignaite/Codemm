@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "desktop/**"
+      - "src/**"
+      - "package-lock.json"
       - ".github/workflows/desktop.yml"
       - ".github/workflows/desktop-release.yml"
 
@@ -28,7 +30,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+      # The app bundles the core from this repository (DESIGN §7).
+      - name: Install the core's dependencies
+        working-directory: .
+        run: npm ci
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -38,6 +46,17 @@ jobs:
       - run: npm run dist
         env:
           CSC_FOR_PULL_REQUEST: "true"
+      # D1: the packaged app with no Node or npm on PATH.
+      - name: Packaged smoke test
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            app="$(ls -d release/mac-arm64/Codemm.app release/mac/Codemm.app 2>/dev/null | head -1)"
+            export CODEMM_PACKAGED="$PWD/$app/Contents/MacOS/Codemm" CODEMM_RESOURCES="$PWD/$app/Contents/Resources"
+          else
+            export CODEMM_PACKAGED="$PWD/release/win-unpacked/Codemm.exe" CODEMM_RESOURCES="$PWD/release/win-unpacked/resources"
+          fi
+          npm run test:packaged
       - uses: actions/upload-artifact@v4
         with:
           name: codemm-desktop-${{ runner.os }}

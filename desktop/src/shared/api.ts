@@ -134,6 +134,8 @@ export interface CourseView {
   proposal?: Proposal;
   topics: TopicView[];
   done: boolean;
+  /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
+  stalled?: 'plan-limit' | 'signed-out' | 'failed';
 }
 
 export interface Lesson {
@@ -224,6 +226,8 @@ export interface CodemmApi {
   install(digest: string): Promise<void>;
   /** Runs the setup job again, after its proposals failed their gates. */
   retrySetup(): Promise<void>;
+  /** Starts stalled background work again. */
+  retryJobs(): Promise<void>;
 
   lesson(id: string): Promise<Lesson>;
   saveNotes(lessonId: string, notes: string): Promise<void>;

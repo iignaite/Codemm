@@ -4,12 +4,17 @@ import type { CodemmApi } from '../shared/api';
 import { dispatch } from './ipc';
 import { isSafeLink } from './links';
 import { createMock, scenario } from './mock';
+import { liveApi } from './wire';
 
 const page = join(__dirname, '../renderer/index.html');
 
-// Swap the mock for the Codemm core here. Nothing else changes.
-// In development, CODEMM_MOCK=<scenario> acts out an environment state (see mock.ts).
-const codemm: CodemmApi = createMock(app.isPackaged ? {} : scenario(process.env.CODEMM_MOCK));
+// The real core and the learner's agent. In development only, CODEMM_MOCK=<scenario>
+// runs the in-memory mock instead, to click through environment states (mock.ts).
+const quitting = new AbortController();
+const mock = !app.isPackaged && process.env.CODEMM_MOCK !== undefined;
+const codemm: CodemmApi = mock
+  ? createMock(scenario(process.env.CODEMM_MOCK || undefined))
+  : liveApi({ coreDir: app.isPackaged ? join(process.resourcesPath, 'core') : join(__dirname, '../core'), userData: app.getPath('userData'), signal: quitting.signal });
 
 // Windows only ever show the app's own page (navigation and new windows are
 // blocked), so accept calls from a main frame on a file URL and nothing else.
@@ -53,6 +58,9 @@ void app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+// Quitting stops running agent jobs with their whole process groups (§5).
+app.on('before-quit', () => quitting.abort());
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

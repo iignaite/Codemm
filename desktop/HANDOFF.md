@@ -81,14 +81,47 @@ packaging.cjs          electron-builder settings; signing only from the environm
 
 The mock holds no solutions and no hidden tests, and it reports hidden results as statuses only. Its React lesson content exists only for the demo and goes away with the mock.
 
-## Plugging in the core
+## Wiring: the real core and agents (stacked PR)
 
-1. Implement `CodemmApi` on top of the core in the main process.
-2. Replace `createMock(...)` in `src/main/main.ts`.
+The app now runs the real core and the learner's agent. The mock only runs for tests and the dev switcher (`CODEMM_MOCK`).
 
-Failed calls reject with a code from `api.ts` in the message: `SIGNED_OUT` and `NO_AGENT` open connect, `PLAN_LIMIT` and `AGENT_FAILED` show the §5 banner, and `CHANGED` reloads the editor.
+```
+src/main/wire.ts          composition root: bundled core, Docker and agent lookup, the live API
+src/main/live.ts          CodemmApi over core app functions, agent jobs and views
+src/main/views.ts         learner-safe projections and the reply filter (§2.2, D4)
+src/main/courseView.ts    the course as the learner sees it, from progress, lessons, setup and jobs
+src/main/connect.ts       agents: found or not, sign-in yes or no, tested version, recommended model
+src/main/computer.ts      Check this computer: Docker found, answering with Linux containers, sandbox (§6.1)
+src/main/state.ts         desktop.json: chosen agent and tutor sessions, atomic, format_version
+src/main/agent/           agents (launch, parse, status), bridge (spawn, cancel, caps), find, jobs, briefs
+src/main/core/            the core functions used, and adapters for the ones core doesn't have yet
+scripts/bundle-core.mjs   esbuild bundles the repo's core into out/core: cli.mjs (the MCP server) and app.cjs (in-process)
+e2e/packaged.spec.ts      D1, in CI on macOS and Windows: no Node on PATH, the bundled MCP server, a JavaScript agent
+```
 
-Background work is polled: screens re-read the course or the research every 500 ms until it settles. If the core can push changes, swap `useLoad`'s timer for an event.
+**Adapters, marked in the code:**
+- `core/adapters.ts`: functions from the core desktop additions (PR #23), such as lessons, proposals, `getRoadmap` and learner file saves. Until #23 merges, the bundled core doesn't have them, and a call says "This needs the core desktop additions (PR #23)." The `--course`, `--tools` and `--desktop` options of `codemm mcp` come with #23 too.
+- `agent/briefs.ts`: the per-job briefs. The spec puts them in core `templates.ts`.
+
+**Verified here:**
+- Unit tests over fixtures, fake agents and a fake core:
+  - agent stream contracts from the recorded fixtures;
+  - launch flags;
+  - cancel of the whole process group, line caps, and status commands with a deadline and cap;
+  - executable lookup, including `.cmd` shims;
+  - job bounds, the done check, plan-limit and sign-out handling, and at most one relaunch;
+  - views and the reply filter;
+  - the computer check;
+  - the live API flows;
+  - the D4 canary across every IPC handler.
+- The packaged arm64 app, locally: it launched with only a fake JavaScript agent on PATH, its bundled `codemm mcp` answered `list_tracks` through Electron as Node, and the agent connected.
+
+**Not verified yet:**
+- A real-agent journey (D17), and a real-core canary run. Both need #23 merged and Docker.
+- Windows `taskkill` cancellation, except in CI's smoke test.
+- Claude Code's `--tools` value for the research job's web search.
+- The plan-limit markers, until each is recorded as a fixture.
+- Leftover-container cleanup after a crash isn't wired yet: core `doctor --fix`'s rule.
 
 ## Removed for 1.0 (owner's scope, 2026-10-17)
 

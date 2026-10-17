@@ -48,6 +48,7 @@ const ARGS: { [K in keyof CodemmApi]: Valid[] } = {
   course: [],
   install: [digest],
   retrySetup: [],
+  retryJobs: [],
   lesson: [id],
   saveNotes: [id, text(20_000)],
   markRead: [id],
