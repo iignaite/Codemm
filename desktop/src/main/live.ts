@@ -89,7 +89,7 @@ export function createLive(d: LiveDeps): Live {
   // Containers left by an earlier run of the app, whose owner is gone (§5).
   void core.cleanupLeftovers().catch(() => undefined);
   /** The setup the learner approved, and how it went (§4.1). */
-  let setup: { installing?: Promise<void>; approved?: Proposal; problem?: SetupProblem; gateFailures: number; lastGateProblem?: string } = { gateFailures: 0 };
+  let setup: { installing?: Promise<void>; approved?: Proposal; problem?: SetupProblem; gateFailures: number; lastGateProblem?: string; installs: number } = { gateFailures: 0, installs: 0 };
 
   const roadmapOrNull = (): CoreRoadmap | null => {
     try {
@@ -196,7 +196,10 @@ export function createLive(d: LiveDeps): Live {
     const proposal = latestProposal(ref);
     if (proposal) return { state: 'consent', proposal };
     const before = new Set(core.listProposals().map((p) => p.digest));
-    background(`setup:${progress.course}`, 'setup', briefs.setup(ref, setup.lastGateProblem), progress.course, () => core.listProposals().some((p) => p.track === ref && !before.has(p.digest)));
+    // Done once it proposed: the proposal may already be gone if the learner approved it and its gates failed.
+    const installs = setup.installs;
+    const proposed = () => setup.installs > installs || core.listProposals().some((p) => p.track === ref && !before.has(p.digest));
+    background(`setup:${progress.course}`, 'setup', briefs.setup(ref, setup.lastGateProblem), progress.course, proposed);
     return { state: 'proposing' };
   }
 
@@ -233,7 +236,7 @@ export function createLive(d: LiveDeps): Live {
     const after = core.getRoadmap(ws);
     if (after.track !== before.track) {
       await core.dropProposal(before.track);
-      setup = { gateFailures: 0 };
+      setup = { gateFailures: 0, installs: 0 };
     }
     return { outcome, changed: JSON.stringify(after) !== saved, after };
   }
@@ -302,7 +305,7 @@ export function createLive(d: LiveDeps): Live {
       const course = core.getRoadmap(ws).course;
       d.state.update((s) => ({ ...s, approved: course }));
       stalled = undefined;
-      setup = { gateFailures: 0 };
+      setup = { gateFailures: 0, installs: 0 };
     },
 
     async course() {
@@ -322,6 +325,7 @@ export function createLive(d: LiveDeps): Live {
       if (!proposal || proposal.digest !== digest) throw new Error('The setup changed. Look at it again.');
       setup.approved = proposal;
       setup.problem = undefined;
+      setup.installs++;
       setup.installing = core
         .installProposal(ref, digest)
         .then(() => {
@@ -344,7 +348,7 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async retrySetup() {
-      setup = { gateFailures: 0 };
+      setup = { gateFailures: 0, installs: 0 };
       stalled = undefined;
     },
 

@@ -13,7 +13,10 @@ export function briefsFrom(base: Record<JobKind, string>) {
       brief('research', `Course id: ${course}`, `The learner wants to learn: ${topic}`, known ? `They already know: ${known}` : 'They know nothing about it yet.'),
     roadmap: (request: string) => brief('roadmap', `The learner asks: ${request}`),
     easier: (concept: string, title: string) => brief('roadmap', `Make "${title}" (${concept}) easier: add one smaller topic that it requires.`),
-    setup: (track: string, problem?: string) => brief('setup', `Track: ${track}`, problem && `The last proposal failed its checks: ${problem}`),
+    setup: (track: string, problem?: string) => {
+      const [id, version] = track.split('@');
+      return brief('setup', `Propose exactly the track \`${track}\`: id \`${id}\`, version ${version}.`, problem && `The last proposal failed its checks: ${problem}`);
+    },
     lesson: (concept: string, title: string) => brief('lesson', `Concept: ${concept} (${title})`),
     author: () => brief('author'),
     tutor: (place: string, question: string, files?: Record<string, string>) => {

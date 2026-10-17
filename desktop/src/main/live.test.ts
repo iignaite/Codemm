@@ -250,4 +250,29 @@ describe('live CodemmApi', () => {
     await new Promise((res) => setTimeout(res, 10));
     expect(t.jobs.ran).toHaveLength(ran);
   });
+
+  it('a proposal the learner already acted on counts as the setup job\'s work, even after its gates failed', async () => {
+    let acted: () => void = () => {};
+    const actedOn = new Promise<void>((r) => (acted = r));
+    const t = live({
+      setup: async () => {
+        t.c.proposals.push({ track: 'react@1', digest: 'a'.repeat(64), created: new Date().toISOString(), files: { Dockerfile: 'FROM x' } });
+        // The learner approves while the agent is still ending its turn, and the gates reject it.
+        await actedOn;
+        await new Promise((r) => setTimeout(r, 5));
+        return {};
+      },
+    });
+    t.c.install = async () => {
+      acted();
+      throw new Error('Gate 2 failed: the reference solution fails its tests');
+    };
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(proposal!.digest);
+    await until(t.api, () => t.jobs.ran.filter((j) => j.kind === 'setup').length === 2);
+    expect((await t.api.course())!.stalled).toBeUndefined();
+    expect(t.jobs.ran.filter((j) => j.kind === 'setup')[1].brief).toContain('reference solution fails');
+  });
 });
