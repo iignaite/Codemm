@@ -14,7 +14,24 @@ export type JudgeTrack = {
   test?: string | undefined;
   limits: { time_ms: number; memory_mb: number };
 };
-export type RunOptions = { timeMs?: number; deadlineMs?: number };
+/** `onCase`: how many io cases have finished, as each one does, and 0 once the build is done (for progress, never grading). */
+export type RunOptions = { timeMs?: number; deadlineMs?: number; onCase?: (done: number) => void };
+
+/**
+ * Counts finished io cases in the driver's output as it streams. Only the count leaves: no names or output.
+ * Code in the container could print extra frames; that can only move a progress bar, never a grade.
+ */
+function caseCounter(onCase: (done: number) => void): (chunk: Buffer) => void {
+  let seen = Buffer.alloc(0);
+  let reported = -1;
+  return (chunk) => {
+    seen = Buffer.concat([seen, chunk]);
+    const frames = parseFrames(seen);
+    const done = frames.filter((f) => f.kind === "case" || f.kind === "big").length;
+    const built = done > 0 || frames.some((f) => f.kind === "build");
+    if (built && done > reported) onCase((reported = done));
+  };
+}
 
 /** `flooded` and `outOfMemory` mean the program got the whole container killed, so every test in the set is an error. */
 export type IoRun = { build?: RawBuild; cases: RawCase[]; flooded: boolean; outOfMemory?: boolean };
@@ -58,7 +75,7 @@ if [ -f /tmp/report.json ] && [ $(($(wc -c < /tmp/report.json))) -le 1048576 ]; 
 head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc
 exit 0`;
 
-async function runDriver(track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number) {
+async function runDriver(track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number, onStdout?: (chunk: Buffer) => void) {
   const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
   try {
     writeFileMap(join(dir, "src"), src);
@@ -73,6 +90,7 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       ],
       memoryMb: track.limits.memory_mb,
       deadlineMs,
+      ...(onStdout ? { onStdout } : {}),
     });
     if (result.cleanupFailed) throw new CodemmError("A check container couldn't be removed, so nothing was recorded. Run `codemm doctor --fix`, then retry.");
     if (result.timedOut) throw new CodemmError("The check didn't finish in time, so nothing was recorded. Check that the container runtime is healthy and retry.");
@@ -110,7 +128,7 @@ export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, input
   const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * (timeMs + 1000) + SLACK_MS;
   const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_TIME_S: seconds(timeMs) };
   if (track.build) env.CODEMM_BUILD = track.build;
-  const { frames, flooded, outOfMemory } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline);
+  const { frames, flooded, outOfMemory } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, opts.onCase && caseCounter(opts.onCase));
 
   const buildFrame = frames.find((f) => f.kind === "build");
   const stderrOf = new Map(frames.filter((f) => f.kind === "stderr").map((f) => [f.name, f.body]));

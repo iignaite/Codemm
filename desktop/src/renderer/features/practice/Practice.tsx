@@ -38,12 +38,16 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
   async function attempt(label: string, work: () => Promise<Shown>) {
     const before = shown;
     setShown({ kind: 'busy', label });
+    // While the tests run, show how far they've got.
+    const stop = api.onCheckProgress((progress) => setShown((s) => (s.kind === 'busy' ? { ...s, progress } : s)));
     try {
       await save();
       setShown(await work());
     } catch (e) {
       setShown(before);
       fail(e);
+    } finally {
+      stop();
     }
   }
 

@@ -187,6 +187,13 @@ export interface Activity {
 
 export type TestStatus = 'pass' | 'fail' | 'error';
 
+/** Progress through Try it or Check. Hidden tests are counted, never named; `total` 0 means not counted (unit tests). */
+export interface CheckProgress {
+  phase: 'building' | 'visible' | 'hidden';
+  done: number;
+  total: number;
+}
+
 /** One test result. A hidden test has no name or detail: an index and a status only. */
 export type TestView =
   | { hidden: false; name: string; status: TestStatus; message?: string; actual?: string }
@@ -227,6 +234,8 @@ export interface CodemmApi {
   connect(agent: AgentId): Promise<Agent>;
   /** Chooses the model for an agent's jobs, one of its `models`. */
   chooseModel(agent: AgentId, model: string): Promise<Agent>;
+  /** Hears progress while Try it or Check runs; returns a function that stops listening. An event, not a call. */
+  onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
   computer(): Promise<Computer>;
   tracks(): Promise<Track[]>;
 
@@ -269,4 +278,6 @@ export interface CodemmApi {
 /** What the preload script exposes as `window.codemm`. */
 export interface Bridge {
   invoke(method: string, args: unknown[]): Promise<unknown>;
+  /** The one event main sends: check progress, to the app window only. */
+  onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
 }

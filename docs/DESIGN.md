@@ -126,6 +126,12 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
   3. A report is `{ "tests": [ { "name", "status": "pass"|"fail"|"error", "message"? } ] }`. It must be non-empty, with unique names.
 - **Unit inventory.** When an exercise is verified, Codemm records the reference's test names for each set. At check time, a test missing from the learner's report counts as `error`, and unknown extra names are ignored, so the denominator never shrinks.
 - **Known limitation: results can be forged from inside.** The driver (PID 1) holds the container's output stream on a saved descriptor while a case runs. A program running as the same user could write forged frames to it through `/proc/1/fd`. This doesn't weaken host isolation, but it does mean grading is honor-system, consistent with §1 and §2. Tamper-proof grading would need a separate trusted grader and is out of scope for 1.0.
+- **Progress.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }`:
+  - `phase` is `building`, `visible` or `hidden`;
+  - io reports each test as it finishes, counted from the frames as they stream;
+  - unit, whose runner reports at the end, reports each phase once with `total` 0;
+  - hidden tests are counted, never named.
+  Code in the container could print extra frames, but that can only move progress, never a grade.
 - **Disclosure.** Visible results include messages and program output. Hidden results include only an index and a status: no messages, output or names leave Codemm, in tool output, CLI output or gate diagnostics.
 
 ### 4.3 Host-owned sandbox settings

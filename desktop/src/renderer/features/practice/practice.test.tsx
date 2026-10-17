@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { scenario } from '../../../main/mock';
@@ -158,6 +158,28 @@ describe('practice', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(asked).toEqual(['Give me a hint.']); // the failed save kept the question back
     expect(screen.getByRole('button', { name: 'Show me' })).toBeEnabled();
+  });
+
+  it('shows quiet progress while a check runs: the phase and "3 of 8"', async () => {
+    const { api, user } = await open();
+    let send!: (p: { phase: 'building' | 'visible' | 'hidden'; done: number; total: number }) => void;
+    api.onCheckProgress = (listener) => ((send = listener), () => undefined);
+    let finish!: () => void;
+    const check = api.check;
+    api.check = (id) => new Promise((done) => (finish = () => done(check(id))));
+    await write(user, 'count + 1');
+    await user.click(screen.getByRole('button', { name: 'Check' }));
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    act(() => send({ phase: 'hidden', done: 3, total: 8 }));
+    const bar = within(results()).getByRole('progressbar', { name: 'Hidden tests' });
+    expect(bar).toHaveAttribute('aria-valuenow', '3');
+    expect(bar).toHaveAttribute('aria-valuemax', '8');
+    expect(results()).toHaveTextContent('3 of 8');
+    act(() => send({ phase: 'building', done: 0, total: 0 }));
+    expect(within(results()).getByRole('progressbar', { name: 'Building' })).not.toHaveAttribute('aria-valuenow');
+    finish();
+    await within(results()).findByRole('heading', { name: '4 of 4 passed' });
+    expect(within(results()).queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
   it('takes one question at a time: asking is off while Codemm answers', async () => {

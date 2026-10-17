@@ -39,7 +39,8 @@ const place: Valid = (v) => shape({ lessonId: id })(v) || shape({ activityId: id
 const words = text(2000, 1);
 const fileText: Valid = (v) => typeof v === 'string' && new TextEncoder().encode(v).length <= MAX_FILE_BYTES;
 
-const ARGS: { [K in keyof CodemmApi]: Valid[] } = {
+// onCheckProgress is an event main sends, never something the renderer may call.
+const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress'>]: Valid[] } = {
   agents: [],
   connect: [oneOf('claude', 'codex', 'cursor')],
   chooseModel: [oneOf('claude', 'codex', 'cursor'), text(64, 1)],
@@ -68,9 +69,9 @@ const ARGS: { [K in keyof CodemmApi]: Valid[] } = {
 /** Validates a renderer call and passes it to Codemm. Throws on anything unexpected. */
 export function dispatch(codemm: CodemmApi, method: unknown, args: unknown): Promise<unknown> {
   if (typeof method !== 'string' || !Object.hasOwn(ARGS, method)) throw new SafeError('Unknown call');
-  const valid = ARGS[method as keyof CodemmApi];
+  const valid = ARGS[method as keyof typeof ARGS];
   if (!Array.isArray(args) || args.length !== valid.length || !valid.every((check, i) => check(args[i]))) throw new SafeError('Bad input');
-  const call = codemm[method as keyof CodemmApi] as (...a: unknown[]) => Promise<unknown>;
+  const call = codemm[method as keyof typeof ARGS] as (...a: unknown[]) => Promise<unknown>;
   return call.apply(codemm, args);
 }
 

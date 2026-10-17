@@ -453,7 +453,13 @@ function present(slug: string, tests: TestResult[], recorded: boolean, note?: st
   };
 }
 
-async function judge(ws: string, slug: string | undefined, includeHidden: boolean, bound?: string) {
+/**
+ * Progress through a check. io reports each test as it finishes; unit, whose runner reports at the end,
+ * reports each phase once with `total` 0. Hidden tests are counted, never named (DESIGN §4.2).
+ */
+export type CheckProgress = { phase: "building" | "visible" | "hidden"; done: number; total: number };
+
+async function judge(ws: string, slug: string | undefined, includeHidden: boolean, bound?: string, onProgress?: (p: CheckProgress) => void) {
   const ctx = loadExercise(ws, slug, bound);
   const { record, files, rel } = ctx;
   await ensureImage(ctx.track);
@@ -465,10 +471,17 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
   for (const set of sets) {
     const t = subMap(files, `tests/${set}`);
     if (record.style === "io") {
-      const run: IoRun = await runIo(track, set, src, t);
+      const total = Object.keys(t).filter((p) => p.endsWith(".in")).length;
+      const report = (done: number) => onProgress?.({ phase: set, done: Math.min(done, total), total });
+      // The build runs in each set's container; showing it once, before the visible tests, keeps the bar calm.
+      if (track.build && set === "visible") onProgress?.({ phase: "building", done: 0, total: 0 });
+      else report(0);
+      const onCase = onProgress && ((done: number) => (done > 0 || set === "visible" ? report(done) : undefined));
+      const run: IoRun = await runIo(track, set, src, t, onCase ? { onCase } : {});
       const expected = Object.fromEntries(Object.entries(record.expected ?? {}).filter(([k]) => k.startsWith(`${set}/`)));
       tests.push(...gradeIoRun(run, expected));
     } else {
+      onProgress?.({ phase: set, done: 0, total: 0 });
       const run: UnitRun = await runUnit(track, src, t);
       tests.push(...gradeUnitRun(set, run, record.inventory?.[set]));
     }
@@ -477,8 +490,8 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
 }
 
 /** Runs the visible tests only. Never recorded. */
-export async function testExercise(ws: string, slug?: string, bound?: string): Promise<CheckView> {
-  const { record, tests } = await judge(ws, slug, false, bound);
+export async function testExercise(ws: string, slug?: string, bound?: string, onProgress?: (p: CheckProgress) => void): Promise<CheckView> {
+  const { record, tests } = await judge(ws, slug, false, bound, onProgress);
   return present(record.slug, tests, false);
 }
 
@@ -486,8 +499,8 @@ export async function testExercise(ws: string, slug?: string, bound?: string): P
  * Runs every test and records the attempt. Infrastructure failures throw before anything is recorded.
  * A check of the unedited starter is graded but records no check event: it isn't an attempt (DESIGN §7).
  */
-export async function checkExercise(ws: string, slug?: string, bound?: string): Promise<CheckView> {
-  const { course, config, record, files, track, src, tests } = await judge(ws, slug, true, bound);
+export async function checkExercise(ws: string, slug?: string, bound?: string, onProgress?: (p: CheckProgress) => void): Promise<CheckView> {
+  const { course, config, record, files, track, src, tests } = await judge(ws, slug, true, bound, onProgress);
   const unedited = track.files.every((f) => src[f] === files[`starter/${f}`]);
   const passed = tests.filter((t) => t.status === "pass").length;
   await store.withLock(store.courseLockPath(course.course), async () => {

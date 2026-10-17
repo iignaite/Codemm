@@ -282,6 +282,19 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 
 With neither option, the server behaves as in core.
 
+
+### 4.7 Check progress
+
+- **Core.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }` (core §4.2).
+  - io reports each test as it finishes; the build, when the track has one, shows once as `building`.
+  - unit, whose runner reports at the end, reports each phase with `total` 0.
+  - Hidden tests are counted, never named.
+- **Desktop.**
+  - `live` passes the callback and keeps only `phase`, `done` and `total`.
+  - Main sends each event to the app's windows only, on the one-way channel `codemm:check-progress`.
+  - The preload exposes it as `onCheckProgress(listener)`, which returns a function that stops listening. It isn't an IPC call: `invoke('onCheckProgress')` is refused.
+- **Renderer.** While Try it or Check runs, the results panel shows a quiet bar with the phase and "3 of 8". With no count, it shows the phase alone.
+
 ## 5. Failure states
 
 Infrastructure failures record nothing. Learner-caused outcomes are graded as `error` and recorded (core §4.3, §7).
@@ -440,7 +453,7 @@ Cut from 1.0 by the owner's scope ledger:
 - **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
 - **Review scheduling** and the prototype's review card, streaks and activity history.
 - **Research sources:** storing and showing the agent's sources with the roadmap. The agent may still research before writing it.
-- **Progress:** streaming check and install progress. Jobs show `running`, `done` or `failed`.
+- **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.7).
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.
 - **Platforms:** Linux installers, Windows and Linux arm64, Colima, and Podman.
 - **Cursor** beyond experimental, and its stream parser.
