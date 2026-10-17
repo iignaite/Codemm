@@ -84,8 +84,28 @@ function probe(files: FileMap, spec: TrackSpec, style: Style) {
   return { pass, fail, inputs, expected };
 }
 
+/** Base images the Dockerfile names without a digest, skipping `scratch` and earlier stages (DESIGN §4.4). */
+export function unpinnedBases(dockerfile: string): string[] {
+  const stages = new Set(["scratch"]);
+  const args = new Map<string, string>();
+  const unpinned: string[] = [];
+  let seenFrom = false;
+  for (const line of dockerfile.replace(/\\\r?\n/g, " ").split("\n")) {
+    // Only ARGs declared before the first FROM can be used in a FROM.
+    const arg = /^\s*ARG\s+(\w+)=(\S+)/i.exec(line);
+    if (arg && !seenFrom) args.set(arg[1]!, arg[2]!.replace(/^(["'])(.*)\1$/, "$2"));
+    const m = /^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?/i.exec(line);
+    if (!m) continue;
+    seenFrom = true;
+    const base = m[1]!.replace(/\$\{?(\w+)\}?/g, (_, name: string) => args.get(name) ?? "");
+    if (!stages.has(base.toLowerCase()) && !base.includes("@sha256:")) unpinned.push(base);
+    if (m[2]) stages.add(m[2].toLowerCase());
+  }
+  return unpinned;
+}
+
 /** Builds a track image and runs its probes (DESIGN §6, track gates 2-5). */
-export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec: TrackSpec; image: string; imageId: string }> {
+export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec: TrackSpec; image: string; imageId: string; warning?: string }> {
   validateFileMap(files);
   if (!files["track.yaml"] || !files.Dockerfile) throw new GateError("valid", "A track needs track.yaml and a Dockerfile.");
   const spec = parseTrackYaml(files["track.yaml"]);
@@ -117,7 +137,11 @@ export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec:
     const pass2 = grade(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
     if (JSON.stringify(pass1) !== JSON.stringify(pass2)) throw new GateError("deterministic", `the ${p.style} pass probe gave different results on a second run.`);
   }
-  return { spec, image, imageId: info.id };
+  const unpinned = unpinnedBases(files.Dockerfile);
+  const warning = unpinned.length > 0
+    ? `Base image not pinned by digest: ${unpinned.join(", ")}. A later rebuild may pull a different image and fail its gates. Pin it as image@sha256:<digest> in the next version.`
+    : undefined;
+  return { spec, image, imageId: info.id, ...(warning ? { warning } : {}) };
 }
 
 // ---------- exercises ----------

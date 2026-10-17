@@ -46,7 +46,7 @@ A track is the environment for one language or framework. It needs:
   - \`run\` (io: reads stdin, writes stdout);
   - \`test\` (unit);
   - \`limits\` (\`time_ms\`, \`memory_mb\`).
-- \`Dockerfile\`. Pin the base image by digest, and install every tool and dependency at build time, because checks run with **no network**.
+- \`Dockerfile\`. Pin the base image by digest (\`image@sha256:...\`; Codemm warns if you don't), and install every tool and dependency at build time, because checks run with **no network**.
 - \`probe/<style>/pass/\` (a correct solution), \`probe/<style>/fail/\` (a wrong one) and \`probe/<style>/tests/\` for each style. io probe tests are \`NN.in\` with a matching \`NN.out\`. Unit probe tests are test files.
 
 How checks run:

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -77,6 +77,8 @@ describe("packed artifact", () => {
       ex["exercise.yaml"] = ex["exercise.yaml"]!.replace("sh.loops", "sh.basics");
       expect(await call("save_exercise", { files: ex })).toEqual({ exercise: "max-of-line" });
       expect(await call("get_exercise", { slug: "max-of-line" })).toMatchObject({ exercise: "max-of-line", files: ["main.sh"] });
+      expect(await call("check")).toMatchObject({ passed: 0, total: 4, recorded: false });
+      writeFileSync(join(ws, "exercises", "shell", "max-of-line", "main.sh"), "read line\necho 1\n");
       expect(await call("check")).toMatchObject({ passed: 0, total: 4, recorded: true });
       await expect(call("get_exercise", { slug: "nope" })).rejects.toThrow(/No exercise/);
       expect((await call("progress")).concepts[0]).toMatchObject({ id: "sh.basics", attempts: 1 });

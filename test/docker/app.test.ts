@@ -33,6 +33,20 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(app.listTracks()).toEqual([{ track: "shell-io@1", styles: ["io"], files: ["main.sh"] }]);
   });
 
+  it("installs a track whose base image isn't pinned by digest, with a warning", async () => {
+    const t = appTrack();
+    const unpinned = {
+      ...t,
+      "track.yaml": t["track.yaml"]!.replace("id: shell-io", "id: shell-unpinned"),
+      Dockerfile: t.Dockerfile!.replace(/^FROM \S+/, "FROM codemm-track-shell-io:1"),
+    };
+    const r = await app.saveTrack(unpinned);
+    expect(r).toMatchObject({ installed: "shell-unpinned@1" });
+    expect(r.warning).toMatch(/digest: codemm-track-shell-io:1\./);
+    // A child image would keep a later test from removing shell-io@1's image.
+    await cli(["image", "rm", "-f", "codemm-track-shell-unpinned:1"]);
+  });
+
   it("enforces roadmap rules", async () => {
     await expect(app.saveRoadmap(ws, "shell", roadmap("shell-io").replace("shell-io@1", "rust@1"))).rejects.toThrow(/not installed/);
     await expect(app.saveRoadmap(ws, "shell", roadmap("shell-io").replace("style: io", "style: unit"))).rejects.toThrow(/style/);
@@ -66,16 +80,27 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(readEvents("shell")).toEqual([]);
   });
 
+  it("grades a check of the unedited starter without recording it", async () => {
+    const r = await app.checkExercise(ws);
+    expect(r).toMatchObject({ passed: 0, total: 4, recorded: false });
+    expect(r.note).toMatch(/starter/);
+    expect(readEvents("shell")).toEqual([]);
+  });
+
   it("records a failed check, then a passing one, and moves on", async () => {
+    const file = join(ws, "exercises", "shell", "max-of-line", "main.sh");
+    writeFileSync(file, "read line\necho 1\n");
     const failed = await app.checkExercise(ws);
     expect(failed).toMatchObject({ passed: 0, total: 4, recorded: true });
+    // One real failed attempt after an unrecorded starter check isn't "stuck".
+    expect(app.progress(ws).concepts[0]).toMatchObject({ id: "sh.basics", stuck: false });
     expect(failed.tests.filter((t) => t.name.startsWith("hidden"))).toEqual([
       { name: "hidden #1", status: "fail" },
       { name: "hidden #2", status: "fail" },
       { name: "hidden #3", status: "fail" },
     ]);
 
-    writeFileSync(join(ws, "exercises", "shell", "max-of-line", "main.sh"), exercise("io-max")["solution/main.sh"]!);
+    writeFileSync(file, exercise("io-max")["solution/main.sh"]!);
     const passed = await app.checkExercise(ws);
     expect(passed).toMatchObject({ passed: 4, total: 4, recorded: true });
     const p = app.progress(ws);
@@ -136,6 +161,16 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     for (let i = 2; i <= 140; i++) many[`tests/visible/${String(i).padStart(3, "0")}.in`] = "3 1 2\n";
     expect(await app.saveExercise(ws, many)).toEqual({ exercise: "many-cases" });
     expect(readdirSync(join(ws, "exercises", "shell", "many-cases", "tests"))).toHaveLength(280);
+  });
+
+  it("keeps assistance evidence and selects the exercise on an unrecorded starter check", async () => {
+    await app.setAssist(ws, true);
+    const r = await app.checkExercise(ws, "many-cases");
+    await app.setAssist(ws, false);
+    expect(r.recorded).toBe(false);
+    expect(readEvents("shell").filter((e) => e.kind === "check" && e.exercise === "many-cases")).toEqual([]);
+    expect(readEvents("shell")).toContainEqual(expect.objectContaining({ kind: "assist", exercise: "many-cases" }));
+    expect(JSON.parse(readFileSync(join(ws, "codemm.json"), "utf8")).current).toBe("many-cases");
   });
 
   it("records nothing when the track image is gone, and rebuild re-validates every exercise", async () => {
