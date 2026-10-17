@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { ask, run, spawnable, type Executable } from './bridge';
+import { ask, run, spawnable, treeKillConfirmed, type Executable } from './bridge';
 
 const parse = (line: string) => (line.startsWith('{') ? [JSON.parse(line) as Record<string, unknown>] : []);
 /** A fake agent: this Node running a script, the way the app runs a JavaScript agent. */
@@ -89,6 +89,16 @@ describe('bridge (D5)', () => {
     } finally {
       if (descendant && alive(descendant)) process.kill(descendant, 'SIGKILL');
     }
+  });
+
+  it('confirms a Windows tree kill only when it worked, or the agent had already ended on its own (N1)', () => {
+    expect(treeKillConfirmed(0, false)).toBe(true);
+    // taskkill's "not found": the agent finished its turn before the kill, like any finished turn.
+    expect(treeKillConfirmed(128, true)).toBe(true);
+    // Any other failure leaves descendants unconfirmed, even with the parent gone.
+    expect(treeKillConfirmed(128, false)).toBe(false);
+    expect(treeKillConfirmed(1, true)).toBe(false);
+    expect(treeKillConfirmed(null, true)).toBe(false);
   });
 
   it('never starts a job cancelled before it starts', async () => {

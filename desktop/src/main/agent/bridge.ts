@@ -29,13 +29,37 @@ function groupAlive(pid: number) {
   }
 }
 
+/** taskkill's exit code when there is no such process. */
+const TASKKILL_NOT_FOUND = 128;
+
+/**
+ * Whether a Windows tree kill is confirmed (§3.1). Only one that worked is, or one that found no process
+ * because the agent had already ended its turn on its own. Any other failure leaves the tree unconfirmed:
+ * with the parent gone, its descendants may still run.
+ */
+export function treeKillConfirmed(code: number | null, exitedOnItsOwn: boolean): boolean {
+  return code === 0 || (code === TASKKILL_NOT_FOUND && exitedOnItsOwn);
+}
+
+/** Whether the process has exited, waiting briefly for Node to report it. */
+function exitedSoon(child: ChildProcess, ms = 2000): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((r) => {
+    const timer = setTimeout(() => r(false), ms);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      r(true);
+    });
+  });
+}
+
 /** Stops a process group: SIGTERM, then SIGKILL after `killAfterMs`. True once it's gone, false if it survived. */
 async function stopGroup(child: ChildProcess, killAfterMs: number): Promise<boolean> {
   const pid = child.pid;
   if (pid === undefined) return true;
   if (windows) {
-    // Only a tree kill that succeeded is confirmed: with the parent gone, its descendants may still run (§3.1).
-    return new Promise((r) => spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on('close', (code) => r(code === 0)).on('error', () => r(false)));
+    const code = await new Promise<number | null>((r) => spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on('close', r).on('error', () => r(null)));
+    return treeKillConfirmed(code, await exitedSoon(child));
   }
   const signal = (sig: NodeJS.Signals) => {
     try {
