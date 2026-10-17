@@ -44,4 +44,21 @@ function packaging(env) {
   };
 }
 
-module.exports = { packaging };
+/**
+ * Checks a release tag (`v1.2.3`, or `v1.2.3-beta.1` for a prerelease) against the
+ * versions of both packages: the core (root package.json), which the app bundles,
+ * and the desktop app. Only a prerelease may ship unsigned (DESIGN §7.1).
+ * @param {string} tag
+ * @param {{ core: string, desktop: string }} versions
+ */
+function releaseTag(tag, versions) {
+  const m = /^v(\d+\.\d+\.\d+)(-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/.exec(tag);
+  if (!m) throw new Error(`"${tag}" isn't a release tag (v1.2.3, or v1.2.3-beta.1 for a prerelease).`);
+  const version = tag.slice(1);
+  for (const [name, v] of Object.entries(versions)) {
+    if (v !== version) throw new Error(`The ${name} package is ${v}, but the tag is ${tag}.`);
+  }
+  return { version, prerelease: Boolean(m[2]) };
+}
+
+module.exports = { packaging, releaseTag };
