@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"01a14a37-ee6b-7e80-a9ad-866101ffacd2"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"exec-f19e5b02-a21a-4660-a0a0-b17cd1e5cfdf","type":"web_search","query":"","action":{"type":"other"}}}
+{"type":"item.completed","item":{"id":"exec-f19e5b02-a21a-4660-a0a0-b17cd1e5cfdf","type":"web_search","query":"site:react.dev/reference/react/useState useState React","action":{"type":"search","query":"site:react.dev/reference/react/useState useState React"},"results":[{"type":"text_result","domain":"uk.react.dev","title":"useState \u2013 React","url":"https://uk.react.dev/reference/react/useState"},{"type":"text_result","domain":"react.dev","title":"Components and Hooks must be pure \u2013 React","url":"https://react.dev/reference/rules/components-and-hooks-must-be-pure"}]}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"https://react.dev/reference/react/useState"}}
+{"type":"turn.completed","usage":{"input_tokens":32987,"cached_input_tokens":14336,"cache_write_input_tokens":0,"output_tokens":59,"reasoning_output_tokens":0}}
