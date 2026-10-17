@@ -1,13 +1,20 @@
-import { app, BrowserWindow, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, ipcMain, net, protocol, shell, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { CodemmApi } from '../shared/api';
 import { errorFields } from './errors';
 import { handler } from './ipc';
 import { isSafeLink } from './links';
 import { createLog } from './log';
+import { CSP, fileFor, fromAppWindow, ORIGIN } from './origin';
 import { liveApi } from './wire';
 
-const page = join(__dirname, '../renderer/index.html');
+const renderer = join(__dirname, '../renderer');
+
+// The app's own origin (§2.1): registered before the app is ready.
+protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true } }]);
+/** The web contents of the app's windows: the only senders IPC answers. */
+const appWindows = new Set<WebContents>();
 
 // The real core and the learner's agent. In development only, CODEMM_MOCK=<scenario>
 // runs the in-memory mock instead, to click through environment states (mock.ts).
@@ -27,12 +34,8 @@ function devMock(): CodemmApi {
   return createMock(scenario(process.env.CODEMM_MOCK || undefined));
 }
 
-// Windows only ever show the app's own page (navigation and new windows are
-// blocked), so accept calls from a main frame on a file URL and nothing else.
-const handle = handler(codemm, log, (event: IpcMainInvokeEvent) => {
-  const frame = event.senderFrame;
-  return Boolean(frame && frame === event.sender.mainFrame && frame.url.startsWith('file:'));
-});
+// Only an app window's top frame, on app://codemm, may call Codemm (§2.1).
+const handle = handler(codemm, log, (event: IpcMainInvokeEvent) => fromAppWindow(event, appWindows));
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -52,16 +55,35 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
-  // Links open in the learner's browser, and only to official install pages.
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  const contents = win.webContents;
+  appWindows.add(contents);
+  win.on('closed', () => appWindows.delete(contents));
+  void win.loadURL(`${ORIGIN}/index.html`);
+}
+
+// Every web contents: no navigation, no webviews, and no new windows. A link opens
+// in the learner's browser, and only for https URLs (§2.1).
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-navigate', (event) => event.preventDefault());
+  contents.on('will-attach-webview', (event) => event.preventDefault());
+  contents.setWindowOpenHandler(({ url }) => {
     if (isSafeLink(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
-  win.webContents.on('will-navigate', (event) => event.preventDefault());
-  void win.loadFile(page);
+});
+
+/** Serves the built renderer on app://codemm, under the spec's CSP, and nothing else. */
+async function serve(request: Request): Promise<Response> {
+  const file = fileFor(request.url, renderer);
+  if (!file) return new Response('Not found', { status: 404 });
+  const response = await net.fetch(pathToFileURL(file).toString());
+  const headers = new Headers(response.headers);
+  headers.set('Content-Security-Policy', CSP);
+  return new Response(response.body, { status: response.status, headers });
 }
 
 void app.whenReady().then(() => {
+  protocol.handle('app', serve);
   ipcMain.handle('codemm', handle);
   createWindow();
   app.on('activate', () => {
