@@ -95,8 +95,11 @@ export function run({ command, args }, parse, { onEvent, signal, cwd, maxLine = 
   });
 }
 
-/** Runs the agent's own status command. Only the yes/no leaves this function; the output is dropped. */
-export function signedIn({ command, args, read }, { timeoutMs = 10_000, maxOutput = 65_536 } = {}) {
+/**
+ * Runs one of the agent's own commands (sign-in status, --version) and returns only what `read` keeps.
+ * The raw output is dropped: status output can hold an email address. Null when it can't run or misses the deadline.
+ */
+export function ask({ command, args, read }, { timeoutMs = 10_000, maxOutput = 65_536 } = {}) {
   return new Promise((resolve) => {
     const child = spawn(command, args, { env: agentEnv(), stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32" });
     let output = "";
@@ -109,7 +112,7 @@ export function signedIn({ command, args, read }, { timeoutMs = 10_000, maxOutpu
     };
     // The deadline settles the answer even if a grandchild keeps the pipes open; the group is stopped in the background.
     const timer = setTimeout(() => {
-      finish(false);
+      finish(null);
       if (child.pid) stopGroup(child, 0);
     }, timeoutMs);
     const collect = (d) => {
@@ -117,7 +120,7 @@ export function signedIn({ command, args, read }, { timeoutMs = 10_000, maxOutpu
     };
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
-    child.on("error", () => finish(false));
+    child.on("error", () => finish(null));
     child.on("close", (code) => finish(read({ code, output })));
   });
 }

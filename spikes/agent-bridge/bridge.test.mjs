@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { run, signedIn } from "./bridge.mjs";
+import { ask, run } from "./bridge.mjs";
 
 const parse = (line) => (line.startsWith("{") ? [JSON.parse(line)] : []);
 const node = (code) => ({ command: process.execPath, args: ["-e", code] });
@@ -80,15 +80,15 @@ test("a parser that throws or an overlong line never crashes the run", async () 
   assert.equal(out.code, 0);
 });
 
-test("signedIn runs the status command and keeps only the yes or no", async () => {
+test("ask runs a status command and returns only what read() keeps; failures give null", async () => {
   const yes = { command: process.execPath, args: ["-e", "console.log('email@example.com logged in')"], read: ({ code, output }) => code === 0 && /logged in/.test(output) };
-  assert.equal(await signedIn(yes), true);
-  assert.equal(await signedIn({ ...yes, args: ["-e", "process.exit(3)"] }), false);
-  assert.equal(await signedIn({ ...yes, command: "/no/such/agent" }), false);
+  assert.equal(await ask(yes), true);
+  assert.equal(await ask({ ...yes, args: ["-e", "process.exit(3)"] }), false);
+  assert.equal(await ask({ ...yes, command: "/no/such/agent" }), null);
   const started = Date.now();
   const holdsPipe = "require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'inherit' }); setInterval(() => {}, 1000)";
-  assert.equal(await signedIn({ ...yes, args: ["-e", holdsPipe] }, { timeoutMs: 300 }), false);
+  assert.equal(await ask({ ...yes, args: ["-e", holdsPipe] }, { timeoutMs: 300 }), null);
   assert.ok(Date.now() - started < 1000, "the deadline holds even when a child keeps the pipe open");
   const chatty = { ...yes, args: ["-e", "console.log('x'.repeat(100000) + ' logged in')"] };
-  assert.equal(await signedIn(chatty, { maxOutput: 1000 }), false, "output past the cap is not read");
+  assert.equal(await ask(chatty, { maxOutput: 1000 }), false, "output past the cap is not read");
 });

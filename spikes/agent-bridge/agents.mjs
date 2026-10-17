@@ -3,7 +3,8 @@
  * how to read its JSON stream as common events, and how to ask whether the learner is signed in.
  *
  * Events: { type: "session", id } | { type: "text", text } | { type: "tool_call", id, name }
- *       | { type: "tool_result", id, error } | { type: "done", ok, error? }
+ *       | { type: "tool_result", id, error } | { type: "done", ok, error?, usage? }
+ * `usage` is what the CLI reports: Claude Code a cost in USD, Codex token counts.
  * MCP tool names are normalized to "<server>.<tool>". Lines of any other shape produce no events.
  */
 
@@ -24,6 +25,18 @@ const toml = (value) =>
       : JSON.stringify(value);
 
 const str = (v) => typeof v === "string";
+const num = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+
+/** Keeps only the fields that are well-formed numbers; undefined when none are. */
+function usage(fields) {
+  const kept = Object.fromEntries(Object.entries(fields).filter(([, v]) => num(v)));
+  return Object.keys(kept).length ? { usage: kept } : {};
+}
+
+/** The CLI versions the recorded fixtures and evidence come from (agent-bridge.md). */
+export const TESTED = { claude: ["2.1.283"], codex: ["0.156.1"], cursor: [] };
+export const isTested = (agent, version) => TESTED[agent]?.includes(version) ?? false;
+const versionRead = (pattern) => ({ code, output }) => (code === 0 ? (plain(output).match(pattern)?.[1] ?? null) : null);
 
 const plain = (text) => text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "");
 
@@ -41,7 +54,9 @@ const claude = {
     const e = json(line);
     if (!e) return [];
     if (e.type === "system" && e.subtype === "init") return str(e.session_id) ? [{ type: "session", id: e.session_id }] : [];
-    if (e.type === "result") return [e.is_error || e.subtype !== "success" ? { type: "done", ok: false, error: String(e.result ?? e.subtype) } : { type: "done", ok: true }];
+    if (e.type === "result") {
+      return [e.is_error || e.subtype !== "success" ? { type: "done", ok: false, error: String(e.result ?? e.subtype) } : { type: "done", ok: true, ...usage({ costUsd: e.total_cost_usd }) }];
+    }
     if (e.type !== "assistant" && e.type !== "user") return [];
     const content = e.message?.content;
     if (!Array.isArray(content)) return [];
@@ -52,6 +67,7 @@ const claude = {
       return [];
     });
   },
+  version: { command: "claude", args: ["--version"], read: versionRead(/^(\d+\.\d+\.\d+)/m) },
   signIn: {
     command: "claude",
     args: ["auth", "status", "--json"],
@@ -83,7 +99,10 @@ const codex = {
     const e = json(line);
     if (!e) return [];
     if (e.type === "thread.started") return str(e.thread_id) ? [{ type: "session", id: e.thread_id }] : [];
-    if (e.type === "turn.completed") return [{ type: "done", ok: true }];
+    if (e.type === "turn.completed") {
+      const u = e.usage ?? {};
+      return [{ type: "done", ok: true, ...usage({ inputTokens: u.input_tokens, cachedInputTokens: u.cached_input_tokens, outputTokens: u.output_tokens }) }];
+    }
     if (e.type === "turn.failed") return [{ type: "done", ok: false, error: String(e.error?.message ?? "turn failed") }];
     const item = e.item;
     if (item?.type === "agent_message" && e.type === "item.completed" && str(item.text)) return [{ type: "text", text: item.text }];
@@ -93,6 +112,7 @@ const codex = {
     }
     return [];
   },
+  version: { command: "codex", args: ["--version"], read: versionRead(/^codex-cli (\d+\.\d+\.\d+)/m) },
   signIn: {
     command: "codex",
     args: ["login", "status"],
@@ -100,8 +120,9 @@ const codex = {
   },
 };
 
-/** Cursor is unverified here (not signed in), so only sign-in detection is implemented. */
+/** Cursor is unverified here (not signed in), so only version and sign-in detection are implemented. */
 const cursor = {
+  version: { command: "cursor-agent", args: ["--version"], read: versionRead(/^(\d{4}\.\d{2}\.\d{2}-[0-9a-f]+)/m) },
   signIn: {
     command: "cursor-agent",
     args: ["status"],

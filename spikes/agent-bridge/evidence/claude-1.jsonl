@@ -1,8 +1,8 @@
-{"ms":6180,"type":"session","id":"273b86fb-1b50-4377-9e35-6baf338384c0"}
-{"ms":8138,"type":"tool_call","id":"toolu_01RRujifwHB57ejsP8iqnXGt","name":"codemm.list_tracks"}
-{"ms":8217,"type":"tool_call","id":"toolu_0145kGCs4gcAp9hAGGHTMysQ","name":"codemm.progress"}
-{"ms":15002,"type":"tool_result","id":"toolu_01RRujifwHB57ejsP8iqnXGt","error":false}
-{"ms":16810,"type":"tool_result","id":"toolu_0145kGCs4gcAp9hAGGHTMysQ","error":true}
-{"ms":18714,"type":"text","text":"No tracks are installed and no course is active in this workspace yet."}
-{"ms":22502,"type":"done","ok":true}
-{"ms":24401,"exit":0,"cancelled":false}
+{"ms":1675,"type":"session","id":"c0d501dc-b40d-43b6-b8b2-17dc88bb49b8"}
+{"ms":3325,"type":"tool_call","id":"toolu_012XuNnfD55tVzKJYSszQ4NG","name":"codemm.list_tracks"}
+{"ms":3393,"type":"tool_call","id":"toolu_01HYbaYitac3dJw8tYbAB53K","name":"codemm.progress"}
+{"ms":3856,"type":"tool_result","id":"toolu_012XuNnfD55tVzKJYSszQ4NG","error":false}
+{"ms":4378,"type":"tool_result","id":"toolu_01HYbaYitac3dJw8tYbAB53K","error":true}
+{"ms":7178,"type":"text","text":"No tracks are installed, and no course roadmap exists yet—you'd need to set one up with `save_roadmap` to get started."}
+{"ms":8606,"type":"done","ok":true,"usage":{"costUsd":0.0241239}}
+{"ms":9452,"code":0,"cancelled":false}

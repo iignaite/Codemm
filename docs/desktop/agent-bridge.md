@@ -10,7 +10,7 @@ The code is in [`spikes/agent-bridge/`](../../spikes/agent-bridge/):
 - `bridge.mjs` handles spawn, line streaming, cancellation and sign-in.
 - `spike.mjs` drives real runs.
 - `evidence/` holds the event logs from the runs below.
-- 17 unit tests run on recorded fixtures and fake agents: `node --test spikes/agent-bridge/*.test.mjs`.
+- 19 unit tests run on recorded fixtures and fake agents: `node --test spikes/agent-bridge/*.test.mjs`. They double as contract tests for the stream formats (DESIGN §3.3).
 
 ## Setup
 
@@ -73,3 +73,5 @@ Timings come from the final runs in `evidence/`, one run each, so they are indic
 - The spike didn't run `cursor-agent mcp enable`, because it changes the owner's Cursor settings.
 - To verify: sign in, then run the same five checks and record a fixture for the parser (DESIGN D16).
 12. **Codex has a web tool by default** (`web__run` in its tool list), which the research job can use. The spike didn't exercise web search for either agent.
+13. **Usage comes from the final event.** Claude Code's `result` event carries `total_cost_usd`, an API-equivalent estimate: $0.024 for a two-tool-call turn on Haiku, even on a plan. Codex's `turn.completed` carries `input_tokens`, `cached_input_tokens` and `output_tokens`: 55,885, 36,736 and 126 for the same turn (`claude-1.jsonl`, `codex-1.jsonl`). Neither reports plan spend. The parser keeps only well-formed numbers (DESIGN §3.4).
+14. **Versions parse from `--version`.** The outputs are `2.1.283 (Claude Code)`, `codex-cli 0.156.1` and `2026.01.23-916f423` (Cursor). `spike.mjs status` flags any version that isn't in `TESTED` (DESIGN §3.3).

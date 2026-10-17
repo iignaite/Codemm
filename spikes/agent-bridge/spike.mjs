@@ -2,7 +2,7 @@
 /**
  * Proof runs against real agent CLIs. Needs `npm run build` first (it serves dist/cli.js).
  *
- *   node spikes/agent-bridge/spike.mjs status
+ *   node spikes/agent-bridge/spike.mjs status      versions (flagging untested ones) and sign-in
  *   node spikes/agent-bridge/spike.mjs run <claude|codex> [--model M] [--root DIR --resume ID] [--cancel-on TYPE] "prompt"
  *
  * Each run gets a fresh temp workspace and CODEMM_HOME, printed as "root"; pass it back with --root to resume,
@@ -15,14 +15,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { agents } from "./agents.mjs";
-import { run, signedIn } from "./bridge.mjs";
+import { agents, isTested } from "./agents.mjs";
+import { ask, run } from "./bridge.mjs";
 
 const cli = fileURLToPath(new URL("../../dist/cli.js", import.meta.url));
 const READ_ONLY_TOOLS = ["list_tracks", "next_step", "get_exercise", "progress"];
 
 async function status() {
-  for (const [name, agent] of Object.entries(agents)) console.log(`${name}: ${(await signedIn(agent.signIn)) ? "signed in" : "not signed in"}`);
+  for (const [name, agent] of Object.entries(agents)) {
+    const version = await ask(agent.version);
+    const signedIn = (await ask(agent.signIn)) === true;
+    console.log(`${name}: ${version ?? "not found"}${version && !isTested(name, version) ? " (untested)" : ""}, ${signedIn ? "signed in" : "not signed in"}`);
+  }
 }
 
 async function runOnce(name, prompt, { model, resume, root = mkdtempSync(join(tmpdir(), "codemm-bridge-")), "cancel-on": cancelOn }) {

@@ -1,9 +1,8 @@
-{"ms":1030,"type":"session","id":"01a14a47-bb98-73b3-b1dc-c073e188a8c3"}
-{"ms":8503,"type":"text","text":"I’ll locate the codemm tools and call `list_tracks` followed by `progress`, once each."}
-{"ms":10676,"type":"tool_call","id":"item_1","name":"codemm.list_tracks"}
-{"ms":10748,"type":"tool_result","id":"item_1","error":false}
-{"ms":10843,"type":"tool_call","id":"item_2","name":"codemm.progress"}
-{"ms":10855,"type":"tool_result","id":"item_2","error":true}
-{"ms":12676,"type":"text","text":"`list_tracks` returned no tracks; `progress` said there’s no course in this workspace yet and suggested planning a roadmap with `save_roadmap`."}
-{"ms":12945,"type":"done","ok":true}
-{"ms":13713,"code":0,"cancelled":false}
+{"ms":1689,"type":"session","id":"01a14a5c-7606-70b0-8e4e-c24b093b0686"}
+{"ms":7779,"type":"tool_call","id":"item_0","name":"codemm.list_tracks"}
+{"ms":7787,"type":"tool_result","id":"item_0","error":false}
+{"ms":7792,"type":"tool_call","id":"item_1","name":"codemm.progress"}
+{"ms":7795,"type":"tool_result","id":"item_1","error":true}
+{"ms":9988,"type":"text","text":"`list_tracks` returned no tracks; `progress` said there’s no course in this workspace yet and suggested planning a roadmap."}
+{"ms":10028,"type":"done","ok":true,"usage":{"inputTokens":55885,"cachedInputTokens":36736,"outputTokens":126}}
+{"ms":10801,"code":0,"cancelled":false}

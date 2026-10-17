@@ -4,14 +4,14 @@
 
 ### What changed
 
-- `docs/desktop/DESIGN.md` is the desktop 1.0 spec: scope, architecture, the agent bridge, core additions, failure states, platforms, packaging, cross-model robustness, D1 to D20, tests, a "Delete or simplify" list, the deferred list and open decisions O1 to O7.
+- `docs/desktop/DESIGN.md` is the desktop 1.0 spec: scope, architecture, the agent bridge, core additions, failure states, platforms, packaging, cross-model robustness, D1 to D22, tests, a "Delete or simplify" list, the deferred list and open decisions O1 to O8.
 - `docs/desktop/agent-bridge.md` has the spike findings for Claude Code and Codex. Cursor is unverified.
-- `spikes/agent-bridge/` holds the proof scripts, recorded fixtures, run evidence and 17 unit tests.
+- `spikes/agent-bridge/` holds the proof scripts, recorded fixtures, run evidence and unit tests.
 - At the owner's request, this branch also removed another product's name from README.md, CHANGELOG.md, docs/DESIGN.md and package.json. Main made the same change in #13, so after merging main nothing outside `docs/desktop/` and `spikes/` differs.
 
 ### How it was verified
 
-- `node --test spikes/agent-bridge/*.test.mjs`: 17 pass.
+- `node --test spikes/agent-bridge/*.test.mjs`: all pass.
 - Real runs on the owner's subscriptions, with API-key variables unset, covered Claude Code (haiku) and Codex (gpt-6-luna):
   - a turn with Codemm tool calls;
   - resume;
@@ -33,3 +33,24 @@
    Each moves its rules into `docs/DESIGN.md`.
 3. The desktop shell ports `spikes/agent-bridge` into `desktop/src/main/agent/`, with the final launch flags (Claude `--tools ""`; Codex `--ignore-user-config`, the shell, subagents and automation off, and `enabled_tools`), job bounds, done checks, the reply filter and the views boundary. Then it deletes the spike.
 4. Verify Cursor once it's signed in (D16), and Codex's web search setting for the research job.
+
+## 2026-10-17 (later): owner-approved additions
+
+### What changed
+
+- **DESIGN.md additions:**
+  - the lesson gate, in §4.4;
+  - usage per run, a rough cost per topic, and cached lessons (§3.4);
+  - agent CLI pinning with a startup check and contract tests (§3.3);
+  - a recommended minimum model from the bench, a placeholder for now (§8);
+  - "Check this computer" (§6.1);
+  - the beta before the public 1.0 (§1, D28);
+  - the signing and auto-update decision (§7.1, O9);
+  - acceptance criteria D23 to D29.
+- `docs/desktop/beta-plan.md`: recruiting, consent, setup, tasks, what to observe, exit criteria and the exit survey.
+- The spike parses usage from `done` events and agent versions from `--version`. The sign-in helper became `ask()`, shared with the version check. 19 tests pass.
+
+### Notes for whoever continues
+
+- Merges now ask the owner first. Commits and PRs carry no attribution lines.
+- The bench results for the minimum model aren't committed yet (`docs/bench`). `models.json` stays `null` until they are.

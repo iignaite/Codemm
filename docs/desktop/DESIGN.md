@@ -1,6 +1,6 @@
 # Codemm desktop 1.0 design
 
-Status: revised after Astra's review and re-check (§14). Approving it needs the owner's decision O8. It extends the core spec, `docs/DESIGN.md`, which stays authoritative for the harness. The core changes in §4 move into `docs/DESIGN.md` in the same PR as their code. The journeys follow the approved prototype (`codemm-journeys.html`, outside this repo). Agent CLI evidence: [agent-bridge.md](agent-bridge.md).
+Status: revised after Astra's review and re-check, with the owner's approved additions (lesson gate, usage, CLI pinning, minimum model, Docker onboarding, beta, signing) reviewed by Astra (§14). Approving it needs the owner's decision O8. It extends the core spec, `docs/DESIGN.md`, which stays authoritative for the harness. The core changes in §4 move into `docs/DESIGN.md` in the same PR as their code. The journeys follow the approved prototype (`codemm-journeys.html`, outside this repo). Agent CLI evidence: [agent-bridge.md](agent-bridge.md).
 
 ## Decisions
 
@@ -12,17 +12,24 @@ Status: revised after Astra's review and re-check (§14). Approving it needs the
 | 4 | "Codemm never calls a model" now reads: **Codemm launches the learner's own agent CLI. It never calls a model API, and it never reads, stores or asks for credentials.** |
 | 5 | Each agent run is one job. A job has a short brief, a Codemm server bound to its course that exposes only that job's tools, the narrowest built-in tools the agent allows, a deadline, a retry bound and a check for whether it worked. Authoring runs in its own process and is never streamed. |
 | 6 | Installing a track stays its own decision. In the app, `save_track` only proposes a track. Codemm builds exactly the files the learner approved, after they click Set up, and never on roadmap approval. |
-| 7 | New core features are the smallest needed: lessons, roadmap read, research sources, a `setup` step, honest skip, install progress events, per-job servers and learner file saves. Review scheduling is deferred. |
-| 8 | Installers are built with electron-builder and are unsigned for 1.0. |
+| 7 | New core features are the smallest needed: lessons with sandbox-checked runnable examples, roadmap read, research sources, a `setup` step, honest skip, install progress events, per-job servers and learner file saves. Review scheduling is deferred. |
+| 8 | Installers are built with electron-builder. They stay unsigned for the beta. Signing and auto-update come once the owner has the accounts (§7.1). |
+| 9 | A private beta with 5 to 10 learners comes before the public 1.0 ([beta-plan.md](beta-plan.md)). |
 
 ## 1. Scope
 
 1.0 is the core harness (`docs/DESIGN.md`, A1 to A16) plus a desktop app that runs the six journeys in the prototype: connect, learn anything, lessons, activities, course, and failure states.
 
+**Release order:**
+
+1. The journeys D14 to D17 pass.
+2. A private beta runs with 5 to 10 learners, one course each, as [beta-plan.md](beta-plan.md) describes.
+3. The public 1.0 ships only after the beta's exit criteria pass (D28) and the owner approves. Core §2 listed the human beta as deferred; it moves here.
+
 Changes from the prototype, following Astra's design review:
 
 - "Best path" becomes "Suggested path".
-- Lessons hold static examples and predict questions. Agent-written code never runs in the app.
+- Lessons hold examples and predict questions. Examples marked runnable are run in the sandbox before the lesson is shown (§4.4). Agent-written code never runs in the app itself.
 - The review card and streaks are cut (deferred, §12).
 - Environments come from `list_tracks`. Nothing in the app is per-language.
 
@@ -155,7 +162,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor i
   |---|---|---|
   | Research | 10 min | — |
   | Setup | 10 min per proposal, then core's 10 min build limit | 3 proposals per setup |
-  | Lesson | 5 min | — |
+  | Lesson | 5 min | 3 failed `save_lesson` calls |
   | Author | 15 min | 3 failed `save_exercise` calls |
   | Tutor and assist | 5 min | — |
 
@@ -175,6 +182,23 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor i
   - "Reread the lesson" opens the lesson.
   - "Try an easier one" runs a roadmap-change job that adds a prerequisite topic. The stuck topic then waits for it, and gets a fresh start afterwards (§4.2).
   - "Come back later" is skip (§4.5).
+
+### 3.3 Agent CLI versions
+
+- **Tested versions.** `agents.ts` lists the CLI versions that the fixtures and the live contract test passed on. They start with Claude Code 2.1.283 and Codex 0.156.1. Cursor has none yet.
+- **Startup check.** At startup and on the connect screen, the app runs `<agent> --version` with the same deadline and output cap as the sign-in check. An untested version shows "Untested version. It may still work." on that agent's connect row. It warns and never blocks. (The spike's `status` command does this.)
+- **Contract tests.**
+  - In CI, the recorded streams for each tested version must parse to their expected events, usage included.
+  - Before a version is added to the list, the owner or a release step runs a live contract test (`npm run test:agents`, outside CI, with signed-in agents and a small model). It covers one turn with Codemm tool calls, a resume and a cancel, and it checks the event shapes and that no process is left. A new version passes only if it does, and its streams are recorded as fixtures.
+
+### 3.4 Usage
+
+- **Recording.** After every agent run, main appends one record to `<userData>/usage/<course>.jsonl`: `{ format_version, at, job, concept, lesson?, exercise?, agent, costUsd?, inputTokens?, cachedInputTokens?, outputTokens? }`.
+  - The numbers are what the CLI reported in its `done` event. Claude Code reports `total_cost_usd`, an API-equivalent estimate even on a plan. Codex reports token counts.
+  - Each record is one agent run, so relaunches and tutor turns count. The number of runs per lesson or activity is the record count.
+  - The file is append-only, and a torn last line is ignored, as with core's event log.
+- **Showing it.** The course view shows a rough figure per topic: "About $0.40 of agent use" when costs were reported, otherwise "About 120k tokens". Figures are rounded to two significant digits. Codemm keeps no price table.
+- **Caching.** Saved lessons are read from the course store. Reopening a lesson, or going back to an activity, starts no agent job.
 
 ## 4. New core capabilities
 
@@ -235,6 +259,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - The id is new in the course, and the concept is in the roadmap.
   - The Markdown is at most 64 KB.
   - A fenced `predict` block holds `question`, `choices` (2 to 4) and `answer` (a choice index). It is checked when saved.
+  - Runnable examples are checked when saved (the lesson gate, below).
 - **Storage.** `courses/<course>/lessons/<id>/` holds:
   - `lesson.json` (`format_version`, id, concept, title, created);
   - `lesson.md`, the agent's text, which is never changed after saving;
@@ -251,7 +276,13 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - an id: the earliest unread lesson.
   - absent: every lesson for the concept has been read.
   The activity stays locked in the app, and the tutor teaches first, until the field is absent. The author job can still run in the background, because the step names the activity. Lessons never change mastery.
-- **Not verified.** Lessons are checked for structure only. Only activities are "checked before you see it". The learner can edit a lesson or tell Codemm when it reads wrong.
+- **The lesson gate.** It covers only examples the agent marks runnable:
+  - **Marking.** A fenced block with the info string `run` holds the example. An optional `stdin` block may follow it. An `output` block must come next, holding what the lesson says it prints.
+  - **What it runs on.** The body becomes the track's single learner file, so runnable examples need an installed track with one learner file and the `io` style. Otherwise `save_lesson` rejects runnable blocks ("Set up the track first, or mark no example runnable"). The first lesson, written while setup runs, therefore has no runnable examples.
+  - **Running.** A lesson may hold at most 5 runnable examples. They run as io cases in one sandbox container through the judge, with every §4.3 flag and the track's limits. The output is compared with core's io normalization.
+  - **Results.** If an example fails to build, errors, times out or prints something other than its `output` block, `save_lesson` saves nothing. It returns which example failed, with the expected and actual output, since lesson examples are public. The lesson job retries within its bound (§3.2), then fails into §5. An infrastructure failure saves nothing and is reported as one.
+  - **Rebuilds.** `track rebuild` re-runs every saved lesson's runnable examples along with the exercises, and fails, listing the lessons, if any output changed.
+  - **Not covered.** Prose and non-runnable code are checked for structure only, and a learner's edits aren't re-run. The learner can edit a lesson or tell Codemm when it reads wrong.
 
 ### 4.5 Honest skip and retry
 
@@ -318,8 +349,22 @@ Infrastructure failures record nothing. Learner-caused outcomes are graded as `e
 | Windows 11 x64 | Docker Desktop with the WSL2 backend; the app runs natively and calls `docker.exe` | D15, otherwise experimental (O3) |
 | Linux x64 | Docker Engine; the user must be in the `docker` group or run rootless | D15, otherwise experimental (O3) |
 
-- Core cross-platform fixes and CI belong to the cross-platform core work. Core already omits `--user` outside POSIX.
+- Core cross-platform fixes and CI belong to the cross-platform core work (PR #16), including the container user on each platform and per-OS runtime help (`runtimeHelp` in `src/sandbox.ts`).
 - The app adds runtime and agent discovery (§3.1) and process-tree cancellation on Windows.
+
+### 6.1 Check this computer
+
+The first run, and every Docker failure in §5, opens "Check this computer". It has three rows, run in order, from core's `doctor` checks:
+
+| Step | Passes when | Fix shown on failure |
+|---|---|---|
+| Docker is installed | the `docker` CLI is found (§3.1 lookup) | macOS and Windows: "Install Docker Desktop." Windows adds the WSL 2 backend. Linux: "Install Docker Engine." Each has a link to Docker's install page. |
+| Docker is running | the daemon answers | macOS and Windows: "Open Docker Desktop." Linux: "Start Docker", plus "Add yourself to the docker group, then sign out and in" when access is denied. The wording comes from core's `runtimeHelp`. |
+| The sandbox works | doctor's network check passes | "Codemm couldn't confirm the sandbox. Restart Docker and check again." |
+
+- Only the first failing row shows its fix.
+- The screen re-checks by itself every 5 seconds, and when the window regains focus. It stops once every row passes, and Continue unlocks.
+- Colima, and Podman on macOS, are deferred until after 1.0 (§12).
 
 ## 7. Packaging
 
@@ -329,8 +374,33 @@ Infrastructure failures record nothing. Learner-caused outcomes are graded as `e
   - macOS needs a right-click and Open, or removing the quarantine attribute.
   - Windows SmartScreen needs More info, then Run anyway.
   - The README states both.
-- **Later, with the owner's accounts.** Signing, notarization and auto-update need the owner's Apple Developer and Windows code-signing accounts, so they are deferred.
 - **CI.** CI builds installers on all three OSes and keeps them as artifacts. Nothing is published.
+
+### 7.1 Signing and auto-update (decision)
+
+**Decision.** Builds stay unsigned for the beta. Before the public 1.0, sign and notarize the macOS build and sign the Windows build. Then turn on auto-update with electron-updater, publishing to GitHub Releases. Auto-update stays off until builds are signed:
+
+- macOS updates (Squirrel.Mac) work only for signed apps.
+- An unsigned Windows update would keep showing SmartScreen warnings.
+- Signing all three platforms at once keeps the update path the same everywhere.
+
+**Why it waits.** Signing needs accounts only the owner can hold:
+
+| Platform | What's needed | Rough cost (check at purchase) |
+|---|---|---|
+| macOS | Apple Developer Program membership, a Developer ID Application certificate, and an App Store Connect API key for notarization | US$99 a year |
+| Windows | One of these: Azure Artifact Signing (formerly Trusted Signing), open to individuals only in the USA and Canada and to organizations in those countries, the EU or the UK; or a cloud-signing OV certificate from a certificate authority | Azure: US$9.99 a month. OV certificate: roughly US$200 to $500 a year. |
+| Linux | nothing; AppImage and deb need no signature for updates | — |
+
+**Owner steps:**
+
+1. Join the Apple Developer Program (as an individual, or as an organization with a D-U-N-S number).
+2. Create a Developer ID Application certificate and export it as a `.p12` file. Create an App Store Connect API key.
+3. Pick the Windows option you're eligible for and set up its signing account.
+4. Add the GitHub Actions secrets: `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`, plus the Windows provider's credentials.
+5. Approve the first signed GitHub Release. Releases are published only with the owner's go-ahead.
+
+**Then (D29):** the CI build is notarized (`spctl -a -vv` accepts it), the Windows installer passes `signtool verify /pa`, and a test install updates from version N to N+1 on each OS.
 
 ## 8. Cross-model robustness
 
@@ -341,6 +411,8 @@ The flow must work from weak to strong models.
 - **No subagents needed.** The app runs authoring as its own process. Hosts or models that handle subagents poorly still get isolation.
 - **Specific errors and bounded retries.** Tool inputs are validated with specific messages that the agent can act on. Retries are bounded (§3.2), and each job's done check reads core records.
 - **Bench.** The cross-model bench (`bench/`) supplies evidence per model.
+- **Minimum model.** `desktop/src/shared/models.json` holds a recommended minimum model per agent, filled from the bench results in `docs/bench`. When it is set, the agent's connect row shows "Works best with ‹model› or newer". Because Codex jobs ignore the learner's config (§3.1), the app also passes that model with `-m`. Claude Code jobs keep the learner's default.
+  **Placeholder:** both entries are `null` until the bench results land. Until then the row shows nothing, and Codex uses its default model.
 
 ## 9. Acceptance criteria
 
@@ -370,6 +442,13 @@ Each item is verified by an automated test unless marked *journey*.
 | D20 | Failure states: each row in §5 maps to a tested screen state. A check with no runtime records nothing and shows "wasn't counted". |
 | D21 | Jobs: switching the active course during an author job doesn't redirect its save. Each job's done check reads core records created after it started. A job whose save committed before a crash isn't relaunched. Cancelling during a check leaves no owned container behind. |
 | D22 | `codemm mcp --tools a,b` lists and accepts only `a` and `b`. `--course` scopes course tools to that course. |
+| D23 | Lesson gate: with the fixture track, a lesson whose runnable example prints its `output` block saves. A wrong output, a build error, a timeout or a sixth runnable block saves nothing and names the example. Runnable blocks are rejected before setup and on multi-file or unit-only tracks. A rebuild that changes an example's output fails and lists the lesson. Docker down saves nothing. |
+| D24 | Usage: recorded `done` events produce one usage record per agent run, with only the numbers the CLI gave. The per-topic figure rounds as §3.4 says. Reopening a saved lesson or activity starts no agent process. A torn last line is ignored. |
+| D25 | CLI versions: `--version` output for each tested version parses, and an untested one shows the warning without blocking. CI parses every tested version's recorded streams. The live contract test exists and checks a tool-call turn, a resume and a cancel. |
+| D26 | Minimum model: with `models.json` entries set, the connect row shows the recommendation and Codex launches with `-m`. With `null`, neither happens. |
+| D27 | Check this computer: with a fake runtime, a missing CLI, a stopped daemon and a failed network check each show only their row's fix, per OS. Fixing the fake makes the screen pass on its own within one re-check. |
+| D28 | *Beta*: the exit criteria in [beta-plan.md](beta-plan.md) pass before the public 1.0, and the results go in the release notes. |
+| D29 | *Once signing is enabled* (§7.1): the macOS build is notarized, the Windows installer is signed, and electron-updater updates N to N+1 on each OS. Auto-update is off in unsigned builds. |
 
 ## 10. Test strategy
 
@@ -377,12 +456,13 @@ Work test-first. For each behavior, write a failing test, make it pass simply, t
 
 - **Core first.** These are unit tests in:
   - `learner`: the lesson field, setup, skip and retry rules;
-  - `schemas`: lessons, sources and predict blocks;
+  - `schemas`: lessons, sources, predict blocks and runnable blocks;
   - `store`: proposals and digests, lessons, learner file replacement and atomicity;
   - `mcp`: `--tools` and `--course`;
   - `app`.
   Docker integration tests cover `installProposal` and its progress events.
-- **Desktop main.** Pure modules get vitest tests: `agents` (launch and parse against recorded fixtures), `views` (the boundary and the reply filter), roadmap edit rules, job bounds and done checks.
+- **Desktop main.** Pure modules get vitest tests: `agents` (launch, parse, usage and versions against recorded fixtures), `views` (the boundary and the reply filter), roadmap edit rules, job bounds and done checks, usage rounding, and the check-this-computer state machine.
+- **The lesson gate** gets Docker integration tests with the POSIX-shell fixture track, like the exercise gates.
 - **The bridge** is tested with fake agent scripts that replay recorded streams. CI never calls a real model. Fixtures are re-recorded when an agent CLI changes its stream, and [agent-bridge.md](agent-bridge.md) records the versions they come from.
 - **Renderer.** A Playwright-for-Electron smoke test runs on each OS, plus the D2 security checks and a screen-text check for D18.
 - **Journeys** D14 to D17 run by hand with real agents on the owner's subscriptions.
@@ -399,6 +479,7 @@ The desktop direction makes some existing core code and docs unnecessary. Each r
 | The two long instruction blocks in `templates.ts` (`AGENTS_SECTION` and `AUTHOR_AGENT`) as the only source of agent rules | The app needs short per-job briefs; two copies of the rules would drift | one set of short job briefs in `templates.ts`; the terminal files are composed from them |
 | "Any UI" in core §2 "Deferred" (the terminal practice-hook limitation for Codex and Cursor stays) | The app is in scope | this spec |
 | README's terminal-first "Start learning" | The app is the main way in | an app-first README, with a short "Use from a terminal" section |
+| "Human beta" in core §2 "Deferred" | The beta now comes before the public 1.0 | §1 release order and [beta-plan.md](beta-plan.md) |
 | `spikes/agent-bridge/` | Throwaway proof | `desktop/src/main/agent/` (delete the spike in that PR) |
 
 **Delete only if the app becomes the only way in (O7):**
@@ -416,12 +497,12 @@ The MCP server, `doctor`, `track add`, `track rebuild` and `tracks` stay either 
 
 - Review scheduling: spacing intervals, priority over new topics and the authoring cost per review are product decisions, not a tiny rule. The prototype's review card is cut.
 - Executable lesson previews, streaks and activity history.
-- Signing, notarization, auto-update, and Windows and Linux arm64 builds.
+- Windows and Linux arm64 builds. Signing and auto-update are decided in §7.1.
 - Token-level streaming (Claude `--include-partial-messages`), a model picker, and signing in from inside the app.
-- Podman in the app, multiple workspaces, and course sharing.
+- Colima, and Podman on macOS (after 1.0); Podman elsewhere in the app; multiple workspaces; course sharing.
 - A Cursor stream parser, until Cursor is verified (D16).
 - Stronger hidden-data protection against agents with file access, which would need a separate grader account or encrypted storage.
-- A usage display or spend cap per job. The CLIs don't report spend reliably on a plan, so §3.2's time and retry bounds are the only limits.
+- A spend cap per job. §3.4 shows rough usage, but the CLIs don't report plan spend, so §3.2's time and retry bounds are the only limits.
 - Practice hooks for terminal Codex and Cursor; protection there stays advisory (core §2).
 
 ## 13. Open decisions for the owner
@@ -436,6 +517,7 @@ The MCP server, `doctor`, `track add`, `track rebuild` and `tracks` stay either 
 | O6 | Model choice. Codex jobs ignore the learner's Codex config (§3.1), so they use Codex's default model; Claude Code jobs use the learner's default. Add a model setting? | No for 1.0. The bench (§8) checks the defaults, and a failure shows "Check your agent". |
 | O7 | Keep the terminal path (`init`, the Claude hook, the author subagent, the learner CLI) in 1.0, or make the app the only way in and delete it (§11) | Keep it for 1.0: it is built, tested and journey-verified (A9 to A16), and the app shares its `app` functions. Revisit after D14. |
 | O8 | **Required before approval.** Codex can't be proven confined (§3.1), and Astra rejects shipping it under the current invariant wording. Choose: (a) clarify the invariant in `AGENTS.md` and core §1 to "hidden data never leaves Codemm through Codemm's own outputs (tools, CLI, IPC and diagnostics); an agent with file access can read Codemm's files, and Codemm removes that access where the agent allows", then ship Codex with the reply filter; or (b) keep the wording and mark Codex experimental in the app until confinement is verified. | (a). The terminal path in core 1.0 already lets every agent read `~/.codemm`, so (a) states what 1.0 already accepts, and the app narrows it: no file tools for Claude Code, and no shell for Codex. |
+| O9 | Sign before the public 1.0 (§7.1), or ship it unsigned and sign later | Sign before it. Unsigned installers need workarounds that most learners won't follow, and auto-update needs signing on macOS. |
 
 ## 14. Review log
 

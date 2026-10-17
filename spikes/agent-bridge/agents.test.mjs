@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { agents } from "./agents.mjs";
+import { agents, isTested } from "./agents.mjs";
 
 const fixture = (name) => readFileSync(new URL(`fixtures/${name}`, import.meta.url), "utf8").split("\n");
 const parseAll = (agent, lines) => lines.flatMap((line) => agents[agent].parse(line));
@@ -16,7 +16,7 @@ test("claude: a recorded run becomes session, tool, text and done events", () =>
     { type: "tool_call", id: "toolu_01NfoeX7ahYrG2GZ1kmsnnnP", name: "codemm.list_tracks" },
     { type: "tool_result", id: "toolu_01NfoeX7ahYrG2GZ1kmsnnnP", error: false },
     { type: "text", text: "0" },
-    { type: "done", ok: true },
+    { type: "done", ok: true, usage: { costUsd: 0.034289 } },
   ]);
 });
 
@@ -32,7 +32,7 @@ test("codex: a recorded run becomes session, tool, text and done events", () => 
     { type: "tool_call", id: "item_1", name: "codemm.list_tracks" },
     { type: "tool_result", id: "item_1", error: false },
     { type: "text", text: "0" },
-    { type: "done", ok: true },
+    { type: "done", ok: true, usage: { inputTokens: 65870, cachedInputTokens: 43392, outputTokens: 100 } },
   ]);
 });
 
@@ -116,4 +116,20 @@ test("sign-in: each agent's own status command is read for a yes or no only", ()
   assert.deepEqual(agents.cursor.signIn.args, ["status"]);
   assert.equal(agents.cursor.signIn.read({ code: 0, output: "\u001b[2K Not logged in\n" }), false);
   assert.equal(agents.cursor.signIn.read({ code: 0, output: "Logged in as someone\n" }), true);
+});
+
+test("usage is reported only from well-formed numbers", () => {
+  assert.deepEqual(agents.claude.parse('{"type":"result","subtype":"success","is_error":false,"total_cost_usd":"0.03"}'), [{ type: "done", ok: true }]);
+  assert.deepEqual(agents.codex.parse('{"type":"turn.completed","usage":{"input_tokens":"lots"}}'), [{ type: "done", ok: true }]);
+});
+
+test("versions: each agent's --version output is read, and untested versions are flagged", () => {
+  assert.equal(agents.claude.version.read({ code: 0, output: "2.1.283 (Claude Code)\n" }), "2.1.283");
+  assert.equal(agents.codex.version.read({ code: 0, output: "codex-cli 0.156.1\n" }), "0.156.1");
+  assert.equal(agents.cursor.version.read({ code: 0, output: "2026.01.23-916f423\n" }), "2026.01.23-916f423");
+  assert.equal(agents.claude.version.read({ code: 0, output: "garbage" }), null);
+  assert.equal(agents.claude.version.read({ code: 1, output: "2.1.283" }), null);
+  assert.equal(isTested("claude", "2.1.283"), true);
+  assert.equal(isTested("codex", "0.157.0"), false);
+  assert.equal(isTested("cursor", "2026.01.23-916f423"), false, "Cursor is unverified");
 });
