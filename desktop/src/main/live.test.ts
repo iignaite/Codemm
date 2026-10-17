@@ -250,4 +250,14 @@ describe('live CodemmApi', () => {
     await new Promise((res) => setTimeout(res, 10));
     expect(t.jobs.ran).toHaveLength(ran);
   });
+
+  it('answers each of two questions asked at once, one turn after the other, resuming the session', async () => {
+    let n = 0;
+    const t = live({ tutor: (job) => ({ text: [`Answer to: ${job.brief.split('They ask: ')[1]}`], session: `session-${++n}` }) });
+    const activity = await practising(t);
+    const [first, second] = await Promise.all([t.api.ask({ activityId: activity.id }, 'Why one?'), t.api.ask({ activityId: activity.id }, 'Why two?')]);
+    expect(first).toEqual([{ from: 'codemm', text: 'Answer to: Why one?' }]);
+    expect(second).toEqual([{ from: 'codemm', text: 'Answer to: Why two?' }]);
+    expect(t.jobs.ran.filter((j) => j.kind === 'tutor').map((j) => j.resume)).toEqual([undefined, 'session-1']);
+  });
 });

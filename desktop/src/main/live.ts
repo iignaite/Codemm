@@ -78,6 +78,8 @@ export function createLive(d: LiveDeps): Live {
   const lanes = { fg: Promise.resolve() as Promise<unknown>, bg: Promise.resolve() as Promise<unknown> };
   const outcomes = new Map<string, JobOutcome>();
   let stalled: CourseView['stalled'];
+  let tutorTurns: Promise<unknown> = Promise.resolve();
+  let tutorTurnCount = 0;
   /** Set once quitting starts: nothing new runs (§5). */
   let stopping = false;
   /** Checks and Try its in flight: their containers belong to this process until they end. */
@@ -411,8 +413,14 @@ export function createLive(d: LiveDeps): Live {
       const where = 'lessonId' in place ? `the lesson "${place.lessonId}" (get_lesson)` : `the activity "${place.activityId}" (get_exercise)`;
       // The learner's own code goes to their own agent; nothing hidden does.
       const files = 'activityId' in place ? Object.fromEntries(Object.entries(core.readLearnerFiles(ws, place.activityId, course)).map(([path, f]) => [path, f.text])) : undefined;
-      const outcome = await foreground(`tutor:${key}`, 'tutor', briefs.tutor(where, text, files), course, (turn) => turn.ok, d.state.read().sessions[key]);
-      if (outcome.session) d.state.update((s) => ({ ...s, sessions: { ...s.sessions, [key]: outcome.session! } }));
+      // Each question is its own turn, after the one before, so it resumes the session that turn left (§3.2).
+      const turn = tutorTurns.then(async () => {
+        const outcome = await foreground(`tutor:${key}:${++tutorTurnCount}`, 'tutor', briefs.tutor(where, text, files), course, (t) => t.ok, d.state.read().sessions[key]);
+        if (outcome.session) d.state.update((s) => ({ ...s, sessions: { ...s.sessions, [key]: outcome.session! } }));
+        return outcome;
+      });
+      tutorTurns = turn.catch(() => undefined);
+      const outcome = await turn;
       const filter = hidden();
       return outcome.text.map((t) => ({ from: 'codemm' as const, text: filterReply(t, filter) }));
     },
