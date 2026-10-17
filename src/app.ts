@@ -45,7 +45,7 @@ export function listTracks() {
   return store.listTracks().map((t) => ({ track: `${t.id}@${t.version}`, styles: t.styles, files: t.files }));
 }
 
-export async function saveTrack(files: FileMap): Promise<{ installed: string; unchanged?: true }> {
+export async function saveTrack(files: FileMap): Promise<{ installed: string; unchanged?: true; warning?: string }> {
   validateFileMap(files);
   if (!files["track.yaml"]) throw new CodemmError("A track needs a track.yaml file.");
   const spec = parseTrackYaml(files["track.yaml"]);
@@ -60,7 +60,7 @@ export async function saveTrack(files: FileMap): Promise<{ installed: string; un
       format_version: 1, ...verified.spec, image: verified.image, imageId: verified.imageId, installedAt: new Date().toISOString(),
     };
     store.commitFolder(store.trackDir(ref), files, { "track.json": record });
-    return { installed: ref };
+    return { installed: ref, ...(verified.warning ? { warning: verified.warning } : {}) };
   });
 }
 
@@ -229,16 +229,18 @@ export type CheckView = {
   total: number;
   tests: (Pick<TestResult, "name" | "status"> & Partial<Pick<TestResult, "message" | "actual">>)[];
   recorded: boolean;
+  note?: string;
 };
 
 /** Visible results in full; hidden results reduced to an index and a status (DESIGN §4.2). */
-function present(slug: string, tests: TestResult[], recorded: boolean): CheckView {
+function present(slug: string, tests: TestResult[], recorded: boolean, note?: string): CheckView {
   let hidden = 0;
   return {
     exercise: slug,
     passed: tests.filter((t) => t.status === "pass").length,
     total: tests.length,
     recorded,
+    ...(note ? { note } : {}),
     tests: tests.map((t) => {
       if (t.set === "hidden") return { name: `hidden #${(hidden += 1)}`, status: t.status };
       return { name: t.name, status: t.status, ...(t.message ? { message: t.message } : {}), ...(t.actual !== undefined && t.status !== "pass" ? { actual: t.actual } : {}) };
@@ -266,7 +268,7 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
       tests.push(...gradeUnitRun(set, run, record.inventory?.[set]));
     }
   }
-  return { ...ctx, tests };
+  return { ...ctx, src, tests };
 }
 
 /** Runs the visible tests only. Never recorded. */
@@ -275,12 +277,17 @@ export async function testExercise(ws: string, slug?: string): Promise<CheckView
   return present(record.slug, tests, false);
 }
 
-/** Runs every test and records the attempt. Infrastructure failures throw before anything is recorded. */
+/**
+ * Runs every test and records the attempt. Infrastructure failures throw before anything is recorded.
+ * A check of the unedited starter is graded but records no check event: it isn't an attempt (DESIGN §7).
+ */
 export async function checkExercise(ws: string, slug?: string): Promise<CheckView> {
-  const { course, config, record, tests } = await judge(ws, slug, true);
+  const { course, config, record, files, track, src, tests } = await judge(ws, slug, true);
+  const unedited = track.files.every((f) => src[f] === files[`starter/${f}`]);
   const passed = tests.filter((t) => t.status === "pass").length;
   await store.withLock(store.courseLockPath(course.course), async () => {
     if (config.assist) noteAssistLocked(course.course, record.slug);
+    if (unedited) return;
     const assisted = config.assist || store.readEvents(course.course).some((e) => e.kind === "assist" && e.exercise === record.slug);
     store.appendEvent(course.course, {
       format_version: 1, kind: "check", at: new Date().toISOString(), exercise: record.slug,
@@ -289,7 +296,7 @@ export async function checkExercise(ws: string, slug?: string): Promise<CheckVie
   });
   // Only move "current" if the workspace still points at the course that was checked.
   await store.updateWorkspace(ws, (c) => (c.course === course.course ? { ...c, current: record.slug } : c));
-  return present(record.slug, tests, true);
+  return unedited ? present(record.slug, tests, false, "unedited starter, not recorded") : present(record.slug, tests, true);
 }
 
 // ---------- progress ----------

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+Two fixes from a live end-to-end run with Claude Code.
+
+### Fixed
+
+- **A check of the unedited starter is no longer recorded.** It is still graded and shown, with `recorded: false` and the note "unedited starter, not recorded". Before, checking the starter once and then making one real wrong attempt reported "stuck"; it also lowered mastery and used up the exercise's first try.
+- **Unpinned base images now get a warning.** `save_track` and `codemm track add` still install a track whose `FROM` isn't pinned by digest, and return a `warning` naming the image. Checks already run by the recorded image ID, and a rebuild re-runs every gate, so this only affects whether a later rebuild can reproduce the image.
+
 ## 1.0.0 (2026-10-17)
 
 Codemm 1.0 is a rewrite. The v1 desktop app is replaced by a small, open-source harness that your own coding agent drives. See [docs/MIGRATION.md](docs/MIGRATION.md) for what this means for v1 users.

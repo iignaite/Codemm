@@ -160,6 +160,7 @@ Other ceilings:
 - **The build context** is a fresh folder holding only the track's files. No secrets, SSH agent or Docker socket are forwarded.
 - **The build** times out after 10 minutes and the process is killed. Build resource limits are not enforced in 1.0 (a known limitation).
 - **The image** is tagged `codemm-track-<id>:<version>`, and its ID is stored in `track.json`. Every check verifies that the ID still matches. If the image is missing or has changed, the check fails with "Run `codemm track rebuild <id>@<version>`".
+- **Base images.** Each `FROM` should pin its image by digest (`image@sha256:…`). An unpinned `FROM` (other than `scratch` or an earlier stage) installs with a warning rather than failing a gate: checks run by the recorded image ID, and a rebuild that pulls a different base must pass every gate below, so an unpinned base can make a rebuild fail but can't change results silently.
 - **Rebuild** re-runs the track gates, then re-runs exercise gates 2 to 6 for every stored exercise on the new image. io outputs must also equal the stored expected outputs, and unit inventories must match. Only then is the new image ID recorded. Otherwise rebuild fails and lists the exercises that changed. Nothing rebuilds silently.
 - **Locks.** Installs, rebuilds and exercise saves (from validation through commit) hold that track's lock, so an exercise can't be validated on an image that a rebuild is replacing.
 
@@ -224,7 +225,7 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
 
 `events.jsonl` is the only learner state. It holds `check` and `skip` events, and everything below is recomputed by replaying them in order.
 
-- **`check` event:** `{ kind: "check", at, exercise, concepts, difficulty, passed, total, assisted }`. It is recorded only when grading completed. Infrastructure failures record nothing: no container runtime, a missing image, or a host-side kill of the whole check. Learner-caused outcomes are graded, as `error`: build failures, timeouts and output floods.
+- **`check` event:** `{ kind: "check", at, exercise, concepts, difficulty, passed, total, assisted }`. It is recorded only when grading completed. Infrastructure failures record nothing: no container runtime, a missing image, or a host-side kill of the whole check. Learner-caused outcomes are graded, as `error`: build failures, timeouts and output floods. A check whose learner files are byte-identical to the starter is graded and shown but no `check` event is recorded (`recorded: false`): it isn't an attempt, so it can't count toward the fail streak, lower mastery or take the first try. Assistance and the current exercise are still updated as for any check.
 - **`skip` event:** `{ kind: "skip", at, concept }`. It raises that concept's mastery to at least 0.85.
 - **`assist` event:** `{ kind: "assist", at, exercise }`. It marks that exercise as assisted for good, in every workspace.
 
@@ -257,12 +258,12 @@ The MCP tools and CLI commands are thin calls into one application module.
 | Tool | Input | Output |
 |---|---|---|
 | `list_tracks` | — | installed tracks: id, version, styles |
-| `save_track` | `files` | `{ installed: "id@v" }` or diagnostics |
+| `save_track` | `files` | `{ installed: "id@v", warning? }` or diagnostics |
 | `save_roadmap` | `course`, `roadmap` (YAML text) | ok or errors |
 | `next_step` | — | `practice` / `author` / `stuck` / `done` |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
 | `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint |
-| `check` | `slug?` | per-test results (hidden tests: index and status only) |
+| `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |
 | `progress` | — | mastery and difficulty per concept, next step |
 
 ## 9. Host setup (`codemm init`)

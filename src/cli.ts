@@ -56,7 +56,7 @@ function printCheck(r: app.CheckView): void {
     if (t.message) print(`      ${t.message.split("\n").join("\n      ")}`);
     if (t.actual !== undefined) print(`      printed: ${JSON.stringify(t.actual.slice(0, 500))}`);
   }
-  print(`${r.passed}/${r.total} passed${r.recorded ? " (recorded)" : " (visible tests only, not recorded)"}`);
+  print(`${r.passed}/${r.total} passed (${r.recorded ? "recorded" : (r.note ?? "visible tests only, not recorded")})`);
 }
 
 function describeStep(step: app.NextStep): string {
@@ -118,6 +118,7 @@ async function main(argv: string[]): Promise<number> {
       if (rest[0] === "add") {
         const r = await app.saveTrack(readFileMap(resolve(rest[1]!)));
         print(r.unchanged ? `${r.installed} is already installed.` : `Installed ${r.installed}.`);
+        if (r.warning) print(`Warning: ${r.warning}`);
         return 0;
       }
       if (rest[0] === "rebuild") {
