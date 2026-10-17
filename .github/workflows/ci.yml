@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, claude/xplat-core-999f9a]
+    branches: [main]
   pull_request:
 
 permissions:
