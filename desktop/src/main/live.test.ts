@@ -21,6 +21,15 @@ describe('live CodemmApi', () => {
     expect(job.brief).toContain(`Course id: ${course}`);
   });
 
+  it('runs every job with the chosen model: the recommended one until the learner picks another', async () => {
+    const t = live();
+    await researched(t);
+    expect(t.jobs.ran.map((j) => j.model)).toEqual(['sonnet']);
+    await t.api.chooseModel('claude', 'haiku');
+    await t.api.reviseRoadmap(t.c.roadmap!.concepts, 'Add testing');
+    expect(t.jobs.ran.map((j) => j.model)).toEqual(['sonnet', 'haiku']);
+  });
+
   it('saves edits, then asks for changes', async () => {
     const t = live();
     const r = await researched(t);

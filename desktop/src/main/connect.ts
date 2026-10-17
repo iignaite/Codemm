@@ -2,7 +2,7 @@
 // check (a yes or no; Codemm never touches credentials), the tested-version
 // warning and the recommended minimum model.
 import { NO_AGENT, SIGNED_OUT, type Agent, type AgentId } from '../shared/api';
-import models from '../shared/models.json';
+import { modelChoices, modelFor } from '../shared/models';
 import { AGENT_CLIS, isTested } from './agent/agents';
 import type { Executable } from './agent/bridge';
 import type { desktopState } from './state';
@@ -34,7 +34,8 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
       agentState = known === false ? 'signed-out' : state.read().agent === id && known ? 'connected' : 'not-connected';
     }
     const version = versions.get(id);
-    return { id, ...INFO[id], state: agentState, recommended: models[id], untested: Boolean(exe && version && !isTested(id, version)) };
+    const model = modelFor(id, state.read().models?.[id]);
+    return { id, ...INFO[id], state: agentState, models: modelChoices(id), model, untested: Boolean(exe && version && !isTested(id, version)) };
   }
 
   return {
@@ -50,15 +51,22 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
       return view(id);
     },
 
-    /** The agent jobs run with. Rejects with NO_AGENT or SIGNED_OUT, which open the connect screen. */
-    async chosen(): Promise<{ id: AgentId; exe: Executable }> {
+    /** Saves the model for an agent's jobs; only one of its bench-tested models. */
+    async chooseModel(id: AgentId, model: string): Promise<Agent> {
+      if (!modelChoices(id).some((m) => m.id === model)) throw new Error(`${model} isn't a tested model for ${INFO[id].name}.`);
+      state.update((s) => ({ ...s, models: { ...s.models, [id]: model } }));
+      return view(id);
+    },
+
+    /** The agent jobs run with, and its model. Rejects with NO_AGENT or SIGNED_OUT, which open the connect screen. */
+    async chosen(): Promise<{ id: AgentId; exe: Executable; model?: string }> {
       const id = state.read().agent;
       const exe = id && lookup.find(AGENT_CLIS[id].bin);
       if (!id || !exe) throw new Error(NO_AGENT);
       // The status command runs once a session, and again only after a job fails (jobs.ts).
       const ok = signedIn.get(id) ?? (await this.recheck(id, exe));
       if (!ok) throw new Error(SIGNED_OUT);
-      return { id, exe };
+      return { id, exe, model: modelFor(id, state.read().models?.[id]) ?? undefined };
     },
 
     /** Runs the sign-in check again, as after a job fails for an unknown reason. */

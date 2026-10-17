@@ -22,7 +22,7 @@ import {
   type TestView,
   type Track,
 } from '../shared/api';
-import models from '../shared/models.json';
+import { modelChoices, modelFor } from '../shared/models';
 import { addTopic } from '../shared/roadmap';
 
 type Docker = 'missing' | 'stopped' | 'starting' | 'windows-containers' | 'no-sandbox' | 'ready';
@@ -75,9 +75,9 @@ const DOCKER_DOWN: Record<Exclude<Docker, 'ready'>, string> = {
 };
 
 const AGENTS: Omit<Agent, 'state' | 'untested'>[] = [
-  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', recommended: models.claude, experimental: false },
-  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', recommended: models.codex, experimental: false },
-  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', recommended: models.cursor, experimental: true },
+  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', models: modelChoices('claude'), model: modelFor('claude'), experimental: false },
+  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', models: modelChoices('codex'), model: modelFor('codex'), experimental: false },
+  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', models: modelChoices('cursor'), model: modelFor('cursor'), experimental: true },
 ];
 
 const TOPICS: [string, string[]][] = [
@@ -256,6 +256,13 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         state: a.state === 'connected' && options.agentProblem === 'signed-out' ? 'signed-out' : a.state,
         untested: Boolean(options.untested) && a.state !== 'missing',
       }));
+    },
+
+    async chooseModel(id, model) {
+      const agent = agents.find((a) => a.id === id)!;
+      if (!agent.models.some((m) => m.id === model)) throw new Error(`${model} isn't a tested model for ${agent.name}.`);
+      agent.model = model;
+      return { ...agent, untested: Boolean(options.untested) && agent.state !== 'missing' };
     },
 
     // Connecting runs the agent's sign-in check. Passing it also ends a
