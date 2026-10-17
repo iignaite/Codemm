@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
 import { createServer, parseToolList, type ServerOptions, TOOL_NAMES } from "../src/mcp.js";
+import * as store from "../src/store.js";
 import { fakeDocker } from "./fake-docker.js";
 
 /** The per-job server: `codemm mcp --tools`, `--course` and `--desktop`. */
@@ -73,6 +74,22 @@ describe("--course", () => {
     await call("mark_lesson_read", { id: "intro" });
     expect(app.listLessons(ws, "first")[0]!.read).toBe(true);
     await expect(call("save_roadmap", { course: "second", roadmap: roadmap("Changed") })).rejects.toThrow(/only course "first"/);
+  });
+
+  it("authors into the job's course while the learner has another course selected", async () => {
+    // The job's course has an installed track; the selected one is a draft whose track isn't installed.
+    const { id, version } = store.parseTrackRef("shell-io@1");
+    store.writeTrackRecord("shell-io@1", {
+      format_version: 1, id, version, styles: ["io"], files: ["main.sh"], run: "sh main.sh",
+      limits: { time_ms: 2000, memory_mb: 256 }, image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString(),
+    });
+    await app.saveRoadmap(ws, "first", roadmap("First"));
+    await app.saveRoadmap(ws, "second", roadmap("Second").replace("shell-io@1", "other@1"));
+    fakeDocker("missing");
+    const { call } = await connect({ course: "first" });
+    const files = readFileMap(join(import.meta.dirname, "fixtures", "exercises", "io-max"));
+    // Bound to "first", the save reaches the sandbox; unbound, it would stop at "other@1 is not installed".
+    await expect(call("save_exercise", { files })).rejects.toThrow(/container runtime/i);
   });
 
   it("rejects an invalid course id", () => {

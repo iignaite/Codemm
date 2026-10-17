@@ -241,7 +241,13 @@ export function listProposals(): { record: ProposalRecord; files: FileMap }[] {
     .filter((ref) => !ref.startsWith("."))
     .sort()
     .flatMap((ref) => {
-      const dirs = existsSync(join(root, ref)) ? readdirSync(join(root, ref)).filter((d) => !d.startsWith(".")) : [];
+      let dirs: string[];
+      try {
+        dirs = readdirSync(join(root, ref)).filter((d) => !d.startsWith("."));
+      } catch (e) {
+        if (!existsSync(join(root, ref))) return [];
+        throw e;
+      }
       return dirs.flatMap((d) => {
         const dir = join(root, ref, d);
         try {
