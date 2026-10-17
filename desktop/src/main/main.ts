@@ -58,15 +58,19 @@ void app.whenReady().then(() => {
 });
 
 // Quitting first stops running agent jobs with their whole process groups and removes leftover containers (§5).
+// Every quit waits for that, however often the learner asks.
+let stopping: Promise<void> | undefined;
 let stopped = false;
 app.on('before-quit', (event) => {
   if (!live || stopped) return;
   event.preventDefault();
-  stopped = true;
-  void live
+  stopping ??= live
     .stop()
     .catch(() => undefined)
-    .finally(() => app.quit());
+    .finally(() => {
+      stopped = true;
+      app.quit();
+    });
 });
 
 app.on('window-all-closed', () => {

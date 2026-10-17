@@ -73,6 +73,16 @@ export function createLive(d: LiveDeps): Live {
   const lanes = { fg: Promise.resolve() as Promise<unknown>, bg: Promise.resolve() as Promise<unknown> };
   const outcomes = new Map<string, JobOutcome>();
   let stalled: CourseView['stalled'];
+  /** Set once quitting starts: nothing new runs (§5). */
+  let stopping = false;
+  /** Checks and Try its in flight: their containers belong to this process until they end. */
+  const runs = new Set<Promise<unknown>>();
+  const tracked = <T>(run: Promise<T>): Promise<T> => {
+    runs.add(run);
+    return run.finally(() => runs.delete(run));
+  };
+  // Containers left by an earlier run of the app, whose owner is gone (§5).
+  void core.cleanupLeftovers().catch(() => undefined);
   /** The setup the learner approved, and how it went (§4.1). */
   let setup: { installing?: Promise<void>; approved?: Proposal; problem?: SetupProblem; gateFailures: number; lastGateProblem?: string } = { gateFailures: 0 };
 
@@ -110,9 +120,11 @@ export function createLive(d: LiveDeps): Live {
   function start(key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'], resume?: string): Promise<JobOutcome> {
     const existing = running.get(key);
     if (existing) return existing.outcome;
+    if (stopping) return Promise.resolve({ ok: false, problem: 'failed', text: [] });
     const stop = new AbortController();
     const job = async (): Promise<JobOutcome> => {
-      if (stop.signal.aborted) return { ok: false, problem: 'failed', text: [] };
+      // A cancelled job, or background work queued behind a stall, never launches.
+      if (stop.signal.aborted || (lane === 'bg' && stalled)) return { ok: false, problem: 'failed', text: [] };
       const { id, exe } = await d.connect.chosen();
       return runJob({
         kind,
@@ -144,16 +156,17 @@ export function createLive(d: LiveDeps): Live {
   }
 
   /** Background work: a failure stalls it until the learner retries, instead of relaunching on every look. */
-  function background(key: string, kind: JobKind, brief: string, course: string, done: Job['done']) {
-    if (stalled || running.has(key)) return;
-    const outcome = start(key, 'bg', kind, brief, course, done);
+  function background(key: string, kind: JobKind, brief: string, course: string, done: Job['done'], lane: 'fg' | 'bg' = 'bg') {
+    if (stopping || stalled || running.has(key)) return;
+    const outcome = start(key, lane, kind, brief, course, done);
     const controller = running.get(key)?.stop;
+    // The first stall is the one the learner sees.
     outcome
       .then((o) => {
-        if (!o.ok && !controller?.signal.aborted) stalled = o.problem ?? 'failed';
+        if (!o.ok && !controller?.signal.aborted) stalled ??= o.problem ?? 'failed';
       })
       .catch((e: Error) => {
-        stalled = e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed';
+        stalled ??= e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed';
       });
   }
 
@@ -184,7 +197,9 @@ export function createLive(d: LiveDeps): Live {
     if (!concept) return;
     const lessons = () => core.listLessons(ws, course).filter((l) => l.concept === concept.id).length;
     if (lessons() === 0) {
-      background(`lesson:${course}:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), course, () => lessons() > 0);
+      // The course's first lesson runs in the foreground, beside setup (§3.2).
+      const lane = core.listLessons(ws, course).length === 0 ? 'fg' : 'bg';
+      background(`lesson:${course}:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), course, () => lessons() > 0, lane);
     }
     if (ready && progress.next.kind === 'author') {
       const exercises = () => core.listExercises(ws, course).filter((e) => e.concepts.includes(concept.id)).length;
@@ -267,13 +282,15 @@ export function createLive(d: LiveDeps): Live {
 
     async approve(concepts) {
       await saveConcepts(concepts);
+      const course = core.getRoadmap(ws).course;
+      d.state.update((s) => ({ ...s, approved: course }));
       stalled = undefined;
       setup = { gateFailures: 0 };
     },
 
     async course() {
       const roadmap = roadmapOrNull();
-      if (!roadmap) return null;
+      if (!roadmap || d.state.read().approved !== roadmap.course) return null;
       const progress = core.progress(ws, roadmap.course);
       const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
       work(progress, state.state === 'ready');
@@ -342,7 +359,7 @@ export function createLive(d: LiveDeps): Live {
 
     async tryIt(activityId) {
       try {
-        return tryView(await core.testExercise(ws, activityId));
+        return tryView(await tracked(core.testExercise(ws, activityId)));
       } catch (e) {
         const reason = notCounted(e);
         if (reason) return { kind: 'not-counted', reason };
@@ -352,7 +369,7 @@ export function createLive(d: LiveDeps): Live {
 
     async check(activityId) {
       try {
-        const view = await core.checkExercise(ws, activityId);
+        const view = await tracked(core.checkExercise(ws, activityId));
         const concepts = core.listExercises(ws).find((e) => e.exercise === activityId)?.concepts ?? [];
         const state = core.progress(ws).concepts.find((c) => concepts.includes(c.id));
         return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false });
@@ -388,7 +405,9 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async stop() {
+      stopping = true;
       await cancel(() => true);
+      await Promise.all([...runs].map((r) => r.catch(() => undefined)));
       await core.cleanupLeftovers().catch(() => undefined);
     },
   };

@@ -10,6 +10,8 @@ export interface DesktopState {
   agent?: AgentId;
   /** Tutor session or thread ids, keyed `course|agent`. */
   sessions: Record<string, string>;
+  /** The course whose roadmap the learner approved. Before that, it is a draft and no work starts (§4.2). */
+  approved?: string;
 }
 
 export function desktopState(dir: string) {

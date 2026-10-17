@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
+import { settled } from '../../app/course';
 import { problemOf } from '../../app/errors';
 import { useRouter } from '../../app/router';
 import { Failed, Stalled } from '../../app/Shell';
@@ -10,13 +11,6 @@ import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { SetupConsent } from './SetupConsent';
-
-/** Keep reading while setup runs or Codemm writes the current topic's lessons or activity, unless that work stopped. */
-const settled = (c: CourseView | null) =>
-  !c ||
-  Boolean(c.stalled) ||
-  (['ready', 'failed', 'consent'].includes(c.setup) &&
-    !c.topics.some((t) => t.state === 'now' && (t.lessons.some((l) => l.state === 'writing') || (c.setup === 'ready' && t.activity === 'writing'))));
 
 const BUSY = { proposing: 'Preparing setup for', installing: 'Setting up' } as const;
 

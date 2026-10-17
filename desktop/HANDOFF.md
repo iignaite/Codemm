@@ -121,7 +121,6 @@ e2e/packaged.spec.ts      D1, in CI on macOS and Windows: no Node on PATH, the b
 - Windows `taskkill` cancellation, except in CI's smoke test.
 - Claude Code's `--tools` value for the research job's web search.
 - The plan-limit markers, until each is recorded as a fixture.
-- Leftover-container cleanup after a crash: quitting stops every job, then removes containers whose owner is gone (`cleanupLeftovers` in `scripts/core-entry.ts`). A crash of the app itself leaves them for the next quit or `codemm doctor --fix`.
 
 ## Removed for 1.0 (owner's scope, 2026-10-17)
 
@@ -164,6 +163,14 @@ e2e/packaged.spec.ts      D1, in CI on macOS and Windows: no Node on PATH, the b
   - setup failures that lost the approved proposal, and Docker stopping during setup or a Check counted as a failure;
   - quitting that didn't wait for jobs to stop, or remove leftover containers;
   - a shebang check that read the whole executable.
+- **Wiring re-check**, eight findings, all fixed:
+  - work started before the learner approved the roadmap; approval now lives in `desktop.json`;
+  - the first lesson waited behind setup; it runs in the foreground, as §3.2 says;
+  - a later failure overwrote the first stall, and queued background work still launched;
+  - polling stopped mid-install, and the course map never polled;
+  - jobs could start during shutdown, a second Quit skipped the wait, and a running Check's containers escaped cleanup.
+
+**Leftover containers:** Codemm removes containers whose owner process is gone (`cleanupLeftovers` in `scripts/core-entry.ts`) at startup and on quit. Quitting first stops every job and waits for running Checks and Try its. Containers from a build still running at quit, or from a crash, go at the next start.
 
 ## Decisions
 

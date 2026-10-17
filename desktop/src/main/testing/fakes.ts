@@ -126,11 +126,11 @@ export function fakeCore() {
 }
 
 /** Fake agent jobs: each does what its job's agent would do through Codemm's tools. */
-export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Record<Job['kind'], (job: Job) => Partial<JobOutcome>>> = {}) {
+type Act = (job: Job) => Partial<JobOutcome> | Promise<Partial<JobOutcome>>;
+
+export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Record<Job['kind'], Act>> = {}) {
   const ran: Job[] = [];
-  /** The most background jobs that ever ran at once. */
-  const background = { now: 0, most: 0 };
-  const act: Record<Job['kind'], (job: Job) => Partial<JobOutcome>> = {
+  const act: Record<Job['kind'], Act> = {
     research: () => {
       c.roadmap = { course: 'react', goal: 'React', track: 'react@1', style: 'io', concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }] };
       return {};
@@ -158,18 +158,15 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
   };
   const runJob = async (job: Job): Promise<JobOutcome> => {
     ran.push(job);
-    const bg = ['setup', 'lesson', 'author'].includes(job.kind);
-    if (bg) background.most = Math.max(background.most, ++background.now);
     await new Promise((r) => setTimeout(r, 1));
-    if (bg) background.now--;
-    const out = act[job.kind](job);
+    const out = await act[job.kind](job);
     if (out.ok === false) return { ok: false, text: [], ...out };
     return { ok: await job.done({ ok: true }), text: [], ...out };
   };
-  return { ran, runJob, background };
+  return { ran, runJob };
 }
 
-export function live(over: Partial<Record<Job['kind'], (job: Job) => Partial<JobOutcome>>> = {}) {
+export function live(over: Partial<Record<Job['kind'], Act>> = {}) {
   const { c, app } = fakeCore();
   const jobs = fakeJobs(c, over);
   const state = desktopState(mkdtempSync(join(tmpdir(), 'codemm-live-')));

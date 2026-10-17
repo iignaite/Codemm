@@ -127,19 +127,33 @@ describe('live CodemmApi', () => {
     await until(s.api, () => s.jobs.ran.filter((j) => j.kind === 'lesson').length === 2);
   });
 
-  it('writes the first lesson while setup waits for consent, on a server bound to the course, one background job at a time', async () => {
+  it('starts no setup or lesson before the learner approves the roadmap', async () => {
     const t = live();
+    await researched(t);
+    expect(await t.api.course()).toBeNull();
+    expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research']);
+  });
+
+  it('writes the first lesson in the foreground while setup runs, on servers bound to the course', async () => {
+    const t = live({ setup: () => new Promise(() => {}) });
     const r = await researched(t);
     await t.api.approve(r.roadmap!.concepts);
-    const course = await until(t.api, (c) => c.setup === 'consent' && c.topics[0].lessons.length > 0);
-    expect(course.topics[0]).toMatchObject({ id: 'values', state: 'now', activity: 'writing' });
-    const background = t.jobs.ran.filter((j) => j.kind !== 'research');
-    expect(background.map((j) => j.kind).sort()).toEqual(['lesson', 'setup']);
-    for (const j of background) expect(j.server(['get_lesson']).args).toEqual(['core/cli.mjs', 'mcp', '--course', 'react', '--tools', 'get_lesson']);
-    expect(t.jobs.background.most).toBe(1);
+    const course = await until(t.api, (c) => c.topics[0].lessons.some((l) => l.state === 'ready'));
+    expect(course).toMatchObject({ setup: 'proposing', topics: [{ id: 'values', state: 'now', activity: 'writing' }, {}] });
+    for (const j of t.jobs.ran.filter((x) => x.kind !== 'research')) expect(j.server(['get_lesson']).args).toEqual(['core/cli.mjs', 'mcp', '--course', 'react', '--tools', 'get_lesson']);
     t.c.bound.length = 0;
     await t.api.course();
     expect(t.c.bound.every((b) => b === 'react')).toBe(true);
+  });
+
+  it('keeps the first stall, and launches no queued background work after it', async () => {
+    const t = live({ setup: () => ({ ok: false, problem: 'plan-limit' }), lesson: () => ({ ok: false, problem: 'failed' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    await until(t.api, (c) => c.stalled !== undefined && t.jobs.ran.some((j) => j.kind === 'lesson'));
+    await new Promise((res) => setTimeout(res, 20));
+    expect((await t.api.course())!.stalled).toBe('plan-limit');
+    expect(t.jobs.ran.filter((j) => j.kind === 'setup')).toHaveLength(1);
   });
 
   it('holds back a roadmap reply that quotes hidden material', async () => {
@@ -207,10 +221,30 @@ describe('live CodemmApi', () => {
     expect((await t.api.course())!.stalled).toBeUndefined();
   });
 
-  it('stops every job, then removes leftover containers', async () => {
-    const t = live();
-    await researched(t);
-    await t.api.stop();
+  it('removes leftover containers on start, and on stop after every job and running Check, and starts nothing after', async () => {
+    const t = live({ setup: (job) => new Promise((done) => job.signal!.addEventListener('abort', () => done({ ok: false, problem: 'failed' }))) });
     expect(t.c.cleanups).toBe(1);
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    await t.api.course();
+
+    let finish = () => {};
+    const s = live();
+    const a = await practising(s);
+    s.app.checkExercise = () => new Promise((done) => (finish = () => done({ exercise: a.id, passed: 0, total: 0, recorded: true, tests: [] })));
+    const check = s.api.check(a.id);
+    let stopped = false;
+    const stopping = s.api.stop().then(() => (stopped = true));
+    await new Promise((res) => setTimeout(res, 10));
+    expect(stopped).toBe(false);
+    finish();
+    await Promise.all([check, stopping]);
+    expect(s.c.cleanups).toBe(2);
+
+    await t.api.stop();
+    const ran = t.jobs.ran.length;
+    await t.api.course();
+    await new Promise((res) => setTimeout(res, 10));
+    expect(t.jobs.ran).toHaveLength(ran);
   });
 });
