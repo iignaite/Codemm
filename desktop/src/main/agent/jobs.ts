@@ -67,7 +67,8 @@ async function once(job: Job): Promise<{ ok: boolean; error?: string; session?: 
   const spec = JOBS[job.kind];
   const stop = new AbortController();
   const deadline = setTimeout(() => stop.abort(), job.deadlineMs ?? spec.deadlineMs);
-  job.signal?.addEventListener('abort', () => stop.abort(), { once: true });
+  const cancel = () => stop.abort();
+  job.signal?.addEventListener('abort', cancel, { once: true });
   const saves = new Set<string>();
   let failedSaves = 0;
   let session: string | undefined;
@@ -86,6 +87,7 @@ async function once(job: Job): Promise<{ ok: boolean; error?: string; session?: 
     return { ok: !result.cancelled && done?.ok === true, error: done?.error, session, text, cancelled: result.cancelled };
   } finally {
     clearTimeout(deadline);
+    job.signal?.removeEventListener('abort', cancel);
   }
 }
 
@@ -96,9 +98,9 @@ async function once(job: Job): Promise<{ ok: boolean; error?: string; session?: 
 export async function runJob(job: Job): Promise<JobOutcome> {
   let last: Awaited<ReturnType<typeof once>> | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
+    if (job.signal?.aborted) break;
     last = await once(job);
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };
-    if (job.signal?.aborted) break;
     if (last.error && PLAN_LIMIT.test(last.error)) return { ok: false, problem: 'plan-limit', text: last.text };
     if (!(await job.signedIn())) return { ok: false, problem: 'signed-out', text: last.text };
   }

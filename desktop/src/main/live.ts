@@ -12,14 +12,16 @@ import {
   type CourseView,
   type Proposal,
   type Roadmap,
+  type SetupProblem,
 } from '../shared/api';
 import models from '../shared/models.json';
 import type { McpServer } from './agent/agents';
 import { briefs } from './agent/briefs';
 import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type JobProblem } from './agent/jobs';
 import type { connector } from './connect';
+import { infra } from './core/failures';
 import type { CoreApp, CoreProgress, CoreRoadmap } from './core/types';
-import { courseView, type Setup } from './courseView';
+import { courseView, currentConcept, type Setup } from './courseView';
 import type { desktopState } from './state';
 import { activityView, checkView, filterReply, hiddenLines, tryView } from './views';
 
@@ -35,35 +37,44 @@ export interface LiveDeps {
   /** The app's own executable, which runs Node-script agents. */
   runtime?: string;
   runJob?: (job: Job) => Promise<JobOutcome>;
-  /** Aborted when the app quits: running agent jobs stop with their process groups. */
-  signal?: AbortSignal;
+}
+
+export interface Live extends CodemmApi {
+  /** Stops every agent job with its process group, then removes leftover containers (§5). */
+  stop(): Promise<void>;
 }
 
 /** Setup proposals per setup before the learner gets Stop or Try again (§3.2). */
 const PROPOSAL_BOUND = 3;
-const OFFLINE = /could not resolve host|network is unreachable|temporary failure in name resolution|offline/i;
-const DISK = /no space left on device|not enough disk space/i;
-const trackName = (ref: string) => ref.split('@')[0];
 const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, failed: AGENT_FAILED }[problem]);
+const NOT_COUNTED: Record<'docker' | 'disk' | 'offline', string> = {
+  docker: "Docker isn't running.",
+  disk: 'Docker ran out of disk space.',
+  offline: "Docker couldn't reach the network.",
+};
 
-/** An infrastructure failure the learner can fix on this computer: the check isn't counted (§5, §6.1). */
+/** An infrastructure failure during Try it or Check isn't counted (§5). */
 function notCounted(error: unknown): string | null {
   const message = error instanceof Error ? error.message : String(error);
-  if (/No container runtime found/i.test(message)) return "Docker isn't installed on this computer.";
-  if (/Windows containers/i.test(message)) return 'Docker Desktop is set to Windows containers.';
-  if (/runtime isn't running|Cannot connect to the Docker daemon/i.test(message)) return "Docker isn't running.";
   if (/image for .* is missing or changed/i.test(message)) return 'This environment needs a rebuild. Rebuild it under Tracks.';
-  return null;
+  const kind = infra(message);
+  return kind ? NOT_COUNTED[kind] : null;
 }
 
-export function createLive(d: LiveDeps): CodemmApi {
+interface Running {
+  outcome: Promise<JobOutcome>;
+  stop: AbortController;
+}
+
+export function createLive(d: LiveDeps): Live {
   const { core, ws } = d;
   const runJob = d.runJob ?? realRunJob;
-  const running = new Map<string, Promise<JobOutcome>>();
+  const running = new Map<string, Running>();
   const lanes = { fg: Promise.resolve() as Promise<unknown>, bg: Promise.resolve() as Promise<unknown> };
   const outcomes = new Map<string, JobOutcome>();
   let stalled: CourseView['stalled'];
-  let install: { run?: Promise<void>; problem?: 'offline' | 'disk'; gateFailures: number; lastGateProblem?: string } = { gateFailures: 0 };
+  /** The setup the learner approved, and how it went (§4.1). */
+  let setup: { installing?: Promise<void>; approved?: Proposal; problem?: SetupProblem; gateFailures: number; lastGateProblem?: string } = { gateFailures: 0 };
 
   const roadmapOrNull = (): CoreRoadmap | null => {
     try {
@@ -72,21 +83,36 @@ export function createLive(d: LiveDeps): CodemmApi {
       return null;
     }
   };
-  const installed = (ref: string) => core.listTracks().some((t) => `${t.id}@${t.version}` === ref);
+  const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
+  const trackName = (ref: string) => ref.split('@')[0];
   const roadmapView = (r: CoreRoadmap): Roadmap => ({ goal: r.goal, track: trackName(r.track), installed: installed(r.track), concepts: r.concepts.map((c) => ({ id: c.id, title: c.title, requires: [...c.requires] })) });
+  const hidden = (): string[] => {
+    const { course, current } = core.readWorkspace(ws);
+    if (!course || !current) return [];
+    try {
+      const { record, files } = core.readExercise(course, current);
+      return hiddenLines(files, record.expected);
+    } catch {
+      return [];
+    }
+  };
 
   /** Saves the learner's edits through core's roadmap rules (§4.2). JSON is YAML. */
   async function saveConcepts(concepts: Concept[]) {
     const current = core.getRoadmap(ws);
-    const yaml = JSON.stringify({ goal: current.goal, track: current.track, style: current.style, concepts });
-    await core.saveRoadmap(ws, current.course, yaml, current.course);
+    await core.saveRoadmap(ws, current.course, JSON.stringify({ goal: current.goal, track: current.track, style: current.style, concepts }), current.course);
   }
 
-  /** Runs one agent job in a lane: one foreground job and one background queue at a time (§3.2). */
+  /**
+   * Runs one agent job in a lane: one foreground job and one background queue,
+   * each one at a time (§3.2). The job starts only when its turn comes.
+   */
   function start(key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'], resume?: string): Promise<JobOutcome> {
     const existing = running.get(key);
-    if (existing) return existing;
-    const job = (async () => {
+    if (existing) return existing.outcome;
+    const stop = new AbortController();
+    const job = async (): Promise<JobOutcome> => {
+      if (stop.signal.aborted) return { ok: false, problem: 'failed', text: [] };
       const { id, exe } = await d.connect.chosen();
       return runJob({
         kind,
@@ -99,76 +125,71 @@ export function createLive(d: LiveDeps): CodemmApi {
         // Codex jobs ignore the learner's config, so they run the recommended model (§3.3).
         model: id === 'codex' ? (models.codex ?? undefined) : undefined,
         resume,
-        signal: d.signal,
+        signal: stop.signal,
         done,
         signedIn: () => d.connect.recheck(id, exe),
       });
-    })();
-    const queued = lanes[lane].then(() => job, () => job);
-    lanes[lane] = queued.catch(() => undefined);
-    const tracked = queued.finally(() => running.delete(key));
-    running.set(key, tracked);
-    return tracked;
+    };
+    const outcome = lanes[lane].then(job, job).finally(() => running.delete(key));
+    lanes[lane] = outcome.catch(() => undefined);
+    running.set(key, { outcome, stop });
+    return outcome;
+  }
+
+  /** Stops the jobs whose keys match, and waits until their agents are gone. */
+  async function cancel(match: (key: string) => boolean) {
+    const stopping = [...running.entries()].filter(([key]) => match(key));
+    for (const [, r] of stopping) r.stop.abort();
+    await Promise.all(stopping.map(([, r]) => r.outcome.catch(() => undefined)));
   }
 
   /** Background work: a failure stalls it until the learner retries, instead of relaunching on every look. */
   function background(key: string, kind: JobKind, brief: string, course: string, done: Job['done']) {
     if (stalled || running.has(key)) return;
-    start(key, 'bg', kind, brief, course, done)
+    const outcome = start(key, 'bg', kind, brief, course, done);
+    const controller = running.get(key)?.stop;
+    outcome
       .then((o) => {
-        if (!o.ok) stalled = o.problem ?? 'failed';
+        if (!o.ok && !controller?.signal.aborted) stalled = o.problem ?? 'failed';
       })
       .catch((e: Error) => {
         stalled = e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed';
       });
   }
 
-  function proposalView(ref: string): Proposal | undefined {
+  function latestProposal(ref: string): Proposal | undefined {
     const latest = core.listProposals().filter((p) => p.track === ref).sort((a, b) => b.created.localeCompare(a.created))[0];
-    if (!latest) return undefined;
-    return { digest: latest.digest, retry: install.gateFailures > 0, files: Object.entries(latest.files).map(([path, text]) => ({ path, text })) };
+    return latest && { digest: latest.digest, retry: setup.gateFailures > 0, files: Object.entries(latest.files).map(([path, text]) => ({ path, text })) };
   }
 
   /** One consent before setup (§4.1): propose, wait for the learner, build exactly what they saw. */
   function setupState(progress: CoreProgress): Setup {
     const ref = progress.track;
     if (installed(ref)) return { state: 'ready' };
-    if (install.run) return { state: 'installing' };
-    if (install.problem) return { state: 'failed', problem: install.problem };
-    if (install.gateFailures >= PROPOSAL_BOUND) return { state: 'failed', problem: 'gates' };
-    const proposal = proposalView(ref);
+    if (setup.installing) return { state: 'installing' };
+    // A fixable failure keeps the approved proposal, so Try again builds the same files without asking again.
+    if (setup.problem) return { state: 'failed', problem: setup.problem, ...(setup.approved ? { proposal: setup.approved } : {}) };
+    if (setup.gateFailures >= PROPOSAL_BOUND) return { state: 'failed', problem: 'gates' };
+    const proposal = latestProposal(ref);
     if (proposal) return { state: 'consent', proposal };
     const before = new Set(core.listProposals().map((p) => p.digest));
-    background('setup', 'setup', briefs.setup(ref, install.lastGateProblem), progress.course, () => core.listProposals().some((p) => p.track === ref && !before.has(p.digest)));
+    background(`setup:${progress.course}`, 'setup', briefs.setup(ref, setup.lastGateProblem), progress.course, () => core.listProposals().some((p) => p.track === ref && !before.has(p.digest)));
     return { state: 'proposing' };
   }
 
-  /** Starts the lesson and activity jobs the next step needs (§3.2, §4.3). */
-  function work(progress: CoreProgress) {
-    const next = progress.next;
-    if (next.kind !== 'practice' && next.kind !== 'author') return;
-    const concept = progress.concepts.find((c) => c.id === next.concept);
+  /** The lesson (from the start, beside setup) and the activity (once set up) the current topic needs (§3.2, §4.3). */
+  function work(progress: CoreProgress, ready: boolean) {
+    const course = progress.course;
+    const concept = progress.concepts.find((c) => c.id === currentConcept(progress));
     if (!concept) return;
-    if (next.lesson === null) {
-      const before = core.listLessons(ws).filter((l) => l.concept === concept.id).length;
-      background(`lesson:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), progress.course, () => core.listLessons(ws).filter((l) => l.concept === concept.id).length > before);
+    const lessons = () => core.listLessons(ws, course).filter((l) => l.concept === concept.id).length;
+    if (lessons() === 0) {
+      background(`lesson:${course}:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), course, () => lessons() > 0);
     }
-    if (next.kind === 'author') {
-      background(`author:${concept.id}`, 'author', briefs.author(), progress.course, () => {
-        const now = core.progress(ws).next;
-        return now.kind === 'practice' && now.concept === concept.id;
-      });
-    }
-  }
-
-  function currentHidden(): string[] {
-    const { course, current } = core.readWorkspace(ws);
-    if (!course || !current) return [];
-    try {
-      const { record, files } = core.readExercise(course, current);
-      return hiddenLines(files, record.expected);
-    } catch {
-      return [];
+    if (ready && progress.next.kind === 'author') {
+      const exercises = () => core.listExercises(ws, course).filter((e) => e.concepts.includes(concept.id)).length;
+      const before = exercises();
+      background(`author:${course}:${concept.id}`, 'author', briefs.author(), course, () => exercises() > before);
     }
   }
 
@@ -178,13 +199,39 @@ export function createLive(d: LiveDeps): CodemmApi {
     return outcome;
   }
 
+  /** A roadmap change may move the course to another track: the old track's setup and author jobs stop, and its proposals go (§4.2). */
+  async function roadmapJob(brief: string, done: (before: string) => Job['done']) {
+    const before = core.getRoadmap(ws);
+    const saved = JSON.stringify(before);
+    await cancel((key) => key.startsWith('setup:') || key.startsWith('author:'));
+    const outcome = await foreground(`roadmap:${before.course}`, 'roadmap', brief, before.course, done(saved));
+    const after = core.getRoadmap(ws);
+    if (after.track !== before.track) {
+      await core.dropProposal(before.track);
+      setup = { gateFailures: 0 };
+    }
+    return { outcome, changed: JSON.stringify(after) !== saved, after };
+  }
+
+  /** The saved activity for a concept, even when the next step recommends something else (stuck, §3.2). */
+  function exerciseFor(concept: string, course: string): string | undefined {
+    const next = core.progress(ws, course).next;
+    if (next.kind === 'practice' && next.concept === concept) return next.exercise;
+    return core.listExercises(ws, course).filter((e) => e.concepts.includes(concept)).sort((a, b) => b.created.localeCompare(a.created))[0]?.exercise;
+  }
+
   return {
     agents: () => d.connect.agents(),
-    connect: (id) => d.connect.connect(id),
+    async connect(id) {
+      const agent = await d.connect.connect(id);
+      // Signing in again ends a sign-out that stopped background work.
+      if (agent.state === 'connected' && stalled === 'signed-out') stalled = undefined;
+      return agent;
+    },
     computer: () => d.computer(),
 
     async tracks() {
-      return core.listTracks().map((t) => ({ ref: `${t.id}@${t.version}`, name: t.id }));
+      return core.listTracks().map((t) => ({ ref: t.track, name: trackName(t.track) }));
     },
 
     async research(goal) {
@@ -213,50 +260,56 @@ export function createLive(d: LiveDeps): CodemmApi {
 
     async reviseRoadmap(concepts, request) {
       await saveConcepts(concepts);
-      const before = JSON.stringify(core.getRoadmap(ws));
-      const course = core.getRoadmap(ws).course;
-      const changed = () => JSON.stringify(core.getRoadmap(ws)) !== before;
-      const outcome = await foreground('roadmap', 'roadmap', briefs.roadmap(request), course, (turn) => turn.ok || changed());
-      return { roadmap: roadmapView(core.getRoadmap(ws)), changed: changed(), text: outcome.text.join('\n\n') };
+      const { outcome, changed, after } = await roadmapJob(briefs.roadmap(request), (before) => (turn) => turn.ok || JSON.stringify(core.getRoadmap(ws)) !== before);
+      const filter = hidden();
+      return { roadmap: roadmapView(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
     },
 
     async approve(concepts) {
       await saveConcepts(concepts);
       stalled = undefined;
-      install = { gateFailures: 0 };
+      setup = { gateFailures: 0 };
     },
 
     async course() {
-      if (!roadmapOrNull()) return null;
-      const progress = core.progress(ws);
-      const setup = progress.next.kind === 'setup' ? setupState(progress) : { state: 'ready' as const };
-      if (setup.state === 'ready') work(progress);
-      const view = courseView(progress, core.listLessons(ws), setup, new Set(running.keys()));
+      const roadmap = roadmapOrNull();
+      if (!roadmap) return null;
+      const progress = core.progress(ws, roadmap.course);
+      const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
+      work(progress, state.state === 'ready');
+      const jobs = new Set([...running.keys()].map((k) => k.replace(`:${roadmap.course}`, '')));
+      const view = courseView(progress, core.listLessons(ws, roadmap.course), state, jobs);
       return stalled ? { ...view, stalled } : view;
     },
 
     async install(digest) {
       const ref = core.progress(ws).track;
-      if (!core.listProposals().some((p) => p.track === ref && p.digest === digest)) throw new Error('The setup changed. Look at it again.');
-      install.problem = undefined;
-      install.run = core
+      const proposal = setup.approved?.digest === digest ? setup.approved : latestProposal(ref);
+      if (!proposal || proposal.digest !== digest) throw new Error('The setup changed. Look at it again.');
+      setup.approved = proposal;
+      setup.problem = undefined;
+      setup.installing = core
         .installProposal(ref, digest)
-        .then(() => undefined)
-        .catch((e: Error) => {
-          // Offline and low disk are this computer's problems: nothing is recorded and no agent runs (§6.1).
-          if (DISK.test(e.message)) install.problem = 'disk';
-          else if (OFFLINE.test(e.message)) install.problem = 'offline';
-          else {
-            install.gateFailures++;
-            install.lastGateProblem = e.message;
-            void core.dropProposal(ref).catch(() => undefined);
-          }
+        .then(() => {
+          setup.approved = undefined;
         })
-        .finally(() => (install.run = undefined));
+        .catch((e: Error) => {
+          // This computer's problems keep the proposal for Try again; nothing is recorded and no agent runs (§6.1).
+          const kind = infra(e.message);
+          if (kind) {
+            setup.problem = kind;
+            return;
+          }
+          setup.approved = undefined;
+          setup.gateFailures++;
+          setup.lastGateProblem = e.message;
+          void core.dropProposal(ref).catch(() => undefined);
+        })
+        .finally(() => (setup.installing = undefined));
     },
 
     async retrySetup() {
-      install = { gateFailures: 0 };
+      setup = { gateFailures: 0 };
       stalled = undefined;
     },
 
@@ -271,10 +324,11 @@ export function createLive(d: LiveDeps): CodemmApi {
     markRead: (id) => core.markLessonRead(ws, id),
 
     async activity(concept) {
-      const next = core.progress(ws).next;
-      if (next.kind !== 'practice' || next.concept !== concept) throw new Error('This activity isn’t open yet.');
-      const exercise = await core.getExercise(ws, next.exercise);
-      return activityView(exercise, core.readLearnerFiles(ws, next.exercise), concept);
+      const course = core.getRoadmap(ws).course;
+      const slug = exerciseFor(concept, course);
+      if (!slug) throw new Error('This activity isn’t ready yet.');
+      const exercise = await core.getExercise(ws, slug, course);
+      return activityView(exercise, core.readLearnerFiles(ws, slug, course), concept);
     },
 
     async saveFile(activityId, path, text, digest) {
@@ -297,11 +351,10 @@ export function createLive(d: LiveDeps): CodemmApi {
     },
 
     async check(activityId) {
-      const next = core.progress(ws).next;
-      const concept = next.kind === 'practice' && next.exercise === activityId ? next.concept : undefined;
       try {
         const view = await core.checkExercise(ws, activityId);
-        const state = core.progress(ws).concepts.find((c) => c.id === concept);
+        const concepts = core.listExercises(ws).find((e) => e.exercise === activityId)?.concepts ?? [];
+        const state = core.progress(ws).concepts.find((c) => concepts.includes(c.id));
         return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false });
       } catch (e) {
         const reason = notCounted(e);
@@ -317,8 +370,8 @@ export function createLive(d: LiveDeps): CodemmApi {
       const where = 'lessonId' in place ? `the lesson "${place.lessonId}" (get_lesson)` : `the activity "${place.activityId}" (get_exercise)`;
       const outcome = await foreground(`tutor:${key}`, 'tutor', briefs.tutor(where, text), course, (turn) => turn.ok, d.state.read().sessions[key]);
       if (outcome.session) d.state.update((s) => ({ ...s, sessions: { ...s.sessions, [key]: outcome.session! } }));
-      const hidden = currentHidden();
-      return outcome.text.map((t) => ({ from: 'codemm' as const, text: filterReply(t, hidden) }));
+      const filter = hidden();
+      return outcome.text.map((t) => ({ from: 'codemm' as const, text: filterReply(t, filter) }));
     },
 
     async skip(concept) {
@@ -326,14 +379,17 @@ export function createLive(d: LiveDeps): CodemmApi {
     },
 
     async easier(concept) {
-      const roadmap = core.getRoadmap(ws);
-      const title = roadmap.concepts.find((c) => c.id === concept)?.title ?? concept;
-      const before = JSON.stringify(roadmap);
-      await foreground('roadmap', 'roadmap', briefs.easier(concept, title), roadmap.course, () => JSON.stringify(core.getRoadmap(ws)) !== before);
+      const title = core.getRoadmap(ws).concepts.find((c) => c.id === concept)?.title ?? concept;
+      await roadmapJob(briefs.easier(concept, title), (before) => () => JSON.stringify(core.getRoadmap(ws)) !== before);
     },
 
     async rebuild(ref) {
       await core.rebuildTrack(ref);
+    },
+
+    async stop() {
+      await cancel(() => true);
+      await core.cleanupLeftovers().catch(() => undefined);
     },
   };
 }

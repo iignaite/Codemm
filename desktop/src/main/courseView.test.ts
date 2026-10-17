@@ -35,4 +35,15 @@ describe('course view', () => {
     expect(consent.topics.every((t) => t.activity !== 'open')).toBe(true);
     expect(courseView(progress({ kind: 'done' }), [], { state: 'failed', problem: 'disk' }, new Set())).toMatchObject({ done: true, setup: 'failed', setupProblem: 'disk' });
   });
+
+  it('during setup, the current topic is the first one ready to learn, and a failed setup keeps its proposal', () => {
+    const proposal = { digest: 'd'.repeat(64), retry: false, files: [] };
+    const view = courseView(progress({ kind: 'setup', track: 'react@1' }), [], { state: 'failed', problem: 'docker', proposal }, new Set(['lesson:state']));
+    expect(view.topics[1]).toMatchObject({ id: 'state', state: 'now', activity: 'writing', lessons: [{ state: 'writing' }] });
+    expect(view).toMatchObject({ setup: 'failed', setupProblem: 'docker', proposal });
+  });
+
+  it('keeps a stuck activity open', () => {
+    expect(courseView(progress({ kind: 'stuck', concept: 'state' }), [], ready, new Set()).topics[1]).toMatchObject({ state: 'now', activity: 'open' });
+  });
 });

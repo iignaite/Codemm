@@ -53,7 +53,8 @@ describe('live CodemmApi', () => {
       throw new Error('Could not resolve host: registry.npmjs.org');
     };
     await t.api.install(proposal!.digest);
-    expect(await until(t.api, (c) => c.setup === 'failed')).toMatchObject({ setupProblem: 'offline' });
+    // The failed view keeps the approved proposal, so Try again builds the same files.
+    expect(await until(t.api, (c) => c.setup === 'failed')).toMatchObject({ setupProblem: 'offline', proposal: { digest: proposal!.digest } });
     t.c.install = install;
     await t.api.install(proposal!.digest);
     expect(await until(t.api, (c) => c.setup === 'ready')).toMatchObject({ setup: 'ready' });
@@ -123,7 +124,93 @@ describe('live CodemmApi', () => {
     await s.api.course();
     expect(s.jobs.ran.filter((j) => j.kind === 'lesson')).toHaveLength(1);
     await s.api.retryJobs();
-    await s.api.course();
-    expect(s.jobs.ran.filter((j) => j.kind === 'lesson')).toHaveLength(2);
+    await until(s.api, () => s.jobs.ran.filter((j) => j.kind === 'lesson').length === 2);
+  });
+
+  it('writes the first lesson while setup waits for consent, on a server bound to the course, one background job at a time', async () => {
+    const t = live();
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const course = await until(t.api, (c) => c.setup === 'consent' && c.topics[0].lessons.length > 0);
+    expect(course.topics[0]).toMatchObject({ id: 'values', state: 'now', activity: 'writing' });
+    const background = t.jobs.ran.filter((j) => j.kind !== 'research');
+    expect(background.map((j) => j.kind).sort()).toEqual(['lesson', 'setup']);
+    for (const j of background) expect(j.server(['get_lesson']).args).toEqual(['core/cli.mjs', 'mcp', '--course', 'react', '--tools', 'get_lesson']);
+    expect(t.jobs.background.most).toBe(1);
+    t.c.bound.length = 0;
+    await t.api.course();
+    expect(t.c.bound.every((b) => b === 'react')).toBe(true);
+  });
+
+  it('holds back a roadmap reply that quotes hidden material', async () => {
+    const t = live({ roadmap: () => ({ text: [`Here: ${CANARY}`] }) });
+    await practising(t);
+    const r = (await t.api.course())!;
+    const change = await t.api.reviseRoadmap(r.topics.map((x) => ({ id: x.id, title: x.title, requires: x.id === 'state' ? ['values'] : [] })), 'Why?');
+    expect(change.text).toBe(HELD_BACK);
+  });
+
+  it('a Docker failure during setup keeps the proposal, and Docker stopping during a Check is not counted', async () => {
+    const t = live();
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    const install = t.c.install;
+    t.c.install = async () => {
+      throw new Error("The container runtime isn't running. Start Docker Desktop, then retry.");
+    };
+    await t.api.install(proposal!.digest);
+    expect(await until(t.api, (c) => c.setup === 'failed')).toMatchObject({ setupProblem: 'docker', proposal: { digest: proposal!.digest } });
+    t.c.install = install;
+    await t.api.install(proposal!.digest);
+    await until(t.api, (c) => c.setup === 'ready');
+
+    const s = live();
+    const activity = await practising(s);
+    s.app.checkExercise = async () => {
+      throw new Error("The container runtime stopped during the run, so it wasn't counted. Start Docker Desktop.");
+    };
+    expect(await s.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: "Docker isn't running." });
+  });
+
+  it('keeps a stuck activity open beside the ways forward', async () => {
+    const t = live();
+    const activity = await practising(t);
+    t.c.stuck = 'values';
+    expect((await t.api.course())!.topics[0]).toMatchObject({ state: 'now', stuck: true, activity: 'open' });
+    expect((await t.api.activity('values')).id).toBe(activity.id);
+  });
+
+  it("drops the old track's proposals when a roadmap change moves the course to another track", async () => {
+    const t = live({
+      roadmap: () => {
+        t.c.roadmap = { ...t.c.roadmap!, track: 'vue@1' };
+        return { text: ['Vue fits better.'] };
+      },
+    });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    await until(t.api, (c) => c.setup === 'consent');
+    const change = await t.api.reviseRoadmap(r.roadmap!.concepts, 'Use Vue');
+    expect(change).toMatchObject({ changed: true, roadmap: { track: 'vue' } });
+    expect(t.c.proposals.filter((p) => p.track === 'react@1')).toEqual([]);
+    await until(t.api, () => t.jobs.ran.filter((j) => j.kind === 'setup').length === 2);
+    expect(t.jobs.ran.filter((j) => j.kind === 'setup').at(-1)!.brief).toContain('vue@1');
+  });
+
+  it('connecting again ends a sign-out that stopped background work', async () => {
+    const t = live({ lesson: () => ({ ok: false, problem: 'signed-out' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    await until(t.api, (c) => c.stalled === 'signed-out');
+    await t.api.connect('claude');
+    expect((await t.api.course())!.stalled).toBeUndefined();
+  });
+
+  it('stops every job, then removes leftover containers', async () => {
+    const t = live();
+    await researched(t);
+    await t.api.stop();
+    expect(t.c.cleanups).toBe(1);
   });
 });

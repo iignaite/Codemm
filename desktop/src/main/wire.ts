@@ -4,7 +4,6 @@
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
-import type { CodemmApi } from '../shared/api';
 import { AGENT_CLIS } from './agent/agents';
 import { ask } from './agent/bridge';
 import { find } from './agent/find';
@@ -12,7 +11,7 @@ import { computerCheck } from './computer';
 import { connector } from './connect';
 import { withAdapters } from './core/adapters';
 import type { CoreApp } from './core/types';
-import { createLive } from './live';
+import { createLive, type Live } from './live';
 import { desktopState } from './state';
 
 const RUNTIME_INFO = ['info', '--format', '{{.ServerVersion}}|{{.OSType}}'];
@@ -21,10 +20,9 @@ export interface Places {
   /** out/core in development, <resources>/core when packaged. */
   coreDir: string;
   userData: string;
-  signal: AbortSignal;
 }
 
-export function liveApi({ coreDir, userData, signal }: Places): CodemmApi {
+export function liveApi({ coreDir, userData }: Places): Live {
   // The bundled core (scripts/bundle-core.mjs), loaded in-process.
   const core = withAdapters(require(join(coreDir, 'dist', 'app.cjs')) as Partial<CoreApp>);
   const ws = join(homedir(), 'Codemm');
@@ -62,7 +60,6 @@ export function liveApi({ coreDir, userData, signal }: Places): CodemmApi {
     state,
     ws,
     runtime,
-    signal,
     server: (course, tools) => ({
       command: runtime,
       args: [join(coreDir, 'dist', 'cli.mjs'), 'mcp', '--workspace', ws, ...(course ? ['--course', course] : []), '--tools', tools.join(','), '--desktop'],

@@ -10,11 +10,9 @@ const page = join(__dirname, '../renderer/index.html');
 
 // The real core and the learner's agent. In development only, CODEMM_MOCK=<scenario>
 // runs the in-memory mock instead, to click through environment states (mock.ts).
-const quitting = new AbortController();
 const mock = !app.isPackaged && process.env.CODEMM_MOCK !== undefined;
-const codemm: CodemmApi = mock
-  ? createMock(scenario(process.env.CODEMM_MOCK || undefined))
-  : liveApi({ coreDir: app.isPackaged ? join(process.resourcesPath, 'core') : join(__dirname, '../core'), userData: app.getPath('userData'), signal: quitting.signal });
+const live = mock ? null : liveApi({ coreDir: app.isPackaged ? join(process.resourcesPath, 'core') : join(__dirname, '../core'), userData: app.getPath('userData') });
+const codemm: CodemmApi = live ?? createMock(scenario(process.env.CODEMM_MOCK || undefined));
 
 // Windows only ever show the app's own page (navigation and new windows are
 // blocked), so accept calls from a main frame on a file URL and nothing else.
@@ -59,8 +57,17 @@ void app.whenReady().then(() => {
   });
 });
 
-// Quitting stops running agent jobs with their whole process groups (§5).
-app.on('before-quit', () => quitting.abort());
+// Quitting first stops running agent jobs with their whole process groups and removes leftover containers (§5).
+let stopped = false;
+app.on('before-quit', (event) => {
+  if (!live || stopped) return;
+  event.preventDefault();
+  stopped = true;
+  void live
+    .stop()
+    .catch(() => undefined)
+    .finally(() => app.quit());
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

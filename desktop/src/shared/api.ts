@@ -100,8 +100,8 @@ export interface RoadmapChange {
  * learner. `installing`: building the approved proposal.
  */
 export type SetupState = 'proposing' | 'consent' | 'installing' | 'ready' | 'failed';
-/** Why setup failed. `offline` and `disk` are this computer's problems; `gates` means the proposals didn't pass. */
-export type SetupProblem = 'offline' | 'disk' | 'gates';
+/** Why setup failed. `offline`, `disk` and `docker` are this computer's problems; `gates` means the proposals didn't pass. */
+export type SetupProblem = 'offline' | 'disk' | 'docker' | 'gates';
 
 /** What the learner approves before setup: exactly the files Codemm will build (§4.1). */
 export interface Proposal {

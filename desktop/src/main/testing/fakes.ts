@@ -16,15 +16,20 @@ export const CANARY = 'printf("CANARY-SOLUTION-LINE %d", count + 1);';
 export function fakeCore() {
   const c = {
     roadmap: null as null | { course: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[] },
-    tracks: [] as { id: string; version: number }[],
+    tracks: [] as string[],
     proposals: [] as { track: string; digest: string; created: string; files: Record<string, string> }[],
     lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string }[],
     reads: new Set<string>(),
-    exercises: new Map<string, { concept: string; file: string; digest: string }>(),
+    exercises: new Map<string, { concept: string; file: string; digest: string; created: string }>(),
+    /** The course argument each bound core call got. */
+    bound: [] as (string | undefined)[],
+    cleanups: 0,
     mastered: new Set<string>(),
+    /** The concept core says the learner is stuck on. */
+    stuck: undefined as string | undefined,
     current: undefined as string | undefined,
     install: async (_ref: string, _digest: string): Promise<unknown> => {
-      c.tracks.push({ id: 'react', version: 1 });
+      c.tracks.push('react@1');
       return {};
     },
     checks: [] as string[],
@@ -32,9 +37,10 @@ export function fakeCore() {
   };
   const next = (): CoreNextStep => {
     const r = c.roadmap!;
-    if (!c.tracks.some((t) => `${t.id}@${t.version}` === r.track)) return { kind: 'setup', track: r.track };
+    if (!c.tracks.includes(r.track)) return { kind: 'setup', track: r.track };
     const concept = r.concepts.find((x) => !c.mastered.has(x.id) && x.requires.every((q) => c.mastered.has(q)));
     if (!concept) return { kind: 'done' };
+    if (c.stuck === concept.id) return { kind: 'stuck', concept: concept.id };
     const own = c.lessons.filter((l) => l.concept === concept.id);
     const lesson = own.length === 0 ? null : own.find((l) => !c.reads.has(l.id))?.id;
     const ex = [...c.exercises.entries()].find(([, e]) => e.concept === concept.id);
@@ -60,18 +66,19 @@ export function fakeCore() {
         'README.md': '# Count',
       },
     }),
-    listTracks: () => c.tracks,
+    listTracks: () => c.tracks.map((track) => ({ track, styles: ['io'], files: ['main.c'] })),
+    cleanupLeftovers: async () => void c.cleanups++,
     rebuildTrack: async () => ({}),
     saveRoadmap: async (_ws, course, yaml) => {
       const parsed = JSON.parse(yaml);
       c.roadmap = { course, ...parsed };
       return { course };
     },
-    progress: () => ({
+    progress: (_ws, bound) => (c.bound.push(bound), {
       course: c.roadmap!.course,
       goal: c.roadmap!.goal,
       track: c.roadmap!.track,
-      concepts: c.roadmap!.concepts.map((x) => ({ ...x, mastery: c.mastered.has(x.id) ? 1 : 0.5, mastered: c.mastered.has(x.id), attempts: 0, stuck: false })),
+      concepts: c.roadmap!.concepts.map((x) => ({ ...x, mastery: c.mastered.has(x.id) ? 1 : 0.5, mastered: c.mastered.has(x.id), attempts: 0, stuck: c.stuck === x.id })),
       next: next(),
     }),
     getExercise: async (_ws, slug) => {
@@ -99,7 +106,11 @@ export function fakeCore() {
     installProposal: (ref, digest) => c.install(ref, digest),
     dropProposal: async () => void (c.proposals = []),
     getLesson: (_ws, id) => c.lessons.find((l) => l.id === id)!,
-    listLessons: () => c.lessons.map((l) => ({ id: l.id, concept: l.concept, title: l.title, read: c.reads.has(l.id) })),
+    listExercises: (_ws, bound) => (c.bound.push(bound), [...c.exercises.entries()].map(([exercise, e]) => ({ exercise, concepts: [e.concept], difficulty: 1, created: e.created }))),
+    listLessons: (_ws, bound) => {
+      c.bound.push(bound);
+      return c.lessons.map((l) => ({ id: l.id, concept: l.concept, title: l.title, read: c.reads.has(l.id) }));
+    },
     saveNotes: async (_ws, id, text) => void (c.lessons.find((l) => l.id === id)!.notes = text),
     markLessonRead: async (_ws, id) => void c.reads.add(id),
     readLearnerFiles: (_ws, slug) => ({ 'main.c': { text: c.exercises.get(slug)!.file, digest: c.exercises.get(slug)!.digest } }),
@@ -117,6 +128,8 @@ export function fakeCore() {
 /** Fake agent jobs: each does what its job's agent would do through Codemm's tools. */
 export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Record<Job['kind'], (job: Job) => Partial<JobOutcome>>> = {}) {
   const ran: Job[] = [];
+  /** The most background jobs that ever ran at once. */
+  const background = { now: 0, most: 0 };
   const act: Record<Job['kind'], (job: Job) => Partial<JobOutcome>> = {
     research: () => {
       c.roadmap = { course: 'react', goal: 'React', track: 'react@1', style: 'io', concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }] };
@@ -137,7 +150,7 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
     },
     author: () => {
       const concept = c.roadmap!.concepts.find((x) => !c.mastered.has(x.id))!.id;
-      c.exercises.set(`${concept}-easy-1`, { concept, file: 'int main() { /* yours */ }', digest: '0'.repeat(64) });
+      c.exercises.set(`${concept}-easy-1`, { concept, file: 'int main() { /* yours */ }', digest: '0'.repeat(64), created: new Date().toISOString() });
       return {};
     },
     tutor: () => ({ text: ['Look at what you add.'], session: 'session-1' }),
@@ -145,11 +158,15 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
   };
   const runJob = async (job: Job): Promise<JobOutcome> => {
     ran.push(job);
+    const bg = ['setup', 'lesson', 'author'].includes(job.kind);
+    if (bg) background.most = Math.max(background.most, ++background.now);
+    await new Promise((r) => setTimeout(r, 1));
+    if (bg) background.now--;
     const out = act[job.kind](job);
     if (out.ok === false) return { ok: false, text: [], ...out };
     return { ok: await job.done({ ok: true }), text: [], ...out };
   };
-  return { ran, runJob };
+  return { ran, runJob, background };
 }
 
 export function live(over: Partial<Record<Job['kind'], (job: Job) => Partial<JobOutcome>>> = {}) {
@@ -167,11 +184,11 @@ export function live(over: Partial<Record<Job['kind'], (job: Job) => Partial<Job
     server: (course, tools) => ({ command: '/app', args: ['core/cli.mjs', 'mcp', ...(course ? ['--course', course] : []), '--tools', tools.join(',')] }),
     runJob: jobs.runJob,
   });
-  return { api, c, jobs, connect };
+  return { api, c, app, jobs, connect };
 }
 
 export async function until(api: CodemmApi, done: (c: CourseView) => boolean) {
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 40; i++) {
     const c = await api.course();
     if (c && done(c)) return c;
     await new Promise((r) => setTimeout(r, 5));

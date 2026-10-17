@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
-import type { CourseView } from '../../shared/api';
+import { SIGNED_OUT, type CourseView } from '../../shared/api';
 import { Button } from '../ui/Button';
 import { hueColor } from '../ui/Emm';
 import { Icon, type IconName } from '../ui/Icon';
@@ -77,6 +77,33 @@ export function Sidebar({ slim = false }: { slim?: boolean }) {
 /** A screen with the wide sidebar. */
 export function WithSide({ children }: { children: ReactNode }) {
   return <><Sidebar />{children}</>;
+}
+
+/** Background work stopped after its retry, and nothing was recorded (§5). A sign-out goes to connect instead. */
+export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['stalled']>; retry: () => void }) {
+  const api = useApi();
+  const { route, go, fail } = useRouter();
+  useEffect(() => {
+    if (stalled === 'signed-out') fail(new Error(SIGNED_OUT));
+  }, [stalled, fail]);
+  if (stalled === 'signed-out') return null;
+
+  async function again() {
+    try {
+      await api.retryJobs();
+      retry();
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  return (
+    <div className="failed" role="alert">
+      {stalled === 'plan-limit' ? SAY['plan-limit'] : "Codemm couldn't finish that."}
+      {stalled === 'failed' && <Button variant="text" onClick={() => go({ to: 'connect', then: route })}>Check your agent</Button>}
+      <Button variant="text" onClick={again}>Try again</Button>
+    </div>
+  );
 }
 
 /** A screen whose data couldn't load. An agent that is missing or signed out goes to connect instead. */

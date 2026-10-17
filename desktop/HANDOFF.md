@@ -121,7 +121,7 @@ e2e/packaged.spec.ts      D1, in CI on macOS and Windows: no Node on PATH, the b
 - Windows `taskkill` cancellation, except in CI's smoke test.
 - Claude Code's `--tools` value for the research job's web search.
 - The plan-limit markers, until each is recorded as a fixture.
-- Leftover-container cleanup after a crash isn't wired yet: core `doctor --fix`'s rule.
+- Leftover-container cleanup after a crash: quitting stops every job, then removes containers whose owner is gone (`cleanupLeftovers` in `scripts/core-entry.ts`). A crash of the app itself leaves them for the next quit or `codemm doctor --fix`.
 
 ## Removed for 1.0 (owner's scope, 2026-10-17)
 
@@ -154,6 +154,16 @@ e2e/packaged.spec.ts      D1, in CI on macOS and Windows: no Node on PATH, the b
   - Windows-unsafe file paths;
   - PR builds skipping the ad-hoc signature (electron-builder skips signing on PRs unless `CSC_FOR_PULL_REQUEST` is set);
   - a release re-run able to change a published release.
+- **Wiring Astra review**, thirteen findings, all fixed:
+  - jobs started outside their lane, and a cancelled job that could still launch;
+  - background work that relaunched on every look instead of stalling, and no stalled banner;
+  - no lesson for the current topic while setup waited, and a stuck activity that couldn't reopen;
+  - core calls and done checks not bound to the course;
+  - a roadmap change that kept the old track's setup jobs and proposals;
+  - roadmap replies that skipped the reply filter;
+  - setup failures that lost the approved proposal, and Docker stopping during setup or a Check counted as a failure;
+  - quitting that didn't wait for jobs to stop, or remove leftover containers;
+  - a shebang check that read the whole executable.
 
 ## Decisions
 

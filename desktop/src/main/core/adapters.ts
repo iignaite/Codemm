@@ -10,6 +10,7 @@ const ADDITIONS = [
   'dropProposal',
   'getLesson',
   'listLessons',
+  'listExercises',
   'saveNotes',
   'markLessonRead',
   'readLearnerFiles',

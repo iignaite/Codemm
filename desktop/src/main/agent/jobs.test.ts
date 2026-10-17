@@ -97,6 +97,13 @@ describe('jobs (§3.2)', () => {
     expect(Date.now() - started).toBeLessThan(15_000);
   });
 
+  it('never launches once it was cancelled', async () => {
+    const agent = fakeAgent([init, success]);
+    const outcome = await runJob(job(agent.exe, { signal: AbortSignal.abort(), done: () => false }));
+    expect(outcome).toMatchObject({ ok: false, problem: 'failed' });
+    expect(agent.runs()).toBe(0);
+  });
+
   it('stops at its deadline', async () => {
     const agent = fakeAgent([init], { hang: true });
     expect(await runJob(job(agent.exe, { deadlineMs: 300, done: () => false }))).toMatchObject({ ok: false, problem: 'failed' });

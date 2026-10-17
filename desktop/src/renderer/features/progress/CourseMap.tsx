@@ -1,7 +1,7 @@
 import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
-import { Failed } from '../../app/Shell';
+import { Failed, Stalled } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
@@ -32,6 +32,7 @@ export function CourseMap() {
         </ol>
       </div>
       <Aside course={course} />
+      {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
     </main>
   );
 }

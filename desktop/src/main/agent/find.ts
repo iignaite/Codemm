@@ -2,7 +2,7 @@
 // load shell profiles, so besides PATH this looks in the usual install folders.
 // A `#!/usr/bin/env node` launcher, or an npm `.cmd` shim on Windows (never
 // run, because that needs a shell), becomes a Node script the app runs itself.
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import type { Executable } from './bridge';
@@ -53,8 +53,14 @@ const isFile = (p: string) => {
 /** A `#!` launcher that runs Node is a script the app can run as Node. */
 function isNodeScript(file: string): boolean {
   try {
-    const head = readFileSync(file, { encoding: 'utf8', flag: 'r' }).slice(0, 200);
-    return /^#!.*\bnode\b/.test(head);
+    // Only the first line matters, and a native binary can be large.
+    const head = Buffer.alloc(200);
+    const fd = openSync(file, 'r');
+    try {
+      return /^#!.*\bnode\b/.test(head.subarray(0, readSync(fd, head, 0, 200, 0)).toString('utf8'));
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     return false;
   }

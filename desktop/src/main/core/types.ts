@@ -64,10 +64,13 @@ export interface CoreApp {
   doctor(fix: boolean): Promise<{ name: string; ok: boolean; detail: string }[]>;
   readWorkspace(ws: string): { course?: string; current?: string };
   readExercise(course: string, slug: string): { record: { expected?: Record<string, string> }; files: Record<string, string> };
-  listTracks(): { id: string; version: number }[];
+  /** `track` is `id@version`. */
+  listTracks(): { track: string; styles: string[]; files: string[] }[];
   rebuildTrack(ref: string): Promise<unknown>;
   saveRoadmap(ws: string, course: string, yaml: string, bound?: string): Promise<{ course: string }>;
   progress(ws: string, bound?: string): CoreProgress;
+  /** Containers whose owning Codemm process is gone are removed (doctor --fix's rule). Added by scripts/core-entry.ts. */
+  cleanupLeftovers(): Promise<void>;
   getExercise(ws: string, slug?: string, bound?: string): Promise<CoreExercise>;
   testExercise(ws: string, slug?: string, bound?: string): Promise<CoreCheckView>;
   checkExercise(ws: string, slug?: string, bound?: string): Promise<CoreCheckView>;
@@ -80,6 +83,7 @@ export interface CoreApp {
   dropProposal(ref: string): Promise<void>;
   getLesson(ws: string, id: string, bound?: string): CoreLesson;
   listLessons(ws: string, bound?: string): { id: string; concept: string; title: string; read: boolean }[];
+  listExercises(ws: string, bound?: string): { exercise: string; concepts: string[]; difficulty: number; created: string }[];
   saveNotes(ws: string, id: string, text: string, bound?: string): Promise<void>;
   markLessonRead(ws: string, id: string, bound?: string): Promise<void>;
   readLearnerFiles(ws: string, slug: string, bound?: string): Record<string, { text: string; digest: string }>;
