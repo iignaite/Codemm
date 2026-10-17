@@ -4,7 +4,7 @@ Status: revised after two Astra design reviews (§13). The longer illustrated de
 
 ## 1. What Codemm is
 
-Codemm is an open-source, local-first harness for learning to program through graded exercises. It is a **wrapper that ships no languages**. The learner's own coding agent (Claude Code, Codex or Cursor, on the learner's own plan) writes everything:
+Codemm is an open-source, local-first harness for graded coding practice. It is a **wrapper that ships no languages**. The learner's own coding agent (Claude Code, Codex or Cursor, on the learner's own plan) writes everything:
 
 - the environment for a language or framework (a **track**),
 - the **roadmap** (a concept graph),
@@ -37,7 +37,7 @@ Each item is verified by an automated test unless marked *journey*. Journeys run
 | A13 | v1 is removed, along with its config and conflicting docs. Build, type check and all tests pass locally and in CI. Version is `1.0.0`. README, migration guide (with tested v1 rollback steps) and release notes are updated. |
 | A14 | *Journey:* starting from an empty Codemm home, an agent installs C, Java (JUnit), Python (pytest) and React (Vitest) tracks through Codemm, and at least one exercise per track passes the gates. Each statement is checked against its tests by a reviewer other than its author. A person's spot-check is a release step before publishing, not a merge requirement, because the gates explicitly don't guarantee statement quality (§1). |
 | A15 | *Journey:* a learner gets an exercise, runs `test`, fails then passes `check`, and mastery, difficulty and `next_step` change as §7 says. |
-| A16 | *Journey:* Claude Code and Codex each complete an author round trip: tutor, then author subagent, then `save_exercise`, then id only. Cursor is attempted; if it can't be run here, it's marked experimental. |
+| A16 | *Journey:* Claude Code and Codex each complete an author round trip: tutor, then author subagent, then `save_exercise`, then the subagent replies to the tutor with the id only. Cursor is attempted; if it can't be run here, it's marked experimental. |
 
 ### Supported matrix for 1.0
 

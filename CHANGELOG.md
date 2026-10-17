@@ -1,14 +1,5 @@
 # Changelog
 
-## Unreleased
-
-Two fixes from a live end-to-end run with Claude Code.
-
-### Fixed
-
-- **A check of the unedited starter is no longer recorded.** It is still graded and shown, with `recorded: false` and the note "unedited starter, not recorded". Before, checking the starter once and then making one real wrong attempt reported "stuck"; it also lowered mastery and used up the exercise's first try.
-- **Unpinned base images now get a warning.** `save_track` and `codemm track add` still install a track whose `FROM` isn't pinned by digest, and return a `warning` naming the image. Checks already run by the recorded image ID, and a rebuild re-runs every gate, so this only affects whether a later rebuild can reproduce the image.
-
 ## 1.0.0 (2026-10-17)
 
 Codemm 1.0 is a rewrite. The v1 desktop app is replaced by a small, open-source harness that your own coding agent drives. See [docs/MIGRATION.md](docs/MIGRATION.md) for what this means for v1 users.
@@ -39,13 +30,20 @@ Codemm 1.0 is a rewrite. The v1 desktop app is replaced by a small, open-source 
   `codemm doctor` proves the network is blocked against a positive control.
 - **Host setup.** `codemm init` configures Claude Code, Codex and Cursor (MCP, an `AGENTS.md` section, the author subagent, and a Claude Code practice hook that stops the agent editing your exercise files) without overwriting existing config.
 
+### Fixed before release
+
+Two defects found in a live end-to-end run with Claude Code were fixed before 1.0.0 was published:
+
+- **A check of the unedited starter is no longer recorded.** It is still graded and shown, with `recorded: false` and the note "unedited starter, not recorded". Before, checking the starter once and then making one real wrong attempt reported "stuck"; it also lowered mastery and used up the exercise's first try.
+- **Unpinned base images now get a warning.** `save_track` and `codemm track add` still install a track whose `FROM` isn't pinned by digest, and return a `warning` naming the image. Checks already run by the recorded image ID, and a rebuild re-runs every gate, so this only affects whether a later rebuild can reproduce the image.
+
 ### Removed
 
 - The Electron and Next.js desktop app, the built-in Java, Python, C++ and SQL judges, the chat-to-spec pipeline, LLM provider routing, API-key storage and Ollama management.
 
 ### Verification for this release
 
-- **Automated:** 200 tests across unit, Docker integration, multi-process locking and the packed npm artifact. They cover every gate, adversarial sandbox cases (network with a positive control, read-only mounts, fork bomb, memory, output flood, programs that ignore SIGTERM, leftover containers) and the disclosure rules.
+- **Automated:** 210 tests across unit, Docker integration, multi-process locking and the packed npm artifact. They cover every gate, adversarial sandbox cases (network with a positive control, read-only mounts, fork bomb, memory, output flood, programs that ignore SIGTERM, leftover containers) and the disclosure rules.
 - **Real tracks**, written by an agent (Claude) and installed through the MCP server from an empty Codemm home:
 
   | Track | Styles | Install time |
@@ -57,18 +55,18 @@ Codemm 1.0 is a rewrite. The v1 desktop app is replaced by a small, open-source 
 
   The React track was rejected twice by the probe gate, for a missing Rollup native binary and a read-only `node_modules`, and fixed by the author each time, as designed.
 - **One exercise per track** passed every gate through MCP: C 3.1 s, Java 8.7 s, Python 5.0 s, React 11.6 s.
-- **Learner loop:**
-  - the unedited starter fails and is recorded;
+- **Learner loop** (per-track runs, made before the starter-check fix; the A15 rerun below covers the final behavior):
+  - the unedited starter fails (these runs recorded it, which the fix stops);
   - the solution passes;
-  - mastery changes exactly as specified: Java 0.5 → 0.35 → 0.545, React 0.5 → 0.55 → 0.685;
+  - mastery changes exactly as specified for the recorded checks: Java 0.5 → 0.35 → 0.545, React 0.5 → 0.55 → 0.685;
   - a first-try pass raises difficulty;
   - a repeat pass changes nothing;
   - hidden tests show only an index and a status.
 - **Host round trips (A16).** Each was started by the host's own CLI on its own signed-in plan, with API-key variables removed.
-  - **Claude Code:** the tutor called `next_step` and delegated to the `codemm-author` subagent. The subagent saved `sum-and-difference` (`c.io`, difficulty 1, 5 hidden cases including overflow) through every gate. The tutor then called `get_exercise` and replied with only the id and title. 5 turns, 70 s.
-  - **Codex** (gpt-6-astra, with Codemm's tools approved for the run): the tutor spawned a subagent that saved `report-number` (`c.io`, difficulty 1) through every gate, then called `get_exercise` and replied with only the id and title.
+  - **Claude Code:** the tutor called `next_step` and delegated to the `codemm-author` subagent. The subagent saved `sum-and-difference` (`c.io`, difficulty 1, 5 hidden cases including overflow) through every gate. The subagent replied to the tutor with only the id. The tutor then called `get_exercise` and replied with the id and the statement's title, as the run's prompt asked. 5 turns, 70 s.
+  - **Codex** (gpt-6-astra, with Codemm's tools approved for the run): the tutor spawned a subagent that saved `report-number` (`c.io`, difficulty 1) through every gate, then called `get_exercise` and replied with the id and the statement's title, as the run's prompt asked.
   - **Statement checks:** the statements and tests of all six exercises were checked independently by Astra. Five are consistent; one example has a minor gap (unstated integer bounds) that doesn't affect its tests. A person should spot-check them before publishing.
-- **Recorded learner journey (A15).** `get_exercise`, then `codemm test` (visible only, nothing recorded), then a failing `check` and a passing `check`, both recorded. Mastery went 0.5 → 0.35 → 0.545, and `next_step` updated.
+- **Recorded learner journey (A15),** rerun on the final code. `codemm init`, then Claude Code saved a roadmap and its author subagent saved `count-vowels-basic`. The subagent and the tutor each replied with only the id. Then `codemm test` (visible only, nothing recorded), a `check` of the unedited starter (graded, not recorded), a wrong `check` and a passing `check`, both recorded. Mastery went 0.5 → 0.564 → 0.695, difficulty stayed at 1 because the pass wasn't a first try, and `next_step` asked for a new exercise.
 - **Full traces:** [docs/release-evidence-1.0.md](docs/release-evidence-1.0.md).
 - **Reviews:** the design and the implementation were reviewed by Astra (gpt-6-astra) over several rounds, and every blocker and major finding was resolved (see [docs/DESIGN.md §13](docs/DESIGN.md)).
 - **Rollback:** verified. At commit `5e3f3a7`, v1's `npm ci`, build and 84 unit tests pass.
