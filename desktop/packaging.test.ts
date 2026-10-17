@@ -15,6 +15,12 @@ describe('packaging', () => {
     expect(packaging({ CSC_LINK: 'base64-p12' }).mac.identity).toBeUndefined();
   });
 
+  it('uses the hardened runtime only with a real certificate', () => {
+    // Ad hoc signing plus the hardened runtime fails library validation at launch.
+    expect(packaging({}).mac.hardenedRuntime).toBe(false);
+    expect(packaging({ CSC_LINK: 'base64-p12' }).mac.hardenedRuntime).toBe(true);
+  });
+
   it('builds only macOS and Windows installers', () => {
     const config = packaging({}) as Record<string, unknown>;
     expect(config.linux).toBeUndefined();

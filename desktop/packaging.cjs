@@ -29,6 +29,9 @@ function packaging(env) {
       // all; an ad hoc one gets Open Anyway. Notarization runs only when
       // APPLE_* credentials are in the environment.
       identity: env.CSC_LINK ? undefined : '-',
+      // Notarization needs the hardened runtime; ad hoc signing with it fails
+      // library validation at launch, so it's on only with a real certificate.
+      hardenedRuntime: Boolean(env.CSC_LINK),
     },
     win: {
       target: [{ target: 'nsis', arch: ['x64'] }],
