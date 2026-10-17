@@ -194,4 +194,15 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(app.listProposals()).toEqual([]);
     await cli(["image", "rm", "-f", "codemm-track-shell-consent:1"]);
   });
+
+  it("saves a bound author job's exercise to its own course, even if the learner switches mid-save", async () => {
+    const files = { ...exercise("io-max"), "exercise.yaml": exercise("io-max")["exercise.yaml"]!.replace("max-of-line", "bound-save").replace("sh.loops", "sh.basics") };
+    const pending = app.saveExercise(ws, files, "shell");
+    await app.saveRoadmap(ws, "shell-other", roadmap("shell-io"));
+    expect(await pending).toEqual({ exercise: "bound-save" });
+    expect(app.listExercises(ws, "shell").map((e) => e.exercise)).toContain("bound-save");
+    expect(app.listExercises(ws)).toEqual([]);
+    expect(existsSync(join(ws, "exercises", "shell", "bound-save", "main.sh"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(ws, "codemm.json"), "utf8")).course).toBe("shell-other");
+  });
 });

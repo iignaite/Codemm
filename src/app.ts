@@ -1,12 +1,12 @@
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./files.js";
-import { verifyExercise, verifyTrack } from "./gates.js";
+import { checkTrackFiles, verifyExercise, verifyTrack } from "./gates.js";
 import type { TestResult, TestSet } from "./grading.js";
 import { gradeIoRun, gradeUnitRun, type IoRun, runIo, runUnit, type UnitRun } from "./judge.js";
 import { type LearnerEvent, MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
 import { assertRuntime, cli as sandboxCli, inspectImage } from "./sandbox.js";
-import { assertNotes, type CourseRecord, type ExerciseRecord, parseLesson, parseRoadmapYaml, parseTrackYaml, type TrackRecord } from "./schemas.js";
+import { assertNotes, type CourseRecord, type ExerciseRecord, parseLesson, parseRoadmapYaml, type TrackRecord } from "./schemas.js";
 import * as store from "./store.js";
 
 /**
@@ -46,11 +46,10 @@ export function listTracks() {
   return store.listTracks().map((t) => ({ track: `${t.id}@${t.version}`, styles: t.styles, files: t.files }));
 }
 
-/** Track gate 1, part one: the files are valid and name an id@version. */
+/** Track gate 1, part one: the files are valid, with a Dockerfile and complete probes, and name an id@version. */
 function readTrackSpec(files: FileMap) {
   assertPortablePaths(validateFileMap(files));
-  if (!files["track.yaml"]) throw new CodemmError("A track needs a track.yaml file.");
-  const spec = parseTrackYaml(files["track.yaml"]);
+  const { spec } = checkTrackFiles(files);
   return { spec, ref: `${spec.id}@${spec.version}` };
 }
 
@@ -96,7 +95,7 @@ export async function proposeTrack(files: FileMap): Promise<{ installed: string;
 }
 
 export function listProposals() {
-  return store.listProposals().map((p) => ({ track: p.track, digest: p.digest, created: p.created, files: store.readProposal(p.track, p.digest) ?? {} }));
+  return store.listProposals().map(({ record, files }) => ({ track: record.track, digest: record.digest, created: record.created, files }));
 }
 
 /** Installs a proposal only if its files still have the digest the learner consented to. */
@@ -176,6 +175,7 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
   if (track && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
   const record: CourseRecord = { format_version: 1, course, ...roadmap };
   await store.withLock(store.courseLockPath(course), async () => {
+    let retries: string[] = [];
     const existing = store.readCourse(course);
     if (existing) {
       const exercises = store.listExercises(course);
@@ -193,14 +193,14 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
       if (removed.length > 0) throw new CodemmError(`These concepts have exercises, lessons or progress and can't be removed: ${removed.join(", ")}.`);
       const states = replay(events);
       const before = new Map(existing.concepts.map((c) => [c.id, c.requires]));
-      for (const c of roadmap.concepts) {
+      retries = roadmap.concepts.filter((c) => {
         const old = before.get(c.id);
-        if (old && states.get(c.id)?.stuck && c.requires.some((r) => !old.includes(r))) {
-          store.appendEvent(course, { format_version: 1, kind: "retry", at: new Date().toISOString(), concept: c.id });
-        }
-      }
+        return old && states.get(c.id)?.stuck && c.requires.some((r) => !old.includes(r));
+      }).map((c) => c.id);
     }
+    // The roadmap goes first: if appending fails, the concept stays stuck rather than restarting without its prerequisite.
     store.writeCourse(record);
+    for (const concept of retries) store.appendEvent(course, { format_version: 1, kind: "retry", at: new Date().toISOString(), concept });
   });
   await store.updateWorkspace(ws, (config) => ({ ...config, course, current: config.course === course ? config.current : undefined }));
   return { course, concepts: roadmap.concepts.length };
@@ -278,20 +278,19 @@ export function nextStep(ws: string, bound?: string): NextStep {
 
 export async function saveExercise(ws: string, files: FileMap, bound?: string): Promise<{ exercise: string; warning?: string }> {
   assertPortablePaths(validateFileMap(files));
-  const { course: courseId, track: trackRef } = activeCourse(ws, bound);
-  const trackId = store.parseTrackRef(trackRef).id;
-  const { record, track } = await store.withLock(store.courseLockPath(courseId), () =>
-    store.withLock(store.trackLockPath(trackId), async () => {
-      // Re-read under the locks so a concurrent roadmap change or rebuild can't be missed.
-      const course = store.readCourse(courseId)!;
+  const courseId = activeCourse(ws, bound).course;
+  const { record, track } = await store.withLock(store.courseLockPath(courseId), () => {
+    // Re-read under the course lock, then lock that course's current track: a draft's track can change.
+    const course = store.readCourse(courseId)!;
+    return store.withLock(store.trackLockPath(store.parseTrackRef(course.track).id), async () => {
       const track = installedTrack(course.track);
       await ensureImage(track);
       const taken = new Set(store.listExercises(courseId).map((e) => e.slug));
       const verified = await verifyExercise(track, course, files, taken);
       store.commitFolder(store.exerciseDir(courseId, verified.slug), files, { "exercise.json": verified });
       return { record: verified, track };
-    }),
-  );
+    });
+  });
   try {
     store.materialize(ws, learnerDir(courseId, record.slug), learnerFiles(record, files, track));
   } catch (e) {

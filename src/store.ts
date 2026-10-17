@@ -226,25 +226,39 @@ export function writeProposal(ref: string, files: FileMap): void {
   const digest = fileMapDigest(files);
   const dir = proposalsDir(ref);
   if (!existsSync(join(dir, digest))) {
-    commitFolder(join(dir, digest), files, { "proposal.json": { format_version: 1, track: ref, digest, created: new Date().toISOString() } });
+    // The files sit in their own folder, so no track file can collide with proposal.json.
+    const payload = Object.fromEntries(Object.entries(files).map(([path, text]) => [`files/${path}`, text]));
+    commitFolder(join(dir, digest), payload, { "proposal.json": { format_version: 1, track: ref, digest, created: new Date().toISOString() } });
   }
   for (const other of readdirSync(dir)) if (!other.startsWith(".") && other !== digest) discard(join(dir, other));
 }
 
-export function listProposals(): ProposalRecord[] {
+/** Every proposal with its files. One that another process removes while this reads it is left out. */
+export function listProposals(): { record: ProposalRecord; files: FileMap }[] {
   const root = join(codemmHome(), "proposals");
   if (!existsSync(root)) return [];
   return readdirSync(root)
     .filter((ref) => !ref.startsWith("."))
     .sort()
-    .flatMap((ref) => readdirSync(join(root, ref)).filter((d) => !d.startsWith(".")).map((d) => parseRecord(ProposalRecord, join(root, ref, d, "proposal.json"))));
+    .flatMap((ref) => {
+      const dirs = existsSync(join(root, ref)) ? readdirSync(join(root, ref)).filter((d) => !d.startsWith(".")) : [];
+      return dirs.flatMap((d) => {
+        const dir = join(root, ref, d);
+        try {
+          return [{ record: parseRecord(ProposalRecord, join(dir, "proposal.json")), files: readFileMap(join(dir, "files")) }];
+        } catch (e) {
+          if (!existsSync(dir)) return [];
+          throw e;
+        }
+      });
+    });
 }
 
 /** The proposal's files, or undefined if no proposal has that digest. */
 export function readProposal(ref: string, digest: string): FileMap | undefined {
   if (!/^[0-9a-f]{64}$/.test(digest)) return undefined;
-  const dir = join(proposalsDir(ref), digest);
-  return existsSync(dir) ? readFileMap(dir, ["proposal.json"]) : undefined;
+  const dir = join(proposalsDir(ref), digest, "files");
+  return existsSync(dir) ? readFileMap(dir) : undefined;
 }
 
 export const dropProposals = (ref: string) => discard(proposalsDir(ref));

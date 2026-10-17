@@ -255,7 +255,7 @@ describe("setup proposals", () => {
   it("refuses to install files that changed after the learner saw them", async () => {
     await app.proposeTrack(track());
     const { digest } = app.listProposals()[0]!;
-    writeFileSync(join(process.env.CODEMM_HOME!, "proposals", "shell-io@1", digest, "Dockerfile"), "FROM evil\n");
+    writeFileSync(join(process.env.CODEMM_HOME!, "proposals", "shell-io@1", digest, "files", "Dockerfile"), "FROM evil\n");
     await expect(app.installProposal("shell-io@1", digest)).rejects.toThrow(/changed or is gone/);
     await expect(app.installProposal("shell-io@1", "0".repeat(64))).rejects.toThrow(/changed or is gone/);
   });
@@ -267,6 +267,23 @@ describe("setup proposals", () => {
     });
     expect(await app.proposeTrack(track())).toEqual({ installed: "shell-io@1", unchanged: true });
     await expect(app.proposeTrack({ ...track(), Dockerfile: "FROM other\n" })).rejects.toThrow(/already installed/);
+    expect(app.listProposals()).toEqual([]);
+  });
+
+  it("keeps a track file named like Codemm's own record intact", async () => {
+    await app.proposeTrack({ ...track(), "proposal.json": "{}" });
+    const [p] = app.listProposals();
+    expect(p!.files["proposal.json"]).toBe("{}");
+    await expect(app.installProposal("shell-io@1", p!.digest)).rejects.toThrow(/container runtime|Docker/i);
+  });
+
+  it.each([
+    ["no Dockerfile", (t: Record<string, string>) => { delete t.Dockerfile; }],
+    ["a probe without its fail solution", (t: Record<string, string>) => { delete t["probe/io/fail/main.sh"]; }],
+  ])("refuses to propose a track with %s", async (_label, change) => {
+    const t = track();
+    change(t);
+    await expect(app.proposeTrack(t)).rejects.toThrow(/Gate "valid"/);
     expect(app.listProposals()).toEqual([]);
   });
 
