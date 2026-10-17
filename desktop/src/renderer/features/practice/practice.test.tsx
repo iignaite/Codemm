@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { scenario } from '../../../main/mock';
 import { mockWithCourse, renderApp } from '../../test-utils';
 
@@ -131,6 +131,39 @@ describe('practice', () => {
     expect(await within(screen.getByRole('log')).findByText(/In practice mode, you write the code\./)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Hint' }));
     expect(await within(screen.getByRole('log')).findByText('Give me a hint.')).toBeInTheDocument();
+  });
+
+  it('saves pending edits before asking Codemm, so the tutor sees the latest code', async () => {
+    const { api, user } = await open();
+    const calls: string[] = [];
+    const saveFile = api.saveFile;
+    api.saveFile = (id, path, text, digest) => (calls.push(`save ${text}`), saveFile(id, path, text, digest));
+    const ask = api.ask;
+    api.ask = (place, text) => (calls.push(`ask ${text}`), ask(place, text));
+    await write(user, 'count + 1');
+    await user.click(screen.getByRole('button', { name: 'Hint' }));
+    await within(screen.getByRole('log')).findByText('Give me a hint.');
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Hint' })).toBeEnabled());
+    expect(calls).toEqual(['save count + 1', 'ask Give me a hint.']);
+  });
+
+  it('takes one question at a time: asking is off while Codemm answers', async () => {
+    const { api, user } = await open();
+    let answer!: () => void;
+    let asked = 0;
+    const ask = api.ask;
+    api.ask = (place, text) => (asked++, new Promise((done) => (answer = () => done(ask(place, text)))));
+    await user.click(screen.getByRole('button', { name: 'Hint' }));
+    await vi.waitFor(() => expect(asked).toBe(1));
+    expect(screen.getByRole('button', { name: 'Hint' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Show me' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'And now?{Enter}');
+    expect(asked).toBe(1);
+    answer();
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    expect(asked).toBe(2);
   });
 
   it('offers calm ways forward when stuck, including an easier topic', async () => {
