@@ -14,6 +14,8 @@ describe('job briefs', () => {
     expect(research).toContain('They already know: HTML');
     expect(briefs.easier('state', 'State').startsWith(JOB_BRIEFS.roadmap)).toBe(true);
     expect(briefs.setup('react@1', 'no test runner')).toContain('no test runner');
+    // The exact track: a proposal for another id or version doesn't set up this course.
+    expect(briefs.setup('python@3')).toContain('Propose exactly the track `python@3`: id `python`, version 3.');
     expect(briefs.author()).toBe(JOB_BRIEFS.author);
   });
 
