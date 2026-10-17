@@ -1,6 +1,6 @@
 # Codemm 1.0 design
 
-Status: revised after two Astra design reviews (§13). The longer illustrated design, with research sources and the competitor survey, is the "Codemm Harness" design doc (v0.4, 17 Oct 2026). This file is the authoritative spec for what 1.0 ships.
+Status: revised after two Astra design reviews (§13). The longer illustrated design, with research sources and the competitor survey, is the "Codemm Harness" design doc (v0.4, 17 Oct 2026). This file is the authoritative spec for the core that 1.0 ships. The desktop app that bundles it, and the core features the app needs, are specified in [desktop/DESIGN.md](desktop/DESIGN.md).
 
 ## 1. What Codemm is
 
@@ -10,7 +10,7 @@ Codemm is an open-source, local-first harness for graded coding practice. It is 
 - the **roadmap** (a concept graph),
 - the **exercises**.
 
-Codemm runs the sandbox, checks each piece with deterministic gates, grades the learner's attempts and keeps per-concept mastery. Codemm never calls a model and never handles credentials.
+Codemm runs the sandbox, checks each piece with deterministic gates, grades the learner's attempts and keeps per-concept mastery. Codemm launches the learner's own agent CLI (in the desktop app); it never calls a model API, and it never reads, stores or asks for credentials.
 
 **What the gates guarantee:** each exercise is internally consistent and its hidden tests can tell the reference from plausible wrong answers. They do **not** prove that the statement matches the tests. A wrong reference with matching tests passes. Statement quality is the learner's and reviewer's call; an automated independent-solve check is deferred.
 
@@ -41,16 +41,19 @@ Each item is verified by an automated test unless marked *journey*. Journeys run
 
 ### Supported matrix for 1.0
 
-- **Verified:** macOS with Docker Desktop, and Linux in CI with Docker.
-- **Experimental:** Podman, and Windows through WSL2. The code supports them, but they are not verified here.
+- **Desktop app:** macOS (Apple Silicon and Intel) and Windows 11 x64, with Docker Desktop, in beta. Its journeys with real agents (desktop D17 and D18) are release steps.
+- **Terminal, verified:** macOS with Docker Desktop (A14 to A16), and Linux in CI with Docker. Core unit tests also run on Windows in CI.
+- **Experimental:** Podman, and terminal use on Windows through WSL 2. The code supports them, but they are not verified with a real agent.
+
+The desktop app, the private beta and the minimum model per agent are in scope for 1.0 ([desktop/DESIGN.md](desktop/DESIGN.md), [beta-plan.md](desktop/beta-plan.md)). The minimum models come from a small bench of the terminal flow ([bench/results.md](bench/results.md)); the desktop's per-job flow isn't benchmarked yet.
 
 ### Deferred (not needed for 1.0)
 
-- Human beta (10 learners), the full cross-host model bench and the recommended-model list. These are adoption validation and need people and weeks.
+- The full cross-host model bench, including the desktop's per-job flow.
 - Independent-solve gate, spaced review, placement quiz, per-test concept tags.
-- Practice hooks for Codex and Cursor; protection is advisory there.
-- Multi-container tracks, course sharing, any UI, watch mode.
-- Publishing to npm or a GitHub release. These need the owner's explicit go-ahead.
+- Practice hooks for Codex and Cursor in the terminal; protection is advisory there.
+- Multi-container tracks, course sharing, watch mode.
+- Publishing to npm. GitHub releases are built as drafts, and only the owner publishes them.
 
 ## 3. Files and ids
 
