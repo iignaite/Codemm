@@ -21,6 +21,12 @@ function canonical(path: string): string {
   return join(realpathSync.native(existing), ...rest);
 }
 
+/** True when the disk holding `dir` ignores case: the same folder answers to another case. */
+function caseInsensitive(dir: string): boolean {
+  const swapped = dir.replace(/[a-z]/gi, (c) => (c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase()));
+  return swapped !== dir && existsSync(swapped);
+}
+
 /**
  * Claude Code PreToolUse hook. Exit 2 blocks the edit and shows the message to the agent.
  * A practice aid, not a security boundary: bad input is let through, with a warning, rather than breaking the agent.
@@ -35,9 +41,9 @@ export function claudeHook(ws: string, stdin: string): { exit: 0 | 2; message?: 
   }
   if (typeof path !== "string" || path === "") return { exit: 0, message: WARN };
 
-  const root = canonical(resolve(ws, "exercises"));
-  const target = canonical(resolve(ws, path));
-  const rel = relative(root, target);
+  // Where the disk ignores case, EXERCISES/ is exercises/ even before either exists.
+  const fold = caseInsensitive(canonical(resolve(ws))) ? (p: string) => p.toLowerCase() : (p: string) => p;
+  const rel = relative(fold(canonical(resolve(ws, "exercises"))), fold(canonical(resolve(ws, path))));
   // Compare whole path components: "..notes" is a name, ".." is a step out.
   const inside = rel !== "" && !isAbsolute(rel) && rel.split(sep)[0] !== "..";
   if (!inside) return { exit: 0 };

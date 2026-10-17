@@ -32,6 +32,11 @@ describe("validateFileMap", () => {
     expect(() => validateFileMap({ "tests/hidden/secret-name/../x": "x" })).not.toThrow(/secret-name/);
   });
 
+  // On Windows these name the same file as "main.sh" (or a hidden stream of it), so one entry could overwrite another.
+  it.each(["main.sh::$DATA", "notes.txt:meta", "C:x", "main.sh.", "src /main.sh"])("rejects the Windows alias %j", (path) => {
+    expect(() => validateFileMap({ [path]: "x" })).toThrow(/path/i);
+  });
+
   it("rejects paths that differ only by case", () => {
     expect(() => validateFileMap({ "Main.c": "a", "main.c": "b" })).toThrow(/case/);
   });

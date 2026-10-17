@@ -284,7 +284,16 @@ export function readWorkspace(ws: string): WorkspaceConfig {
   return parseRecord(WorkspaceConfig, file);
 }
 
-const workspaceLock = (ws: string) => join(codemmHome(), "locks", `ws-${createHash("sha256").update(ws).digest("hex").slice(0, 16)}.lock`);
+/** One lock per workspace, however its path is spelled (symlinks, case, Windows short names). */
+function workspaceLock(ws: string): string {
+  let id = ws;
+  try {
+    id = realpathSync.native(ws);
+  } catch {
+    // Not created yet; nothing else can have spelled it differently.
+  }
+  return join(codemmHome(), "locks", `ws-${createHash("sha256").update(id).digest("hex").slice(0, 16)}.lock`);
+}
 
 /** Read-modify-write of codemm.json, serialized across processes. */
 /** Serializes changes Codemm makes to one workspace (codemm.json, host setup). */

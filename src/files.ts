@@ -20,8 +20,11 @@ export const describePath = (path: string) => (/^tests\/hidden(\/|$)/i.test(path
 
 export function assertRelativePath(path: string): void {
   const parts = path.split("/");
-  const ok = path.length > 0 && !path.includes("\\") && !path.includes("\0") && parts.every((p) => p !== "" && p !== "." && p !== "..");
-  if (!ok) throw new CodemmError(`Invalid path ${describePath(path)}. Use a relative path with "/" separators and no "." or ".." parts.`);
+  // ":" (streams, drive-relative paths) and names ending in "." or " " are other names for another file on Windows.
+  const ok = path.length > 0 && !/[\\\0:]/.test(path) && parts.every((p) => p !== "" && !/[. ]$/.test(p));
+  if (!ok) {
+    throw new CodemmError(`Invalid path ${describePath(path)}. Use a relative path with "/" separators, no "." or ".." parts, no ":" and no names ending in "." or a space.`);
+  }
 }
 
 export function validateFileMap(map: FileMap): FileMap {
