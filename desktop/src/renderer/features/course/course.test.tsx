@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { SIGNED_OUT, type CodemmApi, type Roadmap } from '../../../shared/api';
@@ -75,6 +75,17 @@ describe('course editor', () => {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+  });
+
+  it('goes deeper on one topic: Codemm splits it into its smaller skills', async () => {
+    const asked: string[] = [];
+    const { api, user } = await open();
+    const revise = api.reviseRoadmap;
+    api.reviseRoadmap = (concepts, request) => (asked.push(request), revise(concepts, request));
+    await user.click(screen.getByRole('button', { name: 'Go deeper on JSX' }));
+    await waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0]).toContain('Go deeper on "JSX"');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled());
   });
 
   it('asks Codemm for changes', async () => {

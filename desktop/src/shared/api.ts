@@ -72,10 +72,14 @@ export interface Computer {
 
 // ---------- roadmap (§4.2) ----------
 
+/** How deep the roadmap goes, as the learner chose: about 8, 15 or 25 to 30 single-skill topics. */
+export type Depth = 'overview' | 'standard' | 'in-depth';
+
 export interface Goal {
   topic: string;
   /** What the learner says they already know, in their words. */
   known: string;
+  depth: Depth;
 }
 
 export interface Concept {

@@ -45,13 +45,21 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
 
   async function ask(e: FormEvent) {
     e.preventDefault();
-    if (!request.trim()) return;
+    if (request.trim()) await change(request.trim());
+  }
+
+  /** "Go deeper": the same roadmap change, asking to split one topic into its smaller skills. */
+  function deeper(title: string) {
+    if (!asking) void change(`Go deeper on "${title}": split it into the smaller skills it needs, each its own topic with its prerequisites.`);
+  }
+
+  async function change(text: string) {
     setAsking(true);
     try {
-      const change = await api.reviseRoadmap(concepts, request.trim());
-      setConcepts(change.roadmap.concepts);
-      setSources(change.roadmap.sources);
-      setNotice(change.changed ? '' : change.text || 'No change.');
+      const result = await api.reviseRoadmap(concepts, text);
+      setConcepts(result.roadmap.concepts);
+      setSources(result.roadmap.sources);
+      setNotice(result.changed ? '' : result.text || 'No change.');
       setRequest('');
     } catch (err) {
       // Come back to the edited roadmap, not the one this screen opened with.
@@ -88,6 +96,7 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
               onEdit={() => setEditing(c.id)}
               onRename={(title) => rename(c.id, title)}
               onRemove={() => edit((cs) => removeTopic(cs, c.id))}
+              onDeeper={() => deeper(c.title)}
               onMove={(to) => edit((cs) => moveTopic(cs, c.id, to))}
               onDragStart={() => (dragFrom.current = c.id)}
               onDrop={() => dragFrom.current && edit((cs) => moveTopic(cs, dragFrom.current!, i))}

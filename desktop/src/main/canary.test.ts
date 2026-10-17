@@ -28,7 +28,7 @@ describe('the learner-safe boundary (D4)', () => {
         return (e as Error).message;
       }
     };
-    const roadmap = (await t.api.research({ topic: 'React', known: '' })).roadmap;
+    const roadmap = (await t.api.research({ topic: 'React', known: '', depth: 'standard' })).roadmap;
     const payloads = await Promise.all([
       call('agents'),
       call('connect', 'claude'),
@@ -53,7 +53,7 @@ describe('the learner-safe boundary (D4)', () => {
     payloads.push(await call('reviseRoadmap', roadmap?.concepts ?? [{ id: 'values', title: 'Values', requires: [] }], 'Add testing'));
     payloads.push(await call('easier', 'state'));
     payloads.push(await call('approve', [{ id: 'values', title: 'Values', requires: [] }]));
-    payloads.push(await call('research', { topic: 'React', known: '' }));
+    payloads.push(await call('research', { topic: 'React', known: '', depth: 'standard' }));
 
     for (const payload of payloads) expect(payload).not.toMatch(leaks);
     for (const line of logged) expect(line).not.toMatch(leaks);
