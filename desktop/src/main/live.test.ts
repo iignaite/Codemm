@@ -363,4 +363,13 @@ describe('live CodemmApi', () => {
     await t.api.approve(r.roadmap!.concepts);
     expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'failed' });
   });
+
+  it('starts no agent at all once one could not be stopped, until Codemm quits', async () => {
+    const t = live({ tutor: () => ({ ok: false, problem: 'unstoppable' }) });
+    const activity = await practising(t);
+    await expect(t.api.ask({ activityId: activity.id }, 'Why?')).rejects.toThrow(UNSTOPPABLE);
+    await expect(t.api.ask({ activityId: activity.id }, 'Why again?')).rejects.toThrow(UNSTOPPABLE);
+    await t.api.retryJobs();
+    expect(t.jobs.ran.filter((j) => j.kind === 'tutor')).toHaveLength(1);
+  });
 });

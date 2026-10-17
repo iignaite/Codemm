@@ -95,6 +95,8 @@ export function createLive(d: LiveDeps): Live {
   let stalled: CourseView['stalled'];
   let tutorTurns: Promise<unknown> = Promise.resolve();
   let tutorTurnCount = 0;
+  /** Set once an agent survived its cancel: no agent starts again until Codemm quits (§3.1). */
+  let unstoppable = false;
   /** Set once quitting starts: nothing new runs (§5). */
   let stopping = false;
   /** Checks and Try its in flight: their containers belong to this process until they end. */
@@ -143,10 +145,13 @@ export function createLive(d: LiveDeps): Live {
     const existing = running.get(key);
     if (existing) return existing.outcome;
     if (stopping) return Promise.resolve({ ok: false, problem: 'failed', text: [] });
+    if (unstoppable) return Promise.resolve({ ok: false, problem: 'unstoppable', text: [] });
     const stop = new AbortController();
     const job = async (): Promise<JobOutcome> => {
       // A cancelled job, or background work queued behind a stall, never launches.
       if (stop.signal.aborted || (lane === 'bg' && stalled)) return { ok: false, problem: 'failed', text: [] };
+      // Nor does any job while an agent Codemm couldn't stop may still run (§3.1).
+      if (unstoppable) return { ok: false, problem: 'unstoppable', text: [] };
       const { id, exe } = await d.connect.chosen();
       const began = Date.now();
       log('job-start', { kind, lane, agent: id });
@@ -165,6 +170,7 @@ export function createLive(d: LiveDeps): Live {
         done,
         signedIn: () => d.connect.recheck(id, exe),
       });
+      if (outcome.problem === 'unstoppable') unstoppable = true;
       log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
       return outcome;
     };
