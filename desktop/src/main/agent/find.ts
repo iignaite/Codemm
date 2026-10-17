@@ -112,3 +112,9 @@ export function dockerFolders(docker: string, desktopBins = DOCKER_DESKTOP_BINS)
   for (const bin of desktopBins) if (existsSync(bin)) folders.push(bin);
   return [...new Set(folders)];
 }
+
+/** `path` with Docker's folders added once, after what was there (§3.1). */
+export function withDockerFolders(path: string, docker: string, desktopBins = DOCKER_DESKTOP_BINS): string {
+  const folders = path.split(delimiter).filter(Boolean);
+  return [...folders, ...dockerFolders(docker, desktopBins).filter((f) => !folders.includes(f))].join(delimiter);
+}
