@@ -73,8 +73,14 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(JSON.stringify(view)).not.toMatch(/1 5 2|-3 -1 -2/);
   });
 
-  it("runs visible tests without recording an attempt", async () => {
-    const r = await app.testExercise(ws);
+  it("runs visible tests without recording an attempt, reporting progress as it goes", async () => {
+    const seen: app.CheckProgress[] = [];
+    const r = await app.testExercise(ws, undefined, undefined, (p) => seen.push(p));
+    expect(seen).toEqual([
+      { phase: "building", done: 0, total: 0 },
+      { phase: "visible", done: 0, total: 1 },
+      { phase: "visible", done: 1, total: 1 },
+    ]);
     expect(r.tests.map((t) => t.status)).toEqual(["fail"]);
     expect(readEvents("shell")).toEqual([]);
   });

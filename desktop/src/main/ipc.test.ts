@@ -6,7 +6,7 @@ import { dispatch } from './ipc';
 const echo = new Proxy({} as CodemmApi, { get: (_t, method) => async (...args: unknown[]) => ({ method, args }) });
 
 const concepts = [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }];
-const GOOD: Record<keyof CodemmApi, unknown[]> = {
+const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress'>, unknown[]> = {
   agents: [],
   connect: ['claude'],
   chooseModel: ['claude', 'opus'],
@@ -24,8 +24,8 @@ const GOOD: Record<keyof CodemmApi, unknown[]> = {
   markRead: ['values-1'],
   activity: ['values'],
   saveFile: ['values-easy-1', 'src/Counter.jsx', 'x', 'b'.repeat(64)],
-  tryIt: ['values-easy-1'],
-  check: ['values-easy-1'],
+  tryIt: ['values-easy-1', 'run-1'],
+  check: ['values-easy-1', 'run-1'],
   ask: [{ activityId: 'values-easy-1' }, 'Why?'],
   skip: ['values'],
   easier: ['values'],

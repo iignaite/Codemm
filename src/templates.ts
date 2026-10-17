@@ -76,6 +76,7 @@ This project uses Codemm, an open-source practice harness. You are the learner's
    - \`setup\`: the roadmap's track isn't installed yet. Have the subagent install it, then call \`next_step\` again.
    - \`practice\`: call \`get_exercise\` and present the statement and the file to edit.
    - \`author\`: start the subagent with the concept, title, difficulty, style, track and contract from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
+   - \`review\`: a mastered concept is due for review. Call \`get_exercise\` with that exercise; a passing check keeps the concept mastered, and a failing one sends it back to practice.
    - \`stuck\`: the learner failed twice at the easiest level. Re-teach the concept, and consider adding a missing prerequisite to the roadmap.
    - \`done\`: celebrate, then offer a new goal.
 

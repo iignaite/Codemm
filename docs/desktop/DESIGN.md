@@ -282,7 +282,26 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 
 With neither option, the server behaves as in core.
 
-### 4.8 Research sources
+### 4.7 Reviews
+
+Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In the app:
+
+- **Due.** A due review shows as "Review" on the course map and the topic page, and the activity opens with a "Review" label. If no unused exercise fits, an author job writes one (`review: true`), shown as the review being written. A review comes due with time, not with a learner action, so reading the course starts that job when it isn't running (an exception to D9's "reads start nothing", which is about reopening saved work). The course map and topic page re-read the course when the window regains focus, and every 10 minutes once settled, so a review that came due while the app was open shows up.
+- **Scheduled.** The mastery panel, and the completed-course screen, show "Review tomorrow" or "Review in N days" for a mastered topic. They never show dates. Overdue reviews wait their turn behind the one being offered, without a countdown.
+- **Outcome.** A review is an ordinary Check. A pass keeps the topic mastered; a fail sends it back to practice.
+
+### 4.8 Check progress
+
+- **Core.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }` (core §4.2).
+  - io reports each visible test as it finishes; the build, when the track has one, shows once as `building`.
+  - Hidden tests and unit tests report their phase only (`total` 0): no names, counts or timing per hidden test.
+- **Desktop.**
+  - The renderer passes a run id with each Try it or Check. `live` tags that run's events with it and keeps only `phase`, `done` and `total`.
+  - Main sends each event to the app's windows only, on the one-way channel `codemm:check-progress`.
+  - The preload exposes it as `onCheckProgress(listener)`, which returns a function that stops listening. It isn't an IPC call: `invoke('onCheckProgress')` is refused.
+- **Renderer.** While Try it or Check runs, the results panel shows a quiet bar with the phase and "3 of 8". With no count, it shows the phase alone. It hears only its own run's events, and stops listening when the learner leaves.
+
+### 4.9 Research sources
 
 - **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
 - **Showing.** The roadmap and course-edit screens show a quiet "Sources" list. Each link opens only after a click, in the system browser, through main's `shell.openExternal`, and main accepts only https links. Nothing loads inside the app window.
@@ -443,8 +462,8 @@ Cut from 1.0 by the owner's scope ledger:
 - **Lessons:** running code examples in the sandbox (the lesson gate), predict questions, and learner edits of lesson text. Notes stay.
 - **Usage:** recording agent usage and showing cost per topic. Lesson caching stays (§4.3).
 - **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
-- **Review scheduling** and the prototype's review card, streaks and activity history.
-- **Progress:** streaming check and install progress. Jobs show `running`, `done` or `failed`.
+- The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
+- **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.8).
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.
 - **Platforms:** Linux installers, Windows and Linux arm64, Colima, and Podman.
 - **Cursor** beyond experimental, and its stream parser.

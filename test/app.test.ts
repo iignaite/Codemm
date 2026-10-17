@@ -145,6 +145,20 @@ describe("the author step", () => {
   });
 });
 
+describe("reviews", () => {
+  it("shows when a mastered concept's review is due, and asks for it once due", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    for (let i = 0; i < 4; i++) {
+      store.appendEvent("shell", event({ kind: "check", at: twoDaysAgo, exercise: `e${i}`, concepts: ["sh.basics"], difficulty: 1, passed: 1, total: 1, assisted: false }));
+    }
+    const due = new Date(Date.parse(twoDaysAgo) + 86_400_000).toISOString();
+    expect(app.progress(ws).concepts[0]).toMatchObject({ id: "sh.basics", mastered: true, reviewDue: due });
+    expect(app.nextStep(ws)).toMatchObject({ kind: "author", concept: "sh.basics", difficulty: 3, review: true, title: "Basics" });
+  });
+});
+
 describe("lessons", () => {
   const lesson = (id: string, concept = "sh.basics") => ({ id, concept, title: `About ${id}`, markdown: `# ${id}\n\nText.` });
 

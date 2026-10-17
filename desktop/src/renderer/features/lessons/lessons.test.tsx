@@ -12,6 +12,25 @@ async function approved(options?: MockOptions) {
   return { api, roadmap };
 }
 
+describe('review on the topic page', () => {
+  it('labels a due review and opens it, and shows a review being written', async () => {
+    const { api } = await mockWithCourse({ read: true });
+    const real = (await api.course())!;
+    const withReview = (review: 'due' | 'writing') => async () => ({
+      ...real,
+      topics: real.topics.map((t) => (t.id === TOPIC ? { ...t, state: 'mastered' as const, review, activity: review === 'due' ? ('open' as const) : ('writing' as const) } : t)),
+    });
+    api.course = withReview('due');
+    const view = renderApp({ to: 'topic', topicId: TOPIC }, api);
+    expect(await screen.findByText('Review', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument();
+    view.unmount();
+    api.course = withReview('writing');
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    expect(await screen.findByRole('img', { name: 'Writing the review' })).toBeInTheDocument();
+  });
+});
+
 describe('topic page and setup consent', () => {
   it('asks once before setup, shows exactly what will be built, and sets up', async () => {
     const user = userEvent.setup();

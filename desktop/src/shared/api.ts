@@ -140,6 +140,10 @@ export interface TopicView {
   stuck: boolean;
   lessons: { id: string; title: string; state: LessonState }[];
   activity: ActivityState;
+  /** A mastered topic due for review: its review activity is open, or being written. */
+  review?: 'due' | 'writing';
+  /** Whole days until a mastered topic's next review, when one is scheduled and not yet due. */
+  reviewIn?: number;
 }
 
 export interface CourseView {
@@ -189,6 +193,15 @@ export interface Activity {
 
 export type TestStatus = 'pass' | 'fail' | 'error';
 
+/** Progress through Try it or Check: only a phase and counts. `total` 0 means not counted (hidden and unit tests). */
+export interface CheckProgress {
+  /** The run it belongs to: the id the renderer passed to tryIt or check. */
+  run?: string;
+  phase: 'building' | 'visible' | 'hidden';
+  done: number;
+  total: number;
+}
+
 /** One test result. A hidden test has no name or detail: an index and a status only. */
 export type TestView =
   | { hidden: false; name: string; status: TestStatus; message?: string; actual?: string }
@@ -229,6 +242,8 @@ export interface CodemmApi {
   connect(agent: AgentId): Promise<Agent>;
   /** Chooses the model for an agent's jobs, one of its `models`. */
   chooseModel(agent: AgentId, model: string): Promise<Agent>;
+  /** Hears progress while Try it or Check runs; returns a function that stops listening. An event, not a call. */
+  onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
   computer(): Promise<Computer>;
   tracks(): Promise<Track[]>;
 
@@ -255,8 +270,9 @@ export interface CodemmApi {
   activity(concept: string): Promise<Activity>;
   /** Saves one learner file. Rejects with CHANGED if it changed since `digest`. Returns the new digest. */
   saveFile(activityId: string, path: string, text: string, digest: string): Promise<string>;
-  tryIt(activityId: string): Promise<TryResult>;
-  check(activityId: string): Promise<CheckResult>;
+  /** `run` tags this run's progress events, so the renderer hears only its own. */
+  tryIt(activityId: string, run?: string): Promise<TryResult>;
+  check(activityId: string, run?: string): Promise<CheckResult>;
 
   /** A tutor turn. A reply that shows hidden material is held back (§2.2). */
   ask(place: Place, text: string): Promise<Message[]>;
@@ -271,4 +287,6 @@ export interface CodemmApi {
 /** What the preload script exposes as `window.codemm`. */
 export interface Bridge {
   invoke(method: string, args: unknown[]): Promise<unknown>;
+  /** The one event main sends: check progress, to the app window only. */
+  onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
 }
