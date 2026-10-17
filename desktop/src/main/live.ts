@@ -22,6 +22,7 @@ import type { connector } from './connect';
 import { infra } from './core/failures';
 import type { CoreApp, CoreProgress, CoreRoadmap } from './core/types';
 import { courseView, currentConcept, type Setup } from './courseView';
+import { noLog, type Log } from './log';
 import type { desktopState } from './state';
 import { activityView, checkView, filterReply, hiddenLines, tryView } from './views';
 
@@ -37,6 +38,8 @@ export interface LiveDeps {
   /** The app's own executable, which runs Node-script agents. */
   runtime?: string;
   runJob?: (job: Job) => Promise<JobOutcome>;
+  /** Lifecycle and detection events only (log.ts). */
+  log?: Log;
 }
 
 export interface Live extends CodemmApi {
@@ -69,6 +72,7 @@ interface Running {
 export function createLive(d: LiveDeps): Live {
   const { core, ws } = d;
   const runJob = d.runJob ?? realRunJob;
+  const log = d.log ?? noLog;
   const running = new Map<string, Running>();
   const lanes = { fg: Promise.resolve() as Promise<unknown>, bg: Promise.resolve() as Promise<unknown> };
   const outcomes = new Map<string, JobOutcome>();
@@ -126,7 +130,9 @@ export function createLive(d: LiveDeps): Live {
       // A cancelled job, or background work queued behind a stall, never launches.
       if (stop.signal.aborted || (lane === 'bg' && stalled)) return { ok: false, problem: 'failed', text: [] };
       const { id, exe } = await d.connect.chosen();
-      return runJob({
+      const began = Date.now();
+      log('job-start', { kind, lane, agent: id });
+      const outcome = await runJob({
         kind,
         agent: id,
         exe,
@@ -141,6 +147,8 @@ export function createLive(d: LiveDeps): Live {
         done,
         signedIn: () => d.connect.recheck(id, exe),
       });
+      log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
+      return outcome;
     };
     const outcome = lanes[lane].then(job, job).finally(() => running.delete(key));
     lanes[lane] = outcome.catch(() => undefined);
@@ -166,6 +174,7 @@ export function createLive(d: LiveDeps): Live {
         if (!o.ok && !controller?.signal.aborted) stalled ??= o.problem ?? 'failed';
       })
       .catch((e: Error) => {
+        log('job-error', { kind, message: e.message });
         stalled ??= e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed';
       });
   }
@@ -236,14 +245,23 @@ export function createLive(d: LiveDeps): Live {
   }
 
   return {
-    agents: () => d.connect.agents(),
+    async agents() {
+      const agents = await d.connect.agents();
+      log('agents', Object.fromEntries(agents.map((a) => [a.id, a.untested ? `${a.state}-untested` : a.state])));
+      return agents;
+    },
     async connect(id) {
       const agent = await d.connect.connect(id);
+      log('connect', { agent: id, state: agent.state, untested: agent.untested || undefined });
       // Signing in again ends a sign-out that stopped background work.
       if (agent.state === 'connected' && stalled === 'signed-out') stalled = undefined;
       return agent;
     },
-    computer: () => d.computer(),
+    async computer() {
+      const computer = await d.computer();
+      log('computer', { platform: computer.platform, ...Object.fromEntries(computer.checks.map((c) => [c.id, c.detail ?? c.state])) });
+      return computer;
+    },
 
     async tracks() {
       return core.listTracks().map((t) => ({ ref: t.track, name: trackName(t.track) }));
@@ -313,6 +331,7 @@ export function createLive(d: LiveDeps): Live {
         .catch((e: Error) => {
           // This computer's problems keep the proposal for Try again; nothing is recorded and no agent runs (§6.1).
           const kind = infra(e.message);
+          log('setup-failed', { problem: kind ?? 'gates' });
           if (kind) {
             setup.problem = kind;
             return;
@@ -362,7 +381,10 @@ export function createLive(d: LiveDeps): Live {
         return tryView(await tracked(core.testExercise(ws, activityId)));
       } catch (e) {
         const reason = notCounted(e);
-        if (reason) return { kind: 'not-counted', reason };
+        if (reason) {
+          log('not-counted', { run: 'try', reason });
+          return { kind: 'not-counted', reason };
+        }
         throw e;
       }
     },
@@ -375,7 +397,10 @@ export function createLive(d: LiveDeps): Live {
         return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false });
       } catch (e) {
         const reason = notCounted(e);
-        if (reason) return { kind: 'not-counted', reason };
+        if (reason) {
+          log('not-counted', { run: 'check', reason });
+          return { kind: 'not-counted', reason };
+        }
         throw e;
       }
     },
@@ -406,6 +431,7 @@ export function createLive(d: LiveDeps): Live {
 
     async stop() {
       stopping = true;
+      log('quit', { jobs: running.size, runs: runs.size });
       await cancel(() => true);
       await Promise.all([...runs].map((r) => r.catch(() => undefined)));
       await core.cleanupLeftovers().catch(() => undefined);

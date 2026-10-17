@@ -12,6 +12,7 @@ import { connector } from './connect';
 import { withAdapters } from './core/adapters';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
+import type { Log } from './log';
 import { desktopState } from './state';
 
 const RUNTIME_INFO = ['info', '--format', '{{.ServerVersion}}|{{.OSType}}'];
@@ -20,9 +21,10 @@ export interface Places {
   /** out/core in development, <resources>/core when packaged. */
   coreDir: string;
   userData: string;
+  log: Log;
 }
 
-export function liveApi({ coreDir, userData }: Places): Live {
+export function liveApi({ coreDir, userData, log }: Places): Live {
   // The bundled core (scripts/bundle-core.mjs), loaded in-process.
   const core = withAdapters(require(join(coreDir, 'dist', 'app.cjs')) as Partial<CoreApp>);
   const ws = join(homedir(), 'Codemm');
@@ -60,6 +62,7 @@ export function liveApi({ coreDir, userData }: Places): Live {
     state,
     ws,
     runtime,
+    log,
     server: (course, tools) => ({
       command: runtime,
       args: [join(coreDir, 'dist', 'cli.mjs'), 'mcp', '--workspace', ws, ...(course ? ['--course', course] : []), '--tools', tools.join(','), '--desktop'],

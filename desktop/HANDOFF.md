@@ -122,6 +122,26 @@ e2e/packaged.spec.ts      D1, in CI on macOS and Windows: no Node on PATH, the b
 - Claude Code's `--tools` value for the research job's web search.
 - The plan-limit markers, until each is recorded as a fixture.
 
+## Logs
+
+The main process writes a log for support to Electron's logs folder:
+
+- macOS: `~/Library/Logs/Codemm/codemm.log`
+- Windows: `%APPDATA%\Codemm\logs\codemm.log`
+
+The log records:
+- app start: version, platform and whether the app is packaged;
+- agent and Docker detection results;
+- connects;
+- agent job start and end, with kind, lane, outcome and duration;
+- setup failures and not-counted runs, by kind;
+- IPC and main-process errors;
+- quit.
+
+It never records learner code, hidden data, briefs, tutor or agent text, or sign-in output (`src/main/log.ts`). Every value is redacted (home folder, tokens, keys, long secrets) and cut to one short line. The file rotates at 2 MB and keeps one older file, `codemm.1.log`. `log.test.ts` covers the redaction, the canary test checks the log holds no hidden material or learner text, and the packaged test checks the path and the connect line.
+
+`desktop/package.json` now sets `productName: Codemm`, so the logs and `desktop.json` live under `Codemm`, not `codemm-desktop`: `~/Library/Application Support/Codemm` and `%APPDATA%\Codemm`.
+
 ## Removed for 1.0 (owner's scope, 2026-10-17)
 
 - Usage and cost display: the runs-per-topic line.

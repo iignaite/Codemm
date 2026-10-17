@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CodemmApi } from '../shared/api';
 import { dispatch } from './ipc';
@@ -56,6 +57,11 @@ describe('the learner-safe boundary (D4)', () => {
 
     for (const payload of payloads) expect(payload).not.toMatch(leaks);
     for (const line of logged) expect(line).not.toMatch(leaks);
+    // The app log has the job lifecycle and nothing the learner or the agent wrote.
+    const appLog = readFileSync(t.logFile, 'utf8');
+    expect(appLog).toMatch(/ job-end kind=tutor ok=true/);
+    expect(appLog).not.toMatch(leaks);
+    for (const text of ['my note', 'Count what changes', 'Here is the answer', 'Just fix it', 'int main']) expect(appLog).not.toContain(text);
     expect(payloads.some((p) => p.includes(HELD_BACK))).toBe(true);
   });
 });

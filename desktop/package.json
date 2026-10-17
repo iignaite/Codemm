@@ -1,5 +1,6 @@
 {
   "name": "codemm-desktop",
+  "productName": "Codemm",
   "version": "1.0.0",
   "private": true,
   "description": "Codemm desktop app",

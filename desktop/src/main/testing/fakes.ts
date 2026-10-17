@@ -8,6 +8,7 @@ import type { Job, JobOutcome } from '../agent/jobs';
 import { connector } from '../connect';
 import type { CoreApp, CoreCheckView, CoreNextStep } from '../core/types';
 import { createLive } from '../live';
+import { createLog } from '../log';
 import { desktopState } from '../state';
 
 export const CANARY = 'printf("CANARY-SOLUTION-LINE %d", count + 1);';
@@ -169,7 +170,8 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
 export function live(over: Partial<Record<Job['kind'], Act>> = {}) {
   const { c, app } = fakeCore();
   const jobs = fakeJobs(c, over);
-  const state = desktopState(mkdtempSync(join(tmpdir(), 'codemm-live-')));
+  const dir = mkdtempSync(join(tmpdir(), 'codemm-live-'));
+  const state = desktopState(dir);
   const lookup = { find: (bin: string) => ({ path: `/bin/${bin}`, js: false }), signedIn: async () => true, version: async () => '2.1.283' };
   const connect = connector(lookup, state);
   const api = createLive({
@@ -180,8 +182,9 @@ export function live(over: Partial<Record<Job['kind'], Act>> = {}) {
     ws: '/Users/me/Codemm',
     server: (course, tools) => ({ command: '/app', args: ['core/cli.mjs', 'mcp', ...(course ? ['--course', course] : []), '--tools', tools.join(',')] }),
     runJob: jobs.runJob,
+    log: createLog(dir),
   });
-  return { api, c, app, jobs, connect };
+  return { api, c, app, jobs, connect, logFile: join(dir, 'codemm.log') };
 }
 
 export async function until(api: CodemmApi, done: (c: CourseView) => boolean) {

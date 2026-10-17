@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { CodemmApi } from '../shared/api';
 import { dispatch } from './ipc';
 import { isSafeLink } from './links';
+import { createLog } from './log';
 import { createMock, scenario } from './mock';
 import { liveApi } from './wire';
 
@@ -10,8 +11,14 @@ const page = join(__dirname, '../renderer/index.html');
 
 // The real core and the learner's agent. In development only, CODEMM_MOCK=<scenario>
 // runs the in-memory mock instead, to click through environment states (mock.ts).
+// ~/Library/Logs/Codemm on macOS, %APPDATA%\Codemm\logs on Windows (HANDOFF.md).
+const log = createLog(app.getPath('logs'));
+log('start', { version: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged });
+process.on('uncaughtExceptionMonitor', (e) => log('error', { where: 'main', message: e.message }));
+process.on('unhandledRejection', (e) => log('error', { where: 'main', message: e instanceof Error ? e.message : String(e) }));
+
 const mock = !app.isPackaged && process.env.CODEMM_MOCK !== undefined;
-const live = mock ? null : liveApi({ coreDir: app.isPackaged ? join(process.resourcesPath, 'core') : join(__dirname, '../core'), userData: app.getPath('userData') });
+const live = mock ? null : liveApi({ coreDir: app.isPackaged ? join(process.resourcesPath, 'core') : join(__dirname, '../core'), userData: app.getPath('userData'), log });
 const codemm: CodemmApi = live ?? createMock(scenario(process.env.CODEMM_MOCK || undefined));
 
 // Windows only ever show the app's own page (navigation and new windows are
@@ -19,7 +26,12 @@ const codemm: CodemmApi = live ?? createMock(scenario(process.env.CODEMM_MOCK ||
 function handle(event: IpcMainInvokeEvent, method: unknown, args: unknown) {
   const frame = event.senderFrame;
   if (!frame || frame !== event.sender.mainFrame || !frame.url.startsWith('file:')) throw new Error('Unknown sender');
-  return dispatch(codemm, method, args);
+  return Promise.resolve()
+    .then(() => dispatch(codemm, method, args))
+    .catch((e: Error) => {
+      log('ipc-error', { method: typeof method === 'string' ? method : '?', message: e.message });
+      throw e;
+    });
 }
 
 function createWindow() {

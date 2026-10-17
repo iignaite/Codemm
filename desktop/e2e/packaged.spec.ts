@@ -1,5 +1,5 @@
 import { _electron as electron, expect, test } from '@playwright/test';
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { callTool } from './mcp-client.mjs';
@@ -49,5 +49,11 @@ test('packaged: welcome, bundled MCP server and a JavaScript agent, with no Node
   await claude.getByRole('button', { name: 'Connect' }).click();
   await expect(claude.getByText('Connected')).toBeVisible();
   await expect(page.getByText('never-shown@example.com')).toHaveCount(0);
+
+  // The app log, in Electron's logs folder, records the connect and never the sign-in output.
+  const logs = await app.evaluate(({ app: electronApp }) => electronApp.getPath('logs'));
+  const log = readFileSync(join(logs, 'codemm.log'), 'utf8');
+  expect(log).toContain('connect agent=claude state=connected');
+  expect(log).not.toContain('never-shown');
   await app.close();
 });
