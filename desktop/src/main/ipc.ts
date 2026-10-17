@@ -42,6 +42,7 @@ const fileText: Valid = (v) => typeof v === 'string' && new TextEncoder().encode
 const ARGS: { [K in keyof CodemmApi]: Valid[] } = {
   agents: [],
   connect: [oneOf('claude', 'codex', 'cursor')],
+  chooseModel: [oneOf('claude', 'codex', 'cursor'), text(64, 1)],
   computer: [],
   tracks: [],
   research: [goal],

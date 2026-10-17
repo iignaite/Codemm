@@ -19,11 +19,20 @@ export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
   if (error) return <Failed error={error} retry={reload} />;
   if (!list) return null;
 
+  const replace = (agent: Agent) => setAgents((current) => (current ?? data)?.map((a) => (a.id === agent.id ? agent : a)));
+
+  async function choose(id: AgentId, model: string) {
+    try {
+      replace(await api.chooseModel(id, model));
+    } catch (e) {
+      fail(e);
+    }
+  }
+
   async function connect(id: AgentId) {
     setBusy(id);
     try {
-      const agent = await api.connect(id);
-      setAgents((current) => (current ?? data)?.map((a) => (a.id === id ? agent : a)));
+      replace(await api.connect(id));
     } catch (e) {
       fail(e);
     } finally {
@@ -36,12 +45,22 @@ export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
       <div className="stack" style={{ width: 580, gap: 22 }}>
         <h1 className="h1 a-up">Connect an agent</h1>
         <ul className="stack" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-          {list.map((a, i) => (
+          {list.map((a, i) => {
+            const recommended = a.models.find((m) => m.recommended);
+            return (
             <li key={a.id} aria-label={a.name} className={`card agent a-up${a.state === 'connected' ? ' on' : ''}`} style={stagger(i + 1)}>
               <div>
                 <b>{a.name}</b>
                 {a.experimental && <div className="quiet-text">Experimental</div>}
-                {a.recommended && <div className="quiet-text">Recommended: {a.recommended}</div>}
+                {a.state !== 'connected' && recommended && <div className="quiet-text">Recommended: {recommended.label}</div>}
+                {a.state === 'connected' && a.models.length > 0 && (
+                  <label className="model">
+                    Model
+                    <select className="field" value={a.model ?? ''} onChange={(e) => choose(a.id, e.target.value)}>
+                      {a.models.map((m) => <option key={m.id} value={m.id}>{m.recommended ? `${m.label} (recommended)` : m.label}</option>)}
+                    </select>
+                  </label>
+                )}
                 {a.untested && <div className="quiet-text">Untested version. It may still work.</div>}
                 {a.state === 'missing' && <div className="alert">Not installed</div>}
                 {a.state === 'signed-out' && <div className="alert">Sign in to {a.name}, then try again.</div>}
@@ -57,7 +76,8 @@ export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
                 </div>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
         <div className="a-up" style={{ ...stagger(4), display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <span className="quiet-text">Codemm uses your agent and your plan.</span>

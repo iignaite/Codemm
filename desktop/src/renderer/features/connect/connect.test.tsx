@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createMock, scenario } from '../../../main/mock';
 import { renderApp } from '../../test-utils';
 
@@ -49,6 +49,22 @@ describe('connect journey', () => {
     expect(within(codex).getByText('Recommended: gpt-5.6-luna')).toBeInTheDocument();
     expect(within(codex).getByText('Untested version. It may still work.')).toBeInTheDocument();
     expect(within(screen.getByRole('listitem', { name: 'Cursor' })).getByText('Experimental')).toBeInTheDocument();
+  });
+
+  it('lets the learner choose a tested model for a connected agent, the recommended one preselected', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    renderApp({ to: 'connect' }, api);
+    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+    expect(within(claude).queryByRole('combobox', { name: 'Model' })).not.toBeInTheDocument();
+    await user.click(within(claude).getByRole('button', { name: 'Connect' }));
+    const model = await within(claude).findByRole('combobox', { name: 'Model' });
+    expect(within(model).getAllByRole('option').map((o) => o.textContent)).toEqual(['Sonnet (recommended)', 'Opus', 'Haiku']);
+    expect(model).toHaveValue('sonnet');
+    await user.selectOptions(model, 'opus');
+    await vi.waitFor(async () => expect((await api.agents()).find((a) => a.id === 'claude')?.model).toBe('opus'));
+    expect(model).toHaveValue('opus');
+    expect(within(screen.getByRole('listitem', { name: 'Codex' })).queryByRole('combobox')).not.toBeInTheDocument();
   });
 
   it('asks the learner to sign in to an agent, never for credentials', async () => {

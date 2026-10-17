@@ -29,13 +29,23 @@ export type AgentId = 'claude' | 'codex' | 'cursor';
 /** `missing`: not installed. `signed-out`: installed, but its sign-in check failed. */
 export type AgentState = 'connected' | 'not-connected' | 'missing' | 'signed-out';
 
+/** A bench-tested model the learner may choose for an agent (O6). */
+export interface ModelChoice {
+  /** What the agent's CLI takes: `--model` for Claude Code, `-m` for Codex. */
+  id: string;
+  label: string;
+  recommended: boolean;
+}
+
 export interface Agent {
   id: AgentId;
   name: string;
   state: AgentState;
   installUrl: string;
-  /** The recommended minimum model, from models.json; null shows nothing. */
-  recommended: string | null;
+  /** The bench-tested models, from models.json; empty for an agent with no choice. */
+  models: ModelChoice[];
+  /** The model every job for this agent runs: the learner's choice, or the recommended one. */
+  model: string | null;
   /** The installed CLI version isn't one Codemm was tested with. It may still work. */
   untested: boolean;
   experimental: boolean;
@@ -215,6 +225,8 @@ export interface CodemmApi {
   agents(): Promise<Agent[]>;
   /** Chooses the agent and runs its sign-in check. */
   connect(agent: AgentId): Promise<Agent>;
+  /** Chooses the model for an agent's jobs, one of its `models`. */
+  chooseModel(agent: AgentId, model: string): Promise<Agent>;
   computer(): Promise<Computer>;
   tracks(): Promise<Track[]>;
 

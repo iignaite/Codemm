@@ -14,6 +14,8 @@ export interface DesktopState {
   sessions: Record<string, string>;
   /** The course whose roadmap the learner approved. Before that, it is a draft and no work starts (§4.2). */
   approved?: string;
+  /** The learner's model choice per agent (O6). Absent: the recommended one. */
+  models?: Partial<Record<AgentId, string>>;
 }
 
 export const workspaceOf = (state: DesktopState, home: string) => state.workspace ?? join(home, 'Codemm');
