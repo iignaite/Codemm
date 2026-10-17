@@ -239,7 +239,10 @@ export function buildProblem(log: string): string | undefined {
  * Builds a track image from a staged folder. Networked; this is the separate trust boundary in DESIGN §4.4.
  * `problem` is set when the build failed for a reason outside the track (runtime, network or disk).
  */
-export async function buildImage(contextDir: string, tag: string, timeoutMs = 600_000): Promise<{ ok: boolean; log: string; problem?: string }> {
+/** A track build is killed after 10 minutes (DESIGN §4.4). */
+export const BUILD_TIMEOUT_MS = 600_000;
+
+export async function buildImage(contextDir: string, tag: string, timeoutMs = BUILD_TIMEOUT_MS): Promise<{ ok: boolean; log: string; problem?: string }> {
   const args = ["build", "-t", tag];
   if (containerCli() === "docker") args.push("--progress", "plain");
   args.push(contextDir);

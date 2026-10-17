@@ -1,6 +1,8 @@
 // Every renderer call passes through here: the method must be part of
 // CodemmApi and every argument must have the right shape before Codemm sees it.
 import type { CodemmApi } from '../shared/api';
+import { errorFields, safeError, SafeError } from './errors';
+import type { Log } from './log';
 
 type Valid = (value: unknown) => boolean;
 
@@ -64,9 +66,26 @@ const ARGS: { [K in keyof CodemmApi]: Valid[] } = {
 
 /** Validates a renderer call and passes it to Codemm. Throws on anything unexpected. */
 export function dispatch(codemm: CodemmApi, method: unknown, args: unknown): Promise<unknown> {
-  if (typeof method !== 'string' || !Object.hasOwn(ARGS, method)) throw new Error('Unknown call');
+  if (typeof method !== 'string' || !Object.hasOwn(ARGS, method)) throw new SafeError('Unknown call');
   const valid = ARGS[method as keyof CodemmApi];
-  if (!Array.isArray(args) || args.length !== valid.length || !valid.every((check, i) => check(args[i]))) throw new Error('Bad input');
+  if (!Array.isArray(args) || args.length !== valid.length || !valid.every((check, i) => check(args[i]))) throw new SafeError('Bad input');
   const call = codemm[method as keyof CodemmApi] as (...a: unknown[]) => Promise<unknown>;
   return call.apply(codemm, args);
+}
+
+/**
+ * The `codemm` IPC handler: calls only from the app's own frame, validated, and
+ * failures reduced to what may leave main (errors.ts), with structured logging.
+ */
+export function handler<E>(codemm: CodemmApi, log: Log, fromApp: (event: E) => boolean) {
+  return (event: E, method: unknown, args: unknown): Promise<unknown> =>
+    Promise.resolve()
+      .then(() => {
+        if (!fromApp(event)) throw new SafeError('Unknown sender');
+        return dispatch(codemm, method, args);
+      })
+      .catch((e: unknown) => {
+        log('ipc-error', { method: typeof method === 'string' && Object.hasOwn(ARGS, method) ? method : 'unknown', ...errorFields(e) });
+        throw safeError(e);
+      });
 }

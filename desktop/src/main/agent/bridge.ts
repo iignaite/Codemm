@@ -18,23 +18,48 @@ export function spawnable(exe: Executable, args: string[], runtime = process.exe
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** How long a killed agent's output pipes may take to close. */
+const CLOSE_GRACE_MS = 2000;
 const windows = process.platform === 'win32';
 
-function groupAlive(pid: number) {
+/** Whether any member of the process group still exists. Only ESRCH means none; EPERM means one runs under other credentials. */
+export function groupAlive(pid: number, kill: (pid: number, signal: 0) => unknown = process.kill): boolean {
   try {
-    process.kill(-pid, 0);
+    kill(-pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code !== 'ESRCH';
   }
 }
 
-/** Stops a process group: SIGTERM, then SIGKILL after `killAfterMs`. True once it's gone, false if it survived. */
-async function stopGroup(child: ChildProcess, killAfterMs: number): Promise<boolean> {
+/** How long a tree kill may take before it counts as unconfirmed. */
+const TREE_KILL_MS = 15_000;
+
+/** A promise's value, or `fallback` once `ms` pass without one. */
+export function withDeadline<T, F>(promise: Promise<T>, ms: number, fallback: F): Promise<T | F> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    void promise.then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    });
+  });
+}
+
+/**
+ * Kills the agent's process tree (§3.1). True only when the kill is confirmed: on POSIX the group is gone
+ * (SIGTERM, then SIGKILL); on Windows `taskkill /T /F` exited 0 for a parent that was still running.
+ */
+async function killTree(child: ChildProcess, killAfterMs: number, parentExited: boolean): Promise<boolean> {
   const pid = child.pid;
-  if (pid === undefined) return true;
+  if (pid === undefined) return false;
   if (windows) {
-    return new Promise((r) => spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on('close', (code) => r(code === 0)).on('error', () => r(false)));
+    // With the parent already gone, its tree can't be found or checked.
+    if (parentExited) return false;
+    const taskkill = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
+    const code = await withDeadline(new Promise<number | null>((r) => taskkill.on('close', r).on('error', () => r(null))), TREE_KILL_MS, null);
+    if (code === null) taskkill.kill();
+    return code === 0;
   }
   const signal = (sig: NodeJS.Signals) => {
     try {
@@ -59,7 +84,7 @@ async function stopGroup(child: ChildProcess, killAfterMs: number): Promise<bool
 export interface RunResult {
   code: number | null;
   cancelled: boolean;
-  /** For a cancelled run: whether the whole process group is gone. */
+  /** For a cancelled run: true only when termination is confirmed. Anything else is unconfirmed (§3.1). */
   stopped?: boolean;
 }
 
@@ -72,7 +97,11 @@ export interface RunOptions<E> {
   runtime?: string;
 }
 
-/** Runs one agent turn. Resolves once it has exited; a cancelled run resolves only after its group is gone. */
+/**
+ * Runs one agent turn and resolves once it has exited. A cancelled run resolves once termination is confirmed
+ * or found unconfirmed, never later: `stopped` is true only when the tree is gone and its output pipes closed
+ * (a pipe still open means a descendant escaped). After it resolves, no callback runs.
+ */
 export function run<E>(exe: Executable, args: string[], parse: (line: string) => E[], options: RunOptions<E> = {}): Promise<RunResult> {
   const { onEvent, signal, cwd, maxLine = 1 << 20, killAfterMs = 3000, runtime } = options;
   if (signal?.aborted) return Promise.resolve({ code: null, cancelled: true });
@@ -83,10 +112,34 @@ export function run<E>(exe: Executable, args: string[], parse: (line: string) =>
     let buffer = '';
     let skipping = false;
     let stopping: Promise<boolean> | undefined;
+    let settled = false;
+    let exited = false;
+    let closed = false;
+    const closing: (() => void)[] = [];
+    const settle = (result: RunResult) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', cancel);
+      child.stdout!.removeAllListeners('data');
+      resolve(result);
+    };
+    /** Whether the output pipes close within a grace period: every holder of them is gone. */
+    const pipesClose = () =>
+      new Promise<boolean>((r) => {
+        if (closed) return r(true);
+        const timer = setTimeout(() => r(false), CLOSE_GRACE_MS);
+        closing.push(() => {
+          clearTimeout(timer);
+          r(true);
+        });
+      });
     const cancel = () => {
-      stopping ??= stopGroup(child, killAfterMs);
+      if (stopping || settled) return;
+      stopping = killTree(child, killAfterMs, exited).then(async (killed) => killed && (await pipesClose()));
+      void stopping.then((stopped) => settle({ code: null, cancelled: true, stopped }));
     };
     const emit = (line: string) => {
+      if (settled) return;
       try {
         for (const event of parse(line)) onEvent?.(event);
       } catch {
@@ -110,11 +163,15 @@ export function run<E>(exe: Executable, args: string[], parse: (line: string) =>
     });
     child.stderr!.resume(); // drained, never shown or logged: it can carry account details
     child.on('error', reject);
-    child.on('close', async (code) => {
-      signal?.removeEventListener('abort', cancel);
-      if (stopping) return resolve({ code, cancelled: true, stopped: await stopping });
+    child.on('exit', () => (exited = true));
+    child.on('close', (code) => {
+      closed = true;
+      for (const done of closing.splice(0)) done();
+      if (stopping) return;
       if (buffer && !skipping && buffer.length <= maxLine) emit(buffer);
-      resolve({ code, cancelled: false });
+      // The last line may have asked to cancel: then the cancel settles, once its termination is known.
+      if (stopping) return;
+      settle({ code, cancelled: false });
     });
   });
 }
@@ -138,7 +195,7 @@ export function ask<T>(exe: Executable, args: string[], read: (r: { code: number
     // The deadline settles the answer even if a grandchild keeps the pipes open; the group is stopped in the background.
     const timer = setTimeout(() => {
       finish(null);
-      void stopGroup(child, 0);
+      void killTree(child, 0, false);
     }, timeoutMs);
     const collect = (d: Buffer) => {
       output = (output + d.toString('utf8')).slice(0, maxOutput);

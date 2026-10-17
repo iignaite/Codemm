@@ -54,7 +54,7 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   });
 
   it("asks for a first exercise", () => {
-    expect(app.nextStep(ws)).toEqual({ kind: "author", concept: "sh.basics", difficulty: 1, lesson: null, style: "io", track: "shell-io@1" });
+    expect(app.nextStep(ws)).toMatchObject({ kind: "author", concept: "sh.basics", title: "Basics", difficulty: 1, lesson: null, style: "io", track: "shell-io@1" });
   });
 
   it("saves an exercise and writes only learner-side files to the workspace", async () => {

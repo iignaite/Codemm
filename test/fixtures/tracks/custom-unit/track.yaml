@@ -1,0 +1,6 @@
+id: custom-unit
+version: 1
+styles: [unit]
+files: [src/calc.funcs]
+test: "sh /opt/judge/run-checks"
+limits: { time_ms: 5000, memory_mb: 128 }

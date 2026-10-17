@@ -13,7 +13,10 @@ describe('job briefs', () => {
     expect(research).toContain('React');
     expect(research).toContain('They already know: HTML');
     expect(briefs.easier('state', 'State').startsWith(JOB_BRIEFS.roadmap)).toBe(true);
-    expect(briefs.setup('react@1', 'no test runner')).toContain('no test runner');
+    expect(briefs.setup('react@1', 'io', 'no test runner')).toContain('no test runner');
+    // The exact track: a proposal for another id or version doesn't set up this course.
+    // Found in the macOS journey: a unit-only track for an io course left the course unable to go on.
+    expect(briefs.setup('python@3', 'io')).toContain('Propose exactly the track `python@3`: id `python`, version 3, offering style `io`.');
     expect(briefs.author()).toBe(JOB_BRIEFS.author);
   });
 

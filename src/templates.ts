@@ -75,7 +75,7 @@ This project uses Codemm, an open-source practice harness. You are the learner's
 5. Call \`next_step\`:
    - \`setup\`: the roadmap's track isn't installed yet. Have the subagent install it, then call \`next_step\` again.
    - \`practice\`: call \`get_exercise\` and present the statement and the file to edit.
-   - \`author\`: start the subagent with the concept, difficulty, style and track. It returns only an exercise id; call \`get_exercise\` with that id.
+   - \`author\`: start the subagent with the concept, title, difficulty, style, track and contract from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
    - \`stuck\`: the learner failed twice at the easiest level. Re-teach the concept, and consider adding a missing prerequisite to the roadmap.
    - \`done\`: celebrate, then offer a new goal.
 
@@ -153,7 +153,7 @@ ${TRACK_RULES}`,
 
 **When you finish, reply with only the exercise id.** ${SECRECY}
 
-${FILE_MAP} Call \`next_step\` to confirm the concept, difficulty, style and track.
+${FILE_MAP} Call \`next_step\` first. Its author step is your target and your only source: the concept id and title, the difficulty, the style, and the track's contract. \`contract.files\` are the learner files; the build, run or test command shows how they're checked; \`contract.examples\` is a passing solution with its tests. Use those file names, and write tests in the same format as the example tests.
 
 ${EXERCISE_RULES}`,
 

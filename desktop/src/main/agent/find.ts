@@ -94,3 +94,21 @@ export function find(bin: string, w: Where = here()): Executable | null {
   }
   return null;
 }
+
+/** Docker Desktop's own folders, where its credential helpers live. */
+const DOCKER_DESKTOP_BINS = ['/Applications/Docker.app/Contents/Resources/bin', 'C:\\Program Files\\Docker\\Docker\\resources\\bin'];
+
+/**
+ * The folders core's Docker calls need on PATH: where `docker` was found, where its link points, and
+ * Docker Desktop's own folder. Docker runs credential helpers by name, and a GUI app's PATH has none of them.
+ */
+export function dockerFolders(docker: string, desktopBins = DOCKER_DESKTOP_BINS): string[] {
+  const folders = [dirname(docker)];
+  try {
+    folders.push(dirname(realpathSync(docker)));
+  } catch {
+    // a broken link: the folder it was found in is all there is
+  }
+  for (const bin of desktopBins) if (existsSync(bin)) folders.push(bin);
+  return [...new Set(folders)];
+}
