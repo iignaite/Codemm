@@ -282,6 +282,14 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 
 With neither option, the server behaves as in core.
 
+### 4.7 Reviews
+
+Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In the app:
+
+- **Due.** A due review shows as "Review" on the course map and the topic page, and the activity opens with a "Review" label. If no unused exercise fits, an author job writes one (`review: true`), shown as the review being written.
+- **Scheduled.** The mastery panel shows "Review tomorrow" or "Review in N days" for a mastered topic. It never shows dates.
+- **Outcome.** A review is an ordinary Check. A pass keeps the topic mastered; a fail sends it back to practice.
+
 ## 5. Failure states
 
 Infrastructure failures record nothing. Learner-caused outcomes are graded as `error` and recorded (core §4.3, §7).
@@ -438,7 +446,7 @@ Cut from 1.0 by the owner's scope ledger:
 - **Lessons:** running code examples in the sandbox (the lesson gate), predict questions, and learner edits of lesson text. Notes stay.
 - **Usage:** recording agent usage and showing cost per topic. Lesson caching stays (§4.3).
 - **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
-- **Review scheduling** and the prototype's review card, streaks and activity history.
+- The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
 - **Research sources:** storing and showing the agent's sources with the roadmap. The agent may still research before writing it.
 - **Progress:** streaming check and install progress. Jobs show `running`, `done` or `failed`.
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.

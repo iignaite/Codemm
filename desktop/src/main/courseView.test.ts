@@ -29,6 +29,15 @@ describe('course view', () => {
     expect(writing.topics[1]).toMatchObject({ activity: 'writing', lessons: [{ state: 'writing' }] });
   });
 
+  it('shows a due review on its mastered topic, and when the next review is due elsewhere', () => {
+    const now = Date.parse('2026-10-20T12:00:00Z');
+    const withDue = concepts.map((c) => (c.id === 'values' ? { ...c, reviewDue: '2026-10-23T09:00:00Z' } : c));
+    const at = (next: CoreProgress['next']) => courseView({ ...progress(next), concepts: withDue }, [], ready, new Set(), now);
+    expect(at({ kind: 'practice', exercise: 'e', concept: 'state' }).topics[0]).toMatchObject({ state: 'mastered', activity: 'passed', reviewIn: 3 });
+    expect(at({ kind: 'review', concept: 'values', difficulty: 2, exercise: 'v-9' }).topics[0]).toMatchObject({ state: 'mastered', activity: 'open', review: 'due' });
+    expect(at({ kind: 'author', concept: 'values', difficulty: 2, review: true }).topics[0]).toMatchObject({ activity: 'writing', review: 'writing' });
+  });
+
   it('carries the setup state and proposal, and is done when every concept is mastered', () => {
     const consent = courseView(progress({ kind: 'setup', track: 'react@1' }), [], { state: 'consent', proposal: { digest: 'd'.repeat(64), retry: false, files: [] } }, new Set());
     expect(consent).toMatchObject({ setup: 'consent', proposal: { digest: 'd'.repeat(64) } });

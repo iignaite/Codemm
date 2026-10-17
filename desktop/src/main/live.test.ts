@@ -207,6 +207,15 @@ describe('live CodemmApi', () => {
     expect((await t.api.activity('values')).id).toBe(activity.id);
   });
 
+  it('reopens a mastered topic for its due review, on the exercise core names', async () => {
+    const t = live();
+    const activity = await practising(t);
+    t.c.mastered.add('values');
+    t.c.review = { concept: 'values', exercise: activity.id };
+    expect((await t.api.course())!.topics[0]).toMatchObject({ state: 'mastered', review: 'due', activity: 'open' });
+    expect((await t.api.activity('values')).id).toBe(activity.id);
+  });
+
   it("drops the old track's proposals when a roadmap change moves the course to another track", async () => {
     const t = live({
       roadmap: () => {

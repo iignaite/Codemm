@@ -33,6 +33,24 @@ describe('course map', () => {
     expect(await screen.findByRole('heading', { name: 'Components' })).toBeInTheDocument();
   });
 
+  it('offers a due review on a mastered topic, and says when the next review is due', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    await master(api, 2);
+    const real = await api.course();
+    api.course = async () => ({
+      ...real!,
+      topics: real!.topics.map((t, i) => (i === 0 ? { ...t, review: 'due' as const, activity: 'open' as const } : i === 1 ? { ...t, reviewIn: 3 } : t)),
+    });
+    renderApp({ to: 'learn' }, api);
+    const map = await screen.findByRole('list', { name: 'Topics' });
+    const first = within(map).getAllByRole('listitem')[0]!;
+    expect(within(first).getByRole('button', { name: 'Review' })).toBeInTheDocument();
+    expect(screen.getByText('Review in 3 days')).toBeInTheDocument();
+    await user.click(within(first).getByRole('button', { name: 'Review' }));
+    expect(await screen.findByText('Review', { selector: '.pill' })).toBeInTheDocument();
+  });
+
   it('celebrates a finished course, then offers something new', async () => {
     const user = userEvent.setup();
     const { api, course } = await mockWithCourse();

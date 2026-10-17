@@ -308,7 +308,7 @@ export function createLive(d: LiveDeps): Live {
   /** The saved activity for a concept, even when the next step recommends something else (stuck, §3.2). */
   function exerciseFor(concept: string, course: string): string | undefined {
     const next = core.progress(ws, course).next;
-    if (next.kind === 'practice' && next.concept === concept) return next.exercise;
+    if ((next.kind === 'practice' || next.kind === 'review') && next.concept === concept) return next.exercise;
     return core.listExercises(ws, course).filter((e) => e.concepts.includes(concept)).sort((a, b) => b.created.localeCompare(a.created))[0]?.exercise;
   }
 
