@@ -7,11 +7,13 @@ import { useJob } from '../../app/useJob';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
-import { Icon, Status } from '../../ui/Icon';
+import { Icon } from '../../ui/Icon';
 import { JobBar } from '../../ui/JobBar';
 import { stagger } from '../../ui/motion';
 import { SetupOffer } from './SetupConsent';
 import { Writing } from './Writing';
+import { Panel } from '../../ui/Panel';
+import { Busy } from '../../ui/Busy';
 
 const BUSY = { proposing: 'Preparing setup for', installing: 'Setting up' } as const;
 
@@ -41,7 +43,7 @@ export function TopicPage({ topicId }: { topicId: string }) {
               <JobBar job={setupJob} label={`Setting up ${course.track}`} />
             </section>
           ) : (
-            <div className="busy a-up" style={stagger(3, 300)}><Status kind="run" size={18} />{BUSY[course.setup]} {course.track}</div>
+            <Busy className="a-up" style={stagger(3, 300)}>{BUSY[course.setup]} {course.track}</Busy>
           ))}
         <SetupOffer course={course} onChange={reload} />
       </div>
@@ -113,15 +115,10 @@ function SetupFailed({ course, topicId, onRetry }: { course: CourseView; topicId
   }
 
   return (
-    <div className="card panel a-pop" role="alert">
-      <Emm mood="think" width={150} name={course.track} perch />
-      <h2 className="h2">{say.title}</h2>
-      <p className="sub">{say.text}</p>
-      <div className="actions">
-        {problem === 'gates' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'goal' })}>Stop</Button>}
-        {problem === 'docker' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'computer', then: { to: 'topic', topicId } })}>Check this computer</Button>}
-        <Button size="lg" onClick={retry}>Try again</Button>
-      </div>
-    </div>
+    <Panel art={<Emm mood="think" width={150} name={course.track} perch />} title={say.title} level={2} text={say.text}>
+      {problem === 'gates' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'goal' })}>Stop</Button>}
+      {problem === 'docker' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'computer', then: { to: 'topic', topicId } })}>Check this computer</Button>}
+      <Button size="lg" onClick={retry}>Try again</Button>
+    </Panel>
   );
 }

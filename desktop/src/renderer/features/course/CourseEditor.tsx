@@ -11,6 +11,7 @@ import { Icon } from '../../ui/Icon';
 import { JobBar } from '../../ui/JobBar';
 import { stagger } from '../../ui/motion';
 import { TopicItem } from './TopicItem';
+import { ExternalLink } from '../../ui/ExternalLink';
 
 /** Rename, reorder, add or remove topics, or ask Codemm for changes. Then approve (§4.2). */
 export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
@@ -131,7 +132,7 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
             <h2 className="h3" id="sources-t">Sources</h2>
             <ul>
               {sources.map((s) => (
-                <li key={s.url}><a href={s.url} target="_blank" rel="noreferrer">{s.title}</a></li>
+                <li key={s.url}><ExternalLink href={s.url}>{s.title}</ExternalLink></li>
               ))}
             </ul>
           </section>
