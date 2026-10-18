@@ -64,10 +64,27 @@ export interface ComputerCheck {
   detail?: 'starting' | 'windows-containers';
 }
 
+/**
+ * Codemm installing Docker Desktop for the learner (§6.1). `starting`: installed and opened; Docker's own window
+ * asks the learner to accept its terms. Problems: `offline` and `disk` are this computer's; `unverified`: the
+ * download wasn't signed by Docker, so it was deleted; `manual`: drag Docker to Applications in the window that
+ * opened; `restart`: Windows needs a restart; `failed`: Docker's installer didn't finish.
+ */
+export interface DockerInstall {
+  phase: 'downloading' | 'checking' | 'installing' | 'starting' | 'failed';
+  /** 0 to 1 while downloading. */
+  progress?: number;
+  problem?: 'offline' | 'disk' | 'unverified' | 'manual' | 'restart' | 'failed';
+}
+
 export interface Computer {
   platform: Platform;
   checks: ComputerCheck[];
   ready: boolean;
+  /** Codemm can install and open Docker Desktop here (macOS and Windows). */
+  canInstall?: boolean;
+  /** An install Codemm started, while it runs and after it fails. */
+  install?: DockerInstall;
 }
 
 // ---------- roadmap (§4.2) ----------
@@ -247,6 +264,10 @@ export interface CodemmApi {
   /** Hears progress while Try it or Check runs; returns a function that stops listening. An event, not a call. */
   onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
   computer(): Promise<Computer>;
+  /** Downloads Docker Desktop from Docker, checks Docker signed it, installs and opens it. Follow it with computer(). */
+  installDocker(): Promise<void>;
+  /** Opens Docker Desktop. */
+  openDocker(): Promise<void>;
   tracks(): Promise<Track[]>;
 
   /** Starts the research job on the first call; call again to follow it. */

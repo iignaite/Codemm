@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CHANGED, PLAN_LIMIT, REPAIR, UNSTOPPABLE } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
@@ -496,5 +497,16 @@ describe('live CodemmApi', () => {
     release();
     expect(await ask).toContain('codemm:unstoppable');
     expect(t.jobs.ran.filter((j) => j.kind === 'tutor')).toHaveLength(0);
+  });
+});
+
+describe('Docker Desktop for the learner (§6.1)', () => {
+  it('installs and opens Docker through the installer, and logs the install', async () => {
+    const calls: string[] = [];
+    const t = live({}, { docker: { install: () => void calls.push('install'), open: async () => void calls.push('open') } });
+    await t.api.installDocker();
+    await t.api.openDocker();
+    expect(calls).toEqual(['install', 'open']);
+    expect(readFileSync(t.logFile, 'utf8')).toMatch(/ docker-install\n/);
   });
 });

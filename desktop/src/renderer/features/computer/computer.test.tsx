@@ -35,8 +35,8 @@ describe('check this computer', () => {
     const user = open(options);
     const installed = await screen.findByRole('listitem', { name: 'Docker is installed' });
     expect(within(installed).getByText('Needs a step')).toBeInTheDocument();
-    expect(installed).toHaveTextContent('WSL 2');
-    const link = within(installed).getByRole('link', { name: 'Get Docker Desktop' });
+    expect(within(installed).getByRole('button', { name: 'Install Docker' })).toBeInTheDocument();
+    const link = within(installed).getByRole('link', { name: 'Install it myself' });
     expect(link).toHaveAttribute('href', 'https://docs.docker.com/desktop/setup/install/windows-install/');
     expect(within(screen.getByRole('listitem', { name: 'Docker is running' })).getByText('Waiting')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Checking again every few seconds.');
@@ -50,7 +50,7 @@ describe('check this computer', () => {
   it('announces each change, and keeps focus when the focused step goes away', async () => {
     const options: MockOptions = { docker: 'missing', platform: 'mac' };
     open(options);
-    const link = await screen.findByRole('link', { name: 'Get Docker Desktop' });
+    const link = await screen.findByRole('link', { name: 'Install it myself' });
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent("Docker isn't installed yet. Checking again every few seconds."));
     link.focus();
     options.docker = 'stopped';
@@ -58,14 +58,52 @@ describe('check this computer', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Check now' })).toHaveFocus());
   });
 
-  it('asks to start Docker Desktop when it is installed but not running', async () => {
-    const options: MockOptions = { docker: 'stopped', platform: 'mac' };
-    open(options);
+  it('opens Docker Desktop when it is installed but not running, then waits while it starts', async () => {
+    const user = open({ docker: 'stopped', platform: 'mac' });
     const running = await screen.findByRole('listitem', { name: 'Docker is running' });
-    expect(running).toHaveTextContent('Open Docker Desktop.');
+    expect(running).toHaveTextContent('Open Docker Desktop');
     expect(within(screen.getByRole('listitem', { name: 'Docker is installed' })).getByText('Ready')).toBeInTheDocument();
-    options.docker = 'ready';
+    await user.click(within(running).getByRole('button', { name: 'Open Docker Desktop' }));
     expect(await screen.findByText('This computer is ready.')).toBeInTheDocument();
+  });
+
+  it('installs Docker for the learner on a Mac, showing each step, until the computer is ready', async () => {
+    const user = open({ docker: 'missing', platform: 'mac' });
+    const installed = await screen.findByRole('listitem', { name: 'Docker is installed' });
+    // Doing it by hand stays possible, on Docker's own page.
+    expect(within(installed).getByRole('link', { name: 'Install it myself' })).toHaveAttribute('href', 'https://docs.docker.com/desktop/setup/install/mac-install/');
+    await user.click(within(installed).getByRole('button', { name: 'Install Docker' }));
+    expect(await within(installed).findByRole('progressbar', { name: 'Downloading Docker Desktop' })).toBeInTheDocument();
+    expect(within(installed).getByText('Installing')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Installing Docker Desktop.');
+    expect(await screen.findByText(/Checking it's from Docker/)).toBeInTheDocument();
+    expect(await screen.findByText(/accept Docker's terms in its window/)).toBeInTheDocument();
+    expect(await screen.findByText('This computer is ready.')).toBeInTheDocument();
+  });
+
+  it('says why an install stopped, and offers to try again', async () => {
+    const api = createMock({ docker: 'missing', platform: 'windows' });
+    const computer = api.computer;
+    let problem: 'offline' | 'unverified' | 'restart' = 'offline';
+    api.computer = async () => ({ ...(await computer()), install: { phase: 'failed', problem } });
+    const user = userEvent.setup();
+    renderApp({ to: 'computer', then: welcome }, api);
+    const installed = await screen.findByRole('listitem', { name: 'Docker is installed' });
+    expect(await within(installed).findByText("You're offline. Connect to the internet, then try again.")).toBeInTheDocument();
+    expect(within(installed).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    problem = 'unverified';
+    expect(await within(installed).findByText("The download wasn't signed by Docker, so Codemm deleted it.")).toBeInTheDocument();
+    problem = 'restart';
+    expect(await within(installed).findByText('Restart Windows, then open Codemm again.')).toBeInTheDocument();
+    expect(within(installed).queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    void user;
+  });
+
+  it('offers no install on Linux', async () => {
+    open({ docker: 'missing', platform: 'linux' });
+    const installed = await screen.findByRole('listitem', { name: 'Docker is installed' });
+    expect(within(installed).queryByRole('button', { name: 'Install Docker' })).not.toBeInTheDocument();
+    expect(within(installed).getByRole('link', { name: 'Get Docker Engine' })).toBeInTheDocument();
   });
 
   it('waits while Docker starts, and asks to switch from Windows containers', async () => {
