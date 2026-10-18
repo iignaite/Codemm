@@ -119,6 +119,47 @@ describe('job progress (§4.11)', () => {
     expect(t.snapshot().stage).toBe(0);
   });
 
+  it("follows Codemm's own work, such as a setup's build, which isn't the agent thinking", () => {
+    const t = jobTracker('setup', { id: 'job-1' });
+    t.reach(1);
+    expect(t.snapshot()).toMatchObject({ stage: 1, thinking: false });
+  });
+
+  it("carries a real fraction for Codemm's own work: a build's steps", () => {
+    const t = jobTracker('setup', { id: 'job-1' });
+    t.reach(1, { done: 3, total: 7 });
+    expect(t.snapshot()).toMatchObject({ stage: 1, part: { done: 3, total: 7 } });
+    t.reach(2);
+    expect(t.snapshot().part).toBeUndefined();
+  });
+
+  it("shows which exercise gate runs, as a step and 1 to 3 of 3, until the save's result", () => {
+    const t = jobTracker('author', { id: 'job-1' });
+    t.event({ type: 'tool_call', id: 'c1', name: 'codemm.save_exercise' });
+    t.gate('starter');
+    expect(t.snapshot()).toMatchObject({ stage: 2, part: { done: 2, total: 3 }, steps: [{ kind: 'step', label: 'Codemm is checking that the starter fails' }], thinking: false });
+    t.gate('starter');
+    expect(t.snapshot().count).toBe(1);
+    t.event({ type: 'tool_result', id: 'c1', error: true });
+    expect(t.snapshot().part).toBeUndefined();
+  });
+
+  it('ignores a gate when no save runs: a file left by an earlier attempt', () => {
+    const t = jobTracker('author', { id: 'job-1' });
+    t.gate('mutants');
+    expect(t.snapshot().part).toBeUndefined();
+    t.event({ type: 'tool_call', id: 'c1', name: 'codemm.save_exercise' });
+    expect(t.saving()).toBe(true);
+    t.relaunch();
+    expect(t.saving()).toBe(false);
+    t.gate('mutants');
+    expect(t.snapshot().part).toBeUndefined();
+  });
+
+  it('starts as a retry when it is one, such as another setup proposal', () => {
+    expect(jobTracker('setup', { id: 'job-1', retry: { attempt: 2, of: 3 } }).snapshot().retry).toEqual({ attempt: 2, of: 3 });
+  });
+
   it('a tutor turn has one stage', () => {
     const t = jobTracker('tutor', { id: 'job-1' });
     t.event({ type: 'session', id: 's1' });

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { Goal, JobStep } from '../../../shared/api';
+import type { Goal } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
 import { Failed } from '../../app/Shell';
@@ -7,6 +7,8 @@ import { useJob } from '../../app/useJob';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
+import { EmmFill } from '../../ui/EmmFill';
+import { fillOf, JobBar, sayStep } from '../../ui/JobBar';
 
 /** Codemm's agent researches the goal and writes a roadmap, which the learner then edits. */
 export function Research({ goal }: { goal: Goal }) {
@@ -40,17 +42,21 @@ export function Research({ goal }: { goal: Goal }) {
   return (
     <main className="main page">
       <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-        <Emm mood="think" width={110} />
+        {/* While research runs, the heading's Emm is its progress, filling as it goes (§4.11). */}
+        {job ? <EmmFill value={fillOf(job.progress)} width={110} dim={Boolean(job.progress.retry)} /> : <Emm mood="think" width={110} />}
         <h1 className="h1 a-up">Researching {goal.topic}</h1>
       </div>
-      {steps.length > 0 && (
+      {job && (
         <section className="looking" aria-label="Research progress">
-          <ol aria-label="What Codemm is looking at">
-            {steps.map((step, i) => (
-              <li key={count - i} style={{ opacity: Math.max(0.35, 1 - i * 0.12) }}>{say(step)}</li>
-            ))}
-          </ol>
-          <span className="soon">{count === 1 ? '1 step' : `${count} steps`}</span>
+          <JobBar job={job} label={`Researching ${goal.topic}`} noLine emm={false} />
+          {steps.length > 0 && (
+            <ol aria-label="What Codemm is looking at">
+              {steps.map((step, i) => (
+                <li key={count - i} style={{ opacity: Math.max(0.35, 1 - i * 0.12) }}>{sayStep(step)}</li>
+              ))}
+            </ol>
+          )}
+          {count > 0 && <span className="soon">{count === 1 ? '1 step' : `${count} steps`}</span>}
         </section>
       )}
       <section className="card research" aria-labelledby="path" aria-busy="true">
@@ -62,5 +68,3 @@ export function Research({ goal }: { goal: Goal }) {
     </main>
   );
 }
-
-export const say = (step: JobStep) => (step.kind === 'search' ? `Searching ${step.query}` : step.kind === 'read' ? `Reading ${step.url}` : step.label);

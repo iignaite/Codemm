@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { type FileMap, subMap, validateFileMap, writeFileMap } from "./files.js";
-import type { TestResult, TestSet } from "./grading.js";
-import { gradeIoRun, gradeUnitRun, type IoRun, type JudgeTrack, runIo, runUnit, type UnitRun } from "./judge.js";
+import { gradeRuns, type IoRun, type TestResult } from "./grading.js";
+import { type JudgeTrack, runSets } from "./judge.js";
 import { buildImage, type BuildStep, inspectImage } from "./sandbox.js";
 import {
   type CourseRecord, type ExerciseRecord, type ExerciseSpec, parseExerciseYaml, parseTrackYaml, type Style, type TrackRecord, type TrackSpec,
@@ -21,7 +21,6 @@ export class GateError extends CodemmError {
 
 
 type Sets = { visible: FileMap; hidden: FileMap };
-type Runs = { visible: IoRun | UnitRun; hidden?: IoRun | UnitRun };
 
 /** One line per test. Hidden tests show only an index and a status. */
 function summarize(tests: TestResult[]): string {
@@ -36,30 +35,6 @@ function summarize(tests: TestResult[]): string {
 }
 
 const allPass = (tests: TestResult[]) => tests.length > 0 && tests.every((t) => t.status === "pass");
-
-async function runSets(track: JudgeTrack, style: Style, src: FileMap, sets: Partial<Sets>, timeMs?: number): Promise<Runs> {
-  const opts = timeMs === undefined ? {} : { timeMs };
-  const one = (set: TestSet, tests: FileMap) => (style === "io" ? runIo(track, set, src, tests, opts) : runUnit(track, src, tests, opts));
-  const visible = await one("visible", sets.visible ?? {});
-  return sets.hidden ? { visible, hidden: await one("hidden", sets.hidden) } : { visible };
-}
-
-type Expectation = { expected?: Record<string, string>; inventory?: { visible: string[]; hidden: string[] } };
-
-function grade(style: Style, runs: Runs, exp: Expectation): TestResult[] {
-  if (style === "io") {
-    const expected = exp.expected ?? {};
-    const pick = (set: TestSet) => Object.fromEntries(Object.entries(expected).filter(([k]) => k.startsWith(`${set}/`)));
-    return [
-      ...gradeIoRun(runs.visible as IoRun, pick("visible")),
-      ...(runs.hidden ? gradeIoRun(runs.hidden as IoRun, pick("hidden")) : []),
-    ];
-  }
-  return [
-    ...gradeUnitRun("visible", runs.visible as UnitRun, exp.inventory?.visible),
-    ...(runs.hidden ? gradeUnitRun("hidden", runs.hidden as UnitRun, exp.inventory?.hidden) : []),
-  ];
-}
 
 // ---------- tracks ----------
 
@@ -154,13 +129,13 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
   onProgress?.({ phase: "checking" });
   for (const p of probes) {
     const exp = { expected: p.expected };
-    const pass1 = grade(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
+    const pass1 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
     if (!allPass(pass1)) throw new GateError("probe pass", `the ${p.style} pass probe should pass every test:\n${summarize(pass1)}`);
-    const failed = grade(p.style, await runSets(track, p.style, p.fail, { visible: p.inputs }), exp);
+    const failed = gradeRuns(p.style, await runSets(track, p.style, p.fail, { visible: p.inputs }), exp);
     if (!failed.some((t) => t.status === "fail") || failed.some((t) => t.status === "error")) {
       throw new GateError("probe fail", `the ${p.style} fail probe should fail at least one test without errors:\n${summarize(failed)}`);
     }
-    const pass2 = grade(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
+    const pass2 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
     if (JSON.stringify(pass1) !== JSON.stringify(pass2)) throw new GateError("deterministic", `the ${p.style} pass probe gave different results on a second run.`);
   }
   const unpinned = unpinnedBases(files.Dockerfile);
@@ -231,8 +206,8 @@ export async function verifyExercise(
 
   // Gate 2 + 3: the reference passes, twice, the second time with a third of the time limit.
   const first = await runSets(track, style, solution, sets);
-  const second = await runSets(track, style, solution, sets, fast);
-  const exp: Expectation = {};
+  const second = await runSets(track, style, solution, sets, { timeMs: fast });
+  const exp: { expected?: Record<string, string>; inventory?: { visible: string[]; hidden: string[] } } = {};
   if (style === "io") {
     const runs = [first, second].map((r) => [...(r.visible as IoRun).cases, ...(r.hidden as IoRun).cases]);
     const [a, b] = runs as [IoRun["cases"], IoRun["cases"]];
@@ -258,7 +233,7 @@ export async function verifyExercise(
     }
     exp.expected = Object.fromEntries(a.map((c) => [c.name, c.stdout]));
   } else {
-    const r1 = grade(style, first, {});
+    const r1 = gradeRuns(style, first, {});
     if (!allPass(r1)) throw new GateError("reference passes", `the reference must pass every test:\n${summarize(r1)}`);
     exp.inventory = {
       visible: r1.filter((t) => t.set === "visible").map((t) => t.name.slice("visible/".length)).sort(),
@@ -268,7 +243,7 @@ export async function verifyExercise(
       throw new GateError("valid", `the tests must define at least 1 visible and 2 hidden test cases (found ${exp.inventory.visible.length} and ${exp.inventory.hidden.length}).`);
     }
     // Compare the full second report (no inventory filter), so added or changed tests can't slip through.
-    const r2 = grade(style, second, {});
+    const r2 = gradeRuns(style, second, {});
     if (!allPass(r2)) throw new GateError("reference fast", `the reference must still pass with a third of the time limit (${fast} ms):\n${summarize(r2)}`);
     const shape = (tests: TestResult[]) => JSON.stringify(tests.map((t) => [t.name, t.status]).sort());
     if (shape(r1) !== shape(r2)) throw new GateError("reference passes", "the test report differed between two identical runs. Make test names and results deterministic.");
@@ -276,14 +251,14 @@ export async function verifyExercise(
 
   // Gate 4: the starter isn't already a solution.
   onGate?.("starter");
-  const starterTests = grade(style, await runSets(track, style, starter, sets), exp);
+  const starterTests = gradeRuns(style, await runSets(track, style, starter, sets), exp);
   if (allPass(starterTests)) throw new GateError("starter unsolved", "the unedited starter passes every test. Leave the work to the learner.");
 
   // Gates 5 + 6: every mutant is caught by a hidden test, and some mutant gets past the visible ones.
   onGate?.("mutants");
   let anyPassesVisible = false;
   for (const m of mutants) {
-    const tests = grade(style, await runSets(track, style, m.src, sets), exp);
+    const tests = gradeRuns(style, await runSets(track, style, m.src, sets), exp);
     if (allPass(tests.filter((t) => t.set === "hidden"))) {
       throw new GateError("mutants caught", `mutant "${m.name}" passes every hidden test. Strengthen the hidden tests or replace the mutant.`);
     }

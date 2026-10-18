@@ -3,7 +3,7 @@ import { CodemmError } from "./errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./files.js";
 import { checkTrackFiles, type ExerciseGate, type TrackProgress, verifyExercise, verifyTrack } from "./gates.js";
 import { type CaseFrames, gradeIo, type Status, type TestResult, type TestSet } from "./grading.js";
-import { gradeIoRun, gradeUnitRun, type IoRun, type ProgramOptions, type ProgramRun, runIo, runProgram, runUnit, type UnitRun } from "./judge.js";
+import { judgeSets, type ProgramOptions, type ProgramRun, runIo, runProgram, runUnit } from "./judge.js";
 import { type LearnerEvent, MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
 import { assertRuntime, cli as sandboxCli, inspectImage } from "./sandbox.js";
 import { assertNotes, type CourseRecord, type ExerciseRecord, parseLesson, parseRoadmapYaml, type TrackRecord } from "./schemas.js";
@@ -594,41 +594,32 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
   const track = { ...ctx.track, image: ctx.track.imageId };
   store.materialize(ws, rel, learnerFiles(record, files, track));
   const src = store.readLearnerFiles(ws, rel, track.files);
-  const sets: TestSet[] = includeHidden ? ["visible", "hidden"] : ["visible"];
-  const tests: TestResult[] = [];
-  for (const set of sets) {
-    const t = subMap(files, `tests/${set}`);
-    if (record.style === "io") {
-      // Hidden tests report their phase only: per-test timing could hint at what a hidden input does.
-      if (set === "hidden") onProgress?.({ phase: "hidden", done: 0, total: 0 });
-      const total = Object.keys(t).filter((p) => p.endsWith(".in")).length;
-      const report = (done: number) => onProgress?.({ phase: "visible", done: Math.min(done, total), total });
-      // The build runs in each set's container; it shows once, before the visible tests.
-      if (set === "visible") {
-        if (track.build) onProgress?.({ phase: "building", done: 0, total: 0 });
-        else report(0);
-      }
-      const expected = Object.fromEntries(Object.entries(record.expected ?? {}).filter(([k]) => k.startsWith(`${set}/`)));
-      // Each visible test's result as it finishes, graded as Results grades it. The final grade still decides:
-      // a flood or a memory kill afterwards makes every test an error.
-      let finished = 0;
-      const onCase = (c: CaseFrames) => {
-        const name = `visible/${c.name}`;
-        if (!(name in expected)) return;
-        const [r] = gradeIo([{ ...c, name }], { [name]: expected[name]! });
-        finished += 1;
-        const test = { name, status: r!.status, ...(r!.message ? { message: r!.message } : {}), ...(r!.actual !== undefined ? { actual: r!.actual } : {}) };
-        onProgress?.({ phase: "visible", done: Math.min(finished, total), total, test });
-      };
-      const follow = onProgress && set === "visible" ? { onProgress: (m: "built" | number) => report(m === "built" ? 0 : m), onCase } : {};
-      const run: IoRun = await runIo(track, set, src, t, follow);
-      tests.push(...gradeIoRun(run, expected));
-    } else {
-      onProgress?.({ phase: set, done: 0, total: 0 });
-      const run: UnitRun = await runUnit(track, src, t);
-      tests.push(...gradeUnitRun(set, run, record.inventory?.[set]));
-    }
-  }
+  const visible = subMap(files, "tests/visible");
+  const sets = includeHidden ? { visible, hidden: subMap(files, "tests/hidden") } : { visible };
+  // Each visible io test's result as it finishes, graded as Results grades it. The final grade still decides:
+  // a flood or a memory kill afterwards makes every test an error.
+  const total = Object.keys(visible).filter((p) => p.endsWith(".in")).length;
+  const report = (done: number) => onProgress?.({ phase: "visible", done: Math.min(done, total), total });
+  let finished = 0;
+  const onCase = (c: CaseFrames) => {
+    const name = `visible/${c.name}`;
+    const expected = record.expected?.[name];
+    if (expected === undefined) return;
+    const [r] = gradeIo([{ ...c, name }], { [name]: expected });
+    finished += 1;
+    const test = { name, status: r!.status, ...(r!.message ? { message: r!.message } : {}), ...(r!.actual !== undefined ? { actual: r!.actual } : {}) };
+    onProgress?.({ phase: "visible", done: Math.min(finished, total), total, test });
+  };
+  const onSet = (set: TestSet) => {
+    // unit runners report at the end, and hidden tests report their phase only: per-test timing could hint at
+    // what a hidden input does.
+    if (record.style !== "io" || set === "hidden") return void onProgress?.({ phase: set, done: 0, total: 0 });
+    // The build runs in each set's container; it shows once, before the visible tests.
+    if (track.build) onProgress?.({ phase: "building", done: 0, total: 0 });
+    else report(0);
+    return onProgress && { onProgress: (m: "built" | number) => report(m === "built" ? 0 : m), onCase };
+  };
+  const tests = await judgeSets(track, record.style, src, sets, { expected: record.expected, inventory: record.inventory }, { onSet });
   return { ...ctx, src, tests };
 }
 

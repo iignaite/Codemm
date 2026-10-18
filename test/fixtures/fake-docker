@@ -52,7 +52,9 @@ case "$1" in
     esac
     # streams: a working io driver. One case frame per input in the mounted tests folder, a beat apart,
     # so a test can watch progress arrive while the container is still running.
-    if [ "$FAKE_DOCKER" = streams ]; then
+    # echoes: the same, but each case prints its input on stdout and stderr and fails, and a unit runner fails
+    # with its tests' text as the message, so whatever a hidden test holds would show if it got out.
+    if [ "$FAKE_DOCKER" = streams ] || [ "$FAKE_DOCKER" = echoes ]; then
       tests=""
       build=""
       for a in "$@"; do case "$a" in *target=/work/tests,*) tests="${a#*source=}"; tests="${tests%%,target=*}" ;; CODEMM_BUILD=*) build=1 ;; esac; done
@@ -62,13 +64,20 @@ case "$1" in
         [ -e "$f" ] || continue
         found=1
         n="${f##*/}"; n="${n%.in}"
-        printf '\n@@codemm case %s 0 2\n0\n' "$n"
-        printf '\n@@codemm stderr %s 0 0\n' "$n"
+        if [ "$FAKE_DOCKER" = echoes ]; then
+          text=$(/bin/cat "$f") # ASCII, so its length is its size in bytes
+          printf '\n@@codemm case %s 1 %s\n%s' "$n" "${#text}" "$text"
+          printf '\n@@codemm stderr %s 1 %s\n%s' "$n" "${#text}" "$text"
+        else
+          printf '\n@@codemm case %s 0 2\n0\n' "$n"
+          printf '\n@@codemm stderr %s 0 0\n' "$n"
+        fi
         /bin/sleep 0.2 # PATH holds only this fake in tests
       done
       # A unit set (no .in inputs): the runner reports once, at the end.
       if [ -z "$found" ]; then
         r='{"tests":[{"name":"t","status":"pass"}]}'
+        if [ "$FAKE_DOCKER" = echoes ]; then r="{\"tests\":[{\"name\":\"t\",\"status\":\"fail\",\"message\":\"$(/bin/cat "$tests"/* | /usr/bin/tr -d '\n"\\')\"}]}"; fi
         printf '\n@@codemm report report 0 %s\n%s' "${#r}" "$r"
         printf '\n@@codemm log log 0 0\n'
       fi
