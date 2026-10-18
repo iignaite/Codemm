@@ -292,9 +292,9 @@ describe('practice', () => {
 });
 
 describe('Run', () => {
-  async function openIo(options?: Parameters<typeof mockWithCourse>[0]) {
+  async function openIo(options?: Parameters<typeof mockWithCourse>[0], strict = false) {
     const { api, course } = await mockWithCourse({ read: true, style: 'io', ...options });
-    const view = renderApp({ to: 'practice', concept: course.topics[0].id }, api);
+    const view = renderApp({ to: 'practice', concept: course.topics[0].id }, api, { strict });
     await screen.findByRole('heading', { name: 'Greet by name' });
     return { ...view, api, user: userEvent.setup() };
   }
@@ -314,6 +314,15 @@ describe('Run', () => {
     expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
     expect(terminal()).not.toHaveTextContent('left');
     expect((await api.course())!.topics[0].mastery).toBe(0);
+  });
+
+  it('runs under StrictMode, as the app does, where every effect replays once', async () => {
+    const { user } = await openIo(undefined, true);
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror().textContent).toBe("$ python3 main.py\nWhat's your name? "));
+    act(() => xterm.type('Ada\r'));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent('Exited with code 0.'));
+    expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
   });
 
   it("says when the time is up, in the header and the terminal", async () => {

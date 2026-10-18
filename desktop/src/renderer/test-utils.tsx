@@ -4,8 +4,9 @@ import { createMock, type MockOptions } from '../main/mock';
 import { App } from './app/App';
 import type { Route } from './app/router';
 
-export function renderApp(start: Route = { to: 'welcome' }, api: CodemmApi = createMock()) {
-  return { api, ...render(<App api={api} start={start} />) };
+/** `strict` renders under StrictMode, as the app's root does, which replays every effect once. */
+export function renderApp(start: Route = { to: 'welcome' }, api: CodemmApi = createMock(), { strict = false } = {}) {
+  return { api, ...render(<App api={api} start={start} />, { reactStrictMode: strict }) };
 }
 
 /** A connected mock with a researched roadmap. */

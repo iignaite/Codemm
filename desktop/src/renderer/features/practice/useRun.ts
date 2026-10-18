@@ -53,18 +53,18 @@ export function useRun(activityId: string, command: string | undefined, terminal
     return () => clearInterval(timer);
   }, [deadline]);
 
-  // Leaving stops it and stops listening.
-  useEffect(
-    () => () => {
+  // Leaving stops it and stops listening. Set up again on every mount: StrictMode replays effects.
+  useEffect(() => {
+    left.current = false;
+    return () => {
       left.current = true;
       const c = current.current;
       if (!c) return;
       c.cancelled = true;
       c.off();
       void api.stopRun(c.id).catch(() => undefined);
-    },
-    [api],
-  );
+    };
+  }, [api]);
 
   async function start() {
     const id = crypto.randomUUID();
