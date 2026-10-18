@@ -32,7 +32,9 @@ describe('choose journey', () => {
     await user.type(goal, 'React');
     expect(await screen.findByText("React isn't set up yet.")).toBeInTheDocument();
 
-    await user.type(screen.getByRole('textbox', { name: 'I already know' }), 'Python');
+    const known = screen.getByRole('textbox', { name: 'What you already know (optional)' });
+    expect(known).toHaveAttribute('placeholder', 'What you already know (optional)');
+    await user.type(known, 'Python');
 
     await user.click(screen.getByRole('button', { name: 'Start' }));
     expect(await screen.findByRole('heading', { name: 'Researching React' })).toBeInTheDocument();

@@ -1,4 +1,4 @@
-import type { CheckProgress, CheckResult, TestView, TryResult, VisibleTest } from '../../../shared/api';
+import { REBUILD, type CheckProgress, type CheckResult, type TestView, type TryResult, type VisibleTest } from '../../../shared/api';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
@@ -17,6 +17,7 @@ export interface Ways {
   easier: () => void;
   later: () => void;
   computer: () => void;
+  tracks: () => void;
   next: () => void;
 }
 
@@ -66,7 +67,11 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
           <p className="sub a-up" style={stagger(1)}>{result.reason}</p>
           <div className="actions a-up" style={stagger(2)}>
             <Button size="lg" onClick={ways.retry}>Try again</Button>
-            <Button variant="ghost" size="lg" onClick={ways.computer}>Check this computer</Button>
+            {result.reason === REBUILD ? (
+              <Button variant="ghost" size="lg" onClick={ways.tracks}>Go to Tracks</Button>
+            ) : (
+              <Button variant="ghost" size="lg" onClick={ways.computer}>Check this computer</Button>
+            )}
           </div>
         </div>
       </div>

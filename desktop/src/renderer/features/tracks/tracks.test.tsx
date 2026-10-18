@@ -11,6 +11,7 @@ describe('tracks', () => {
     const react = await screen.findByRole('listitem', { name: 'React' });
     await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
     expect(await within(react).findByRole('button', { name: 'Rebuild' })).toBeEnabled();
+    expect(within(react).getByRole('status')).toHaveTextContent('Rebuilt.');
 
     await user.type(screen.getByRole('textbox', { name: 'Learn something new' }), 'Rust');
     await user.click(screen.getByRole('button', { name: 'Start' }));
