@@ -15,7 +15,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .page { padding: 48px 56px; gap: 24px; }
 
 /* ---------- Navigation ---------- */
-.side { width: 232px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; padding: 20px 12px; background: var(--navy); color: #F3F6FB; }
+.side { width: 232px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 20px 12px; background: var(--navy); color: #F3F6FB; }
 .logo { padding: 0 10px 22px; }
 .logo img { display: block; }
 .nav { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border: none; border-radius: 10px; background: transparent; color: var(--navy-text); font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; transition: background .2s; }
@@ -27,9 +27,12 @@ button, input, textarea { font: inherit; color: inherit; }
 .pick .goal { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.35; }
 .pick.none { color: var(--navy-muted); font-weight: 500; }
 .badge { width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px; color: #fff; display: grid; place-items: center; font: 700 14px var(--mono); }
-.slim { width: 68px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 0; background: var(--navy); }
+.slim { width: 68px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 0; background: var(--navy); }
 .slim .nav { width: 44px; height: 44px; padding: 0; justify-content: center; }
 .slim .lg { padding-bottom: 14px; }
+/* A new version in the slim sidebar (§7.2): one word at its foot. */
+.slim .slim-update { margin-top: auto; display: flex; flex-direction: column; align-items: center; }
+.slim .slim-update a, .slim .slim-update .btn { padding: 6px 4px; font-size: 12px; font-weight: 600; color: #9AF0B8; }
 
 /* ---------- Type and controls ---------- */
 .h1 { margin: 0; font: 600 40px/1.15 var(--display); letter-spacing: -.01em; text-wrap: balance; }
@@ -86,8 +89,8 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .cprog .bar > i { animation: none; transition: width .2s ease-out; }
 
 /* ---------- Welcome and connect ---------- */
-.welcome { flex: 1; display: flex; gap: 64px; padding: 56px 72px; }
-.welcome-text { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 30px; max-width: 540px; }
+.welcome { flex: 1; min-width: 0; display: flex; gap: 64px; padding: 56px 72px; }
+.welcome-text { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 30px; max-width: 540px; }
 .welcome-text .brand { align-self: flex-start; }
 .welcome-text .h1 { font-size: 60px; line-height: 1.05; }
 .welcome-art { flex: 1; border-radius: 28px; background: var(--navy); position: relative; display: grid; place-items: center; overflow: hidden; }
@@ -405,4 +408,10 @@ h1[tabindex="-1"]:focus { outline: none; }
   .actions, .agent, .page-head, .depth, .now-card { flex-wrap: wrap; }
   .goal-box { height: auto; min-height: 64px; flex-wrap: wrap; padding: 8px 10px 8px 18px; }
   .goal-box input { min-height: 46px; font-size: 18px; }
+  .reader { padding: 24px 20px; }
+  .reader .head { flex-wrap: wrap; }
+  .etool { height: auto; min-height: 56px; flex-wrap: wrap; }
+  .etabs { height: 56px; }
+  .complete .pills { grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr)); }
+  .complete .pill { height: auto; min-height: 36px; padding: 6px 11px; white-space: normal; }
 }

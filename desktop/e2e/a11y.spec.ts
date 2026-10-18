@@ -315,15 +315,9 @@ const overflowing = (page: Page) =>
     return [...document.querySelectorAll('body *')]
       .filter((el) => !el.closest('.code, pre, .xterm, [aria-hidden="true"]'))
       .filter((el) => {
-        let { left, right, width, height } = el.getBoundingClientRect();
-        // What a clipping ancestor cuts off isn't seen, so it doesn't count; a scrolling one's overflow does.
-        for (let up = el.parentElement; up; up = up.parentElement) {
-          if (!['hidden', 'clip'].includes(getComputedStyle(up).overflowX)) continue;
-          const box = up.getBoundingClientRect();
-          left = Math.max(left, box.left);
-          right = Math.min(right, box.right);
-        }
-        return width > 0 && height > 0 && right > left && (right > wide + 1 || left < -1);
+        // Cut off or scrolled sideways, it's out of reach either way, so a clipping ancestor doesn't excuse it.
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && (r.right > wide + 1 || r.left < -1);
       })
       .map((el) => `${el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? `.${el.className.split(' ').join('.')}` : ''}`)
       .slice(0, 5);
@@ -342,6 +336,11 @@ async function reflows(app: ElectronApplication, page: Page, screen: string) {
     await zoom(app, factor);
     await page.waitForTimeout(150);
     baseExpect.soft(await overflowing(page), `${screen} at ${factor * 100}%`).toEqual([]);
+    // Every way out stays reachable: the sidebar scrolls when the window is short.
+    for (const item of await page.getByRole('navigation', { name: 'Main' }).getByRole('button').all()) {
+      await item.scrollIntoViewIfNeeded();
+      await baseExpect.soft(item, `${screen} at ${factor * 100}%: ${await item.getAttribute('aria-label') ?? await item.textContent()}`).toBeInViewport({ ratio: 1 });
+    }
   }
   await zoom(app, 1);
 }
@@ -350,6 +349,15 @@ test('every screen reflows in the smallest window and at 200% and 400% zoom: not
   test.setTimeout(120_000);
   const { app, page } = await launch();
   await expect(button(page, 'Connect an agent')).toBeVisible();
+  // The check itself: something too wide is caught.
+  // Styled through the DOM: the window's content security policy drops inline style attributes.
+  await page.evaluate(() => {
+    const wide = Object.assign(document.createElement('div'), { id: 'too-wide' });
+    Object.assign(wide.style, { position: 'absolute', top: '0', left: '0', width: '3000px', height: '10px' });
+    document.body.append(wide);
+  });
+  baseExpect(await overflowing(page)).toContain('div');
+  await page.evaluate(() => document.getElementById('too-wide')!.remove());
   await reflows(app, page, 'welcome');
   await button(page, 'Connect an agent').click();
   await expect(heading(page, 'Connect an agent')).toBeVisible();
@@ -380,6 +388,10 @@ test('every screen reflows in the smallest window and at 200% and 400% zoom: not
   await button(page, 'Tracks').click();
   await expect(heading(page, 'Tracks')).toBeVisible();
   await reflows(app, page, 'tracks');
+  await masterEverything(page);
+  await button(page, 'Learn').click();
+  await expect(heading(page, 'React complete')).toBeVisible();
+  await reflows(app, page, 'course complete');
   await app.close();
 });
 
