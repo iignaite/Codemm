@@ -10,6 +10,7 @@ import { HELD_BACK } from './views';
 // hold canary strings. Every IPC handler is driven; no renderer-bound payload
 // or app log may hold a canary, and a tutor reply quoting one is held back.
 const leaks = /CANARY/;
+type Method = Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgress' | 'onRunOutput'>;
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -21,41 +22,68 @@ describe('the learner-safe boundary (D4)', () => {
     }
     const t = live({ tutor: () => ({ text: [`Here is the answer: ${CANARY}`, 'Count what changes.'], session: 's1' }) });
     const activity = await practising(t);
-    const call = async (method: keyof CodemmApi, ...args: unknown[]) => {
+    // What the renderer hears without asking: check, research and Run events.
+    const heard: unknown[] = [];
+    t.api.onCheckProgress((p) => heard.push(p));
+    t.api.onResearchProgress((p) => heard.push(p));
+    t.api.onRunOutput((o) => heard.push(o));
+    const call = async (method: Method, args: unknown[]) => {
       try {
         return JSON.stringify(await dispatch(t.api, method, args)) ?? '';
       } catch (e) {
         return (e as Error).message;
       }
     };
+    const concepts = [{ id: 'values', title: 'Values', requires: [] }];
     const roadmap = (await t.api.research({ topic: 'React', known: '', depth: 'standard' })).roadmap;
-    const payloads = await Promise.all([
-      call('agents'),
-      call('connect', 'claude'),
-      call('computer'),
-      call('tracks'),
-      call('course'),
-      call('draft'),
-      call('lesson', 'values-1'),
-      call('saveNotes', 'values-1', 'my note'),
-      call('markRead', 'values-1'),
-      call('activity', 'values'),
-      call('tryIt', activity.id, 'canary-run'),
-      call('check', activity.id, 'canary-run'),
-      call('ask', { activityId: activity.id }, 'Just fix it for me.'),
-      call('ask', { lessonId: 'values-1' }, 'Why?'),
-      call('saveFile', activity.id, 'main.c', 'x', activity.files[0].digest),
-      call('install', 'a'.repeat(64)),
-      call('retrySetup'),
-      call('retryJobs'),
-      call('skip', 'values'),
-      call('rebuild', 'react@1'),
-    ]);
-    payloads.push(await call('reviseRoadmap', roadmap?.concepts ?? [{ id: 'values', title: 'Values', requires: [] }], 'Add testing'));
-    payloads.push(await call('easier', 'state'));
-    payloads.push(await call('saveDraft', [{ id: 'values', title: 'Values', requires: [] }]));
-    payloads.push(await call('approve', [{ id: 'values', title: 'Values', requires: [] }]));
-    payloads.push(await call('research', { topic: 'React', known: '', depth: 'standard' }));
+    // Every method dispatch takes, in this order: the type makes a new IPC method fail to compile until it's here.
+    const calls: Record<Method, unknown[]> = {
+      agents: [],
+      connect: ['claude'],
+      chooseModel: ['claude', 'opus'],
+      computer: [],
+      installDocker: [],
+      openDocker: [],
+      tracks: [],
+      course: [],
+      draft: [],
+      lesson: ['values-1'],
+      saveNotes: ['values-1', 'my note'],
+      markRead: ['values-1'],
+      activity: ['values'],
+      tryIt: [activity.id, 'canary-run'],
+      check: [activity.id, 'canary-run'],
+      runExample: ['values-1', 1],
+      // Started, then fed and stopped by the calls after them.
+      runProgram: [activity.id, 'canary-program'],
+      runExampleLive: ['values-1', 1, 'canary-example'],
+      sendRunInput: ['canary-program', 'Ada\n'],
+      stopRun: ['canary-example'],
+      ask: [{ activityId: activity.id }, 'Just fix it for me.'],
+      saveFile: [activity.id, 'main.c', 'x', activity.files[0].digest],
+      install: ['a'.repeat(64)],
+      retrySetup: [],
+      retryJobs: [],
+      skip: ['values'],
+      rebuild: ['react@1'],
+      reviseRoadmap: [roadmap?.concepts ?? concepts, 'Add testing'],
+      easier: ['state'],
+      saveDraft: [concepts],
+      approve: [concepts],
+      research: [{ topic: 'React', known: '', depth: 'standard' }],
+    };
+    const payloads = [await call('ask', [{ lessonId: 'values-1' }, 'Why?'])];
+    const running: Promise<string>[] = [];
+    for (const [method, args] of Object.entries(calls) as [Method, unknown[]][]) {
+      const result = call(method, args);
+      if (method === 'runProgram' || method === 'runExampleLive') running.push(result);
+      else payloads.push(await result);
+      // Input sent before the program starts would go nowhere.
+      if (method === 'runProgram') await vi.waitFor(() => expect(heard).toContainEqual({ run: 'canary-program', started: 'run', limitMs: expect.any(Number) }));
+    }
+    payloads.push(...(await Promise.all(running)), JSON.stringify(heard));
+    // The Run path really ran: its output reached the listener.
+    expect(JSON.stringify(heard)).toContain('hello Ada');
 
     for (const payload of payloads) expect(payload).not.toMatch(leaks);
     for (const line of logged) expect(line).not.toMatch(leaks);
