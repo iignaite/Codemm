@@ -305,6 +305,84 @@ test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', 
   await app.close();
 });
 
+/**
+ * What sticks out past the window's sides, named by tag and class: nothing should, so the screen reflows (WCAG 1.4.10).
+ * Code is exempt: it keeps its lines and scrolls inside its own box.
+ */
+const overflowing = (page: Page) =>
+  page.evaluate(() => {
+    const wide = document.documentElement.clientWidth;
+    return [...document.querySelectorAll('body *')]
+      .filter((el) => !el.closest('.code, pre, .xterm, [aria-hidden="true"]'))
+      .filter((el) => {
+        let { left, right, width, height } = el.getBoundingClientRect();
+        // What a clipping ancestor cuts off isn't seen, so it doesn't count; a scrolling one's overflow does.
+        for (let up = el.parentElement; up; up = up.parentElement) {
+          if (!['hidden', 'clip'].includes(getComputedStyle(up).overflowX)) continue;
+          const box = up.getBoundingClientRect();
+          left = Math.max(left, box.left);
+          right = Math.min(right, box.right);
+        }
+        return width > 0 && height > 0 && right > left && (right > wide + 1 || left < -1);
+      })
+      .map((el) => `${el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? `.${el.className.split(' ').join('.')}` : ''}`)
+      .slice(0, 5);
+  });
+
+const size = (app: ElectronApplication, width: number, height: number) =>
+  app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0].setContentSize(w, h), [width, height]);
+
+/** Checks a screen in the smallest window (800 by 600), and at 200% and 400% zoom: about 640 and 320 CSS pixels wide. */
+async function reflows(app: ElectronApplication, page: Page, screen: string) {
+  await size(app, 800, 600);
+  await expect.poll(() => page.evaluate(() => document.documentElement.clientWidth)).toBe(800);
+  baseExpect.soft(await overflowing(page), `${screen} at 800 by 600`).toEqual([]);
+  await size(app, 1280, 800);
+  for (const factor of [2, 4]) {
+    await zoom(app, factor);
+    await page.waitForTimeout(150);
+    baseExpect.soft(await overflowing(page), `${screen} at ${factor * 100}%`).toEqual([]);
+  }
+  await zoom(app, 1);
+}
+
+test('every screen reflows in the smallest window and at 200% and 400% zoom: nothing sticks out past it', async ({ launch }) => {
+  test.setTimeout(120_000);
+  const { app, page } = await launch();
+  await expect(button(page, 'Connect an agent')).toBeVisible();
+  await reflows(app, page, 'welcome');
+  await button(page, 'Connect an agent').click();
+  await expect(heading(page, 'Connect an agent')).toBeVisible();
+  await reflows(app, page, 'connect');
+  await page.getByRole('listitem', { name: 'Claude Code' }).getByRole('button', { name: 'Connect' }).click();
+  await button(page, 'Continue').click();
+  await expect(page.getByRole('textbox', { name: 'What do you want to learn?' })).toBeVisible();
+  await reflows(app, page, 'goal');
+  await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('React');
+  await button(page, 'Start').click();
+  await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });
+  await reflows(app, page, 'roadmap');
+  await button(page, 'Approve').click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Set up', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15_000 });
+  await expect(button(page, 'Read What javascript basics is')).toBeVisible({ timeout: 15_000 });
+  await reflows(app, page, 'topic');
+  await button(page, 'Read What javascript basics is').click();
+  await expect(button(page, 'Next')).toBeVisible();
+  await reflows(app, page, 'lesson');
+  await button(page, 'Next').click();
+  await button(page, 'Next').click();
+  await expect(heading(page, 'Click Counter')).toBeVisible();
+  await reflows(app, page, 'activity');
+  await button(page, 'Learn').click();
+  await expect(page.getByRole('region', { name: 'Usage' })).toBeVisible({ timeout: 15_000 });
+  await reflows(app, page, 'course map');
+  await button(page, 'Tracks').click();
+  await expect(heading(page, 'Tracks')).toBeVisible();
+  await reflows(app, page, 'tracks');
+  await app.close();
+});
+
 test('at 1280 px and narrower, the side columns narrow so the editor keeps its room', async ({ launch }) => {
   const { app, page } = await launch();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1200, 800));

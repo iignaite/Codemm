@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createMock } from '../../main/mock';
@@ -50,6 +50,31 @@ describe('update notice', () => {
       await screen.findByRole('heading', { name: /tracks/i });
       expect(within(sidebar()).queryByText(/version|ready/)).not.toBeInTheDocument();
       view.unmount();
+    }
+  });
+});
+
+describe('narrow windows', () => {
+  it('slims the sidebar below 760 px (a narrow window, or 200% zoom), so the screen keeps its room', async () => {
+    let narrow = true;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      get matches() {
+        return query === '(max-width: 760px)' && narrow;
+      },
+      addEventListener: (_: string, l: () => void) => listeners.add(l),
+      removeEventListener: (_: string, l: () => void) => listeners.delete(l),
+    }));
+    try {
+      renderApp({ to: 'tracks' });
+      expect(await screen.findByRole('navigation', { name: 'Main' })).toHaveClass('slim');
+      expect(within(sidebar()).getByRole('button', { name: 'Tracks' })).not.toHaveTextContent('Tracks');
+      // Wider again: the full sidebar comes back.
+      narrow = false;
+      act(() => listeners.forEach((l) => l()));
+      expect(sidebar()).toHaveClass('side');
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 });

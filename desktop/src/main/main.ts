@@ -79,8 +79,8 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 1100,
-    minHeight: 700,
+    minWidth: 800,
+    minHeight: 600,
     title: 'Codemm',
     backgroundColor: '#F5F7FA',
     titleBarStyle: 'hidden',

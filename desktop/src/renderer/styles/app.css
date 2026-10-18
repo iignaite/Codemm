@@ -11,7 +11,7 @@ button, input, textarea { font: inherit; color: inherit; }
 .tbar { height: 36px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--navy-3); font-size: 13px; font-weight: 500; color: var(--navy-muted); -webkit-app-region: drag; user-select: none; }
 .wbody { flex: 1; min-height: 0; display: flex; position: relative; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
-.center { flex: 1; min-width: 0; display: grid; place-items: center; padding: 40px; overflow: auto; }
+.center { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: 40px; overflow: auto; }
 .page { padding: 48px 56px; gap: 24px; }
 
 /* ---------- Navigation ---------- */
@@ -66,8 +66,8 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .stack.wide { gap: 22px; }
 .fill { flex: 1; }
 .page-head { display: flex; align-items: center; gap: 20px; }
-.goal-form { width: 680px; }
-.setup-page { width: 620px; }
+.goal-form { width: min(680px, 100%); }
+.setup-page { width: min(620px, 100%); }
 .note-form { max-width: 600px; }
 .rename { flex: 1; display: flex; gap: 8px; }
 .actions { display: flex; align-items: center; gap: 10px; }
@@ -135,7 +135,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .panel { width: 520px; padding: 36px; display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; }
 
 /* ---------- Lessons ---------- */
-.topic-page { width: 620px; display: flex; flex-direction: column; gap: 18px; }
+.topic-page { width: min(620px, 100%); display: flex; flex-direction: column; gap: 18px; }
 .topic-page .card { padding: 4px 22px; }
 .topic-page .card.panel { width: auto; padding: 28px; }
 .ws { flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr) 340px; }
@@ -242,7 +242,7 @@ button.grow.link:hover { background: var(--soft); }
 .complete .pill { height: 36px; font-size: 13.5px; }
 
 /* ---------- Tracks ---------- */
-.track-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; max-width: 1040px; }
+.track-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 16px; max-width: 1040px; }
 .track { padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
 .track b { font: 600 20px var(--display); }
 .new { padding: 24px; max-width: 1040px; display: flex; flex-direction: column; gap: 14px; }
@@ -311,6 +311,10 @@ button.grow.link:hover { background: var(--soft); }
 }
 @media (max-width: 1000px) {
   .ws, .ws.lesson { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
+  /* The course map's side column goes under the topics. */
+  .map { flex-direction: column; overflow-y: auto; }
+  .map-main, .map-side { overflow: visible; }
+  .map-side { width: auto; border-left: none; border-top: 1px solid var(--line); }
   .stmt, .reader { overflow: visible; border-right: none; border-bottom: 1px solid var(--line); }
   .mid { min-height: 560px; }
   .coach { min-height: 420px; border-left: none; border-top: 1px solid var(--line); }
@@ -386,3 +390,19 @@ a.inline:hover { color: var(--ink); }
 .looking .job { max-width: 720px; }
 /* A new screen's heading takes focus for screen readers (useRouteFocus); it isn't a control, so it shows no ring. */
 h1[tabindex="-1"]:focus { outline: none; }
+
+/* A screen's column never outgrows the window, even with its width set inline (WCAG reflow). */
+.center > * { min-width: 0; max-width: 100%; }
+.main > .stack { max-width: calc(100% - 40px); }
+
+/* Narrow: under 760 px, a narrow window or 200% zoom and more. The sidebar slims (Sidebar.tsx), rows wrap, padding shrinks. */
+@media (max-width: 760px) {
+  .center, .page, .map-main, .map-side { padding: 24px 20px; }
+  .h1, .h2 { overflow-wrap: break-word; }
+  .welcome { flex-direction: column; gap: 24px; padding: 24px 20px; overflow-y: auto; }
+  .welcome-text .h1 { font-size: 40px; }
+  .welcome-art { flex: none; min-height: 240px; }
+  .actions, .agent, .page-head, .depth, .now-card { flex-wrap: wrap; }
+  .goal-box { height: auto; min-height: 64px; flex-wrap: wrap; padding: 8px 10px 8px 18px; }
+  .goal-box input { min-height: 46px; font-size: 18px; }
+}

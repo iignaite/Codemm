@@ -1,5 +1,5 @@
 // The main navigation (§1): Learn, Practice and Tracks, wide with the course or slim beside a workspace.
-import type { ReactNode } from 'react';
+import { useSyncExternalStore, type ReactNode } from 'react';
 import type { CourseView } from '../../shared/api';
 import { Button } from '../ui/Button';
 import { hueColor } from '../ui/Emm';
@@ -26,8 +26,19 @@ function practiceRoute(course: CourseView | null | undefined): Route {
   return continueRoute(now);
 }
 
-/** The main navigation: wide with labels, or slim with icons beside a workspace. */
-export function Sidebar({ slim = false }: { slim?: boolean }) {
+/** A narrow window, or a wide one at 200% zoom: the screen needs the sidebar's room (WCAG reflow). Matches app.css. */
+const NARROW = '(max-width: 760px)';
+const narrowNow = () => typeof window.matchMedia === 'function' && window.matchMedia(NARROW).matches;
+function onNarrowChange(changed: () => void) {
+  if (typeof window.matchMedia !== 'function') return () => undefined;
+  const query = window.matchMedia(NARROW);
+  query.addEventListener('change', changed);
+  return () => query.removeEventListener('change', changed);
+}
+
+/** The main navigation: wide with labels, or slim with icons beside a workspace or in a narrow window. */
+export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
+  const slim = useSyncExternalStore(onNarrowChange, narrowNow) || slimHere;
   const api = useApi();
   const { route, go } = useRouter();
   const { data: course } = useLoad(() => api.course(), [route]);
