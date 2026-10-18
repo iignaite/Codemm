@@ -321,6 +321,7 @@ button.grow.link:hover { background: var(--soft); }
 .looking { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
 .looking ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
 .looking li { overflow-wrap: anywhere; }
+.looking li.now { color: var(--ink); }
 
 .example { margin: 14px 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
 .example .file { font-size: 13px; color: var(--muted); }

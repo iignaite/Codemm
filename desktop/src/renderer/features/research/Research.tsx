@@ -49,7 +49,8 @@ export function Research({ goal }: { goal: Goal }) {
           {steps.length > 0 && (
             <ol aria-label="What Codemm is looking at">
               {steps.map((step, i) => (
-                <li key={count - i} style={{ opacity: Math.max(0.35, 1 - i * 0.12) }}>{sayStep(step)}</li>
+                // The latest step stands out by its color; older ones stay readable (WCAG AA), never faded.
+                <li key={count - i} className={i === 0 ? 'now' : undefined}>{sayStep(step)}</li>
               ))}
             </ol>
           )}

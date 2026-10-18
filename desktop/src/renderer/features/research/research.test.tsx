@@ -23,6 +23,10 @@ describe('research progress', () => {
     const list = screen.getByRole('list', { name: 'What Codemm is looking at' });
     expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Saving the roadmap', 'Reading roadmap.sh/react', 'Searching react roadmap 2026']);
     expect(screen.getByText('3 steps')).toBeInTheDocument();
+    // Older steps stay readable (WCAG AA): no row is faded; the latest one stands out by its color instead.
+    const rows = within(list).getAllByRole('listitem');
+    for (const li of rows) expect(li.style.opacity).toBe('');
+    expect(rows.map((li) => li.classList.contains('now'))).toEqual([true, false, false]);
   });
 
   it('never brings back a job that ended while its first read was on the way', async () => {
