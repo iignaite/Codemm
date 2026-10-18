@@ -7,7 +7,6 @@
 import { randomBytes } from "node:crypto";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parse } from "yaml";
 import { capture } from "./proc.ts";
 
 export const OWNER_LABEL = "codemm.bench.run";
@@ -64,31 +63,20 @@ export function snapshot(): Snapshot {
   return { tags, ids };
 }
 
-/** The image tag a track file map would build, `codemm-track-<id>:<version>`, or undefined if its track.yaml doesn't parse. */
-export function tagForTrackYaml(yaml: string): string | undefined {
-  try {
-    const t = parse(yaml) as { id?: unknown; version?: unknown };
-    return typeof t?.id === "string" && Number.isInteger(t.version) ? `codemm-track-${t.id}:${t.version}` : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * The docker commands that undo a run: `rmi` by ID for every image the run built that didn't exist before and is
- * still there, unless a tag the run didn't try points at it. Removing by ID without force can't delete another
- * session's image, and fails rather than untag one still shared. Tags the run's builds replaced aren't restored:
- * Codemm checks installed tracks by image ID, and re-pointing a shared tag could race another session.
+ * still there, unless something other than Codemm tagged it. Removing by ID without force can't delete another
+ * session's image, and fails rather than untag one still shared. A run's images are labeled with its own id, so a
+ * Codemm track tag on one of them can only be the run's own home's.
  */
-export function cleanupPlan(attempted: string[], built: Set<string>, before: Snapshot, after: Snapshot): string[][] {
-  const ours = new Set(attempted);
-  const kept = (id: string) => [...after.tags].some(([tag, tid]) => tid === id && !ours.has(tag));
+export function cleanupPlan(built: Set<string>, before: Snapshot, after: Snapshot): string[][] {
+  const kept = (id: string) => [...after.tags].some(([tag, tid]) => tid === id && !tag.startsWith("codemm-track-"));
   return [...built].filter((id) => !before.ids.has(id) && after.ids.has(id) && !kept(id)).map((id) => ["rmi", "--no-prune", id]);
 }
 
 /** Runs the cleanup plan and returns what happened, for the run log. */
-export function cleanupImages(attempted: string[], dir: string, before: Snapshot): string[] {
-  return cleanupPlan(attempted, builtImages(dir), before, snapshot()).map((args) => {
+export function cleanupImages(dir: string, before: Snapshot): string[] {
+  return cleanupPlan(builtImages(dir), before, snapshot()).map((args) => {
     const ok = capture("docker", args).code === 0;
     return `${ok ? "" : "failed: "}docker ${args.map((a) => (a.startsWith("sha256:") ? a.slice(7, 19) : a)).join(" ")}`;
   });

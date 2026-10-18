@@ -15,7 +15,7 @@ import { emptyRun } from "./lib/agent.ts";
 import { accessFindings, codeBlocks, isLeak, leaks, learnerView, workspaceDiff } from "./lib/checks.ts";
 import { claude } from "./lib/claude.ts";
 import { codex } from "./lib/codex.ts";
-import { cleanupImages, recordingCli, snapshot, tagForTrackYaml } from "./lib/docker.ts";
+import { cleanupImages, recordingCli, snapshot } from "./lib/docker.ts";
 import { type Evidence, type FileMap, readEvidence, type StoredExercise } from "./lib/evidence.ts";
 import { authorPrompt, SUBJECTS, TUTOR_PROMPT } from "./lib/journeys.ts";
 import { type JourneyResult, journeyResult, saveStats, type Violations } from "./lib/metrics.ts";
@@ -89,13 +89,6 @@ function violations(run: AgentRun, exercises: StoredExercise[], changes: { chang
   };
 }
 
-const attemptedTags = (calls: TapCall[]) =>
-  calls.filter((c) => c.name === "save_track").flatMap((c) => {
-    const yaml = (c.args as { files?: FileMap }).files?.["track.yaml"];
-    const tag = yaml ? tagForTrackYaml(yaml) : undefined;
-    return tag ? [tag] : [];
-  });
-
 const baseline = snapshot();
 const result: Record<string, unknown> = {
   cell,
@@ -106,7 +99,6 @@ const result: Record<string, unknown> = {
   date: new Date().toISOString(),
   hostVersion: capture(opts.host!, ["--version"]).out.trim(),
 };
-let tags: string[] = [];
 let ev: Evidence = { tracks: [], exercises: [], workspace: {} };
 try {
   const init = capture(process.execPath, [CLI, "init"], { cwd: ws, env: codemmEnv() });
@@ -116,7 +108,6 @@ try {
   if (opts.journey === "both") {
     // Author journey.
     const a = await journey("author", authorPrompt(subject), AUTHOR_TIMEOUT);
-    tags.push(...attemptedTags(a.calls));
     ev = readEvidence(home, ws);
     const authored = ev.exercises.filter((ex) => ex.course === ev.course);
     materialized = authored.filter((ex) => Object.keys(learnerView(ex, trackFilesOf(ev, ex))).every((p) => p in ev.workspace));
@@ -143,8 +134,6 @@ try {
     const fixture = opts.journey === "tutor" ? subjectFixture(opts.subject!) : shellFixture();
     source = opts.journey === "tutor" ? "fixture" : "seeded";
     say(`tutor: seeding ${fixture.course}/${fixture.slug}`);
-    const tag = tagForTrackYaml(readFileSync(join(fixture.track, "track.yaml"), "utf8"));
-    if (tag) tags.push(tag);
     await seedExercise(CLI, ws, home, containerCli, fixture);
     ev = readEvidence(home, ws);
     ex = ev.exercises.find((e) => e.course === fixture.course && e.slug === fixture.slug)!;
@@ -152,7 +141,6 @@ try {
   const before = readEvidence(home, ws).workspace;
   const t = await journey("tutor", TUTOR_PROMPT, TUTOR_TIMEOUT);
   result.models ??= t.run.models;
-  tags.push(...attemptedTags(t.calls));
   ev = readEvidence(home, ws);
   const tutorChanges = workspaceDiff(before, ev.workspace);
   const v = violations(t.run, [ex], tutorChanges);
@@ -175,7 +163,7 @@ try {
 } finally {
   ev = readEvidence(home, ws);
   try {
-    result.cleanup = cleanupImages(tags, root, baseline);
+    result.cleanup = cleanupImages(root, baseline);
   } catch (e) {
     // Without a full picture of Docker's images nothing is removed; say so and clean up the rest.
     result.cleanup = [`skipped: ${(e as Error).message}`];

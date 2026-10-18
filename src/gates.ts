@@ -1,3 +1,4 @@
+import { trackImageTag } from "./store.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,7 +18,7 @@ export class GateError extends CodemmError {
   }
 }
 
-export const imageTag = (spec: { id: string; version: number }) => `codemm-track-${spec.id}:${spec.version}`;
+
 
 type Sets = { visible: FileMap; hidden: FileMap };
 type Runs = { visible: IoRun | UnitRun; hidden?: IoRun | UnitRun };
@@ -127,7 +128,7 @@ export function checkTrackFiles(files: FileMap) {
 export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec: TrackSpec; image: string; imageId: string; warning?: string }> {
   const { spec, probes } = checkTrackFiles(files);
 
-  const image = tag ?? imageTag(spec);
+  const image = tag ?? trackImageTag(spec.id, spec.version);
   const context = mkdtempSync(join(tmpdir(), "codemm-build-"));
   let builtId = "";
   try {
