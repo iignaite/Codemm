@@ -290,8 +290,12 @@ describe('mock: environment', () => {
     expect(await settled(api, (c) => c.setup === 'consent')).toMatchObject({ proposal: { retry: true } });
   });
 
+  it('a relaunch shows the agent connected before', async () => {
+    expect((await createMock(scenario('relaunch')).agents()).find((a) => a.id === 'claude')!.state).toBe('connected');
+  });
+
   it('names every scenario, and rejects unknown ones', () => {
-    expect(Object.keys(SCENARIOS)).toHaveLength(21);
+    expect(Object.keys(SCENARIOS)).toHaveLength(23);
     expect(scenario(undefined)).toEqual({});
     expect(() => scenario('nope')).toThrow('Unknown mock scenario');
   });

@@ -2,10 +2,10 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createMock, scenario } from '../../../main/mock';
-import { renderApp } from '../../test-utils';
+import { mockWithCourse, renderApp } from '../../test-utils';
 
 describe('connect journey', () => {
-  it('starts asleep, connects an agent, then wakes up', async () => {
+  it('reaches the goal in three clicks: connect an agent, then continue past a ready computer', async () => {
     const user = userEvent.setup();
     renderApp();
     expect(await screen.findByRole('heading', { name: 'Learn anything.' })).toBeInTheDocument();
@@ -18,15 +18,16 @@ describe('connect journey', () => {
     expect(await within(claude).findByText('Connected')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Continue' }));
-    await screen.findByText('This computer is ready.');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
-    expect(await screen.findByRole('heading', { name: 'Ready when you are.' })).toBeInTheDocument();
-    expect(screen.getByText('Connected')).toBeInTheDocument();
-    // Read once: "Connected", not "Passed, Connected".
-    expect(screen.queryByRole('img', { name: 'Passed' })).not.toBeInTheDocument();
-    expect(document.body).not.toHaveTextContent('Claude Code');
-    await user.click(screen.getByRole('button', { name: 'Start learning' }));
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('Claude Code');
+  });
+
+  it('goes back to the course, not the goal, when one is already approved', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    renderApp({ to: 'welcome' }, api);
+    await user.click(await screen.findByRole('button', { name: 'Start learning' }));
+    expect(await screen.findByRole('list', { name: 'Topics' })).toBeInTheDocument();
   });
 
   it('connects one agent at a time', async () => {
@@ -106,6 +107,22 @@ describe('connect journey', () => {
   });
 });
 
+describe('the only agent', () => {
+  it('connects the only installed agent by itself, so Continue is the one click left', async () => {
+    renderApp({ to: 'connect' }, createMock({ agents: { codex: 'missing', cursor: 'missing' } }));
+    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+    expect(await within(claude).findByText('Connected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+
+  it('lets the learner choose when more than one agent is installed', async () => {
+    renderApp({ to: 'connect' }, createMock({ agents: { cursor: 'missing' } }));
+    await screen.findByRole('listitem', { name: 'Claude Code' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument();
+  });
+});
+
 describe('installing an agent', () => {
   it('installs a missing agent with progress, then signs in with its own login, and continues once signed in', async () => {
     const user = userEvent.setup();
@@ -129,5 +146,15 @@ describe('installing an agent', () => {
     expect(await within(codex).findByText("You're offline. Connect to the internet, then try again.", {}, { timeout: 4000 })).toBeInTheDocument();
     expect(within(codex).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     expect(within(codex).getByRole('link', { name: 'Get it myself' })).toBeInTheDocument();
+  });
+});
+
+describe('a relaunch', () => {
+  it('opens on Welcome with the agent connected, read once: "Connected", not "Passed, Connected"', async () => {
+    renderApp({ to: 'welcome' }, createMock(scenario('relaunch')));
+    expect(await screen.findByRole('heading', { name: 'Ready when you are.' })).toBeInTheDocument();
+    expect(screen.getByText('Connected')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Passed' })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('Claude Code');
   });
 });

@@ -138,7 +138,7 @@ describe('course editor', () => {
     await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Testing{Enter}');
     const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
     await user.click(within(claude).getByRole('button', { name: 'Try again' }));
-    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    // A ready computer passes by itself.
     await user.click(await screen.findByRole('button', { name: 'Continue' }));
     await screen.findByRole('heading', { name: 'React' });
     expect(names()).toEqual(['JavaScript basics', 'JSX', 'Lists and keys']);
@@ -160,7 +160,7 @@ describe('course editor', () => {
     await ask('More');
     const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
     await user.click(within(claude).getByRole('button', { name: 'Try again' }));
-    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    // A ready computer passes by itself.
     await user.click(await screen.findByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('link', { name: 'New source' })).toBeInTheDocument();
   });

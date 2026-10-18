@@ -26,7 +26,7 @@ function Screen({ route }: { route: Route }) {
     case 'connect':
       return <Connect then={route.then} />;
     case 'computer':
-      return <Computer then={route.then} />;
+      return <Computer then={route.then} fromConnect={route.fromConnect} />;
     case 'setup':
       return <Setup />;
     case 'goal':
