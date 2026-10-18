@@ -248,6 +248,8 @@ export interface CodemmApi {
   chooseModel(agent: AgentId, model: string): Promise<Agent>;
   /** Hears progress while Try it or Check runs; returns a function that stops listening. An event, not a call. */
   onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
+  /** Hears what research is looking at while it runs; returns a function that stops listening. An event, not a call. */
+  onResearchProgress(listener: (progress: ResearchProgress) => void): () => void;
   computer(): Promise<Computer>;
   tracks(): Promise<Track[]>;
 
@@ -288,9 +290,13 @@ export interface CodemmApi {
   rebuild(trackRef: string): Promise<void>;
 }
 
+/** What the research job is looking at: a search, an https page (host and path) or one of Codemm's steps. */
+export type ResearchProgress = { kind: 'search'; query: string } | { kind: 'read'; url: string } | { kind: 'step'; label: string };
+
 /** What the preload script exposes as `window.codemm`. */
 export interface Bridge {
   invoke(method: string, args: unknown[]): Promise<unknown>;
-  /** The one event main sends: check progress, to the app window only. */
+  /** Events main sends, to the app window only: check progress and research progress. */
   onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
+  onResearchProgress(listener: (progress: ResearchProgress) => void): () => void;
 }

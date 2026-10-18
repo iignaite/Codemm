@@ -234,6 +234,28 @@ describe('live CodemmApi', () => {
     expect(t.c.roadmap!.sources).toEqual([{ title: 'React docs', url: 'https://react.dev/learn' }, { title: 'Not https', url: 'http://example.com' }]);
   });
 
+  it('forwards what research looks at, then adds the pages it read to the roadmap sources', async () => {
+    const t = live({
+      research: (job) => {
+        job.onProgress?.({ kind: 'search', query: 'react roadmap 2026' });
+        job.onProgress?.({ kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react' });
+        job.onProgress?.({ kind: 'read', url: 'react.dev/learn', href: 'https://react.dev/learn' });
+        const args = job.server([]).args;
+        t.c.roadmap = {
+          course: args[args.indexOf('--course') + 1], goal: 'React', track: 'react@1', style: 'io',
+          concepts: [{ id: 'values', title: 'Values', requires: [] }], sources: [{ title: 'React docs', url: 'https://react.dev/learn' }],
+        };
+        return {};
+      },
+    });
+    const heard: unknown[] = [];
+    t.api.onResearchProgress((p) => heard.push(p));
+    const r = await researched(t);
+    expect(heard).toEqual([{ kind: 'search', query: 'react roadmap 2026' }, { kind: 'read', url: 'roadmap.sh/react' }, { kind: 'read', url: 'react.dev/learn' }]);
+    // The agent's own source comes first; a page it read only once joins it.
+    expect(r.roadmap!.sources).toEqual([{ title: 'React docs', url: 'https://react.dev/learn' }, { title: 'roadmap.sh/react', url: 'https://roadmap.sh/react' }]);
+  });
+
   it('keeps a stuck activity open beside the ways forward', async () => {
     const t = live();
     const activity = await practising(t);

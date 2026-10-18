@@ -36,9 +36,12 @@ function devMock(): CodemmApi {
   return createMock(scenario(process.env.CODEMM_MOCK || undefined));
 }
 
-// Check progress is the one event main sends, and only to the app's windows (§2.1).
+// The events main sends, only to the app's windows (§2.1): check progress and research progress.
 codemm.onCheckProgress((progress) => {
   for (const contents of appWindows) contents.send('codemm:check-progress', progress);
+});
+codemm.onResearchProgress((progress) => {
+  for (const contents of appWindows) contents.send('codemm:research-progress', progress);
 });
 
 // Only an app window's top frame, on app://codemm, may call Codemm (§2.1).

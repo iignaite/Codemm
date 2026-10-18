@@ -301,7 +301,10 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
   - The preload exposes it as `onCheckProgress(listener)`, which returns a function that stops listening. It isn't an IPC call: `invoke('onCheckProgress')` is refused.
 - **Renderer.** While Try it or Check runs, the results panel shows a quiet bar with the phase and "3 of 8". With no count, it shows the phase alone. It hears only its own run's events, and stops listening when the learner leaves.
 
-### 4.9 Research sources
+### 4.9 Research sources and progress
+
+- **Progress.** One stream parser in `agent/agents.ts` reads both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. Main sends the research job's steps to the app window only, on the one-way `codemm:research-progress` event, and the preload exposes it as `onResearchProgress`. The research screen lists them quietly, the latest first and fading as they age, with a step count.
+- **Reads become sources.** When research has saved the roadmap, the https pages it read join the agent's own `sources` (at most 10), saved through core's roadmap rules.
 
 - **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
 - **Showing.** The roadmap and course-edit screens show a quiet "Sources" list. Each link opens only after a click, in the system browser, through main's `shell.openExternal`, and main accepts only https links. Nothing loads inside the app window.

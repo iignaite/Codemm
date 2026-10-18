@@ -2,7 +2,7 @@
 // exposes only its tools, a deadline and a bound on failed saves, and is done
 // only when its check against core records passes, never on the agent's word.
 import type { AgentId } from '../../shared/api';
-import { AGENT_CLIS, type AgentEvent, type McpServer } from './agents';
+import { AGENT_CLIS, type AgentEvent, type McpServer, type ResearchStep } from './agents';
 import { spendsNoRetry } from '../core/failures';
 import { run, type Executable } from './bridge';
 
@@ -63,6 +63,8 @@ export interface Job {
   /** Asked when a job fails for an unknown reason. */
   signedIn: () => Promise<boolean>;
   deadlineMs?: number;
+  /** Hears what the agent is looking at (research progress). */
+  onProgress?: (step: ResearchStep) => void;
 }
 
 interface Attempt {
@@ -97,6 +99,7 @@ async function once(job: Job): Promise<Attempt> {
     if (e.type === 'session') session = e.id;
     if (e.type === 'text') text.push(e.text);
     if (e.type === 'done') done = e;
+    if (e.type === 'progress') job.onProgress?.(e.step);
     if (e.type === 'server') {
       infra = 'server';
       stop.abort();

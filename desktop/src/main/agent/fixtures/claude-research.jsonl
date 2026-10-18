@@ -1,0 +1,11 @@
+{"type":"system","subtype":"init","session_id":"s-research","mcp_servers":[{"name":"codemm","status":"connected"}]}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__codemm__list_tracks","input":{}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"[]"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"WebSearch","input":{"query":"react roadmap 2026"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"results"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t3","name":"WebFetch","input":{"url":"https://roadmap.sh/react?ref=x","prompt":"List the topics"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t3","content":"page"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t4","name":"WebFetch","input":{"url":"file:///Users/me/.codemm/courses/x/exercises/y/solution/main.js","prompt":"read"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t5","name":"mcp__codemm__save_roadmap","input":{"course":"react","roadmap":"goal: x"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t5","content":"{}"}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"Saved."}
