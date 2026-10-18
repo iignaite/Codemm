@@ -266,7 +266,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - `null`: the concept has no lesson yet (write one first).
   - an id: the earliest unread lesson.
   - absent: every lesson for the concept has been read.
-  The activity stays locked, and the tutor teaches first, until the field is absent. The author job can still run in the background, because the step names the activity. Lessons never change mastery.
+  The activity stays locked, and the tutor teaches first, until the field is absent. The topic page and the lesson outline say why in words: "Opens after you finish the lessons". The author job can still run in the background, because the step names the activity. Lessons never change mastery.
 - **Not verified.** Lesson text is checked for structure only, and examples only for a clean run. Only activities are "checked before you see it".
 - **Run.** Each example block shows its files and a Run button, and the example runs in the sandbox, never on the host, recording nothing. An io example runs as an activity's Run does (§4.10): `runExampleLive` through IPC, in the terminal pane with typed input and a countdown, and Run turns into Stop. A unit example runs once as tests through `runExample`, showing the output and errors (capped). `lesson` names the examples' style. A Docker problem shows "This didn't run." with Check this computer.
 

@@ -67,7 +67,7 @@ function Items({ topic }: { topic: TopicView }) {
         ) : topic.activity === 'writing' ? (
           <span className="shim" style={{ width: 96 }} role="img" aria-label={topic.review ? 'Writing the review' : 'Writing the activity'} />
         ) : (
-          <span role="img" aria-label="Opens after the lessons"><Icon name="lock" color="#5B6A84" size={16} /></span>
+          <span className="locked"><Icon name="lock" color="#5B6A84" size={16} />Opens after you finish the lessons</span>
         )}
       </div>
     </div>
