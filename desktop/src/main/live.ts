@@ -338,9 +338,12 @@ export function createLive(d: LiveDeps): Live {
   // Work the course still needs when the app starts.
   queueMicrotask(schedule);
 
-  // Check progress goes to whoever listens (main sends it to the app window). Only the phase and counts.
+  // Check progress goes to whoever listens (main sends it to the app window): the phase and counts, and visible results.
   const progressListeners = new Set<(p: CheckProgress) => void>();
-  const progressOf = (run?: string) => ({ phase, done, total }: CheckProgress) => progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
+  // A visible test's result passes on, field by field; a hidden event never carries one.
+  const finished = ({ name, status, message, actual }: NonNullable<CheckProgress['test']>) => ({ name, status, ...(message !== undefined ? { message } : {}), ...(actual !== undefined ? { actual } : {}) });
+  const progressOf = (run?: string) => ({ phase, done, total, test }: CheckProgress) =>
+    progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total, ...(phase === 'visible' && test ? { test: finished(test) } : {}) }));
 
   // Run's programs, by run id (§4.10). What they print goes to whoever listens; main sends it to the window that started each.
   const programs = new Map<string, { program?: CoreProgramRun; stopped: boolean }>();

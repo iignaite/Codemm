@@ -400,6 +400,51 @@ describe('Run', () => {
     await vi.waitFor(() => expect(mirror()).toHaveTextContent("Docker isn't running."));
   });
 
+  it('Try it prints each visible test as it finishes: the command, the output, then expected and found', async () => {
+    const { user } = await openIo();
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/visible tests passed\n$/));
+    expect(mirror().textContent).toBe(
+      [
+        '$ python3 main.py  (test 01)',
+        'Hello, !',
+        '✗ test 01',
+        '  expected  Hello, Ada!',
+        '  found     Hello, !',
+        '$ python3 main.py  (test 02)',
+        'Hello, !',
+        '✗ test 02',
+        '  expected  Hello, Grace!',
+        '  found     Hello, !',
+        '✗ 0 of 2 visible tests passed',
+        '',
+      ].join('\n'),
+    );
+    // The structured results stay.
+    expect(await within(results()).findByRole('heading', { name: '0 of 2 visible tests passed' })).toBeInTheDocument();
+  });
+
+  it('prints a visible test whose event came too late from the final result, once', async () => {
+    const { api, user } = await openIo();
+    api.onCheckProgress = () => () => undefined; // every event lands after the reply
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/visible tests passed\n$/));
+    expect(mirror().textContent!.match(/\(test 01\)/g)).toHaveLength(1);
+    expect(mirror().textContent).toContain('$ python3 main.py  (test 02)\nHello, !\n✗ test 02\n');
+  });
+
+  it('Check prints visible tests as they finish and hidden tests as an index and a status only', async () => {
+    const { user } = await openIo();
+    const editor = screen.getByRole('textbox', { name: 'main.py' }) as HTMLTextAreaElement;
+    await user.clear(editor);
+    await user.type(editor, 'name = input("What\'s your name? "){Enter}print(f"Hello, {{name}!")');
+    await user.click(screen.getByRole('button', { name: 'Check' }));
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/of 4 passed\n$/));
+    expect(mirror().textContent).toBe(
+      ['$ python3 main.py  (test 01)', 'Hello, Ada!', '✓ test 01', '$ python3 main.py  (test 02)', 'Hello, Grace!', '✓ test 02', 'hidden #1 ✓', 'hidden #2 ✓', '✓ 4 of 4 passed', ''].join('\n'),
+    );
+  });
+
   it('has no Run for a unit activity', async () => {
     await open();
     expect(screen.queryByRole('button', { name: 'Run' })).not.toBeInTheDocument();
