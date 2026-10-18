@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./files.js";
-import { checkTrackFiles, verifyExercise, verifyTrack } from "./gates.js";
+import { checkTrackFiles, type ExerciseGate, type TrackProgress, verifyExercise, verifyTrack } from "./gates.js";
 import { type CaseFrames, gradeIo, type Status, type TestResult, type TestSet } from "./grading.js";
 import { gradeIoRun, gradeUnitRun, type IoRun, type ProgramOptions, type ProgramRun, runIo, runProgram, runUnit, type UnitRun } from "./judge.js";
 import { type LearnerEvent, MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
@@ -40,6 +40,18 @@ async function ensureImage(track: TrackRecord): Promise<void> {
   }
 }
 
+/** A progress listener that throws is dropped; the work goes on. */
+function quietly<T>(listener?: (p: T) => void): ((p: T) => void) | undefined {
+  let heard = listener;
+  return heard && ((p: T) => {
+    try {
+      heard?.(p);
+    } catch {
+      heard = undefined;
+    }
+  });
+}
+
 // ---------- tracks ----------
 
 export function listTracks() {
@@ -61,11 +73,11 @@ function alreadyInstalled(ref: string, version: number, files: FileMap): boolean
 }
 
 /** Gates 2 to 5, then an atomic install. Call while holding the track lock. */
-async function install(ref: string, files: FileMap): Promise<{ installed: string; warning?: string }> {
+async function install(ref: string, files: FileMap, onProgress?: (p: TrackProgress) => void): Promise<{ installed: string; warning?: string }> {
   // Before building, and again before committing. Roadmap saves check styles under this same track lock,
   // so no course can change style in between.
   assertCoursesFit(ref, readTrackSpec(files).spec.styles);
-  const verified = await verifyTrack(files);
+  const verified = await verifyTrack(files, undefined, onProgress);
   assertCoursesFit(ref, verified.spec.styles);
   const record: TrackRecord = {
     format_version: 1, ...verified.spec, image: verified.image, imageId: verified.imageId, installedAt: new Date().toISOString(),
@@ -116,8 +128,11 @@ export function listProposals() {
   return store.listProposals().map(({ record, files }) => ({ track: record.track, digest: record.digest, created: record.created, files }));
 }
 
-/** Installs a proposal only if its files still have the digest the learner consented to. */
-export async function installProposal(ref: string, digest: string): Promise<{ installed: string; unchanged?: true; warning?: string }> {
+/**
+ * Installs a proposal only if its files still have the digest the learner consented to. `onProgress` hears each
+ * build step as counts, then the probes; never the build's output.
+ */
+export async function installProposal(ref: string, digest: string, onProgress?: (p: TrackProgress) => void): Promise<{ installed: string; unchanged?: true; warning?: string }> {
   const { id, version } = store.parseTrackRef(ref);
   return store.withLock(store.trackLockPath(id), async () => {
     const files = store.readProposal(ref, digest);
@@ -129,7 +144,7 @@ export async function installProposal(ref: string, digest: string): Promise<{ in
       return { installed: ref, unchanged: true as const };
     }
     store.assertFreeSpace(store.codemmHome());
-    const result = await install(ref, files);
+    const result = await install(ref, files, quietly(onProgress));
     store.dropProposals(ref);
     return result;
   });
@@ -414,7 +429,12 @@ export function nextStep(ws: string, bound?: string): NextStep {
   return { ...step, title, style: course.style, track: course.track, contract: trackContract(track, course.style) };
 }
 
-export async function saveExercise(ws: string, files: FileMap, bound?: string): Promise<{ exercise: string; warning?: string }> {
+/** Writes each exercise gate as it starts to a job's progress file (`codemm mcp --progress`), by name only. */
+export const gateProgressTo = (path: string) => ({ gate }: { gate: ExerciseGate }) => store.writeJobProgress(path, gate);
+
+/** `onProgress` hears which gate runs, by name only (DESIGN §6). */
+export async function saveExercise(ws: string, files: FileMap, bound?: string, onProgress?: (p: { gate: ExerciseGate }) => void): Promise<{ exercise: string; warning?: string }> {
+  const onGate = quietly(onProgress);
   assertPortablePaths(validateFileMap(files));
   const courseId = activeCourse(ws, bound).course;
   const { record, track } = await store.withLock(store.courseLockPath(courseId), () => {
@@ -424,7 +444,7 @@ export async function saveExercise(ws: string, files: FileMap, bound?: string): 
       const track = installedTrack(course.track);
       await ensureImage(track);
       const taken = new Set(store.listExercises(courseId).map((e) => e.slug));
-      const verified = await verifyExercise(track, course, files, taken);
+      const verified = await verifyExercise(track, course, files, taken, onGate && ((gate) => onGate({ gate })));
       store.commitFolder(store.exerciseDir(courseId, verified.slug), files, { "exercise.json": verified });
       return { record: verified, track };
     });

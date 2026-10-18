@@ -101,6 +101,19 @@ describe.runIf(posix)("check progress for unit exercises", () => {
   });
 });
 
+describe.runIf(posix)("exercise gate progress", () => {
+  it("reports which gate runs, by name only, in order", async () => {
+    const ws = await installedExercise();
+    fakeDocker("streams");
+    const seen: unknown[] = [];
+    const files = { ...readFileMap(join(fixtures, "exercises", "io-max")) };
+    files["exercise.yaml"] = files["exercise.yaml"]!.replace("max-of-line", "max-again");
+    // Every fake run prints the same output, so the starter passes too and its gate fails.
+    await expect(app.saveExercise(ws, files, undefined, (p) => seen.push(p))).rejects.toThrow(/Gate "starter unsolved"/);
+    expect(seen).toEqual([{ gate: "reference" }, { gate: "starter" }]);
+  });
+});
+
 /** A workspace whose io exercise (1 visible, 3 hidden tests) is installed with a fake image and edited. */
 async function installedExercise(): Promise<string> {
   const ws = tempDir("codemm-ws-");
