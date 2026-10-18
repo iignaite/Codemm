@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Agent, AgentId, Computer, DockerInstall } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed } from '../../app/Problems';
+import { Failed, Stale } from '../../app/Problems';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
@@ -37,7 +37,7 @@ export function Setup() {
   const [wanted, setWanted] = useState<{ docker: boolean; agent?: AgentId }>();
   const [choice, setChoice] = useState<AgentId>('claude');
   // Once started, follow both installs, and look again when the learner comes back from a sign-in or Docker's window.
-  const { data, error, reload } = useLoad(async () => ({ computer: await api.computer(), agents: await api.agents() }), [wanted], { settled: () => !wanted, onFocus: true });
+  const { data, error, stale, reload } = useLoad(async () => ({ computer: await api.computer(), agents: await api.agents() }), [wanted], { settled: () => !wanted, onFocus: true });
   const agent = wanted?.agent ? data?.agents.find((a) => a.id === wanted.agent) : undefined;
   const ready = Boolean(wanted && data && (!wanted.docker || data.computer.ready) && (!wanted.agent || agent?.state === 'connected'));
   useEffect(() => {
@@ -141,6 +141,7 @@ export function Setup() {
           </div>
         )}
       </div>
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }
