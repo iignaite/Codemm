@@ -987,8 +987,16 @@ test(`journey: ${label}`, async () => {
         await expect(page.getByRole('heading', { level: 1, name: title, exact: true })).toBeVisible();
         await button('Add a note').click();
         await page.getByRole('textbox', { name: 'My note' }).fill('My own words: the key idea.');
+        // JOURNEY_NOTE_WAIT=<ms>: a learner who pauses before saving, while background work refreshes the lesson.
+        await page.waitForTimeout(Number(process.env.JOURNEY_NOTE_WAIT ?? 0));
+        await shot('note-before-save');
         await button('Save').click();
-        await expect(page.getByText('My own words: the key idea.')).toBeVisible();
+        // A lost note is a finding, not the end of the run: record it and go on.
+        if (!(await page.getByText('My own words: the key idea.').isVisible({ timeout: 5000 }).catch(() => false)) && !(await expect(page.getByText('My own words: the key idea.')).toBeVisible({ timeout: 5000 }).then(() => true, () => false))) {
+          await shot('note-lost');
+          note('note-lost', `the note wasn't shown after Save (${await page.getByRole('button', { name: /note$/ }).first().innerText().catch(() => '?')} visible)`);
+          return `${title}: NOTE LOST after Save`;
+        }
         if (flow.has('reopen')) {
           await nav('Learn').click();
           await toMap();
