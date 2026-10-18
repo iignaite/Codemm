@@ -56,13 +56,13 @@ describe.runIf(posix)("building a track image", () => {
   it("reports each build step as a count, and nothing of the build's output", async () => {
     fakeDocker("builds");
     const steps: unknown[] = [];
-    await buildImage(mkdtempSync(join(tmpdir(), "codemm-context-")), "codemm-track-shell-io:1", undefined, (step) => steps.push(step));
+    await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1", undefined, (step) => steps.push(step));
     expect(steps).toEqual([{ done: 1, total: 3 }, { done: 2, total: 3 }, { done: 3, total: 3 }]);
   });
 
   it("keeps building when a step listener throws", async () => {
     fakeDocker("builds");
-    const built = await buildImage(mkdtempSync(join(tmpdir(), "codemm-context-")), "codemm-track-shell-io:1", undefined, () => {
+    const built = await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1", undefined, () => {
       throw new Error("listener bug");
     });
     expect(built).toMatchObject({ ok: true, imageId: "sha256:built" });
