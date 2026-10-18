@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { CourseView, TopicView, Usage } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed, Stalled } from '../../app/Problems';
+import { Failed, Stale, Stalled } from '../../app/Problems';
 import { useCourse } from '../../app/useCourse';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
@@ -17,7 +17,7 @@ const STATE_LABEL = { mastered: 'Mastered', now: 'Now', later: 'Later' } as cons
 /** Lessons, then an activity, per topic, with mastery so far. */
 export function CourseMap() {
   const api = useApi();
-  const { data: course, error, reload } = useCourse();
+  const { data: course, error, stale, reload } = useCourse();
   // Read again whenever the course is: jobs that finish while the map is open add to it.
   const { data: usage } = useLoad(() => api.usage(), [course]);
   // A finished course celebrates first; View course opens its map again.
@@ -36,6 +36,7 @@ export function CourseMap() {
       </div>
       <Aside course={course} usage={usage ?? null} />
       {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }

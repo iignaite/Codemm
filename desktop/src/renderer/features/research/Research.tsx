@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import type { Goal } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed } from '../../app/Problems';
+import { Failed, Stale } from '../../app/Problems';
 import { useJob } from '../../app/useJob';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
@@ -15,7 +15,7 @@ import { Panel } from '../../ui/Panel';
 export function Research({ goal }: { goal: Goal }) {
   const api = useApi();
   const { go } = useRouter();
-  const { data, error, reload } = useLoad(() => api.research(goal), [goal], (r) => r.state !== 'running');
+  const { data, error, stale, reload } = useLoad(() => api.research(goal), [goal], { settled: (r) => r.state !== 'running' });
   // What the agent is looking at, the latest first (§4.9, §4.11).
   const job = useJob((p) => p.kind === 'research', []);
   const steps = job?.progress.steps ?? [];
@@ -62,6 +62,7 @@ export function Research({ goal }: { goal: Goal }) {
         <div className="row"><span className="shim" style={{ width: '55%' }} /></div>
         <div className="row"><span className="shim" style={{ width: '62%' }} /></div>
       </section>
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }

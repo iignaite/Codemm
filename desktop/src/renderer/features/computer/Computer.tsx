@@ -30,8 +30,7 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
       }
     },
     [],
-    (c) => c.ready,
-    installing(last.current) ? timing.pollMs : timing.recheckMs,
+    { settled: (c) => c.ready, every: installing(last.current) ? timing.pollMs : timing.recheckMs },
   );
   last.current = data;
   // On the way in from Connect, ready at the first check: nothing to show, so Codemm moves on. An explicit

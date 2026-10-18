@@ -16,6 +16,29 @@ async function master(api: CodemmApi, topics: number) {
   }
 }
 
+describe('a course read that fails after one worked', () => {
+  it('keeps the course on screen, says it could not refresh, and Try again reads again', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse({ read: true });
+    const course = api.course.bind(api);
+    let failing = false;
+    api.course = () => (failing ? Promise.reject(new Error("codemm:offline")) : course());
+    renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('button', { name: 'Continue' })).toBeInTheDocument();
+    failing = true;
+    window.dispatchEvent(new Event('focus'));
+    // A status (the sidebar keeps its own, for updates): this one says what happened.
+    const notice = await screen.findByText(/Codemm couldn't refresh this/);
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveTextContent("Codemm couldn't refresh this. You're offline.");
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+    failing = false;
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    await screen.findByRole('button', { name: 'Continue' });
+    expect(screen.queryByText(/Codemm couldn't refresh this/)).not.toBeInTheDocument();
+  });
+});
+
 describe('course map', () => {
   it('shows mastered, current and later topics, and continues the current one', async () => {
     const user = userEvent.setup();
