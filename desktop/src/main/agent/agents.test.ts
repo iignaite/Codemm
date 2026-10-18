@@ -228,6 +228,8 @@ describe('launch arguments (§3.1)', () => {
     const { args } = AGENT_CLIS.codex.launch!({ prompt: 'again', server, tools: [], resume: 't1' });
     expect(args.slice(0, 2)).toEqual(['exec', 'resume']);
     expect(args.slice(-2)).toEqual(['t1', 'again']);
+    // A resumed tutor turn still can't search the web.
+    expect(args[args.indexOf('web_search="disabled"') - 1]).toBe('-c');
   });
 
   it('cursor: print mode with stream-json and its MCP servers approved; the prompt goes last', () => {
