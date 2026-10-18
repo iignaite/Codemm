@@ -337,6 +337,23 @@ describe('lessons', () => {
     expect(await screen.findByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
   });
 
+  it('takes Next once: a double click marks the lesson read once, and Next waits while it works', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    const marks: string[] = [];
+    let finish!: () => void;
+    const markRead = api.markRead;
+    api.markRead = (id) => (marks.push(id), new Promise((done) => (finish = () => done(markRead(id)))));
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-1` }, api);
+    const next = await screen.findByRole('button', { name: 'Next' });
+    await user.dblClick(next);
+    expect(marks).toEqual([`${TOPIC}-1`]);
+    expect(next).toBeDisabled();
+    finish();
+    expect(await screen.findByRole('heading', { name: 'useState', level: 1 })).toBeInTheDocument();
+    expect(marks).toHaveLength(1);
+  });
+
   it('reopens a lesson instantly from the cache', async () => {
     const user = userEvent.setup();
     const { api } = await mockWithCourse();

@@ -341,6 +341,17 @@ describe('Run', () => {
     expect((await api.course())!.topics[0].mastery).toBe(0);
   });
 
+  it('counts down from the whole limit, even when the clock ticks while the run starts', async () => {
+    const { user } = await openIo();
+    // Each read of the clock is a millisecond later, as on a busy machine.
+    let t = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => (t += 1));
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(terminal()).toHaveTextContent('left'));
+    expect(terminal()).toHaveTextContent('2:00 left');
+    vi.restoreAllMocks();
+  });
+
   it('runs under StrictMode, as the app does, where every effect replays once', async () => {
     const { user } = await openIo(undefined, true);
     await user.click(screen.getByRole('button', { name: 'Run' }));
