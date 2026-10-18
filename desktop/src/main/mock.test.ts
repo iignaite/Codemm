@@ -305,7 +305,7 @@ describe('mock: environment', () => {
   });
 
   it('names every scenario, and rejects unknown ones', () => {
-    expect(Object.keys(SCENARIOS)).toHaveLength(27);
+    expect(Object.keys(SCENARIOS)).toHaveLength(28);
     expect(scenario(undefined)).toEqual({});
     expect(() => scenario('nope')).toThrow('Unknown mock scenario');
   });

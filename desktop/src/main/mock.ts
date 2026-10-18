@@ -76,6 +76,7 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'docker-starting': { docker: 'starting' },
   'windows-containers': { docker: 'windows-containers', platform: 'windows' },
   'docker-stops': { later: { after: 'check', set: { docker: 'stopped' } } },
+  'docker-stops-jobs': { later: { after: 'approve', set: { docker: 'stopped', stalled: 'docker' } } },
   'docker-wont-start': { docker: 'missing', dockerWontStart: true },
   'offline-setup': { setupProblem: 'offline' },
   'low-disk': { setupProblem: 'disk' },

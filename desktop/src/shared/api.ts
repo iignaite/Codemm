@@ -210,7 +210,7 @@ export interface CourseView {
   topics: TopicView[];
   done: boolean;
   /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
-  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'failed' | 'unstoppable';
+  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'disk' | 'failed' | 'unstoppable';
 }
 
 export interface Lesson {
