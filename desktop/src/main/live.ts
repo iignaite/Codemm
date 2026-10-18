@@ -144,20 +144,16 @@ export function createLive(d: LiveDeps): Live {
     const filter = hidden();
     return { ...view, sources: view.sources.filter((s) => shown(s.title, filter) === s.title && shown(s.url, filter) === s.url) };
   };
-  /** The activity the learner last opened: the workspace's current one is the draft's while a draft is active. */
-  let opened: string | undefined;
-  /** The hidden material of an activity: the one named, else the one the learner is on. */
   /**
-   * The hidden lines of an activity (the one the learner is on by default) in a course (the approved one by default),
-   * to check agent text against (§2.2). Null when they can't be loaded: then nothing is checked, so nothing goes out.
+   * The hidden lines of every exercise in a course (the approved one by default), to check agent text against (§2.2).
+   * Every exercise, not only the current one: the tutor can open any of them (get_exercise). Null when any can't be
+   * loaded: then nothing can be checked, so nothing goes out.
    */
-  const hidden = (activity?: string, inCourse?: string): string[] | null => {
-    const workspace = core.readWorkspace(ws);
-    const course = inCourse ?? approved() ?? workspace.course;
-    const current = activity ?? opened ?? (workspace.course === course ? workspace.current : undefined);
-    if (!course || !current) return [];
+  const hidden = (inCourse?: string): string[] | null => {
+    const course = inCourse ?? approved() ?? core.readWorkspace(ws).course;
+    if (!course) return [];
     try {
-      return hiddenLines(core.hiddenMaterial(course, current));
+      return hiddenLines(core.listExercises(ws, course).flatMap((e) => core.hiddenMaterial(course, e.exercise)));
     } catch {
       return null;
     }
@@ -536,7 +532,6 @@ export function createLive(d: LiveDeps): Live {
       await saveConcepts(concepts);
       const course = core.getRoadmap(ws).course;
       d.state.update((s) => ({ ...s, approved: course }));
-      opened = undefined;
       stalled = undefined;
       setup = { gateFailures: 0, installs: 0 };
       schedule();
@@ -644,7 +639,6 @@ export function createLive(d: LiveDeps): Live {
       const course = core.getRoadmap(ws, approved()).course;
       const slug = exerciseFor(concept, course);
       if (!slug) throw new SafeError('This activity isn’t ready yet.');
-      opened = slug;
       const exercise = await core.getExercise(ws, slug, course);
       return activityView(exercise, core.readLearnerFiles(ws, slug, course), concept);
     },
@@ -693,9 +687,6 @@ export function createLive(d: LiveDeps): Live {
       const where = 'lessonId' in place ? `the lesson "${place.lessonId}" (get_lesson)` : `the activity "${place.activityId}" (get_exercise)`;
       // The learner's own code goes to their own agent; nothing hidden does.
       const files = 'activityId' in place ? Object.fromEntries(Object.entries(core.readLearnerFiles(ws, place.activityId, course)).map(([path, f]) => [path, f.text])) : undefined;
-      // What's hidden for this turn's course and activity, read before the turn: another course may be approved,
-      // or another activity opened, while it runs.
-      const filter = hidden('activityId' in place ? place.activityId : undefined, course);
       // Each question is its own turn, after the one before, so it resumes the session that turn left (§3.2).
       const turn = tutorTurns.then(async () => {
         const outcome = await foreground(`tutor:${key}:${++tutorTurnCount}`, 'tutor', briefs.tutor(where, text, files), course, (t) => t.ok, d.state.read().sessions[key]);
@@ -704,11 +695,9 @@ export function createLive(d: LiveDeps): Live {
       });
       tutorTurns = turn.catch(() => undefined);
       const outcome = await turn;
-      // The tutor may open another exercise during the turn (get_exercise makes it current): check against it too.
-      const now = core.readWorkspace(ws);
-      const later = now.course === course && now.current ? hidden(now.current, course) : [];
-      const both = filter && later ? [...filter, ...later] : null;
-      return outcome.text.map((t) => ({ from: 'codemm' as const, text: shown(t, both) }));
+      // Checked against this turn's course, whatever course is approved by now.
+      const filter = hidden(course);
+      return outcome.text.map((t) => ({ from: 'codemm' as const, text: shown(t, filter) }));
     },
 
     async skip(concept) {

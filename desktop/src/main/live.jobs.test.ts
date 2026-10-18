@@ -100,6 +100,28 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }]);
   });
 
+  it("checks a lesson question's reply against every exercise of the course, even while a draft roadmap is active", async () => {
+    const t = live({ tutor: () => ({ text: [`Look: ${CANARY}`] }) });
+    // Practising, up to the open activity, but without opening it.
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const consent = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(consent.proposal!.digest);
+    const course = await until(t.api, (c) => c.setup === 'ready' && c.topics[0].lessons.some((l) => l.state === 'ready'));
+    for (const l of course.topics[0].lessons) if (l.state === 'ready') await t.api.markRead(l.id);
+    await until(t.api, (c) => c.topics[0].activity === 'open');
+    // A new roadmap is researched: the workspace now belongs to that draft, with no current exercise.
+    const goal = { topic: 'Vue', known: '', depth: 'standard' } as const;
+    let next = await t.api.research(goal);
+    for (let i = 0; i < 20 && next.state === 'running'; i++) {
+      await new Promise((res) => setTimeout(res, 5));
+      next = await t.api.research(goal);
+    }
+    t.c.current = undefined;
+    const replies = await t.api.ask({ lessonId: course.topics[0].lessons[0].id }, 'Show me the answer.');
+    expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }]);
+  });
+
   it('drops a roadmap source whose title or link quotes hidden material', async () => {
     const t = live({
       roadmap: (job) => {
