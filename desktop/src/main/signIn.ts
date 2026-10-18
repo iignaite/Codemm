@@ -1,8 +1,8 @@
 // Starts an agent's own sign-in where the learner sees it (DESIGN §3.1). Codemm never reads, stores or types
 // credentials: Claude Code's login runs in a terminal window, and Codex's and Cursor's open the browser.
-// Every program starts from an argument array; the one file Codemm writes holds a single quoted path.
+// Every program starts from an argument array; the one file Codemm writes holds only quoted paths and a number.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import type { AgentId } from '../shared/api';
@@ -14,6 +14,8 @@ export interface SignInDeps {
   runtime: string;
   tempDir(): string;
   write(file: string, text: string): void;
+  /** The file's inode, through symlinks: an install that replaces the agent changes it. */
+  inode(file: string): number;
   /** Starts a program on its own, without waiting for it. */
   start(file: string, args: string[], env?: Record<string, string>): Promise<void>;
 }
@@ -31,7 +33,9 @@ export function agentSignIn(d: SignInDeps) {
       const file = posix.join(d.tempDir(), 'Sign in to Claude Code.command');
       // A Node-script agent runs with this app as Node, as its jobs do.
       const command = exe.js ? `ELECTRON_RUN_AS_NODE=1 exec ${quote(d.runtime)} ${quote(exe.path)}` : `exec ${quote(exe.path)}`;
-      d.write(file, `#!/bin/sh\n${command} ${args.join(' ')}\n`);
+      // Terminal runs it a moment later: only the file Codemm allowed at Sign in runs, not one an install put there since.
+      const pin = `[ "$(/usr/bin/stat -L -f %i ${quote(exe.path)})" = ${d.inode(exe.path)} ] || { echo 'Claude Code changed. Sign in again from Codemm.'; exit 1; }`;
+      d.write(file, `#!/bin/sh\n${pin}\n${command} ${args.join(' ')}\n`);
       await d.start('/usr/bin/open', [file]);
       return;
     }
@@ -46,6 +50,7 @@ export function nodeSignInDeps(runtime: string): SignInDeps {
     runtime,
     tempDir: () => mkdtempSync(join(tmpdir(), 'codemm-signin-')),
     write: (file, text) => writeFileSync(file, text, { mode: 0o700 }),
+    inode: (file) => statSync(file).ino,
     start: (file, args, env) =>
       new Promise((resolve, reject) => {
         const child = spawn(file, args, { detached: true, stdio: 'ignore', env: { ...process.env, ...env } });
