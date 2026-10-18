@@ -91,3 +91,21 @@ describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
     expect(JOB_TOOLS.tutor.filter((t) => t.startsWith("save_"))).toEqual([]);
   });
 });
+
+describe("roadmap granularity", () => {
+  it.each([
+    ["the research brief", () => JOB_BRIEFS.research],
+    ["the roadmap-change brief", () => JOB_BRIEFS.roadmap],
+    ["the terminal tutor", () => AGENTS_SECTION],
+  ])("%s makes each concept one skill, with specific prerequisites", (_label, text) => {
+    expect(text()).toMatch(/One concept is one skill: what one short lesson teaches and a few small graded exercises cover/);
+    expect(text()).toMatch(/"useEffect dependency arrays" and "useEffect cleanup", not "useEffect"/);
+    expect(text()).toMatch(/`requires` names the specific earlier skills/);
+  });
+
+  it("sets 15 to 30 concepts as the default for a course, unless the learner asks for another depth, and checks real curricula", () => {
+    expect(JOB_BRIEFS.research).toMatch(/about 15 to 30 concepts for a language or framework course, unless the learner asks for a different depth/);
+    expect(JOB_BRIEFS.research).toMatch(/Split anything that needs more than one lesson/);
+    expect(JOB_BRIEFS.research).toMatch(/real curricula or the official docs/);
+  });
+});
