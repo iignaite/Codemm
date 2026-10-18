@@ -337,6 +337,53 @@ describe('Run', () => {
     expect(stopped).toHaveLength(1);
   });
 
+  it('never starts the program when Stop or leaving comes while the code saves', async () => {
+    const { api, user, unmount } = await openIo();
+    const saves: (() => void)[] = [];
+    const saveFile = api.saveFile;
+    api.saveFile = (id, path, text, digest) => new Promise((done) => saves.push(() => done(saveFile(id, path, text, digest))));
+    const started: string[] = [];
+    const runProgram = api.runProgram;
+    api.runProgram = (id, run) => (started.push(run), runProgram(id, run));
+    const editor = screen.getByRole('textbox', { name: 'main.py' });
+    await user.type(editor, 'x');
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(saves).toHaveLength(1));
+    await user.click(screen.getByRole('button', { name: 'Stop' }));
+    saves[0]();
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/Stopped\.\n$/));
+    expect(started).toEqual([]);
+
+    await user.type(editor, 'y');
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(saves).toHaveLength(2));
+    unmount();
+    saves.forEach((finish) => finish());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(started).toEqual([]);
+  });
+
+  it('takes typing only once the program has started, and says when a line wasn\'t taken', async () => {
+    const { api, user } = await openIo();
+    const sent: string[] = [];
+    const runProgram = api.runProgram;
+    let release!: () => void;
+    api.runProgram = () => new Promise((done) => (release = () => done({ kind: 'ran', exit: 137, timedOut: false, stopped: true, flooded: false, outOfMemory: false })));
+    api.sendRunInput = async (_run, text) => (sent.push(text), false);
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await screen.findByRole('button', { name: 'Stop' });
+    act(() => xterm.type('early\r'));
+    expect(sent).toEqual([]);
+
+    api.runProgram = runProgram;
+    act(() => release());
+    await user.click(await screen.findByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("What's your name?"));
+    act(() => xterm.type('Ada\r'));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("That line wasn't taken: the program isn't reading more input."));
+    expect(sent).toEqual(['Ada\n']);
+  });
+
   it("says why a program couldn't run", async () => {
     const { api, user } = await openIo();
     api.runProgram = async () => ({ kind: 'not-run', reason: "Docker isn't running." });

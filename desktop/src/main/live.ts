@@ -588,13 +588,14 @@ export function createLive(d: LiveDeps): Live {
       const entry: { program?: CoreProgramRun; stopped: boolean } = { stopped: false };
       programs.set(run, entry);
       try {
-        const program = await whenDockerReady(() =>
-          core.runInteractive(ws, activityId, undefined, (text, stream) => tell({ run, stream, text }), { onStart: (stage, limitMs) => tell({ run, started: stage, limitMs }) }),
-        );
-        entry.program = program;
-        // Stopped while it was starting.
-        if (entry.stopped) program.kill();
-        const r = await program.done;
+        // Tracked until the program has ended, so quitting waits for its container and files to go.
+        const r = await whenDockerReady(async () => {
+          const program = await core.runInteractive(ws, activityId, undefined, (text, stream) => tell({ run, stream, text }), { onStart: (stage, limitMs) => tell({ run, started: stage, limitMs }) });
+          entry.program = program;
+          // Stopped while it was starting.
+          if (entry.stopped) program.kill();
+          return program.done;
+        });
         return { kind: 'ran', exit: r.exit, ...(r.stage ? { stage: r.stage } : {}), timedOut: r.timedOut, stopped: r.stopped ?? false, flooded: r.flooded, outOfMemory: r.outOfMemory ?? false };
       } catch (e) {
         const reason = notCounted(e);

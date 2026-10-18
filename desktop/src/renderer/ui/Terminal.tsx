@@ -68,6 +68,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
   input.current = onInput;
   /** Whether the last thing written ended a line. */
   const atLineStart = useRef(true);
+  /** The line being typed, not yet sent. */
+  const typed = useRef('');
 
   const show = (text: string, plain = text.replace(ANSI, '')) => {
     if (!text) return;
@@ -87,6 +89,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
       term.current?.reset();
       if (mirror.current) mirror.current.textContent = '';
       atLineStart.current = true;
+      typed.current = '';
     },
   }));
 
@@ -123,21 +126,20 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     // Tab and Shift+Tab move focus as anywhere else, so the pane never traps the keyboard.
     xterm.attachCustomKeyEventHandler((e) => e.key !== 'Tab');
     // A line editor: the program reads a pipe, not a terminal, so the pane echoes and sends whole lines.
-    let typed = '';
     const typing = xterm.onData((data) => {
       if (!input.current || data.startsWith('\x1b')) return;
       for (const ch of data) {
         if (ch === '\r') {
-          const lineText = typed;
-          typed = '';
+          const lineText = typed.current;
+          typed.current = '';
           show('\r\n', `${lineText}\n`);
           input.current(`${lineText}\n`);
         } else if (ch === '\x7f' || ch === '\b') {
-          if (!typed) continue;
-          typed = [...typed].slice(0, -1).join('');
+          if (!typed.current) continue;
+          typed.current = [...typed.current].slice(0, -1).join('');
           xterm.write('\b \b');
         } else if (ch >= ' ' || ch === '\t') {
-          typed += ch;
+          typed.current += ch;
           xterm.write(ch);
         }
       }

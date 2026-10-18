@@ -83,6 +83,27 @@ describe('live CodemmApi', () => {
     expect(await again).toMatchObject({ kind: 'ran', stopped: true });
   });
 
+  it('quitting stops a running program and waits until it has ended', async () => {
+    const t = live();
+    const { id } = await practising(t);
+    let finishKill: (() => void) | undefined;
+    const start = t.app.runInteractive;
+    t.app.runInteractive = async (ws, slug, bound, output, options) => {
+      const program = await start(ws, slug, bound, output, options);
+      return { ...program, kill: () => void (finishKill = () => program.kill()) };
+    };
+    const ran = t.api.runProgram(id, 'run-1');
+    await vi.waitFor(() => expect(t.c.runs).toHaveLength(1));
+    let quit = false;
+    const stopping = t.api.stop().then(() => (quit = true));
+    await vi.waitFor(() => expect(finishKill).toBeDefined());
+    await new Promise((r) => setTimeout(r, 10));
+    expect(quit).toBe(false);
+    finishKill!();
+    await stopping;
+    expect(await ran).toMatchObject({ kind: 'ran', stopped: true });
+  });
+
   it('says why a program couldn\'t run when Docker is down, and records nothing', async () => {
     const t = live();
     const { id } = await practising(t);

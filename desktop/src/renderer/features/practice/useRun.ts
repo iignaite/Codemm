@@ -37,10 +37,14 @@ function ending(r: RunResult, limits: Record<'build' | 'run', number>): [string,
 export function useRun(activityId: string, command: string | undefined, terminal: RefObject<TerminalHandle | null>, save: () => Promise<void>, fail: (e: unknown) => void) {
   const api = useApi();
   const [run, setRun] = useState<string>();
+  // Input is on once the program has started: before that, main has nothing to send it to.
+  const [ready, setReady] = useState(false);
   const [status, setStatus] = useState<string>();
   const [deadline, setDeadline] = useState<number>();
   const [now, setNow] = useState(Date.now);
-  const current = useRef<string>(undefined);
+  /** This screen's run: Stop and leaving mark it, so a run still saving never starts. */
+  const current = useRef<{ id: string; cancelled: boolean; off: () => void }>(undefined);
+  const left = useRef(false);
 
   // The countdown, once a second while the program runs.
   useEffect(() => {
@@ -49,10 +53,15 @@ export function useRun(activityId: string, command: string | undefined, terminal
     return () => clearInterval(timer);
   }, [deadline]);
 
-  // Leaving stops it.
+  // Leaving stops it and stops listening.
   useEffect(
     () => () => {
-      if (current.current) void api.stopRun(current.current).catch(() => undefined);
+      left.current = true;
+      const c = current.current;
+      if (!c) return;
+      c.cancelled = true;
+      c.off();
+      void api.stopRun(c.id).catch(() => undefined);
     },
     [api],
   );
@@ -60,34 +69,63 @@ export function useRun(activityId: string, command: string | undefined, terminal
   async function start() {
     const id = crypto.randomUUID();
     const limits = { build: 0, run: 0 };
-    current.current = id;
-    setRun(id);
-    setStatus(undefined);
     const off = api.onRunOutput((o) => {
       if (o.run !== id) return;
       if ('started' in o) {
         limits[o.started] = o.limitMs;
+        setReady(true);
         setStatus(o.started === 'build' ? 'Building' : undefined);
         setNow(Date.now());
         setDeadline(o.started === 'run' ? Date.now() + o.limitMs : undefined);
       } else terminal.current?.write(o.text, o.stream);
     });
+    const session = { id, cancelled: false, off };
+    current.current = session;
+    setRun(id);
+    setStatus(undefined);
     try {
       await save();
+      if (left.current) return;
+      if (session.cancelled) {
+        terminal.current?.line('Stopped.', 'quiet');
+        return;
+      }
       terminal.current?.clear();
       terminal.current?.command(command ?? '');
       terminal.current?.focus();
       const result = await api.runProgram(activityId, id);
+      if (left.current) return;
       const [text, tone] = ending(result, limits);
       terminal.current?.line(text, tone);
       setStatus(result.kind === 'ran' && result.timedOut ? "Time's up" : undefined);
     } catch (e) {
-      fail(e);
+      if (!left.current) fail(e);
     } finally {
       off();
-      setDeadline(undefined);
-      if (current.current === id) current.current = undefined;
-      setRun(undefined);
+      if (current.current === session) current.current = undefined;
+      if (!left.current) {
+        setDeadline(undefined);
+        setReady(false);
+        setRun(undefined);
+      }
+    }
+  }
+
+  function stop() {
+    const c = current.current;
+    if (!c) return;
+    c.cancelled = true;
+    void api.stopRun(c.id).catch(fail);
+  }
+
+  async function send(text: string) {
+    const c = current.current;
+    if (!c) return;
+    try {
+      // False: the program ended, or it has too much unread input already.
+      if (!(await api.sendRunInput(c.id, text)) && current.current === c) terminal.current?.line("That line wasn't taken: the program isn't reading more input.", 'fail');
+    } catch (e) {
+      fail(e);
     }
   }
 
@@ -95,7 +133,7 @@ export function useRun(activityId: string, command: string | undefined, terminal
     running: run !== undefined,
     status: deadline !== undefined ? `${clock(deadline - now)} left` : status,
     start,
-    stop: () => run && void api.stopRun(run).catch(fail),
-    input: run ? (text: string) => void api.sendRunInput(run, text).catch(fail) : undefined,
+    stop,
+    input: run && ready ? (text: string) => void send(text) : undefined,
   };
 }

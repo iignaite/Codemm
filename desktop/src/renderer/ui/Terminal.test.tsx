@@ -81,6 +81,16 @@ describe('Terminal', () => {
     expect(xterm.keys({ key: 'a' })).toBe(true);
   });
 
+  it('forgets a half-typed line when cleared', () => {
+    const ref = createRef<TerminalHandle>();
+    const onInput = vi.fn();
+    render(<Terminal ref={ref} label="Terminal for main.py" onInput={onInput} />);
+    type('old');
+    act(() => ref.current!.clear());
+    type('new\r');
+    expect(onInput).toHaveBeenCalledWith('new\n');
+  });
+
   it('is read-only without onInput', () => {
     render(<Terminal label="Terminal for main.py" />);
     expect(xterm.options.disableStdin).toBe(true);
