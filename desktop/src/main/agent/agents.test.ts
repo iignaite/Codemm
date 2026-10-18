@@ -48,13 +48,14 @@ describe('research progress from the stream (one parser for both CLIs)', () => {
 describe('agent stream contracts (recorded fixtures, §3.3)', () => {
   it('claude: a recorded run becomes session, tool, text and done events', () => {
     expect(parseAll('claude', fixture('claude-list-tracks.jsonl'))).toEqual([
-      { type: 'session', id: 'f242da1d-dc70-4d6f-96da-1f92ecc2d720' },
+      { type: 'session', id: 'f242da1d-dc70-4d6f-96da-1f92ecc2d720', plan: true },
       { type: 'tool_call', id: 'toolu_01MvSVPGD77trQgd9hUqhwG3', name: 'ToolSearch' },
       { type: 'tool_result', id: 'toolu_01MvSVPGD77trQgd9hUqhwG3', error: false },
       { type: 'tool_call', id: 'toolu_01NfoeX7ahYrG2GZ1kmsnnnP', name: 'codemm.list_tracks' },
       { type: 'progress', step: { kind: 'step', label: 'Checking the installed tracks' } },
       { type: 'tool_result', id: 'toolu_01NfoeX7ahYrG2GZ1kmsnnnP', error: false },
       { type: 'text', text: '0' },
+      { type: 'usage', input: 0, output: 0, costUsd: 0.034289 },
       { type: 'done', ok: true },
     ]);
   });
@@ -87,6 +88,7 @@ describe('agent stream contracts (recorded fixtures, §3.3)', () => {
       { type: 'progress', step: { kind: 'step', label: 'Checking the installed tracks' } },
       { type: 'tool_result', id: 'item_1', error: false },
       { type: 'text', text: '0' },
+      { type: 'usage', input: 65870, output: 100, cachedInput: 43392 },
       { type: 'done', ok: true },
     ]);
   });
@@ -155,6 +157,26 @@ describe('agent stream contracts (recorded fixtures, §3.3)', () => {
     // A lost connection is the computer being offline: the fixed text matches the offline markers (jobs.ts).
     expect(AGENT_CLIS.cursor.errors!('Connection lost, reconnecting...')).toEqual([{ type: 'done', ok: false, error: 'connection error' }]);
     expect(AGENT_CLIS.cursor.errors!("Error: Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY environment variable.")).toEqual([]);
+  });
+
+  it('reads what each CLI reports about usage: all input tokens, cached ones, output, and Claude\'s cost', () => {
+    const claude = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0.12, usage: { input_tokens: 10, cache_creation_input_tokens: 200, cache_read_input_tokens: 3000, output_tokens: 40 } });
+    expect(AGENT_CLIS.claude.parse!(claude)).toEqual([{ type: 'usage', input: 3210, output: 40, cachedInput: 3000, costUsd: 0.12 }, { type: 'done', ok: true }]);
+    const codex = JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 500, cached_input_tokens: 300, output_tokens: 20 } });
+    expect(AGENT_CLIS.codex.parse!(codex)).toEqual([{ type: 'usage', input: 500, output: 20, cachedInput: 300 }, { type: 'done', ok: true }]);
+    const cursor = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok', usage: { inputTokens: 17153, outputTokens: 1967, cacheReadTokens: 159360, cacheWriteTokens: 0 } });
+    expect(AGENT_CLIS.cursor.parse!(cursor)).toEqual([{ type: 'usage', input: 176513, output: 1967, cachedInput: 159360 }, { type: 'done', ok: true }]);
+    // Nothing reported, nothing emitted; a number that isn't one counts as 0.
+    expect(AGENT_CLIS.codex.parse!(JSON.stringify({ type: 'turn.completed' }))).toEqual([{ type: 'done', ok: true }]);
+    const odd = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, total_cost_usd: -1, usage: { input_tokens: 'many', output_tokens: 7 } });
+    expect(AGENT_CLIS.claude.parse!(odd)).toEqual([{ type: 'usage', input: 0, output: 7, cachedInput: 0 }, { type: 'done', ok: true }]);
+  });
+
+  it('claude: says whether the run counts toward a subscription plan (apiKeySource none) or an API key', () => {
+    const init = (source?: string) => JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1', ...(source ? { apiKeySource: source } : {}) });
+    expect(AGENT_CLIS.claude.parse!(init('none'))).toEqual([{ type: 'session', id: 's1', plan: true }]);
+    expect(AGENT_CLIS.claude.parse!(init('ANTHROPIC_API_KEY'))).toEqual([{ type: 'session', id: 's1', plan: false }]);
+    expect(AGENT_CLIS.claude.parse!(init())).toEqual([{ type: 'session', id: 's1' }]);
   });
 
   it('ignores blank, non-JSON, unknown and malformed lines', () => {

@@ -39,6 +39,7 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgr
   skip: ['values'],
   easier: ['values'],
   rebuild: ['react@1'],
+  usage: [],
 };
 
 describe('dispatch', () => {

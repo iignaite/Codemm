@@ -1,4 +1,4 @@
-import type { CourseView, TopicView } from '../../../shared/api';
+import type { CourseView, TopicView, Usage } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { settled } from '../../app/course';
 import { useRouter, type Route } from '../../app/router';
@@ -20,6 +20,7 @@ function continueRoute(topic: TopicView): Route {
 export function CourseMap() {
   const api = useApi();
   const { data: course, error, reload } = useLoad(() => api.course(), [], settled, undefined, true);
+  const { data: usage } = useLoad(() => api.usage(), []);
   if (error) return <Failed error={error} retry={reload} />;
   if (course === undefined) return null;
   if (course === null) return <Goal />;
@@ -32,7 +33,7 @@ export function CourseMap() {
           {course.topics.map((t, i) => <MapItem key={t.id} topic={t} index={i} course={course} />)}
         </ol>
       </div>
-      <Aside course={course} />
+      <Aside course={course} usage={usage ?? null} />
       {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
     </main>
   );
@@ -71,7 +72,7 @@ function MapItem({ topic, index, course }: { topic: TopicView; index: number; co
   );
 }
 
-function Aside({ course }: { course: CourseView }) {
+function Aside({ course, usage }: { course: CourseView; usage: Usage | null }) {
   const started = course.topics.filter((t) => t.state !== 'later');
   return (
     <aside className="map-side">
@@ -87,6 +88,33 @@ function Aside({ course }: { course: CourseView }) {
           </div>
         ))}
       </section>
+      {usage && usage.total.runs > 0 && <UsageCard usage={usage} />}
     </aside>
+  );
+}
+
+const tokens = (n: number) => n.toLocaleString('en-US');
+const dollars = (n: number) => (n < 0.01 ? 'under $0.01' : `$${n.toFixed(2)}`);
+
+/** What the agent reported using for this course: tokens, and Claude's own cost estimate when it gave one (§4.11). */
+function UsageCard({ usage }: { usage: Usage }) {
+  const { total } = usage;
+  return (
+    <section className="card usage a-up" style={stagger(2)} aria-labelledby="usage-t">
+      <h2 className="h3" id="usage-t">Usage</h2>
+      <dl>
+        <dt>Tokens in</dt>
+        <dd>{tokens(total.input)}</dd>
+        <dt>Tokens out</dt>
+        <dd>{tokens(total.output)}</dd>
+        {total.costUsd > 0 && (
+          <>
+            <dt>Claude's estimate</dt>
+            <dd>{dollars(total.costUsd)}</dd>
+          </>
+        )}
+      </dl>
+      {usage.plan === true && total.costUsd > 0 && <p className="quiet-text">On your Claude plan, this counts toward the plan's usage. It isn't a charge.</p>}
+    </section>
   );
 }

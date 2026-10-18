@@ -126,3 +126,42 @@ describe('course map', () => {
     expect(alert).not.toHaveTextContent("Couldn't reach Codemm.");
   });
 });
+
+describe('usage', () => {
+  const usage = (over: Partial<NonNullable<Awaited<ReturnType<CodemmApi['usage']>>>> = {}) => ({
+    kinds: {},
+    total: { input: 182_400, output: 12_300, cachedInput: 90_000, costUsd: 0.4231, runs: 6 },
+    ...over,
+  });
+
+  it("shows the course's tokens, and Claude's cost as its own estimate, counted toward the plan", async () => {
+    const { api } = await mockWithCourse();
+    api.usage = async () => usage({ plan: true });
+    renderApp({ to: 'learn' }, api);
+    const section = await screen.findByRole('region', { name: 'Usage' });
+    expect(section).toHaveTextContent('Tokens in182,400');
+    expect(section).toHaveTextContent('Tokens out12,300');
+    expect(section).toHaveTextContent("Claude's estimate$0.42");
+    expect(section).toHaveTextContent("On your Claude plan, this counts toward the plan's usage. It isn't a charge.");
+  });
+
+  it('says nothing about a plan when Claude ran on an API key, and shows no cost when none was reported', async () => {
+    const { api } = await mockWithCourse();
+    api.usage = async () => usage({ plan: false });
+    const view = renderApp({ to: 'learn' }, api);
+    const section = await screen.findByRole('region', { name: 'Usage' });
+    expect(section).not.toHaveTextContent('plan');
+    view.unmount();
+    api.usage = async () => usage({ total: { input: 10, output: 2, cachedInput: 0, costUsd: 0, runs: 1 } });
+    renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('region', { name: 'Usage' })).not.toHaveTextContent('estimate');
+  });
+
+  it('is hidden until an agent has run for the course', async () => {
+    const { api } = await mockWithCourse();
+    api.usage = async () => usage({ total: { input: 0, output: 0, cachedInput: 0, costUsd: 0, runs: 0 } });
+    renderApp({ to: 'learn' }, api);
+    await screen.findByRole('list', { name: 'Topics' });
+    expect(screen.queryByRole('region', { name: 'Usage' })).not.toBeInTheDocument();
+  });
+});

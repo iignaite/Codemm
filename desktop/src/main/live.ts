@@ -32,6 +32,7 @@ import type { CoreApp, CoreProgramRun, CoreProgress, CoreRoadmap } from './core/
 import { courseView, currentConcept, type Setup } from './courseView';
 import { noLog, type Log } from './log';
 import type { desktopState } from './state';
+import type { usageStore } from './usage';
 import { activityView, checkView, filterReply, hiddenLines, tryView } from './views';
 
 export interface LiveDeps {
@@ -48,6 +49,8 @@ export interface LiveDeps {
   /** A Codemm-owned folder for agents that read their config from the working directory (Cursor). */
   agentDir?: string;
   runJob?: (job: Job) => Promise<JobOutcome>;
+  /** What the agents reported using, per course and job kind (usage.ts). */
+  usage?: ReturnType<typeof usageStore>;
   /** Lifecycle and detection events only (log.ts). */
   log?: Log;
   /** Resolves once Docker isn't starting any more (§6.1). */
@@ -717,6 +720,13 @@ export function createLive(d: LiveDeps): Live {
 
     async rebuild(ref) {
       await core.rebuildTrack(ref);
+    },
+
+    async usage() {
+      const course = core.readWorkspace(ws).course;
+      if (!course || !d.usage) return null;
+      const plan = d.usage.plan();
+      return { ...d.usage.course(course), ...(plan !== undefined ? { plan } : {}) };
     },
 
     async stop() {

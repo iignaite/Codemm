@@ -279,6 +279,24 @@ export type CheckResult =
 /** Try it: visible tests only, never recorded. */
 export type TryResult = { kind: 'ran'; passed: number; total: number; tests: TestView[] } | { kind: 'not-counted'; reason: string };
 
+/** What the agent CLIs reported using (§4.11). `costUsd` is Claude's own estimate; Codex and Cursor report none. */
+export interface UsageTotals {
+  input: number;
+  output: number;
+  cachedInput: number;
+  costUsd: number;
+  runs: number;
+}
+
+/** A course's usage per job kind, and in total. */
+export interface CourseUsage {
+  kinds: Partial<Record<'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor', UsageTotals>>;
+  total: UsageTotals;
+}
+
+/** The current course's usage. `plan`: whether the last Claude run counted toward a subscription plan. */
+export type Usage = CourseUsage & { plan?: boolean };
+
 export type Place = { lessonId: string } | { activityId: string };
 
 export interface Message {
@@ -362,6 +380,9 @@ export interface CodemmApi {
   easier(concept: string): Promise<void>;
 
   rebuild(trackRef: string): Promise<void>;
+
+  /** What the agent CLIs reported using for the current course (§4.11); null without a course. */
+  usage(): Promise<Usage | null>;
 }
 
 /** What the research job is looking at: a search, an https page (host and path) or one of Codemm's steps. */

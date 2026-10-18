@@ -627,5 +627,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async rebuild(ref) {
       if (!tracks.some((t) => t.ref === ref)) throw new Error(`Unknown track: ${ref}`);
     },
+
+    // What a few jobs might report, to see the Usage section; nothing is counted.
+    async usage() {
+      if (!course) return null;
+      return { kinds: {}, total: { input: 182_400, output: 12_300, cachedInput: 90_000, costUsd: 0.42, runs: 6 }, plan: true };
+    },
   };
 }

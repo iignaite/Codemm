@@ -15,6 +15,7 @@ import { createLive, type Live } from './live';
 import type { Log } from './log';
 import { codemmServer } from './server';
 import { desktopState, workspaceOf } from './state';
+import { usageStore } from './usage';
 
 const RUNTIME_INFO = ['info', '--format', '{{.ServerVersion}}|{{.OSType}}'];
 
@@ -70,6 +71,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     ws,
     runtime,
     agentDir: join(userData, 'agents'),
+    usage: usageStore(userData),
     log,
     dockerReady: () => waitWhileStarting(computer, () => new Promise((r) => setTimeout(r, 3000))),
     docker: desktop,
