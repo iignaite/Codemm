@@ -36,7 +36,10 @@ export function TopicPage({ topicId }: { topicId: string }) {
         <Items topic={topic} />
         {(course.setup === 'proposing' || course.setup === 'installing') &&
           (setupJob ? (
-            <div className="a-up" style={stagger(3, 300)}><JobBar job={setupJob} label={`Setting up ${course.track}`} /></div>
+            <section className="card setup-progress a-up" style={stagger(3, 300)} aria-labelledby="setup-progress-t">
+              <h2 className="h3" id="setup-progress-t">Setting up {course.track}</h2>
+              <JobBar job={setupJob} label={`Setting up ${course.track}`} />
+            </section>
           ) : (
             <div className="busy a-up" style={stagger(3, 300)}><Status kind="run" size={18} />{BUSY[course.setup]} {course.track}</div>
           ))}
@@ -75,7 +78,10 @@ function Items({ topic }: { topic: TopicView }) {
         {open ? (
           <Button onClick={() => go({ to: 'practice', concept: topic.id })}>{topic.activity === 'passed' ? 'Again' : 'Start'}</Button>
         ) : topic.activity === 'writing' ? (
-          <Writing kind="author" concept={topic.id} label={topic.review ? 'Writing the review' : 'Writing the activity'} />
+          <Writing
+            kind="author" concept={topic.id} label={topic.review ? 'Writing the review' : 'Writing the activity'}
+            waiting={topic.lessons.some((l) => l.state === 'writing') ? 'Waiting for the lesson' : undefined}
+          />
         ) : (
           <span role="img" aria-label="Opens after the lessons"><Icon name="lock" color="#5B6A84" size={16} /></span>
         )}

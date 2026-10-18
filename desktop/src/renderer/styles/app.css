@@ -339,10 +339,14 @@ a.inline:hover { color: var(--ink); }
 .job.compact .job-time { font-size: 12px; }
 .job.compact .job-step { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* A lesson or activity being written: its icon and label on one line, its progress beneath, at the label's start. */
-.outline .item.writing { flex-direction: column; align-items: stretch; gap: 8px; }
+.outline .item.writing { position: relative; flex-direction: column; align-items: stretch; gap: 8px; }
+/* In the outline, the time sits on the label's line, right-aligned, so the step has the whole second line. */
+.outline .item.writing .job-time { position: absolute; top: 12px; right: 14px; line-height: 18px; }
+.outline .item.writing .job.compact .job-step { white-space: normal; overflow: visible; }
 .outline .item-head { display: flex; align-items: center; gap: 12px; }
-.outline .item.writing > .job, .outline .item.writing > .shim { margin-left: 30px; width: auto; }
+.outline .item.writing > .job, .outline .item.writing > .waiting { margin-left: 30px; width: auto; }
 .row.writing { flex-wrap: wrap; row-gap: 12px; }
-.row.writing > .job, .row.writing > .shim { flex: 1 0 calc(100% - 32px); margin-left: 32px; }
+.row.writing > .job { flex: 1 0 calc(100% - 32px); margin-left: 32px; }
+.topic-page .card.setup-progress { padding: 18px 22px 20px; display: flex; flex-direction: column; gap: 14px; }
 .thinking { flex-direction: column; gap: 8px; color: var(--muted); }
 .looking .job { max-width: 720px; }

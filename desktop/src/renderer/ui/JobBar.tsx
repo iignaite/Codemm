@@ -72,7 +72,7 @@ export function JobBar({ job, label, compact = false, noLine = false, emm = true
       aria-valuenow={Math.round(fill * 100)}
       aria-valuetext={`${p.retry ? line : stages[stage]}, ${elapsed}`}
     >
-      {emm && <EmmFill value={fill} width={compact ? 28 : 84} dim={dim} />}
+      {emm && <EmmFill value={fill} width={compact ? 32 : 84} dim={dim} />}
     </span>
   );
   if (compact) {

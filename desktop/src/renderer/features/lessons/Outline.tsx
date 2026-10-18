@@ -7,6 +7,7 @@ import { Writing } from './Writing';
 export function Outline({ topic, current }: { topic: TopicView; current: string }) {
   const { go } = useRouter();
   const open = topic.activity === 'open' || topic.activity === 'passed';
+  const lessonWriting = topic.lessons.some((l) => l.state === 'writing');
   return (
     <nav className="stmt outline" aria-label={topic.title}>
       <h2 className="h3">{topic.title}</h2>
@@ -14,7 +15,7 @@ export function Outline({ topic, current }: { topic: TopicView; current: string 
         l.state === 'writing' ? (
           <div key={l.id} className="item writing">
             <span className="item-head"><Icon name="book" color="#5B6A84" size={18} />{l.title}</span>
-            <Writing kind="lesson" concept={topic.id} label="Writing the lesson" compact width={48} />
+            <Writing kind="lesson" concept={topic.id} label="Writing the lesson" compact />
           </div>
         ) : (
           <button key={l.id} type="button" className="item link" aria-current={l.id === current ? 'page' : undefined} onClick={() => go({ to: 'lesson', lessonId: l.id })}>
@@ -32,7 +33,7 @@ export function Outline({ topic, current }: { topic: TopicView; current: string 
       ) : topic.activity === 'writing' ? (
         <div className="item writing">
           <span className="item-head"><Icon name="code" color="#5B6A84" size={18} />Activity</span>
-          <Writing kind="author" concept={topic.id} label="Writing the activity" compact width={48} />
+          <Writing kind="author" concept={topic.id} label="Writing the activity" compact waiting={lessonWriting ? 'Waiting for the lesson' : undefined} />
         </div>
       ) : (
         <span className="item">
