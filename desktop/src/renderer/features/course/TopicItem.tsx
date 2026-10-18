@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
+import { Limit } from '../../ui/Limit';
+import { LIMITS } from '../../../shared/limits';
 
 interface Props {
   index: number;
@@ -75,8 +77,9 @@ export function TopicItem({ index, count, title, editing, onEdit, onRename, onRe
       <span className="num" aria-hidden="true">{index + 1}</span>
       {editing ? (
         <form className="rename" onSubmit={commit}>
-          <input className="name" aria-label="Topic name" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
+          <input className="name" aria-label="Topic name" value={name} maxLength={LIMITS.title} autoFocus onChange={(e) => setName(e.target.value)} />
           <Button variant="text" type="submit">Done</Button>
+          <Limit value={name} max={LIMITS.title} />
         </form>
       ) : (
         <>

@@ -23,6 +23,20 @@ export const REPAIR = 'codemm:repair';
 export const UNSTOPPABLE = 'codemm:unstoppable';
 /** Why a check wasn't counted when a track's image is missing or changed: the fix is under Tracks, not this computer (§5). */
 export const REBUILD = 'This environment needs a rebuild. Rebuild it under Tracks.';
+/** Why a run wasn't counted, or didn't run, when this computer caused it (notCounted.ts). */
+export const NOT_COUNTED = {
+  docker: "Docker isn't running.",
+  disk: 'Docker ran out of disk space.',
+  offline: "Docker couldn't reach the network.",
+} as const;
+/** Run and lesson examples have no recovery screen, so their line says what to do next (§4.10). */
+export const RUN_AGAIN: Record<string, string> = {
+  [NOT_COUNTED.docker]: 'Open Docker Desktop, then run again.',
+  [NOT_COUNTED.disk]: 'Free up disk space, then run again.',
+  [NOT_COUNTED.offline]: 'Connect to the internet, then run again.',
+};
+/** A run that didn't run: why, then what to do next. */
+export const notRunLine = (reason: string) => (RUN_AGAIN[reason] ? `${reason} ${RUN_AGAIN[reason]}` : reason);
 /** A learner file changed outside Codemm since the editor loaded it (§4.5). */
 export const CHANGED = 'codemm:changed';
 
@@ -46,8 +60,6 @@ export interface Agent {
   name: string;
   state: AgentState;
   installUrl: string;
-  /** The command that signs the agent in, typed in a terminal (Codemm never signs in for the learner). */
-  signIn: string;
   /** The bench-tested models, from models.json; empty for an agent with no choice. */
   models: ModelChoice[];
   /** The model every job for this agent runs: the learner's choice, or the recommended one. */

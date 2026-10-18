@@ -10,7 +10,7 @@ function lookup(over: Partial<Lookup> = {}): Lookup {
   return {
     find: (bin) => (bin === 'cursor-agent' ? null : { path: `/bin/${bin}`, js: false }),
     signedIn: async () => true,
-    version: async (id) => ({ claude: '2.1.283', codex: '0.157.0', cursor: null })[id],
+    version: async (id) => ({ claude: '2.1.283', codex: '1.0.0', cursor: null })[id],
     ...over,
   };
 }
@@ -18,11 +18,6 @@ function lookup(over: Partial<Lookup> = {}): Lookup {
 const state = () => desktopState(tempDir('codemm-connect-'));
 
 describe('connect (§3.1, §3.3)', () => {
-  it('names the command that signs each agent in', async () => {
-    const agents = await connector(lookup(), state()).agents();
-    expect(agents.map((a) => a.signIn)).toEqual(['claude auth login', 'codex login', 'cursor-agent login']);
-  });
-
   it('checks a signed-out agent again on the next look, and connects the one the learner tried once signed in', async () => {
     let ok = false;
     const c = connector(lookup({ signedIn: async () => ok }), state());

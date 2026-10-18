@@ -93,7 +93,7 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
         <Emm mood="cheer" width={170} name={name} />
         <div className="stack loose">
           <h2 className="h2 won a-pop" style={stagger(0, 300)}>{result.passed} of {result.total} passed</h2>
-          <p className="sub a-up" style={stagger(0, 600)}>{result.mastered ? `${topic} mastered.` : `More practice masters ${topic}.`}</p>
+          <p className="sub a-up" style={stagger(0, 600)}>{result.mastered ? `${topic} mastered.` : `Keep practicing ${topic}.`}</p>
           <div className="a-up" style={stagger(0, 800)}><Button size="lg" onClick={ways.next}>Continue</Button></div>
         </div>
       </div>

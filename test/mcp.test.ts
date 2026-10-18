@@ -230,3 +230,16 @@ describe.runIf(posix)("mutants in gate diagnostics", () => {
     expect(message).not.toContain("CANARY");
   });
 });
+
+describe("file maps through the real MCP SDK", () => {
+  it("rejects a non-text file value without naming a hidden file", async () => {
+    const { client } = await connect();
+    for (const path of ["tests/hidden/CANARY-SECRET-TEST-NAME.in", "mutants/CANARY-forgets-negatives/main.sh"]) {
+      const r = await client.callTool({ name: "save_exercise", arguments: { files: { "exercise.yaml": "x", [path]: null } } });
+      const text = (r.content as { text: string }[])[0]!.text;
+      expect(r.isError).toBe(true);
+      expect(text).toMatch(/must be text/);
+      expect(text).not.toContain("CANARY");
+    }
+  });
+});

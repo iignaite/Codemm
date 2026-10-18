@@ -49,6 +49,14 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     expect((await t.api.usage())!.total.runs).toBe(1);
   });
 
+  it("gives every job core's abandoned-container cleanup, for an attempt Codemm ends", async () => {
+    const t = live();
+    await researched(t);
+    const before = t.c.cleanups;
+    await t.jobs.ran[0].cleanup?.();
+    expect(t.c.cleanups).toBe(before + 1);
+  });
+
   it("holds back every tutor reply when the exercise's hidden material can't be loaded", async () => {
     const t = live({ tutor: () => ({ text: [`Just write ${CANARY}`, 'Think about what changes.'] }) });
     const activity = await practising(t);
