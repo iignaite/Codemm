@@ -1,14 +1,18 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { computerCheck, waitWhileStarting, type Probe } from './computer';
+import type { Fields } from './log';
 import type { Computer } from '../shared/api';
+
+const PASS = { ok: true, detail: 'blocked' };
+const FAIL = { ok: false, detail: 'inconclusive: the comparison container failed (no route)' };
 
 function probe(over: Partial<Probe> = {}): Probe & { clock: number } {
   const p: Probe & { clock: number } = {
     clock: 0,
     find: () => ({ path: '/usr/local/bin/docker', js: false }),
     state: async () => 'ready',
-    sandbox: async () => true,
+    sandbox: async () => PASS,
     now: (): number => p.clock,
     ...over,
   };
@@ -62,11 +66,37 @@ describe('check this computer (§6.1, D13)', () => {
 
   it('runs the sandbox check once it passes, not on every re-check', async () => {
     let runs = 0;
-    const check = computerCheck(probe({ sandbox: async () => (runs++, true) }), 'darwin');
+    const check = computerCheck(probe({ sandbox: async () => (runs++, PASS) }), 'darwin');
     await check();
     await check();
     expect(runs).toBe(1);
-    expect(await states(computerCheck(probe({ sandbox: async () => false }), 'darwin'))).toEqual(['ok', 'ok', 'problem']);
+    expect(await states(computerCheck(probe({ sandbox: async () => FAIL }), 'darwin'))).toEqual(['ok', 'ok', 'problem']);
+  });
+
+  it('is still checking the sandbox for 3 minutes after Docker comes up, then asks to restart it', async () => {
+    let state: 'down' | 'ready' = 'down';
+    const p = probe({ state: async () => state, sandbox: async () => FAIL });
+    const check = computerCheck(p, 'darwin');
+    expect(await states(check)).toEqual(['ok', 'problem', 'waiting']);
+    state = 'ready';
+    p.clock = 10_000;
+    expect(await states(check)).toEqual(['ok', 'ok', 'problem:checking']);
+    p.clock = 10_000 + 3 * 60_000 + 1;
+    expect(await states(check)).toEqual(['ok', 'ok', 'problem']);
+  });
+
+  it('is still checking the sandbox just after Codemm opened or installed Docker', async () => {
+    expect(await states(computerCheck(probe({ startedAt: () => 0, sandbox: async () => FAIL }), 'darwin'))).toEqual(['ok', 'ok', 'problem:checking']);
+  });
+
+  it('logs why the sandbox check failed, once per reason, and nothing when it passes', async () => {
+    const logged: [string, Fields | undefined][] = [];
+    const log = (event: string, fields?: Fields) => void logged.push([event, fields]);
+    const failing = computerCheck(probe({ sandbox: async () => FAIL }), 'darwin', log);
+    await failing();
+    await failing();
+    await computerCheck(probe(), 'darwin', log)();
+    expect(logged).toEqual([['sandbox', { reason: FAIL.detail }]]);
   });
 
   it('waits while Docker is starting, and only then (§6.1)', async () => {

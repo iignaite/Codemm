@@ -30,7 +30,7 @@ import { modelChoices, modelFor } from '../shared/models';
 import { AGENT_INFO } from './connect';
 import { addTopic } from '../shared/roadmap';
 
-type Docker = 'missing' | 'stopped' | 'starting' | 'windows-containers' | 'no-sandbox' | 'ready';
+type Docker = 'missing' | 'stopped' | 'starting' | 'windows-containers' | 'no-sandbox' | 'sandbox-checking' | 'ready';
 
 export interface MockOptions {
   /** Read on every call, so a test can change it while the app runs. */
@@ -74,6 +74,7 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'no-docker': { docker: 'missing' },
   'docker-stopped': { docker: 'stopped' },
   'docker-starting': { docker: 'starting' },
+  'sandbox-checking': { docker: 'sandbox-checking' },
   'windows-containers': { docker: 'windows-containers', platform: 'windows' },
   'docker-stops': { later: { after: 'check', set: { docker: 'stopped' } } },
   'docker-stops-jobs': { later: { after: 'approve', set: { docker: 'stopped', stalled: 'docker' } } },
@@ -136,6 +137,7 @@ const DOCKER_DOWN: Record<Exclude<Docker, 'ready'>, string> = {
   starting: 'Docker is still starting.',
   'windows-containers': 'Docker Desktop is set to Windows containers.',
   'no-sandbox': "Codemm couldn't confirm the sandbox.",
+  'sandbox-checking': "Codemm couldn't confirm the sandbox.",
 };
 
 /** The connect screen's agents, as the connector describes them; Codemm installs Claude Code and Codex. */
@@ -579,11 +581,12 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         install = INSTALL_STEPS[INSTALL_STEPS.findIndex((s) => JSON.stringify(s) === JSON.stringify(install)) + 1];
         if (install?.phase === 'starting') dockerNow = 'starting';
       } else if (dockerNow === 'starting') dockerNow = 'ready';
-      const failing = { missing: 0, stopped: 1, starting: 1, 'windows-containers': 1, 'no-sandbox': 2, ready: Infinity }[d];
+      const failing = { missing: 0, stopped: 1, starting: 1, 'windows-containers': 1, 'no-sandbox': 2, 'sandbox-checking': 2, ready: Infinity }[d];
       const checks = (['docker-installed', 'docker-running', 'sandbox'] as const).map((id, i) => ({
         id,
         state: i < failing ? ('ok' as const) : i === failing ? ('problem' as const) : ('waiting' as const),
         ...(i === failing && (d === 'starting' || d === 'windows-containers') ? { detail: d } : {}),
+        ...(i === failing && d === 'sandbox-checking' ? { detail: 'checking' as const } : {}),
       }));
       const canInstall = platform !== 'linux';
       return { platform, checks, ready: checks.every((c) => c.state === 'ok'), ...(canInstall ? { canInstall } : {}), ...(reported ? { install: reported } : {}) };
