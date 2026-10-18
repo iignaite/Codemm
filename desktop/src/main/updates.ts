@@ -85,46 +85,21 @@ export function downloaded(doneOn: Pick<NodeJS.EventEmitter, 'once' | 'off'>, er
 type Exec = (file: string, args: string[], env: NodeJS.ProcessEnv) => Promise<string>;
 
 /**
- * A distinguished name's parts by key, each with every value it has (a key may repeat, such as OU). A quoted value
- * keeps its commas, and a backslash escapes the next character. Null when it can't be read whole.
+ * A distinguished name's parts by key, each with every value it has (a key may repeat, such as OU). Only plain names
+ * are read: one with quotes, backslashes or multi-valued parts ("+") is null, so the update is refused rather than
+ * matched on a guess at Windows' quoting. Codemm's own certificate has a plain name.
  */
 function dn(name: string): Map<string, string[]> | null {
+  if (/["\\+]/.test(name)) return null;
   const parts = new Map<string, string[]>();
-  let i = 0;
-  const skipSpaces = () => {
-    while (name[i] === ' ') i++;
-  };
-  skipSpaces();
-  while (i < name.length) {
-    const eq = name.indexOf('=', i);
-    if (eq < 0) return null;
-    const key = name.slice(i, eq).trim().toUpperCase();
+  for (const part of name.split(',')) {
+    const at = part.indexOf('=');
+    if (at < 0) return null;
+    const key = part.slice(0, at).trim().toUpperCase();
     if (!/^[A-Z][A-Z0-9.-]*$/.test(key)) return null;
-    i = eq + 1;
-    skipSpaces();
-    let value = '';
-    if (name[i] === '"') {
-      i++;
-      while (i < name.length && name[i] !== '"') {
-        if (name[i] === '\\') i++;
-        value += name[i++] ?? '';
-      }
-      if (name[i] !== '"') return null;
-      i++;
-      skipSpaces();
-    } else {
-      while (i < name.length && name[i] !== ',') {
-        if (name[i] === '\\') i++;
-        value += name[i++] ?? '';
-      }
-      value = value.trim();
-    }
-    if (i < name.length && name[i] !== ',') return null;
-    parts.set(key, [...(parts.get(key) ?? []), value]);
-    i++;
-    skipSpaces();
+    parts.set(key, [...(parts.get(key) ?? []), part.slice(at + 1).trim()]);
   }
-  return parts.size ? parts : null;
+  return parts;
 }
 
 /**

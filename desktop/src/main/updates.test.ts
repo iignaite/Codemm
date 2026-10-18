@@ -149,15 +149,21 @@ describe('updates', () => {
       expect(await verifyWindowsSignature(['Codemm'], file, signed('CN=Codemm', 2))).toMatch(/isn't validly signed/);
     });
 
-    it('reads quoted and escaped parts as one value, so text inside them never passes for the publisher', async () => {
-      const spoof = 'CN=Someone Else, OU="Other, CN=Codemm, O=Codemm, C=PH, X=tail", C=PH';
-      expect(await verifyWindowsSignature(['CN=Codemm, O=Codemm, C=PH'], file, signed(spoof))).toMatch(/signed by someone else/);
-      expect(await verifyWindowsSignature(['Codemm'], file, signed(spoof))).toMatch(/signed by someone else/);
-      expect(await verifyWindowsSignature(['Codemm'], file, signed('CN=Some\\, Codemm, O=X'))).toMatch(/signed by someone else/);
-      // A real name with a quoted comma still matches, and a key the publisher names must appear once.
-      expect(await verifyWindowsSignature(['CN=Codemm, O="Codemm, Inc."'], file, signed('CN=Codemm, O="Codemm, Inc.", C=PH'))).toBeNull();
-      expect(await verifyWindowsSignature(['Codemm'], file, signed('CN=Codemm, CN=Other'))).toMatch(/signed by someone else/);
-      expect(await verifyWindowsSignature(['Codemm'], file, signed('CN="Codemm'))).toMatch(/signed by someone else/);
+    it('refuses a signer name it cannot read plainly, so nothing inside it passes for the publisher', async () => {
+      const refused = [
+        'CN=Someone Else, OU="Other, CN=Codemm, O=Codemm, C=PH, X=tail", C=PH', // quoted text
+        'CN=Code\\mm', // a literal backslash, as Windows keeps it
+        'CN=Codemm\\',
+        'CN=Codemm, OU=Other + CN=Someone Else', // a multi-valued part
+        'CN=Codemm, CN=Other', // a key named twice
+        'CN=Codemm, O="Codemm, Inc."', // a quoted comma: refused too, the update is then installed by hand
+      ];
+      for (const subject of refused) {
+        expect(await verifyWindowsSignature(['Codemm'], file, signed(subject))).toMatch(/signed by someone else/);
+        expect(await verifyWindowsSignature(['CN=Codemm, O=Codemm, C=PH'], file, signed(subject))).toMatch(/signed by someone else/);
+      }
+      // An ordinary name matches, with any spacing after its commas.
+      expect(await verifyWindowsSignature(['CN=Codemm, O=Codemm'], file, signed('CN=Codemm,O=Codemm,  C=PH'))).toBeNull();
     });
 
     it("rejects the update when the check can't run or its answer can't be read", async () => {
