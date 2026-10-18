@@ -17,13 +17,33 @@ export type AgentEvent =
    * What the agent is looking at: a web search, an https page, or one of Codemm's steps (research progress). `id` is
    * the tool call of a page fetch still under way: it counts as a source only if that call succeeds.
    */
-  | { type: 'progress'; step: ResearchStep; id?: string };
+  | { type: 'progress'; step: ResearchStep; id?: string }
+  /**
+   * What the run used, as the CLI reported it: every input token (`cachedInput` of them read from cache) and output
+   * tokens. `costUsd` is Claude's own estimate; on a resumed session it counts the whole session so far.
+   */
+  | { type: 'usage'; input: number; output: number; cachedInput?: number; costUsd?: number };
 
 /**
  * One step a job shows while it runs. `read` keeps the full https `href` for the roadmap's sources and shows only
  * host and path. Nothing here ever comes from a file path, a file's contents or Codemm's records.
  */
 export type ResearchStep = { kind: 'search'; query: string } | { kind: 'read'; url: string; href?: string } | { kind: 'step'; label: string };
+
+/** A token count or a cost as reported: a finite number of at least 0, or 0. */
+const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
+
+/**
+ * A usage event from the counts a CLI reports (input not read from cache, cache reads, cache writes, output), or
+ * none when it reports nothing. Claude adds its cost estimate.
+ */
+function usageOf(u: Record<string, unknown> | undefined, keys: { input: string; read: string; write?: string; output: string }, cost?: unknown): AgentEvent[] {
+  const costUsd = typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? { costUsd: cost } : {};
+  if (!u) return 'costUsd' in costUsd ? [{ type: 'usage', input: 0, output: 0, ...costUsd }] : [];
+  const read = count(u[keys.read]);
+  const input = count(u[keys.input]) + read + (keys.write ? count(u[keys.write]) : 0);
+  return [{ type: 'usage', input, output: count(u[keys.output]), cachedInput: read, ...costUsd }];
+}
 
 /** Codemm's own tools, as the step each job shows (§4.11). Fixed text: nothing from a tool's arguments or result. */
 export const STEP_LABELS: Record<string, string> = {
@@ -160,7 +180,8 @@ const claude: AgentCli = {
     }
     if (e.type === 'result') {
       const ok = !e.is_error && e.subtype === 'success';
-      return [ok ? { type: 'done', ok } : { type: 'done', ok, error: String(e.result ?? e.subtype) }];
+      const usage = usageOf(obj(e.usage), { input: 'input_tokens', read: 'cache_read_input_tokens', write: 'cache_creation_input_tokens', output: 'output_tokens' }, e.total_cost_usd);
+      return [...usage, ok ? { type: 'done', ok } : { type: 'done', ok, error: String(e.result ?? e.subtype) }];
     }
     if (e.type !== 'assistant' && e.type !== 'user') return [];
     const content = (e.message as { content?: unknown } | undefined)?.content;
@@ -218,7 +239,12 @@ const codex: AgentCli = {
     const e = json(line);
     if (!e) return [];
     if (e.type === 'thread.started') return str(e.thread_id) ? [{ type: 'session', id: e.thread_id }] : [];
-    if (e.type === 'turn.completed') return [{ type: 'done', ok: true }];
+    if (e.type === 'turn.completed') {
+      // Codex's input_tokens already include the cached ones.
+      const u = obj(e.usage);
+      const usage: AgentEvent[] = u ? [{ type: 'usage', input: count(u.input_tokens), output: count(u.output_tokens), cachedInput: count(u.cached_input_tokens) }] : [];
+      return [...usage, { type: 'done', ok: true }];
+    }
     if (e.type === 'turn.failed') return [{ type: 'done', ok: false, error: String((e.error as { message?: unknown } | undefined)?.message ?? 'turn failed') }];
     const item = e.item as Record<string, unknown> | undefined;
     if (item?.type === 'agent_message' && e.type === 'item.completed' && str(item.text)) return [{ type: 'text', text: item.text }];
@@ -275,7 +301,8 @@ const cursor: AgentCli = {
     if (e.type === 'system' && e.subtype === 'init') return str(e.session_id) ? [{ type: 'session', id: e.session_id }] : [];
     if (e.type === 'result') {
       const ok = !e.is_error && e.subtype === 'success';
-      return [ok ? { type: 'done', ok } : { type: 'done', ok, error: String(e.result ?? e.subtype) }];
+      const usage = usageOf(obj(e.usage), { input: 'inputTokens', read: 'cacheReadTokens', write: 'cacheWriteTokens', output: 'outputTokens' });
+      return [...usage, ok ? { type: 'done', ok } : { type: 'done', ok, error: String(e.result ?? e.subtype) }];
     }
     if (e.type === 'assistant') {
       const content = obj(e.message)?.content;

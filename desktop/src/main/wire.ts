@@ -17,8 +17,7 @@ import type { Log } from './log';
 import { codemmServer } from './server';
 import { agentSignIn, nodeSignInDeps } from './signIn';
 import { desktopState, workspaceOf } from './state';
-
-const RUNTIME_INFO = ['info', '--format', '{{.ServerVersion}}|{{.OSType}}'];
+import { usageStore } from './usage';
 
 export interface Places {
   /** out/core in development, <resources>/core when packaged. */
@@ -62,8 +61,9 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     startedAt: desktop.startedAt,
     canInstall: desktop.canInstall,
     install: desktop.status,
-    info: async (docker) => (await ask(docker, RUNTIME_INFO, ({ code, output }) => ({ exit: code ?? -1, output }), { timeoutMs: 20_000 })) ?? { exit: -1, output: '' },
-    sandbox: async () => (await core.doctor(false)).some((c) => c.name === 'network isolation' && c.ok),
+    // Asked of the Docker found here, asynchronously and bounded, so a stuck engine never blocks the app; core reads the answer.
+    state: async (docker) => core.runtimeStateOf((await ask(docker, core.RUNTIME_INFO, ({ code, output }) => ({ exit: code ?? -1, output }), { timeoutMs: 20_000 })) ?? { exit: -1, output: '' }),
+    sandbox: async () => (await core.networkIsolation()).ok,
     now: () => Date.now(),
   });
 
@@ -75,6 +75,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     ws,
     runtime,
     agentDir: join(userData, 'agents'),
+    usage: usageStore(userData),
     progressDir: join(userData, 'progress'),
     log,
     dockerReady: () => waitWhileStarting(computer, () => new Promise((r) => setTimeout(r, 3000))),

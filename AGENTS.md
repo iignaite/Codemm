@@ -29,6 +29,7 @@ Codemm is a harness: the learner's coding agent writes tracks, roadmaps and exer
   | `grading` | pure grading |
   | `sandbox` | containers |
   | `judge` | running test sets |
+  | `program` | Run: the learner's program, interactively |
   | `gates` | verification |
   | `learner` | pure learner rules |
   | `store` | persistence |

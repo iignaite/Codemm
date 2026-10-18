@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
-import { runMarkers, runProgram } from "../src/judge.js";
+import { runMarkers, runProgram } from "../src/program.js";
 import { sandboxArgs } from "../src/sandbox.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import * as store from "../src/store.js";

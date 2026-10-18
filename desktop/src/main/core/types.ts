@@ -79,9 +79,15 @@ export interface CoreProgramRun {
 export interface CoreApp {
   /** core templates.ts: one brief per agent job, the same text the terminal uses. */
   JOB_BRIEFS: Record<'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor', string>;
-  doctor(fix: boolean): Promise<{ name: string; ok: boolean; detail: string }[]>;
+  /** core doctor.ts: whether the sandbox is cut off from the host network (Check this computer's last row). */
+  networkIsolation(): Promise<{ name: string; ok: boolean; detail: string }>;
+  /** core sandbox.ts: the arguments that ask the engine for its version and kind of containers. */
+  RUNTIME_INFO: string[];
+  /** core sandbox.ts: reads that answer as missing, down, Windows containers or ready. */
+  runtimeStateOf(r: { exit: number; output: string }): 'missing' | 'down' | 'windows' | 'ready';
   readWorkspace(ws: string): { course?: string; current?: string };
-  readExercise(course: string, slug: string): { record: { expected?: Record<string, string> }; files: Record<string, string> };
+  /** An exercise's solution, mutants, hidden tests and hidden expected outputs, for the reply filter only. */
+  hiddenMaterial(course: string, slug: string): string[];
   /** `track` is `id@version`. */
   listTracks(): { track: string; styles: string[]; files: string[] }[];
   rebuildTrack(ref: string): Promise<unknown>;

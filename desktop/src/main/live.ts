@@ -3,7 +3,6 @@
 // bridge; everything returned goes through views.ts.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { isSafeLink } from './links';
 import {
   AGENT_FAILED,
   CHANGED,
@@ -37,7 +36,8 @@ import type { CoreApp, CoreProgramRun, CoreProgress, CoreRoadmap } from './core/
 import { courseView, currentConcept, otherReady, type Setup } from './courseView';
 import { noLog, type Log } from './log';
 import type { desktopState } from './state';
-import { activityView, checkView, filterReply, hiddenLines, tryView } from './views';
+import type { usageStore } from './usage';
+import { activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
 
 export interface LiveDeps {
   core: CoreApp;
@@ -55,6 +55,8 @@ export interface LiveDeps {
   /** A Codemm-owned folder for agents that read their config from the working directory (Cursor). */
   agentDir?: string;
   runJob?: (job: Job) => Promise<JobOutcome>;
+  /** What the agents reported using, per course and job kind (usage.ts). */
+  usage?: ReturnType<typeof usageStore>;
   /** Lifecycle and detection events only (log.ts). */
   log?: Log;
   /** Resolves once Docker isn't starting any more (§6.1). */
@@ -153,12 +155,7 @@ export function createLive(d: LiveDeps): Live {
     }
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
-  const trackName = (ref: string) => ref.split('@')[0];
-  const roadmapView = (r: CoreRoadmap): Roadmap => ({
-    goal: r.goal, track: trackName(r.track), installed: installed(r.track), concepts: r.concepts.map((c) => ({ id: c.id, title: c.title, requires: [...c.requires] })),
-    // Core accepts only https sources; main checks again before anything reaches the window (§2.1).
-    sources: (r.sources ?? []).filter((s) => isSafeLink(s.url)).map((s) => ({ title: s.title, url: s.url })),
-  });
+  const roadmapShown = (r: CoreRoadmap): Roadmap => roadmapView(r, installed(r.track));
   /** The activity the learner last opened: the workspace's current one is the draft's while a draft is active. */
   let opened: string | undefined;
   /** The hidden material of an activity: the one named, else the one the learner is on. */
@@ -168,8 +165,7 @@ export function createLive(d: LiveDeps): Live {
     const current = activity ?? opened ?? (workspace.course === course ? workspace.current : undefined);
     if (!course || !current) return [];
     try {
-      const { record, files } = core.readExercise(course, current);
-      return hiddenLines(files, record.expected);
+      return hiddenLines(core.hiddenMaterial(course, current));
     } catch {
       return [];
     }
@@ -260,6 +256,7 @@ export function createLive(d: LiveDeps): Live {
           tellJob(tracker.snapshot());
         },
         onSource,
+        onUsage: (u) => recordUsage(course, kind, u),
       }).finally(() => {
         gates?.stop();
         trackers.delete(key);
@@ -407,6 +404,16 @@ export function createLive(d: LiveDeps): Live {
   const progressOf = (run?: string) => ({ phase, done, total, test }: CheckProgress) =>
     progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total, ...(phase === 'visible' && test ? { test: finished(test) } : {}) }));
 
+  /** What a job's agent reported using, under its course and kind (§4.12). Never stops the job. */
+  function recordUsage(course: string | undefined, kind: Job['kind'], u: Parameters<NonNullable<Job['onUsage']>>[0]) {
+    if (!d.usage || !course) return;
+    try {
+      d.usage.record(course, kind, u, u.session);
+    } catch (e) {
+      log('usage-error', errorFields(e));
+    }
+  }
+
   // Run's programs, by run id (§4.10). What they print goes to whoever listens; main sends it to the window that started each.
   const programs = new Map<string, { program?: CoreProgramRun; stopped: boolean; cancel?: () => void }>();
   const runListeners = new Set<(o: RunOutput) => void>();
@@ -533,7 +540,7 @@ export function createLive(d: LiveDeps): Live {
           if (outcome.problem && outcome.problem !== 'failed' && outcome.problem !== 'infra') throw problemError(outcome.problem);
           return { state: 'failed' };
         }
-        return { state: 'done', roadmap: roadmapView(core.getRoadmap(ws)) };
+        return { state: 'done', roadmap: roadmapShown(core.getRoadmap(ws)) };
       }
       if (!running.has(key) && !finishing.has(key)) {
         await d.connect.chosen();
@@ -569,7 +576,7 @@ export function createLive(d: LiveDeps): Live {
       const { outcome, changed, after } = await roadmapJob(course, briefs.roadmap(request), (before) => (turn) => turn.ok || JSON.stringify(core.getRoadmap(ws, course)) !== before);
       schedule();
       const filter = hidden();
-      return { roadmap: roadmapView(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
+      return { roadmap: roadmapShown(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
     },
 
     async approve(concepts) {
@@ -584,7 +591,7 @@ export function createLive(d: LiveDeps): Live {
 
     async draft() {
       const roadmap = draft();
-      return roadmap && roadmapView(roadmap);
+      return roadmap && roadmapShown(roadmap);
     },
 
     async saveDraft(concepts) {
@@ -664,13 +671,12 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async lesson(id) {
-      const { examples, ...lesson } = core.getLesson(ws, id, approved());
-      return { ...lesson, examples: examples.map((files) => ({ files: Object.entries(files).map(([path, text]) => ({ path, text })) })) };
+      return lessonView(core.getLesson(ws, id, approved()));
     },
 
     async runExample(lessonId, index) {
       try {
-        return { kind: 'ran', ...(await whenDockerReady(() => core.runExample(ws, lessonId, index, approved()))) };
+        return exampleRunView(await whenDockerReady(() => core.runExample(ws, lessonId, index, approved())));
       } catch (e) {
         const reason = notCounted(e);
         if (reason) {
@@ -783,6 +789,11 @@ export function createLive(d: LiveDeps): Live {
       await core.rebuildTrack(ref);
     },
 
+    // The course on screen: the approved one, as course() shows, not a draft being researched.
+    async usage() {
+      const course = approved();
+      return course && d.usage ? d.usage.course(course) : null;
+    },
     // Updates are main's (updates.ts), which answers these in place of live.
     update: async () => ({ kind: 'none' }),
     restartToUpdate: async () => undefined,

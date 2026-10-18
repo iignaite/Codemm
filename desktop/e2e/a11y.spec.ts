@@ -67,6 +67,8 @@ async function toActivity(page: Page, title = 'Click Counter') {
   await toRoadmap(page);
   await button(page, 'Approve').click();
   await page.getByRole('dialog').getByRole('button', { name: 'Set up', exact: true }).click();
+  // Set up runs once (useBusy): the dialog stays until the install starts, and it traps focus meanwhile.
+  await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15_000 });
   await expect(button(page, 'Read What javascript basics is')).toBeVisible({ timeout: 15_000 });
   await button(page, 'Read What javascript basics is').click();
   await button(page, 'Next').click();
@@ -111,6 +113,7 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await audit(page, 'lesson, setup waiting');
   await button(page, 'Set up React').click();
   await consent.getByRole('button', { name: 'Set up', exact: true }).click();
+  await expect(consent).toBeHidden({ timeout: 15_000 });
   await button(page, 'Previous').click();
   await expect(button(page, 'Read useState')).toBeVisible({ timeout: 15_000 });
   await audit(page, 'topic');
@@ -164,6 +167,8 @@ test('a relaunch with a connected agent opens on Welcome, connected, which passe
 });
 
 test('failure and environment screens pass WCAG AA checks', async () => {
+  // Nine launches, each with a scan: on CI runners that's well past the default minute.
+  test.setTimeout(240_000);
   for (const scenario of ['no-agent', 'untested-version']) {
     const { app, page } = await launch(scenario);
     await button(page, 'Connect an agent').click();
@@ -285,6 +290,8 @@ test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', 
   await toRoadmap(page);
   await button(page, 'Approve').click();
   await page.getByRole('dialog').getByRole('button', { name: 'Set up', exact: true }).click();
+  // Set up runs once (useBusy): the dialog stays until the install starts, and it traps focus meanwhile.
+  await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15_000 });
   await expect(button(page, 'Read What javascript basics is')).toBeVisible({ timeout: 15_000 });
   await button(page, 'Read What javascript basics is').click();
   await button(page, 'Next').click();
@@ -388,6 +395,8 @@ test('the journey works with the keyboard alone', async () => {
 
   await press(page, 'Approve');
   await press(page, 'Set up');
+  // Set up runs once (useBusy): the dialog stays until the install starts, and it traps focus meanwhile.
+  await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15_000 });
   await expect(button(page, 'Read What javascript basics is')).toBeVisible({ timeout: 15_000 });
   await press(page, 'Read What javascript basics is');
 
