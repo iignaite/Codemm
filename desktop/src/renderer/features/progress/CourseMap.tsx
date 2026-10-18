@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { CourseView, TopicView, Usage } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
@@ -19,10 +20,12 @@ export function CourseMap() {
   const { data: course, error, reload } = useCourse();
   // Read again whenever the course is: jobs that finish while the map is open add to it.
   const { data: usage } = useLoad(() => api.usage(), [course]);
+  // A finished course celebrates first; View course opens its map again.
+  const [viewing, setViewing] = useState(false);
   if (error) return <Failed error={error} retry={reload} />;
   if (course === undefined) return null;
   if (course === null) return <Goal />;
-  if (course.done) return <Complete course={course} />;
+  if (course.done && !viewing) return <Complete course={course} onView={() => setViewing(true)} />;
   return (
     <main className="main map">
       <div className="map-main">
@@ -63,6 +66,9 @@ function MapItem({ topic, index, course }: { topic: TopicView; index: number; co
           {topic.lessons.every((l) => l.state === 'read') && <span className="done"><Icon name="check" color="#0E7C35" size={14} />Lessons</span>}
           <Button onClick={() => go(continueRoute(topic))}>Continue</Button>
         </div>
+      ) : topic.state === 'mastered' ? (
+        // A mastered topic opens again: its lessons and the activity, to reread or practise.
+        <button type="button" className="grow mastered link" onClick={() => go({ to: 'topic', topicId: topic.id })}>{topic.title}</button>
       ) : (
         <div className={`grow ${topic.state}`}>{topic.title}</div>
       )}

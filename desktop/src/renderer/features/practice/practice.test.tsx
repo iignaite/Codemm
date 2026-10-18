@@ -63,14 +63,33 @@ describe('practice', () => {
     expect(results()).toHaveTextContent('graded, not shown');
   });
 
-  it("saves the learner's code, then passes and continues to the course", async () => {
+  it("saves the learner's code, then passes and continues straight to the next topic", async () => {
     const { user } = await open();
     await write(user, 'count + 1');
     await user.click(screen.getByRole('button', { name: 'Check' }));
     expect(await within(results()).findByRole('heading', { name: '4 of 4 passed' })).toBeInTheDocument();
     expect(results()).toHaveTextContent('JavaScript basics mastered.');
     await user.click(within(results()).getByRole('button', { name: 'Continue' }));
-    expect(await screen.findByRole('list', { name: 'Topics' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'JSX', level: 1 })).toBeInTheDocument();
+  });
+
+  it('keeps the conversation when the learner leaves and comes back, and gives a failed question back', async () => {
+    const { api, course, user } = await open();
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'Why?{Enter}');
+    expect(await within(screen.getByRole('log')).findByText('Look at what you pass to setCount.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Learn' }));
+    await screen.findByRole('list', { name: 'Topics' });
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await within(await screen.findByRole('log')).findByText('Look at what you pass to setCount.')).toBeInTheDocument();
+    expect(course.topics[0].id).toBe('javascript-basics');
+
+    let answer!: (ok: boolean) => void;
+    const ask = api.ask;
+    api.ask = (place, text) => new Promise((resolve, reject) => (answer = (ok) => (ok ? resolve(ask(place, text)) : reject(new Error('codemm:agent-failed')))));
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'And this?{Enter}');
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled());
+    answer(false);
+    await vi.waitFor(() => expect(screen.getByRole('textbox', { name: 'Ask Codemm' })).toHaveValue('And this?'));
   });
 
   it('keeps unchecked code when the learner leaves and comes back', async () => {

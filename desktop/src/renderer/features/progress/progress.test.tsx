@@ -107,6 +107,17 @@ describe('course map', () => {
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
   });
 
+  it('opens a finished course, and a mastered topic, again', async () => {
+    const user = userEvent.setup();
+    const { api, course } = await mockWithCourse();
+    await master(api, course.topics.length);
+    renderApp({ to: 'learn' }, api);
+    await user.click(await screen.findByRole('button', { name: 'View course' }));
+    const map = await screen.findByRole('list', { name: 'Topics' });
+    await user.click(within(map).getByRole('button', { name: 'JSX' }));
+    expect(await screen.findByRole('heading', { name: 'JSX', level: 1 })).toBeInTheDocument();
+  });
+
   it("says Codemm's records need a repair, and how", async () => {
     const { api } = await mockWithCourse();
     api.course = () => Promise.reject(new Error("codemm:repair\nThe learning log /h/events.jsonl has an invalid entry on line 3. Fix or remove that line, then retry."));
