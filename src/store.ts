@@ -59,7 +59,8 @@ const readOwner = (path: string): { pid: number; token: string } | undefined => 
     return undefined;
   }
 };
-function alive(pid: number): boolean {
+/** Whether process `pid` is running (EPERM: it is, as another user). */
+export function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -97,7 +98,7 @@ function reclaimIfStale(path: string, seen: string): void {
         return undefined;
       }
     })();
-    if (owner && !alive(owner.pid)) {
+    if (owner && !processAlive(owner.pid)) {
       try {
         if (readFileSync(mutex, "utf8") === held) unlinkSync(mutex);
       } catch {
@@ -133,7 +134,7 @@ export async function withLock<T>(path: string, work: () => Promise<T>, waitMs =
       continue;
     }
     const owner = readOwner(path);
-    if (!owner || !alive(owner.pid)) {
+    if (!owner || !processAlive(owner.pid)) {
       reclaimIfStale(path, seen);
       continue;
     }
@@ -160,11 +161,28 @@ function parseRecord<T>(schema: { parse: (v: unknown) => T }, file: string): T {
 
 // ---------- atomic writes ----------
 
-function writeTextAtomic(path: string, text: string): void {
+/** Writes `text` to a new temp file beside `path` and returns its path. Never opens an existing file or a symlink. */
+function writeTempBeside(path: string, text: string): string {
+  const tmp = join(dirname(path), `.codemm-${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
+  const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+  try {
+    writeFileSync(fd, text);
+  } finally {
+    closeSync(fd);
+  }
+  return tmp;
+}
+
+/** Replaces `path` with `text` whole: a temp file, then a rename. */
+export function writeTextAtomic(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp-${process.pid}`;
-  writeFileSync(tmp, text);
-  renameSync(tmp, path);
+  const tmp = writeTempBeside(path, text);
+  try {
+    renameSync(tmp, path);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
 }
 
 const writeJsonAtomic = (path: string, value: unknown) => writeTextAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
@@ -443,12 +461,12 @@ function assertInside(root: string, path: string): void {
 }
 
 /** The absolute path of `ws/rel`, refusing it if any existing component is a symlink. */
-function refuseSymlinks(ws: string, rel: string): string {
+export function refuseSymlinks(ws: string, rel: string): string {
   let current = ws;
   for (const part of rel.split("/")) {
     current = join(current, part);
     if (existsSync(current) && lstatSync(current).isSymbolicLink()) {
-      throw new CodemmError(`Refusing to write through the symlink at ${current}. Remove it and retry.`);
+      throw new CodemmError(`Refusing to write through the symlink at ${current}. Replace it with a real folder or file, then retry.`);
     }
   }
   return current;
@@ -468,13 +486,7 @@ export function materialize(ws: string, rel: string, files: FileMap): void {
     assertInside(ws, dirname(current));
     // Write a complete temp file, then hard-link it into place: the file appears whole or not at all,
     // and linking fails rather than replacing anything that appeared in the meantime.
-    const tmp = join(dirname(current), `.codemm-${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
-    const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
-    try {
-      writeFileSync(fd, contents);
-    } finally {
-      closeSync(fd);
-    }
+    const tmp = writeTempBeside(current, contents);
     try {
       linkSync(tmp, current);
     } catch (e) {
@@ -496,19 +508,7 @@ export function replaceLearnerFile(ws: string, rel: string, name: string, text: 
   const path = refuseSymlinks(ws, `${rel}/${name}`);
   const current = existsSync(path) ? readLearnerFiles(ws, rel, [name])[name] : undefined;
   if (current === undefined || digestText(current) !== digest) throw new CodemmError(`Changed outside Codemm. Reload ${name}.`);
-  const tmp = join(dirname(path), `.codemm-${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
-  const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
-  try {
-    writeFileSync(fd, text);
-  } finally {
-    closeSync(fd);
-  }
-  try {
-    renameSync(tmp, path);
-  } catch (e) {
-    rmSync(tmp, { force: true });
-    throw e;
-  }
+  writeTextAtomic(path, text);
   return digestText(text);
 }
 
