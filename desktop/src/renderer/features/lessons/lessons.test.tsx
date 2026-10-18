@@ -93,6 +93,18 @@ describe('lesson examples', () => {
     view.unmount();
     expect(stopped).toHaveLength(1);
   });
+
+  it('runs an io example under StrictMode, as the app does, where every effect replays once', async () => {
+    const user = userEvent.setup();
+    const { api, course } = await mockWithCourse({ read: true, style: 'io' });
+    renderApp({ to: 'lesson', lessonId: course.topics[0].lessons[0].id }, api, { strict: true });
+    const example = await screen.findByRole('region', { name: 'Example 1' });
+    await user.click(within(example).getByRole('button', { name: 'Run' }));
+    const mirror = () => within(example).getByRole('log', { name: 'Terminal for Example 1, as text' });
+    await waitFor(() => expect(mirror().textContent).toBe("What's your name? "));
+    act(() => xterm.type('Ada\r'));
+    await waitFor(() => expect(mirror().textContent).toBe("What's your name? Ada\nHello, Ada!\nExited with code 0.\n"));
+  });
 });
 
 describe('topic page and setup consent', () => {
