@@ -19,12 +19,14 @@ export const RUN_LIMIT_MS = 120_000;
 // and how it ended, then the driver exits 0: an end marker means the driver finished, whatever the program printed or
 // returned. A program can print a marker too, but the driver's end marker comes last, and a forged timeout only
 // mislabels the program's own unrecorded run. If `sleep` fails, the watchdog stays quiet and the host deadline stops
-// the run instead; grading checks for `sleep`, so an installed track has it.
+// the run instead; grading checks for `sleep`, so an installed track has it. A shell reports a killed command
+// ("Killed") on the stderr that command was given, so the program takes the real stderr back itself (from fd 3) while
+// the driver's goes to /dev/null as it waits: Codemm's own "time's up" is the only word on it.
 const PROGRAM_DRIVER = `mark() { printf '\\n@@codemm-run %s\\n' "$*" >&2; }
 limited() {
   ( sleep "$2" 2>/dev/null && { mark timeout "$1"; kill -9 -1 2>/dev/null; } ) &
   w=$!
-  sh -c "$3"; c=$?
+  { sh -c "exec 2>&3 3>&-; $3"; c=$?; } 3>&2 2>/dev/null
   kill -9 "$w" 2>/dev/null; kill -9 -1 2>/dev/null
 }
 if [ -n "\${CODEMM_BUILD:-}" ]; then
