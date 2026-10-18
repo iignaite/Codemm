@@ -49,10 +49,13 @@ function content(d) {
       el('a', { className: 'btn secondary', href: REPO }, 'Codemm on GitHub'))];
   }
   const parts = [];
-  if (d.primary) {
-    parts.push(el('a', { className: 'btn primary big', href: safe(d.primary.url) },
-      el('span', { className: 'btn-label' }, d.primary.label),
-      el('span', { className: 'btn-detail' }, d.primary.detail)));
+  if (d.primaries.length) {
+    parts.push(el('div', { className: 'primaries' }, ...d.primaries.map((i) =>
+      el('a', { className: 'btn primary big', href: safe(i.url) },
+        el('span', { className: 'btn-label' }, i.label),
+        el('span', { className: 'btn-detail' }, i.detail)))));
+    // Both Mac builds: the browser didn't say which chip this Mac has.
+    if (d.primaries.length > 1) parts.push(el('p', { className: 'chip-hint' }, 'About This Mac shows Chip on Apple Silicon and Processor on Intel.'));
   } else {
     parts.push(el('p', { className: 'desktop-only' }, 'Codemm is a desktop app for a Mac or a Windows PC.'));
   }
@@ -60,7 +63,7 @@ function content(d) {
   if (d.beta) version.append(el('span', { className: 'pill' }, 'Beta'));
   parts.push(version);
   if (d.others.length) {
-    const others = el('p', { className: 'others' }, el('span', {}, d.primary ? 'Also for' : 'Download for'));
+    const others = el('p', { className: 'others' }, el('span', {}, d.primaries.length ? 'Also for' : 'Download for'));
     for (const o of d.others) others.append(el('a', { href: safe(o.url) }, o.name));
     parts.push(others);
   }

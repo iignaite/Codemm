@@ -3,6 +3,7 @@
 import type { CodemmApi } from '../shared/api';
 import { errorFields, safeError, SafeError } from './errors';
 import type { Log } from './log';
+import { LIMITS } from '../shared/limits';
 
 type Valid = (value: unknown) => boolean;
 
@@ -34,11 +35,11 @@ const path: Valid = (v) => typeof v === 'string' && v.length <= 512 && v.split('
 /** The renderer's id for one Try it, Check or Run, echoed in its events. */
 const runId: Valid = (v) => typeof v === 'string' && /^[a-z0-9-]{1,64}$/.test(v);
 const digest: Valid = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
-const goal = shape({ topic: text(200, 1), known: text(500), depth: oneOf('overview', 'standard', 'in-depth') });
-const concept = shape({ id, title: text(200, 1), requires: list(id, 200) });
+const goal = shape({ topic: text(LIMITS.topic, 1), known: text(LIMITS.known), depth: oneOf('overview', 'standard', 'in-depth') });
+const concept = shape({ id, title: text(LIMITS.title, 1), requires: list(id, 200) });
 const concepts = list(concept, 200, 1);
 const place: Valid = (v) => shape({ lessonId: id })(v) || shape({ activityId: id })(v);
-const words = text(2000, 1);
+const words = text(LIMITS.words, 1);
 /** A lesson example's number: core keeps at most 5. */
 const exampleNumber: Valid = (v) => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5;
 const fileText: Valid = (v) => typeof v === 'string' && new TextEncoder().encode(v).length <= MAX_FILE_BYTES;
@@ -65,7 +66,7 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress'
   retrySetup: [],
   retryJobs: [],
   lesson: [id],
-  saveNotes: [id, text(20_000)],
+  saveNotes: [id, text(LIMITS.note)],
   markRead: [id],
   activity: [id],
   saveFile: [id, path, fileText, digest],

@@ -44,6 +44,7 @@ if (orbit) {
     orbit.style.setProperty('--emm-d', d);
     orbit.style.setProperty('--emm-be', be);
     orbit.style.setProperty('--emm-s', st);
+    if (reduce.matches) return; // the colors change, but nothing moves
     core.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.1)' }, { transform: 'scale(1)' }], { duration: 450, easing: 'ease-out' });
     core.animate([{ boxShadow: getComputedStyle(core).boxShadow }, { boxShadow: '0 0 0 10px rgb(61 219 108 / .35), 0 30px 60px -18px rgb(8 26 60 / .65)' }, { boxShadow: getComputedStyle(core).boxShadow }], { duration: 700, easing: 'ease-out' });
     emm.animate([{ transform: 'translateY(0) rotate(0)' }, { transform: 'translateY(-16px) rotate(-4deg)' }, { transform: 'translateY(0) rotate(0)' }], { duration: 560, easing: 'cubic-bezier(.3,1.6,.5,1)' });

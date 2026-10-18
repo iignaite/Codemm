@@ -57,15 +57,15 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
     await f.desktop.done();
     expect(f.downloads).toEqual([{ url: 'https://desktop.docker.com/mac/main/arm64/Docker.dmg', file: '/tmp/codemm-docker/Docker.dmg' }]);
     expect(commands(f.calls)).toEqual([
-      'hdiutil attach -nobrowse -readonly -noautoopen -mountpoint /tmp/codemm-docker/mnt /tmp/codemm-docker/Docker.dmg',
-      // Apple's own tools by absolute path: a codesign or spctl earlier on PATH can't answer for them.
+      '/usr/bin/hdiutil attach -nobrowse -readonly -noautoopen -mountpoint /tmp/codemm-docker/mnt /tmp/codemm-docker/Docker.dmg',
+      // Apple's own tools by absolute path: one earlier on PATH can't stand in for them.
       '/usr/bin/codesign --verify --deep --strict /tmp/codemm-docker/mnt/Docker.app',
       '/usr/bin/codesign -dv --verbose=2 /tmp/codemm-docker/mnt/Docker.app',
       '/usr/sbin/spctl --assess --type execute /tmp/codemm-docker/mnt/Docker.app',
-      expect.stringMatching(/^ditto \/tmp\/codemm-docker\/mnt\/Docker\.app \/Applications\/\.codemm-docker-\w+\/Docker\.app$/),
-      expect.stringMatching(/^mv \/Applications\/\.codemm-docker-\w+\/Docker\.app \/Applications\/Docker\.app$/),
-      'hdiutil detach /tmp/codemm-docker/mnt -quiet',
-      'open -a /Applications/Docker.app',
+      expect.stringMatching(/^\/usr\/bin\/ditto \/tmp\/codemm-docker\/mnt\/Docker\.app \/Applications\/\.codemm-docker-\w+\/Docker\.app$/),
+      expect.stringMatching(/^\/bin\/mv \/Applications\/\.codemm-docker-\w+\/Docker\.app \/Applications\/Docker\.app$/),
+      '/usr/bin/hdiutil detach /tmp/codemm-docker/mnt -quiet',
+      '/usr/bin/open -a /Applications/Docker.app',
     ]);
     expect(f.removed).toEqual([expect.stringMatching(/^\/Applications\/\.codemm-docker-\w+$/), '/tmp/codemm-docker']);
     expect(f.desktop.status()).toEqual({ phase: 'starting' });
@@ -83,8 +83,8 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
     const f = fake('darwin', { answers: { '/usr/bin/codesign -dv': { code: 0, output: 'TeamIdentifier=SOMEONEELSE\n' } } });
     f.desktop.install();
     await f.desktop.done();
-    expect(commands(f.calls).some((c) => c.startsWith('ditto'))).toBe(false);
-    expect(commands(f.calls)).toContain('hdiutil detach /tmp/codemm-docker/mnt -quiet');
+    expect(commands(f.calls).some((c) => c.startsWith('/usr/bin/ditto'))).toBe(false);
+    expect(commands(f.calls)).toContain('/usr/bin/hdiutil detach /tmp/codemm-docker/mnt -quiet');
     expect(f.removed).toEqual(['/tmp/codemm-docker']);
     expect(f.desktop.status()).toEqual({ phase: 'failed', problem: 'unverified' });
   });
@@ -94,16 +94,16 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
       const f = fake('darwin', { answers: { [bad]: { code: 3, output: 'invalid' } } });
       f.desktop.install();
       await f.desktop.done();
-      expect(commands(f.calls).some((c) => c.startsWith('ditto'))).toBe(false);
+      expect(commands(f.calls).some((c) => c.startsWith('/usr/bin/ditto'))).toBe(false);
       expect(f.desktop.status()).toEqual({ phase: 'failed', problem: 'unverified' });
     }
   });
 
   it('when it cannot copy into Applications, opens the download for the learner to drag, and keeps it', async () => {
-    const f = fake('darwin', { answers: { ditto: { code: 1, output: 'Permission denied' } } });
+    const f = fake('darwin', { answers: { '/usr/bin/ditto': { code: 1, output: 'Permission denied' } } });
     f.desktop.install();
     await f.desktop.done();
-    expect(commands(f.calls).slice(-2)).toEqual(['hdiutil detach /tmp/codemm-docker/mnt -quiet', 'open /tmp/codemm-docker/Docker.dmg']);
+    expect(commands(f.calls).slice(-2)).toEqual(['/usr/bin/hdiutil detach /tmp/codemm-docker/mnt -quiet', '/usr/bin/open /tmp/codemm-docker/Docker.dmg']);
     // The partial copy goes; the download stays for the learner.
     expect(f.removed).toEqual([expect.stringMatching(/^\/Applications\/\.codemm-docker-\w+$/)]);
     expect(f.desktop.status()).toEqual({ phase: 'failed', problem: 'manual' });
@@ -114,7 +114,7 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
     f.desktop.install();
     await f.desktop.done();
     expect(f.downloads).toEqual([]);
-    expect(commands(f.calls)).toEqual(['open -a /Applications/Docker.app']);
+    expect(commands(f.calls)).toEqual(['/usr/bin/open -a /Applications/Docker.app']);
     expect(f.desktop.status()).toEqual({ phase: 'starting' });
   });
 
@@ -219,7 +219,7 @@ describe('opening Docker Desktop (§6.1)', () => {
   it('opens it and remembers when, so a slow start reads as starting', async () => {
     const mac = fake('darwin');
     await mac.desktop.open();
-    expect(commands(mac.calls)).toEqual(['open -a Docker']);
+    expect(commands(mac.calls)).toEqual(['/usr/bin/open -a Docker']);
     expect(mac.desktop.startedAt()).toBe(1_000);
 
     const win = fake('win32');
@@ -256,21 +256,21 @@ describe('Astra review fixes', () => {
     f.desktop.install();
     await f.desktop.done();
     const cmds = commands(f.calls);
-    const ditto = cmds.find((c) => c.startsWith('ditto'))!;
-    expect(ditto).toMatch(/^ditto \/tmp\/codemm-docker\/mnt\/Docker\.app \/Applications\/\.codemm-docker-\w+\/Docker\.app$/);
+    const ditto = cmds.find((c) => c.startsWith('/usr/bin/ditto'))!;
+    expect(ditto).toMatch(/^\/usr\/bin\/ditto \/tmp\/codemm-docker\/mnt\/Docker\.app \/Applications\/\.codemm-docker-\w+\/Docker\.app$/);
     const staged = ditto.split(' ')[2];
-    expect(cmds).toContain(`mv ${staged} /Applications/Docker.app`);
-    expect(cmds.at(-1)).toBe('open -a /Applications/Docker.app');
+    expect(cmds).toContain(`/bin/mv ${staged} /Applications/Docker.app`);
+    expect(cmds.at(-1)).toBe('/usr/bin/open -a /Applications/Docker.app');
 
-    const broken = fake('darwin', { answers: { ditto: { code: 1, output: 'No space left on device' } } });
+    const broken = fake('darwin', { answers: { '/usr/bin/ditto': { code: 1, output: 'No space left on device' } } });
     broken.desktop.install();
     await broken.desktop.done();
-    expect(commands(broken.calls).some((c) => c.startsWith('mv '))).toBe(false);
+    expect(commands(broken.calls).some((c) => c.startsWith('/bin/mv '))).toBe(false);
     expect(broken.removed.some((p) => p.startsWith('/Applications/.codemm-docker-'))).toBe(true);
   });
 
   it("says when Docker won't open", async () => {
-    const f = fake('darwin', { answers: { 'open -a': { code: 1, output: 'LSOpenURLsWithRole() failed' } } });
+    const f = fake('darwin', { answers: { '/usr/bin/open -a': { code: 1, output: 'LSOpenURLsWithRole() failed' } } });
     f.desktop.install();
     await f.desktop.done();
     expect(f.desktop.status()).toEqual({ phase: 'failed', problem: 'failed' });

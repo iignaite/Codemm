@@ -90,7 +90,7 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
           {data.ready
             ? 'This computer is ready.'
             : installing(data)
-              ? 'Installing Docker Desktop.'
+              ? ''
               : `${problem ? `${problem.detail ? DETAILS[problem.detail].notYet : NOT_YET[problem.id]} ` : ''}Checking again every few seconds.`}
         </p>
         <div className="actions">
@@ -136,7 +136,8 @@ function CheckItem({ check, computer, index, onInstall, onOpen }: ItemProps) {
         {check.state === 'problem' && (busy ? <Status kind="run" size={24} /> : <Status kind="fail" size={24} label="Needs a step" />)}
         {check.state === 'waiting' && <span className="ico wait" aria-hidden="true" />}
         <b>{name}</b>
-        <span className={`check-state ${busy ? 'waiting' : check.state}`}>{busy ? 'Installing' : STATE_TEXT[check.state]}</span>
+        {/* Installing, Emm's fill says what's happening: no state word beside it. */}
+        {!busy && <span className={`check-state ${check.state}`}>{STATE_TEXT[check.state]}</span>}
       </div>
       {offerInstall && fix ? (
         <InstallDocker install={computer.install} platform={platform} manualUrl={fix.link?.url} onInstall={onInstall} />

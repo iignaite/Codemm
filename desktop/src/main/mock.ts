@@ -42,6 +42,8 @@ export interface MockOptions {
   imageMissing?: boolean;
   /** Read on every call: agent jobs fail with this until it's cleared. */
   agentProblem?: 'signed-out' | 'plan-limit' | 'offline' | 'failed';
+  /** Docker installs but doesn't start: its start window ends with Docker stopped. */
+  dockerWontStart?: boolean;
   /** Installing an agent stops with this problem. */
   agentInstallProblem?: NonNullable<AgentInstall['problem']>;
   untested?: boolean;
@@ -74,6 +76,7 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'docker-starting': { docker: 'starting' },
   'windows-containers': { docker: 'windows-containers', platform: 'windows' },
   'docker-stops': { later: { after: 'check', set: { docker: 'stopped' } } },
+  'docker-wont-start': { docker: 'missing', dockerWontStart: true },
   'offline-setup': { setupProblem: 'offline' },
   'low-disk': { setupProblem: 'disk' },
   'setup-gates': { setupProblem: 'gates' },
@@ -88,6 +91,7 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'plan-limit': { later: { after: 'approve', set: { agentProblem: 'plan-limit' } } },
   'untested-version': { untested: true },
   'io-track': { style: 'io' },
+  'io-docker-stopped': { style: 'io', docker: 'stopped' },
   'image-missing': { imageMissing: true },
   'run-time-up': { style: 'io', runLimitMs: 3000 },
   'update-available': { update: { kind: 'available', version: '1.0.1', url: 'https://github.com/iignaite/Codemm/releases/tag/v1.0.1' } },
@@ -566,7 +570,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       // The next check sees Docker one step further along.
       if (install?.phase === 'starting') {
         install = undefined;
-        dockerNow = 'ready';
+        dockerNow = options.dockerWontStart ? 'stopped' : 'ready';
       } else if (install) {
         install = INSTALL_STEPS[INSTALL_STEPS.findIndex((s) => JSON.stringify(s) === JSON.stringify(install)) + 1];
         if (install?.phase === 'starting') dockerNow = 'starting';

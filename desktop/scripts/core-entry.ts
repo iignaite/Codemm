@@ -10,7 +10,11 @@ export { RUNTIME_INFO, runtimeStateOf } from '../../src/sandbox';
 export { readWorkspace } from '../../src/store';
 export { JOB_BRIEFS } from '../../src/templates';
 
-/** Removes only containers whose owning Codemm process is gone. */
+/**
+ * Removes only containers whose owning Codemm process is gone, and fails if any of them is still there. A runtime
+ * that can't list containers isn't running any, so that's no failure.
+ */
 export async function cleanupLeftovers(): Promise<void> {
-  await removeAbandoned();
+  const { left } = await removeAbandoned().catch(() => ({ left: 0 }));
+  if (left > 0) throw new Error(`${left} abandoned container${left === 1 ? '' : 's'} couldn't be removed.`);
 }

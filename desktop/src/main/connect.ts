@@ -13,12 +13,11 @@ export interface Lookup {
   version(id: AgentId, exe: Executable): Promise<string | null>;
 }
 
-// signIn: each CLI's own sign-in command, from its --help.
 /** Each agent as the connect screen shows it; the mock uses the same (mock.ts). */
-export const AGENT_INFO: Record<AgentId, { name: string; installUrl: string; signIn: string; experimental: boolean }> = {
-  claude: { name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', signIn: 'claude auth login', experimental: false },
-  codex: { name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', signIn: 'codex login', experimental: false },
-  cursor: { name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', signIn: 'cursor-agent login', experimental: true },
+export const AGENT_INFO: Record<AgentId, { name: string; installUrl: string; experimental: boolean }> = {
+  claude: { name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', experimental: false },
+  codex: { name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', experimental: false },
+  cursor: { name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', experimental: true },
 };
 const IDS: AgentId[] = ['claude', 'codex', 'cursor'];
 
@@ -43,19 +42,36 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
   const justChecked = new Set<AgentId>();
 
   /**
-   * The agent's CLI, unless Codemm is installing it or installed something it couldn't verify: a rejected binary, or
-   * whatever a failed Codex script left (Claude Code's binary is checked before anything of it runs). Then nothing of
-   * it runs this session, not even --version, and Try again installs again. An agent the learner installed themselves
-   * is theirs to trust, as in a terminal; so is one found after a relaunch.
+   * The agent's CLI, unless Codemm has started installing it and no install is done yet. A failed attempt may have left
+   * a binary nothing checked, and a later failure (offline, say) must not clear an earlier rejection, so nothing of it
+   * runs this session, not even --version, and Try again installs again. An agent the learner installed themselves is
+   * theirs to trust, as in a terminal; so is one found after a relaunch.
    */
   function usable(id: AgentId): Executable | null {
     const install = setup.status(id);
-    const running = install !== undefined && install.phase !== 'done' && install.phase !== 'failed';
-    const unchecked = install?.phase === 'failed' && (install.problem === 'unverified' || (id === 'codex' && install.problem === 'failed'));
-    return running || unchecked ? null : lookup.find(AGENT_CLIS[id].bin);
+    return install && install.phase !== 'done' ? null : lookup.find(AGENT_CLIS[id].bin);
+  }
+
+  /** Thrown when Codemm starts installing an agent while its view is being looked at: the view starts over. */
+  const STARTED_INSTALL = Symbol('started install');
+
+  /** The agent's sign-in check, run only if the agent may run right now: a reinstall may have started meanwhile. */
+  async function checkSignIn(id: AgentId) {
+    const exe = usable(id);
+    if (!exe) throw STARTED_INSTALL;
+    return lookup.signedIn(id, exe);
   }
 
   async function view(id: AgentId): Promise<Agent> {
+    try {
+      return await look(id);
+    } catch (e) {
+      if (e === STARTED_INSTALL) return view(id);
+      throw e;
+    }
+  }
+
+  async function look(id: AgentId): Promise<Agent> {
     const exe = usable(id);
     let agentState: Agent['state'] = 'missing';
     const install = setup.status(id);
@@ -64,16 +80,16 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
       // Just installed by Codemm: check its sign-in once, and connect it if it's signed in.
       if (install?.phase === 'done' && !signedIn.has(id)) {
         tried = id;
-        const ok = await lookup.signedIn(id, exe);
+        const ok = await checkSignIn(id);
         signedIn.set(id, ok);
         if (ok) state.update((s) => ({ ...s, agent: id }));
         else justChecked.add(id);
       }
       const chosen = state.read().agent === id;
       // The agent chosen before: check its sign-in once this launch, so a relaunch doesn't ask to connect again.
-      if (chosen && !signedIn.has(id)) signedIn.set(id, await lookup.signedIn(id, exe));
+      if (chosen && !signedIn.has(id)) signedIn.set(id, await checkSignIn(id));
       // Signed out: check again on every look, so signing in from a terminal shows when the learner comes back.
-      if (signedIn.get(id) === false && !justChecked.delete(id) && (await lookup.signedIn(id, exe))) {
+      if (signedIn.get(id) === false && !justChecked.delete(id) && (await checkSignIn(id))) {
         signedIn.set(id, true);
         if (tried === id) state.update((s) => ({ ...s, agent: id }));
       }
@@ -129,19 +145,27 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
       return view(id);
     },
 
+    /** Whether anything of the agent may run now: false once Codemm has started installing it, until that is done. */
+    usable: (id: AgentId) => usable(id) !== null,
+
     /** The agent jobs run with, and its model. Rejects with NO_AGENT or SIGNED_OUT, which open the connect screen. */
     async chosen(): Promise<{ id: AgentId; exe: Executable; model?: string }> {
       const id = state.read().agent;
       const exe = id && usable(id);
       if (!id || !exe) throw new Error(NO_AGENT);
       // The status command runs once a session, and again only after a job fails (jobs.ts).
-      const ok = signedIn.get(id) ?? (await this.recheck(id, exe));
+      const ok = signedIn.get(id) ?? (await this.recheck(id));
       if (!ok) throw new Error(SIGNED_OUT);
       return { id, exe, model: modelFor(id, state.read().models?.[id]) ?? undefined };
     },
 
-    /** Runs the sign-in check again, as after a job fails for an unknown reason. */
-    async recheck(id: AgentId, exe: Executable): Promise<boolean> {
+    /**
+     * Runs the sign-in check again, as after a job fails for an unknown reason. While Codemm is installing the agent
+     * again, nothing of it runs, and the job ends as signed out.
+     */
+    async recheck(id: AgentId): Promise<boolean> {
+      const exe = usable(id);
+      if (!exe) return false;
       const ok = await lookup.signedIn(id, exe);
       signedIn.set(id, ok);
       return ok;

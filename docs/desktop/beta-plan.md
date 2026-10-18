@@ -29,7 +29,7 @@ Each participant agrees in writing to a plain-language form before installing. T
 - **Codemm collects nothing automatically.** It has no telemetry. We learn only from what you tell us and from what you choose to share.
 - **What you may share:** your survey answers; notes from our calls; and, if you choose, your course progress. You can review anything before sending it.
 - **Recordings** of calls need a separate yes, and you can withdraw that yes at any time.
-- **Costs.** Codemm uses your own agent and your own plan or account. Lessons and activities use some of it.
+- **Costs.** Codemm uses your own agent and your own account. Lessons and activities use some of it.
 - **The builds are unsigned test builds.** Opening them needs an extra step on macOS and Windows, which we show you.
 - **Who sees it.** Only the owner and the people building Codemm. Write to the owner's contact address on this form to see or delete what you shared.
 - **What gets published.** Only totals across all participants, with no names and nothing that could identify one of so few people. A quotation or a screenshot of yours is published only with a separate yes for that item.

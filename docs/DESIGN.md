@@ -4,7 +4,7 @@ Status: revised after two Astra design reviews (§13). The longer illustrated de
 
 ## 1. What Codemm is
 
-Codemm is an open-source, local-first harness for graded coding practice. It is a **wrapper that ships no languages**. The learner's own coding agent (Claude Code, Codex or Cursor, on the learner's own plan) writes everything:
+Codemm is an open-source, local-first harness for graded coding practice. It is a **wrapper that ships no languages**. The learner's own coding agent (Claude Code, Codex or Cursor, with the learner's own account) writes everything:
 
 - the environment for a language or framework (a **track**),
 - the **roadmap** (a concept graph),

@@ -39,6 +39,109 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     expect(t.jobs.ran.filter((j) => j.kind === 'setup')).toHaveLength(1);
   });
 
+  it("an old course's install never changes the setup of a course approved after it started", async () => {
+    const t = live();
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    let reject!: (e: Error) => void;
+    t.c.install = () => new Promise((_resolve, fail) => (reject = fail));
+    await t.api.install(proposal!.digest);
+    await until(t.api, (c) => c.setup === 'installing');
+    // Course B is researched and approved while A's install still runs.
+    const goal = { topic: 'Vue', known: '', depth: 'standard' } as const;
+    let next = await t.api.research(goal);
+    for (let i = 0; i < 20 && next.state === 'running'; i++) {
+      await new Promise((res) => setTimeout(res, 5));
+      next = await t.api.research(goal);
+    }
+    await t.api.approve(next.roadmap!.concepts);
+    const before = await t.api.course();
+    // A's install then fails offline: that's A's problem, not B's.
+    reject(coreError("The track build couldn't reach the network.", 'offline'));
+    await new Promise((res) => setTimeout(res, 20));
+    const after = await t.api.course();
+    expect(after!.setup).toBe(before!.setup);
+    expect(after).not.toHaveProperty('setupProblem');
+  });
+
+  it('quitting waits for a track install that is running', async () => {
+    const t = live();
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    let finish!: () => void;
+    t.c.install = () => new Promise((done) => (finish = () => done({})));
+    await t.api.install(proposal!.digest);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    let stopped = false;
+    const stopping = t.api.stop().then(() => (stopped = true));
+    await new Promise((res) => setTimeout(res, 20));
+    expect(stopped).toBe(false);
+    finish();
+    await stopping;
+  });
+
+  it('an install still waiting for Docker when quitting starts never runs, and records nothing', async () => {
+    let open: () => void = () => {};
+    const dockerUp = new Promise<void>((r) => (open = r));
+    let ready = async () => {};
+    const t = live({}, { dockerReady: () => ready() });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    let installs = 0;
+    t.c.install = async () => (installs++, {});
+    ready = () => dockerUp;
+    await t.api.install(proposal!.digest);
+    let stopped = false;
+    const stopping = t.api.stop().then(() => (stopped = true));
+    await new Promise((res) => setTimeout(res, 20));
+    expect(stopped).toBe(false);
+    open();
+    await stopping;
+    expect(installs).toBe(0);
+    // Quitting isn't a failed gate: the proposal stays.
+    expect(t.c.proposals.map((p) => p.digest)).toContain(proposal!.digest);
+  });
+
+  it("quitting waits for a failed install's proposal to go", async () => {
+    const t = live();
+    const drop = t.app.dropProposal;
+    let dropped!: () => void;
+    // Deleting the failed proposal waits for the track lock.
+    t.app.dropProposal = (ref) => new Promise((done) => (dropped = () => done(drop(ref))));
+    t.c.install = async () => {
+      throw new Error('Gate 2 failed: the reference solution fails its tests');
+    };
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(proposal!.digest);
+    await vi.waitFor(() => expect(dropped).toBeDefined());
+    let stopped = false;
+    const stopping = t.api.stop().then(() => (stopped = true));
+    await new Promise((res) => setTimeout(res, 20));
+    expect(stopped).toBe(false);
+    dropped();
+    await stopping;
+  });
+
+  it('quitting waits for a track rebuild', async () => {
+    const t = live();
+    await practising(t);
+    let finish!: () => void;
+    t.app.rebuildTrack = () => new Promise((done) => (finish = () => done({})));
+    const rebuilding = t.api.rebuild('react@1');
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    let stopped = false;
+    const stopping = t.api.stop().then(() => (stopped = true));
+    await new Promise((res) => setTimeout(res, 20));
+    expect(stopped).toBe(false);
+    finish();
+    await Promise.all([rebuilding, stopping]);
+  });
+
   it('asks for a new proposal after the gates fail', async () => {
     const t = live();
     const r = await researched(t);

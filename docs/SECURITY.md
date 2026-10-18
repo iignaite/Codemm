@@ -30,7 +30,7 @@ Codemm runs code that an AI agent wrote and code that a learner wrote. This page
   - **The build** gets only the track's own files: no secrets, SSH agent or Docker socket.
   - **Time limit:** 10 minutes.
   - **Not limited:** build CPU, memory and disk use.
-- **Codemm never handles credentials.** It doesn't call models; your agent does, on your own plan.
+- **Codemm never handles credentials.** It doesn't call models; your agent does, with your own account.
 
 ## Known limitations
 

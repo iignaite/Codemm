@@ -92,12 +92,7 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
                 )}
                 {a.untested && <div className="quiet-text">Untested version. It may still work.</div>}
                 {a.state === 'missing' && !running(a.install) && !a.install?.problem && <div className="alert">Not installed</div>}
-                {a.state === 'signed-out' && (
-                  <>
-                    <div className="alert">Sign in to {a.name}, then try again.</div>
-                    <div className="quiet-text">In a terminal: <code className="cmd">{a.signIn}</code></div>
-                  </>
-                )}
+                {a.state === 'signed-out' && <div className="alert">Sign in to {a.name}, then try again.</div>}
                 {a.state === 'missing' && a.canInstall && <InstallProgress agent={a} />}
               </div>
               {a.state === 'connected' ? (
@@ -123,7 +118,7 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
           })}
         </ul>
         <div className="a-up" style={{ ...stagger(4), display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-          <span className="quiet-text">Codemm uses your agent and your plan.</span>
+          <span className="quiet-text">Codemm uses your agent and your account.</span>
           <Button size="lg" disabled={!list.some((a) => a.state === 'connected')} onClick={() => go(next)}>Continue</Button>
         </div>
       </div>
@@ -139,7 +134,7 @@ const VENDOR: Record<AgentId, string> = { claude: 'Anthropic', codex: 'OpenAI', 
 const PROBLEM: Record<NonNullable<AgentInstall['problem']>, (a: Agent) => string> = {
   offline: () => "You're offline. Connect to the internet, then try again.",
   disk: () => 'Not enough disk space. Free up 1 GB, then try again.',
-  unverified: (a) => `The download didn't match ${VENDOR[a.id]}'s signature, so Codemm didn't use it.`,
+  unverified: () => "Codemm couldn't verify the installation. Try again.",
   failed: (a) => `${a.name}'s installer didn't finish.`,
 };
 
