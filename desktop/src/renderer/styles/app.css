@@ -45,7 +45,8 @@ button, input, textarea { font: inherit; color: inherit; }
 .btn.text { background: transparent; color: var(--ink); padding: 0 10px; }
 .btn.lg { height: 50px; padding: 0 24px; font-size: 15px; }
 .ibtn { width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px; border: none; background: transparent; display: grid; place-items: center; cursor: pointer; }
-.ibtn:hover { background: var(--soft); }
+.ibtn:hover:not(:disabled) { background: var(--soft); }
+.ibtn:disabled { opacity: .45; cursor: default; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
 .card.on { border: 2px solid var(--green-ink); }
 .card.info { background: var(--blue-soft); border-color: var(--blue-line); color: var(--blue-ink); }
@@ -126,6 +127,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .menu { position: absolute; left: 8px; top: 48px; z-index: 3; padding: 6px; display: flex; flex-direction: column; box-shadow: 0 12px 30px rgba(14, 39, 84, .18); transform-origin: top left; }
 .menu .btn { justify-content: flex-start; }
 .add { height: 52px; border: 2px dashed var(--ctl); border-radius: 14px; background: transparent; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; cursor: pointer; }
+.add:disabled { opacity: .55; cursor: default; }
 
 /* ---------- Dialog ---------- */
 .scrim { position: fixed; inset: 36px 0 0 0; z-index: 10; background: rgba(11, 31, 68, .45); display: grid; place-items: center; animation: fade .3s ease-out backwards; }
