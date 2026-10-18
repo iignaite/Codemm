@@ -128,7 +128,8 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
 - **Known limitation: results can be forged from inside.** The driver (PID 1) holds the container's output stream on a saved descriptor while a case runs. A program running as the same user could write forged frames to it through `/proc/1/fd`. This doesn't weaken host isolation, but it does mean grading is honor-system, consistent with §1 and §2. Tamper-proof grading would need a separate trusted grader and is out of scope for 1.0.
 - **Progress.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }`:
   - `phase` is `building`, `visible` or `hidden`;
-  - io reports the build, then each visible test as it finishes, counted from the frame headers as they stream (bodies are skipped, never decoded);
+  - io reports the build, then each visible test as it finishes, counted from the frame headers as they stream;
+  - each visible io test also arrives with its result (`test`: name, status, message and output, graded as Results grades it), so the app can print it as it finishes. Only visible bodies are kept; hidden bodies are skipped, never decoded. The final grade still decides: an output flood or a memory kill afterwards makes every test an error;
   - hidden tests, and unit tests (whose runner reports at the end), report their phase once with `total` 0, so nothing per hidden test, not even timing, leaves;
   - a listener that throws is dropped, and the check goes on.
   Code in the container could print extra frames, but that can only move progress, never a grade.
@@ -225,9 +226,9 @@ sources:                    # optional: the roadmaps and docs the agent used, at
   - The lesson records the track and style its examples were checked with, and they always run with those.
   - The gate: under the course lock, then the track lock, each example runs in the track's image exactly as a check runs code, with the same sandbox and limits. io runs the build and run commands once, with empty input; unit runs the test command on the example's tests. Each must exit 0 within the limits. A runtime failure is infrastructure and saves nothing.
   - Examples need the installed track, and `get_roadmap` over MCP includes the track's contract once it's installed.
-- **Running.** `runExample(ws, lesson, n)` runs a saved example the same way and returns its exit code, output (capped at 16 KB) and errors (capped at 4 KB). It is never recorded.
+- **Running.** `runExample(ws, lesson, n)` runs a saved example the same way and returns its exit code, output (capped at 16 KB) and errors (capped at 4 KB). It is never recorded. `runExampleLive(ws, lesson, n, bound, output)` runs an io example interactively instead, as Run does for an activity (`runProgram`): its output streams, and the learner's typed input reaches its stdin. It checks the files against the recorded track first, and is never recorded either. A unit example has no live run.
 - **Storage.** `lesson.md` never changes after saving. The learner's `notes.md` (at most 64 KB) sits beside it. Writes are atomic and hold the course lock.
-- **Reading.** `get_lesson` returns the text, the notes and the examples, and records nothing. Only an acknowledgement records a read: `mark_lesson_read` appends a `read` event the first time.
+- **Reading.** `get_lesson` returns the text, the notes and the examples, and records nothing. A lesson with examples also names their `style`, which says how they run. Only an acknowledgement records a read: `mark_lesson_read` appends a `read` event the first time.
 
 ## 6. Exercises and gates
 
@@ -328,7 +329,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |
 | `progress` | — | mastery and difficulty per concept (with `reviewDue` for a mastered concept whose review is scheduled), next step |
 | `save_lesson` | `id`, `concept`, `title`, `markdown` | `{ lesson: id }` or errors |
-| `get_lesson` | `id` | `{ id, concept, title, markdown, notes }`; records nothing |
+| `get_lesson` | `id` | `{ id, concept, title, markdown, notes, examples, style? }`; records nothing |
 | `mark_lesson_read` | `id` | ok; records a `read` event once |
 
 **Per-job servers.** `codemm mcp --course <course>` makes course-scoped tools use that course instead of the workspace's active one, and `save_roadmap` may save only that course. `--tools <a,b>` registers only the listed tools. With neither option the server behaves as above.

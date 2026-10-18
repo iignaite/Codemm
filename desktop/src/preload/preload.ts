@@ -1,7 +1,7 @@
 // The renderer's only door to the main process: one invoke call on one
 // channel. The typed CodemmApi client is built on top of it in the renderer.
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Bridge } from '../shared/api';
+import type { Bridge, FinishedTest } from '../shared/api';
 
 // Electron rejects a failed invoke as "Error invoking remote method 'codemm': Error: <message>".
 // The renderer gets <message> alone, so Codemm's codes (codemm:repair and the rest) match as sent.
@@ -13,10 +13,19 @@ const bridge: Bridge = {
     ipcRenderer.invoke('codemm', method, args).catch((e: unknown) => {
       throw new Error((e instanceof Error ? e.message : String(e)).replace(ENVELOPE, ''));
     }),
-  // One-way: main sends check progress to the app window. Only the phase and counts reach the page.
+  // One-way: main sends check progress to the app window: the phase and counts, and a visible test's result.
   onCheckProgress: (listener) => {
-    const forward = (_event: unknown, p: { run?: string; phase: 'building' | 'visible' | 'hidden'; done: number; total: number }) =>
-      listener({ ...(typeof p.run === 'string' ? { run: p.run } : {}), phase: p.phase, done: p.done, total: p.total });
+    const text = (v: unknown) => (typeof v === 'string' ? { value: v } : undefined);
+    const finished = (t: { name?: unknown; status?: unknown; message?: unknown; actual?: unknown } | undefined): FinishedTest | undefined => {
+      if (!t || typeof t.name !== 'string' || (t.status !== 'pass' && t.status !== 'fail' && t.status !== 'error')) return undefined;
+      const message = text(t.message);
+      const actual = text(t.actual);
+      return { name: t.name, status: t.status, ...(message ? { message: message.value } : {}), ...(actual ? { actual: actual.value } : {}) };
+    };
+    const forward = (_event: unknown, p: { run?: string; phase: 'building' | 'visible' | 'hidden'; done: number; total: number; test?: { name?: unknown; status?: unknown } }) => {
+      const test = p.phase === 'visible' ? finished(p.test) : undefined;
+      listener({ ...(typeof p.run === 'string' ? { run: p.run } : {}), phase: p.phase, done: p.done, total: p.total, ...(test ? { test } : {}) });
+    };
     ipcRenderer.on('codemm:check-progress', forward);
     return () => void ipcRenderer.removeListener('codemm:check-progress', forward);
   },

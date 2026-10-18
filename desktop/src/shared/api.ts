@@ -190,6 +190,8 @@ export interface Lesson {
   notes: string;
   /** Runnable examples, in order: each runs in the sandbox on request and is never recorded (§4.3). */
   examples: { files: { path: string; text: string }[] }[];
+  /** How the examples run: io ones in the terminal pane with typed input (runExampleLive), unit ones once as tests. */
+  style?: 'io' | 'unit';
 }
 
 /** One run of a lesson example (output capped by core), or why it didn't run (Docker, §6.1). */
@@ -234,13 +236,25 @@ export type RunResult =
 
 export type TestStatus = 'pass' | 'fail' | 'error';
 
-/** Progress through Try it or Check: only a phase and counts. `total` 0 means not counted (hidden and unit tests). */
+/**
+ * Progress through Try it or Check: a phase and counts. `total` 0 means not counted (hidden and unit tests).
+ * A visible io test also arrives with its result as it finishes; nothing about a hidden test ever does.
+ */
 export interface CheckProgress {
   /** The run it belongs to: the id the renderer passed to tryIt or check. */
   run?: string;
   phase: 'building' | 'visible' | 'hidden';
   done: number;
   total: number;
+  test?: FinishedTest;
+}
+
+/** A visible io test's result as it finishes: its name (`visible/01`), status, message and what the program printed. */
+export interface FinishedTest {
+  name: string;
+  status: TestStatus;
+  message?: string;
+  actual?: string;
 }
 
 /** One test result. A hidden test has no name or detail: an index and a status only. */
@@ -327,6 +341,8 @@ export interface CodemmApi {
   tryIt(activityId: string, run?: string): Promise<TryResult>;
   /** Runs a lesson's example `index` (from 1) in the sandbox. Never recorded. */
   runExample(lessonId: string, index: number): Promise<ExampleRun>;
+  /** Run for a lesson's io example `index`, as runProgram is for an activity: typed input, output through onRunOutput. */
+  runExampleLive(lessonId: string, index: number, run: string): Promise<RunResult>;
   check(activityId: string, run?: string): Promise<CheckResult>;
   /**
    * Run: the learner's program with typed input, time-limited, never recorded. Resolves when it ends; what it prints

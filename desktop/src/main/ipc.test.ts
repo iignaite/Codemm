@@ -30,6 +30,7 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgr
   saveFile: ['values-easy-1', 'src/Counter.jsx', 'x', 'b'.repeat(64)],
   tryIt: ['values-easy-1', 'run-1'],
   runExample: ['values-1', 2],
+  runExampleLive: ['values-1', 2, 'run-1'],
   check: ['values-easy-1', 'run-1'],
   runProgram: ['values-easy-1', 'run-1'],
   sendRunInput: ['run-1', 'Ada\n'],
@@ -73,6 +74,8 @@ describe('dispatch', () => {
     expect(() => dispatch(echo, 'sendRunInput', ['run-1', 'x'.repeat(64 * 1024 + 1)])).toThrow('Bad input');
     expect(() => dispatch(echo, 'sendRunInput', ['run-1', 7])).toThrow('Bad input');
     expect(() => dispatch(echo, 'stopRun', ['../x'])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'runExampleLive', ['values-1', 6, 'run-1'])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'runExampleLive', ['values-1', 1, 'Run 1'])).toThrow('Bad input');
   });
 
   it('rejects goals and roadmaps with the wrong shape', () => {

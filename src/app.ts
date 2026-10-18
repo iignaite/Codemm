@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./files.js";
 import { checkTrackFiles, verifyExercise, verifyTrack } from "./gates.js";
-import type { TestResult, TestSet } from "./grading.js";
+import { type CaseFrames, gradeIo, type Status, type TestResult, type TestSet } from "./grading.js";
 import { gradeIoRun, gradeUnitRun, type IoRun, type ProgramOptions, type ProgramRun, runIo, runProgram, runUnit, type UnitRun } from "./judge.js";
 import { type LearnerEvent, MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
 import { assertRuntime, cli as sandboxCli, inspectImage } from "./sandbox.js";
@@ -305,6 +305,24 @@ export async function saveLesson(ws: string, input: unknown, bound?: string): Pr
   return { lesson: lesson.id };
 }
 
+/**
+ * Runs a saved io example live in the sandbox, with the learner's typed input and the track it was checked with:
+ * the same interactive run as Run on an activity. Never recorded. A unit example runs as tests (runExample).
+ */
+export async function runExampleLive(
+  ws: string, lessonId: string, index: number, bound: string | undefined, output: (text: string, stream: "stdout" | "stderr") => void, options: ProgramOptions = {},
+): Promise<ProgramRun> {
+  const { record, examples } = store.readLesson(activeCourse(ws, bound).course, lessonId);
+  const files = Number.isInteger(index) ? examples[index - 1] : undefined;
+  if (!files || !record.track || !record.style) throw new CodemmError(`Lesson "${lessonId}" has no example ${index}.`);
+  if (record.style !== "io") throw new CodemmError(`Example ${index} runs as tests, so it has no live run.`);
+  const track = installedTrack(record.track);
+  assertExampleFits(index, files, track, record.style);
+  await ensureImage(track);
+  const learner = Object.fromEntries(track.files.map((f) => [f, files[f]!]));
+  return runProgram({ ...track, image: track.imageId }, learner, output, options);
+}
+
 /** Runs a saved example in the sandbox, with the track and style it was checked with, for the learner to see. Never recorded. */
 export async function runExample(ws: string, lessonId: string, index: number, bound?: string): Promise<ExampleRun> {
   const { record, examples } = store.readLesson(activeCourse(ws, bound).course, lessonId);
@@ -320,7 +338,8 @@ export async function runExample(ws: string, lessonId: string, index: number, bo
 /** The lesson and the learner's notes. Reading records nothing: only markLessonRead does. */
 export function getLesson(ws: string, id: string, bound?: string) {
   const { record, markdown, notes, examples } = store.readLesson(activeCourse(ws, bound).course, id);
-  return { id: record.id, concept: record.concept, title: record.title, markdown, notes, examples };
+  // The style says how its examples run: io ones take typed input (runExampleLive), unit ones run as tests.
+  return { id: record.id, concept: record.concept, title: record.title, markdown, notes, examples, ...(record.style ? { style: record.style } : {}) };
 }
 
 export function listLessons(ws: string, bound?: string) {
@@ -526,10 +545,13 @@ function present(slug: string, tests: TestResult[], recorded: boolean, note?: st
 }
 
 /**
- * Progress through a check. io reports each visible test as it finishes; hidden tests, and unit tests (whose
- * runner reports at the end), report their phase once with `total` 0. Nothing about a test leaves but counts (DESIGN §4.2).
+ * Progress through a check. io reports each visible test as it finishes, with its result; hidden tests, and unit
+ * tests (whose runner reports at the end), report their phase once with `total` 0. Nothing about a hidden test
+ * leaves (DESIGN §4.2).
  */
-export type CheckProgress = { phase: "building" | "visible" | "hidden"; done: number; total: number };
+/** A visible test's result as it finishes: what Results shows for it. Hidden tests never have one. */
+export type VisibleTestResult = { name: string; status: Status; message?: string; actual?: string };
+export type CheckProgress = { phase: "building" | "visible" | "hidden"; done: number; total: number; test?: VisibleTestResult };
 
 async function judge(ws: string, slug: string | undefined, includeHidden: boolean, bound?: string, listener?: (p: CheckProgress) => void) {
   // A listener that throws is dropped; the check goes on.
@@ -561,9 +583,20 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
         if (track.build) onProgress?.({ phase: "building", done: 0, total: 0 });
         else report(0);
       }
-      const follow = onProgress && set === "visible" ? { onProgress: (m: "built" | number) => report(m === "built" ? 0 : m) } : {};
-      const run: IoRun = await runIo(track, set, src, t, follow);
       const expected = Object.fromEntries(Object.entries(record.expected ?? {}).filter(([k]) => k.startsWith(`${set}/`)));
+      // Each visible test's result as it finishes, graded as Results grades it. The final grade still decides:
+      // a flood or a memory kill afterwards makes every test an error.
+      let finished = 0;
+      const onCase = (c: CaseFrames) => {
+        const name = `visible/${c.name}`;
+        if (!(name in expected)) return;
+        const [r] = gradeIo([{ ...c, name }], { [name]: expected[name]! });
+        finished += 1;
+        const test = { name, status: r!.status, ...(r!.message ? { message: r!.message } : {}), ...(r!.actual !== undefined ? { actual: r!.actual } : {}) };
+        onProgress?.({ phase: "visible", done: Math.min(finished, total), total, test });
+      };
+      const follow = onProgress && set === "visible" ? { onProgress: (m: "built" | number) => report(m === "built" ? 0 : m), onCase } : {};
+      const run: IoRun = await runIo(track, set, src, t, follow);
       tests.push(...gradeIoRun(run, expected));
     } else {
       onProgress?.({ phase: set, done: 0, total: 0 });

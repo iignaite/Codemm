@@ -284,18 +284,21 @@ const focusables = (page: Page) =>
 /**
  * Presses Tab until the control named `name` has focus. It waits for the control first, so a screen still loading
  * (the agent list, a lesson) is never tabbed through early. Then one lap through every focusable element, plus the
- * stop on the page itself, must reach it, or it fails.
+ * stop on the page itself, must reach it, or it fails. The lap is counted again before each press: a screen that
+ * was still swapping in when the count began (the next lesson after Next) has more controls once it's there.
  */
 async function tabTo(page: Page, role: 'button' | 'textbox' | 'menuitem' | 'combobox', name: string | RegExp) {
   const target = page.getByRole(role, { name, exact: typeof name === 'string' }).first();
   await expect(target).toBeVisible();
   await expect(target).toBeEnabled();
-  const laps = (await focusables(page)) + 2;
-  for (let i = 0; i < laps; i++) {
-    if (await target.evaluate((el) => el === document.activeElement)) return;
+  let presses = 0;
+  while (!(await target.evaluate((el) => el === document.activeElement))) {
+    if (presses >= (await focusables(page)) + 2) {
+      throw new Error(`Tab never reached ${role} "${name}" in ${presses} presses on:\n${await page.locator('body').ariaSnapshot()}`);
+    }
     await page.keyboard.press('Tab');
+    presses++;
   }
-  throw new Error(`Tab never reached ${role} "${name}" in ${laps} presses on:\n${await page.locator('body').ariaSnapshot()}`);
 }
 
 async function press(page: Page, name: string | RegExp) {
@@ -387,10 +390,11 @@ test('the journey works with the keyboard alone', async () => {
   await app.close();
 });
 
-// Run (§4.10): the terminal pane passes WCAG AA while a program runs and after its time is up, and works by keyboard.
+// Run (§4.10): the terminal pane passes WCAG AA while a program runs and with test output, and works by keyboard.
+// The program gets the full 2 minutes, so the scans never race its time limit.
 test('the terminal pane passes WCAG AA checks and works with the keyboard alone', async () => {
   test.setTimeout(120_000);
-  const { app, page } = await launch('run-time-up');
+  const { app, page } = await launch('io-track');
   await toActivity(page, 'Greet by name');
   const log = page.getByRole('log', { name: 'Terminal for Greet by name, as text' });
   await press(page, 'Run');
@@ -405,6 +409,20 @@ test('the terminal pane passes WCAG AA checks and works with the keyboard alone'
   await expect(log).toContainText('Hello, Ada!');
   await expect(log).toContainText('Exited with code 0.');
 
+  // Try it prints each visible test into the pane as it finishes.
+  await press(page, 'Try it');
+  await expect(log).toContainText('✗ 0 of 2 visible tests passed');
+  await expect(log).toContainText('$ python3 main.py  (test 02)');
+  await audit(page, 'terminal, Try it');
+  await app.close();
+});
+
+// The time limit: the pane and its header say the time is up, and pass WCAG AA.
+test('the terminal pane says when the time is up', async () => {
+  test.setTimeout(120_000);
+  const { app, page } = await launch('run-time-up');
+  await toActivity(page, 'Greet by name');
+  const log = page.getByRole('log', { name: 'Terminal for Greet by name, as text' });
   await press(page, 'Run');
   await expect(log).toContainText("Time's up. The program was stopped after 3 seconds.", { timeout: 10_000 });
   await expect(page.getByRole('region', { name: 'Terminal for Greet by name' })).toContainText("Time's up");
