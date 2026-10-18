@@ -88,6 +88,14 @@ describe("runtime guidance", () => {
 });
 
 describe("buildProblem", () => {
+  it("blames Docker, not the track, when the build loses the daemon", () => {
+    const line = "ERROR: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?";
+    const problem = buildProblem(`#5 [2/3] RUN install\n${line}\n`);
+    expect(problem?.kind).toBe("docker");
+    expect(problem?.message).toContain("Cannot connect to the Docker daemon");
+    expect(problem?.message).toMatch(/not a problem with the track files/);
+  });
+
   it("blames Docker, not the track, when its credential helper fails", () => {
     const line = '#2 ERROR: error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``';
     const problem = buildProblem(`#2 [internal] load metadata for docker.io/library/alpine:3.20\n${line}\n`);
@@ -151,8 +159,11 @@ describe("buildStep", () => {
 });
 
 describe("runtimeKind", () => {
-  it("reads a runtime's own failure as out of disk when it says so, and as Docker otherwise", () => {
+  it("reads a runtime's own failure as out of disk or offline when it says so, and as Docker otherwise", () => {
     expect(runtimeKind("docker: Error response from daemon: write /var/lib/docker/x: no space left on device.")).toBe("disk");
+    expect(runtimeKind("Error: not enough disk space")).toBe("disk");
+    expect(runtimeKind("docker: Error response from daemon: dial tcp: network is unreachable.")).toBe("offline");
+    expect(runtimeKind("Error: could not resolve host registry-1.docker.io")).toBe("offline");
     expect(runtimeKind("docker: Error response from daemon: Conflict.")).toBe("docker");
   });
 });

@@ -300,6 +300,15 @@ export function buildProblem(log: string): BuildProblem | undefined {
         "after freeing space (`docker system prune` removes unused images and build cache).",
     };
   }
+  // The daemon going away mid-build is this computer's Docker problem.
+  const daemon = log.split("\n").find((l) => /Cannot connect to the Docker daemon/i.test(l));
+  if (daemon) {
+    return {
+      kind: "docker",
+      message: `Docker stopped answering during the build (${daemon.trim().slice(0, 300)}), so nothing was installed. ` +
+        `Check that Docker Desktop is running. ${NOT_THE_TRACK} afterwards.`,
+    };
+  }
   // Docker's credential helper failing (a missing or locked keychain helper) is this computer's Docker problem.
   const credentials = log.split("\n").find((l) => /error getting credentials/i.test(l));
   if (credentials) {
@@ -321,8 +330,12 @@ export function buildProblem(log: string): BuildProblem | undefined {
   return undefined;
 }
 
-/** The kind of a runtime's own failure, from its diagnostics: out of disk when it says so, else Docker. */
-export const runtimeKind = (text: string): "disk" | "docker" => (/no space left on device/i.test(text) ? "disk" : "docker");
+/** The kind of a runtime's own failure, from its diagnostics: out of disk or offline when it says so, else Docker. */
+export function runtimeKind(text: string): "disk" | "offline" | "docker" {
+  if (/not enough disk space|ran out of disk space|no space left on device/i.test(text)) return "disk";
+  if (/couldn't reach the network|could not resolve host|network is unreachable/i.test(text)) return "offline";
+  return "docker";
+}
 
 /** A track build is killed after 10 minutes (DESIGN §4.4). */
 export const BUILD_TIMEOUT_MS = 600_000;
