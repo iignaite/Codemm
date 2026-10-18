@@ -19,6 +19,12 @@ test('the build fills in every absolute URL', () => {
     assert.equal(html.includes('%SITE_URL%'), false);
     assert.match(html, /<meta property="og:image" content="https:\/\/codemm\.example\.org\/og\.png">/);
     assert.ok(readFileSync(join(out, 'release.js'), 'utf8').length > 0);
+    // Without its script, the form must never submit the email in a URL.
+    assert.match(html, /<form class="gate" id="get" method="post" action="\/api\/subscribe"/);
+    assert.match(html, /id="gate-submit" type="submit" disabled>/);
+    for (const page of ['index.html', 'downloads.html', 'unsubscribe.html']) {
+      assert.doesNotMatch(readFileSync(join(out, page), 'utf8'), /<script(?![^>]*\bsrc=)|\son[a-z]+=|style="/, page);
+    }
   } finally {
     rmSync(join(out, '..'), { recursive: true, force: true });
   }

@@ -1,7 +1,7 @@
-// Copies public/ to dist/ and fills in the site's absolute URL, which the
-// canonical link and Open Graph tags need. On Vercel it is the production
+// Copies public/ to dist/ and fills in the site's absolute URL in every page,
+// which the canonical link and Open Graph tags need. On Vercel it is the production
 // domain; set SITE_URL to override it.
-import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,8 +15,10 @@ export function build(out, env) {
   const src = fileURLToPath(new URL('public', import.meta.url));
   rmSync(out, { recursive: true, force: true });
   cpSync(src, out, { recursive: true });
-  const index = join(out, 'index.html');
-  writeFileSync(index, readFileSync(index, 'utf8').replaceAll('%SITE_URL%', siteUrl(env)));
+  for (const page of readdirSync(out).filter((f) => f.endsWith('.html'))) {
+    const file = join(out, page);
+    writeFileSync(file, readFileSync(file, 'utf8').replaceAll('%SITE_URL%', siteUrl(env)));
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

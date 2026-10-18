@@ -1,74 +1,87 @@
-import { detectPlatform, pickRelease, downloads } from './release.js';
+// The email gate on the landing page.
+const MIN_MS = 3200; // the server refuses a submit sooner than 3 s after the form token
 
-const REPO = 'https://github.com/iignaite/Codemm';
-const API = 'https://api.github.com/repos/iignaite/Codemm/releases?per_page=30';
-const CACHE = 'codemm-releases';
-const FRESH_MS = 10 * 60 * 1000;
+const form = document.getElementById('get');
+const input = document.getElementById('email');
+const button = document.getElementById('gate-submit');
+const status = document.getElementById('gate-status');
 
-const readCache = () => {
-  try { return JSON.parse(localStorage.getItem(CACHE)); } catch { return null; }
-};
+let state = { token: null, issued: 0, available: null };
 
-/** The release list, or null if GitHub can't be reached and nothing is cached. */
-async function loadReleases() {
-  const cached = readCache();
-  if (cached && Date.now() - cached.at < FRESH_MS) return cached.releases;
+async function loadForm() {
   try {
-    const res = await fetch(API, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
-    const releases = await res.json();
-    try { localStorage.setItem(CACHE, JSON.stringify({ at: Date.now(), releases })); } catch {}
-    return releases;
+    const res = await fetch('/api/form', { cache: 'no-store' });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    state = { token: data.token, issued: Date.now(), available: data.available };
+    if (data.available === false) {
+      document.getElementById('gate-title').textContent = 'Be first to try Codemm.';
+      document.getElementById('gate-lead').textContent = 'The first beta is on its way. Leave your email and we\'ll tell you when it\'s out.';
+      button.textContent = 'Notify me';
+    }
   } catch {
-    return cached?.releases ?? null;
+    state.token = null;
   }
 }
 
-async function platform() {
-  const ua = navigator.userAgentData;
-  let architecture = '';
-  try { architecture = (await ua?.getHighEntropyValues(['architecture']))?.architecture ?? ''; } catch {}
-  return detectPlatform({ userAgent: navigator.userAgent, maxTouchPoints: navigator.maxTouchPoints, uaPlatform: ua?.platform, architecture });
-}
-
-const el = (tag, props = {}, ...children) => {
-  const node = Object.assign(document.createElement(tag), props);
-  node.append(...children);
-  return node;
+const say = (text, kind) => {
+  status.textContent = text;
+  status.className = `gate-status ${kind ?? ''}`;
 };
-// Only ever link to GitHub.
-const safe = (url) => (typeof url === 'string' && url.startsWith('https://github.com/') ? url : `${REPO}/releases`);
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function content(d) {
-  if (d.status === 'soon') {
-    return [el('div', { className: 'soon' },
-      el('p', { className: 'soon-title' }, 'Coming soon'),
-      el('p', { className: 'note' }, 'The first beta is on its way. Follow the project on GitHub to hear when it\'s out.'),
-      el('a', { className: 'btn secondary', href: REPO }, 'Follow on GitHub'))];
+form.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!input.checkValidity()) {
+    input.setAttribute('aria-invalid', 'true');
+    say('Enter a valid email address.', 'error');
+    input.focus();
+    return;
   }
-  const parts = [];
-  if (!d.primary) parts.push(el('p', { className: 'desktop-only' }, 'Codemm is a desktop app for a Mac or a Windows PC.'));
-  if (d.primary) {
-    parts.push(el('a', { className: 'btn primary', href: safe(d.primary.url) },
-      el('span', { className: 'btn-label' }, d.primary.label),
-      el('span', { className: 'btn-detail' }, d.primary.detail)));
-  }
-  const version = el('p', { className: 'version' }, 'Version ', el('code', {}, d.version));
-  if (d.beta) version.append(el('span', { className: 'pill' }, 'Beta'), el('a', { href: '#first-launch' }, 'Opening a beta build'));
-  parts.push(version);
-  if (d.others.length) {
-    const others = el('p', { className: 'others' }, el('span', {}, d.primary ? 'Also for' : 'Download for'));
-    for (const o of d.others) others.append(el('a', { href: safe(o.url) }, o.name));
-    parts.push(others);
-  }
-  return parts;
-}
+  input.removeAttribute('aria-invalid');
+  if (!state.token) await loadForm();
+  if (!state.token) return say('Couldn\'t reach Codemm. Check your connection and try again.', 'error');
 
-function render(d) {
-  for (const box of document.querySelectorAll('[data-download]')) box.replaceChildren(...content(d));
-  for (const note of document.querySelectorAll('[data-beta]')) note.hidden = !d.beta;
-}
+  button.disabled = true;
+  say('One moment.');
+  try {
+    await wait(Math.max(0, state.issued + MIN_MS - Date.now()));
+    const res = await fetch('/api/subscribe', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email: input.value, token: state.token, company: form.elements.company.value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 400) await loadForm();
+      if (res.status === 400 && /valid email/.test(data.error ?? '')) input.setAttribute('aria-invalid', 'true');
+      return say(data.error ?? 'Something went wrong. Try again.', 'error');
+    }
+    if (state.available === false) {
+      form.classList.add('done');
+      return say('You\'re on the list. We\'ll email you when the beta is out.', 'ok');
+    }
+    // The token travels in the fragment, which never reaches a server or a Referer header.
+    location.assign(`/downloads#${new URLSearchParams({ d: data.download })}`);
+  } catch {
+    say('Couldn\'t reach Codemm. Check your connection and try again.', 'error');
+  } finally {
+    button.disabled = false;
+  }
+});
 
-const [releases, p] = await Promise.all([loadReleases(), platform()]);
-// Unknown (GitHub unreachable): keep the static link to the Releases page.
-if (releases) render(downloads(pickRelease(releases), p));
+input.addEventListener('input', () => {
+  if (input.hasAttribute('aria-invalid') && input.checkValidity()) {
+    input.removeAttribute('aria-invalid');
+    say('');
+  }
+});
+
+// Links to #get land on the form ready to type.
+document.addEventListener('click', (e) => {
+  if (e.target.closest('a[href="#get"]')) setTimeout(() => input.focus({ preventScroll: true }), 400);
+});
+
+// The button stays disabled until this handler is attached, so the form never submits natively.
+button.disabled = false;
+loadForm();

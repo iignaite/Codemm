@@ -1,6 +1,6 @@
 name: Site
 
-# The download website in site/ (deployed by Vercel, not by this workflow).
+# The website in site/ (deployed by Vercel, not by this workflow).
 on:
   push:
     branches: [main]
@@ -14,11 +14,18 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: site
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test 'site/test/*.test.js'
-      - run: node site/build.mjs
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=low
+      - run: npm test
+      - run: node build.mjs
