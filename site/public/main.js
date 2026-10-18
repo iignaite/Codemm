@@ -15,8 +15,7 @@ async function loadForm() {
     const data = await res.json();
     state = { token: data.token, issued: Date.now(), available: data.available };
     if (data.available === false) {
-      document.getElementById('gate-title').textContent = 'Be first to try Codemm.';
-      document.getElementById('gate-lead').textContent = 'The first beta is on its way. Leave your email and we\'ll tell you when it\'s out.';
+      document.getElementById('gate-note').textContent = 'The beta is on its way. We\'ll email you when it\'s out; unsubscribe anytime.';
       button.textContent = 'Notify me';
     }
   } catch {

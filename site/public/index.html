@@ -27,6 +27,7 @@
   <link rel="preload" href="/fonts/atkinson-hyperlegible-next-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/main.js"></script>
+  <script type="module" src="/hero.js"></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -52,14 +53,12 @@
     <section class="hero wrap" aria-labelledby="title">
       <div class="hero-text">
         <h1 id="title">Supercharge your learning with Codemm.</h1>
-        <p class="lead">Your coding agent writes the lessons and exercises. Codemm proves they work, grades your code in a sandbox, and tracks what you've mastered.</p>
+        <p class="lead">Lessons and exercises from your own coding agent, proven and graded by Codemm.</p>
 
         <form class="gate" id="get" method="post" action="/api/subscribe" novalidate>
-          <h2 class="gate-title" id="gate-title">Get Codemm for Mac and Windows.</h2>
-          <p class="gate-lead" id="gate-lead">Enter your email and we'll take you to the download.</p>
           <div class="field-row">
             <label class="sr" for="email">Email</label>
-            <input id="email" name="email" type="email" inputmode="email" autocomplete="email" required maxlength="254" placeholder="you@example.com" aria-describedby="gate-privacy gate-status">
+            <input id="email" name="email" type="email" inputmode="email" autocomplete="email" required maxlength="254" placeholder="Your email" aria-describedby="gate-note gate-status">
             <button class="btn primary" id="gate-submit" type="submit" disabled>Get Codemm</button>
           </div>
           <div class="hp" aria-hidden="true">
@@ -67,42 +66,19 @@
             <input id="company" name="company" type="text" tabindex="-1" autocomplete="off">
           </div>
           <p class="gate-status" id="gate-status" role="status" aria-live="polite"></p>
-          <p class="gate-privacy" id="gate-privacy">We'll email you about Codemm releases. Unsubscribe anytime.</p>
-          <noscript><p class="gate-privacy">The form needs JavaScript. The source is on <a href="https://github.com/iignaite/Codemm">GitHub</a>.</p></noscript>
+          <p class="gate-note" id="gate-note">For Mac and Windows. We'll email you about releases; unsubscribe anytime.</p>
+          <noscript><p class="gate-note">The form needs JavaScript. The source is on <a href="https://github.com/iignaite/Codemm">GitHub</a>.</p></noscript>
         </form>
 
-        <p class="source">For Claude Code, Codex or Cursor, on your own plan. Open source, always on <a href="https://github.com/iignaite/Codemm">GitHub</a>.</p>
+        <p class="source">Works with Claude Code, Codex and Cursor. Open source on <a href="https://github.com/iignaite/Codemm">GitHub</a>.</p>
       </div>
 
-      <div class="connect" aria-hidden="true">
-        <img class="connect-mark" src="/favicon.svg" alt="" width="440" height="440">
-        <svg class="art" viewBox="0 0 400 384" width="400" height="384">
-          <g fill="none" stroke-linecap="round">
-            <path class="beam" pathLength="100" d="M110 88 C 110 126, 200 112, 200 150"/>
-            <path class="beam" pathLength="100" d="M200 88 L 200 150"/>
-            <path class="beam" pathLength="100" d="M290 88 C 290 126, 200 112, 200 150"/>
-            <path class="flow f1" pathLength="100" d="M110 88 C 110 126, 200 112, 200 150"/>
-            <path class="flow f2" pathLength="100" d="M200 88 L 200 150"/>
-            <path class="flow f3" pathLength="100" d="M290 88 C 290 126, 200 112, 200 150"/>
-          </g>
-          <g class="tile t1"><rect x="82" y="30" width="56" height="56" rx="15" fill="#fff"/><image href="/img/agents/claude.svg" x="94" y="42" width="32" height="32"/></g>
-          <g class="tile t2"><rect x="172" y="30" width="56" height="56" rx="15" fill="#fff"/><image href="/img/agents/codex.svg" x="184" y="42" width="32" height="32"/></g>
-          <g class="tile t3"><rect x="262" y="30" width="56" height="56" rx="15" fill="#fff"/><image href="/img/agents/cursor.svg" x="275" y="43" width="30" height="30"/></g>
-          <rect class="ring" x="166" y="150" width="68" height="68" rx="19" fill="none" stroke="#3DDB6C" stroke-width="3"/>
-          <rect class="ring r2" x="166" y="150" width="68" height="68" rx="19" fill="none" stroke="#3DDB6C" stroke-width="2"/>
-          <g class="core">
-            <rect x="166" y="150" width="68" height="68" rx="19" fill="#0B1F44" stroke="#2A4677" stroke-width="1.5"/>
-            <polyline points="212,168 187,184 212,200" fill="none" stroke="#3DDB6C" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
-          </g>
-          <g class="status">
-            <rect x="248" y="166" width="132" height="36" rx="18" fill="#fff"/>
-            <circle class="spin" cx="268" cy="184" r="8" fill="none" stroke="#0E7C35" stroke-width="3" stroke-dasharray="14 40" stroke-linecap="round"/>
-            <g class="tick"><circle cx="268" cy="184" r="10" fill="#13883D"/><path d="M263.5 184.5l3 3 6-6.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
-            <text class="was" x="285" y="189.5">Connecting</text>
-            <text class="now" x="285" y="189.5">Connected</text>
-          </g>
-          <svg class="emm" x="114" y="230" width="172" height="146" viewBox="0 0 200 170">
-          <rect x="14" y="140" width="176" height="12" rx="6" fill="#C9D5EA"/>
+      <div class="orbit">
+        <div class="orbit-glow" aria-hidden="true"></div>
+        <div class="orbit-scene">
+          <svg class="orbit-ring" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><ellipse cx="50" cy="50" rx="49" ry="49"/></svg>
+          <div class="core-wrap">
+            <svg class="emm" viewBox="0 0 200 170" width="200" height="170" aria-hidden="true">
           <path d="M60 108 C 34 106, 20 128, 28 146 C 36 162, 62 160, 64 144 C 66 132, 50 128, 46 138" fill="none" stroke="#17A045" stroke-width="13" stroke-linecap="round"/>
           <path d="M82 124 L 76 142" stroke="#17A045" stroke-width="11" stroke-linecap="round"/>
           <path d="M120 126 L 126 142" stroke="#17A045" stroke-width="11" stroke-linecap="round"/>
@@ -125,8 +101,16 @@
           <circle cx="146" cy="110" r="5" fill="#FF8FA3" opacity=".75"/>
           <path d="M140 122 L 146 142" stroke="#17A045" stroke-width="11" stroke-linecap="round"/>
           <path d="M96 132 L 92 142" stroke="#17A045" stroke-width="11" stroke-linecap="round"/>
-          </svg>
-        </svg>
+            </svg>
+            <a class="core" href="#get" aria-label="Get Codemm"><img src="/favicon.svg" alt="" width="72" height="72"></a>
+          </div>
+          <button class="agent" type="button" data-agent="0" aria-label="Claude Code"><img src="/img/agents/claude.svg" alt="" width="44" height="44"></button>
+          <button class="agent" type="button" data-agent="1" aria-label="Codex"><img src="/img/agents/codex.svg" alt="" width="44" height="44"></button>
+          <button class="agent" type="button" data-agent="2" aria-label="Cursor"><img src="/img/agents/cursor.svg" alt="" width="40" height="40"></button>
+        </div>
+        <button class="motion" type="button" aria-pressed="false" aria-label="Pause animation" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-pause" d="M8 5v14M16 5v14"/><path class="i-play" d="M7 5l12 7-12 7z"/></svg>
+        </button>
       </div>
     </section>
 
