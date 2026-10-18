@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
@@ -47,6 +47,20 @@ describe.runIf(posix)("check progress", () => {
     });
     expect(view.recorded).toBe(true);
     expect(store.readEvents("shell")).toHaveLength(1);
+  });
+
+  // Root writes anywhere, so a read-only folder can't stand in for a full disk there.
+  it.runIf(process.getuid?.() !== 0)("records nothing when the workspace can't be updated, so \"not counted\" stays true and a retry counts once", async () => {
+    const ws = await installedExercise();
+    fakeDocker("streams");
+    // The check grades; then codemm.json can't be written (a full disk behaves the same).
+    chmodSync(ws, 0o555);
+    try {
+      await expect(app.checkExercise(ws)).rejects.toThrow();
+    } finally {
+      chmodSync(ws, 0o755);
+    }
+    expect(store.readEvents("shell")).toEqual([]);
   });
 
   it("records nothing when Docker fails mid-check, whatever progress was reported", async () => {
