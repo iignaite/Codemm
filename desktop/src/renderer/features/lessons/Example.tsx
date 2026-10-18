@@ -4,7 +4,7 @@ import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
 import { Button } from '../../ui/Button';
 import { Terminal, type TerminalHandle } from '../../ui/Terminal';
-import { useRun } from '../practice/useRun';
+import { useRun } from '../../app/useRun';
 
 /**
  * One runnable example: its files, and Run, which runs it in the sandbox through core. Nothing is recorded.
@@ -30,7 +30,7 @@ function LiveRun({ lesson, index }: { lesson: Lesson; index: number }) {
   const api = useApi();
   const { fail } = useRouter();
   const terminal = useRef<TerminalHandle>(null);
-  const program = useRun((run) => api.runExampleLive(lesson.id, index, run), undefined, terminal, async () => undefined, fail);
+  const program = useRun({ begin: (run) => api.runExampleLive(lesson.id, index, run), terminal, fail });
   // The pane appears with the first Run and stays.
   const [ran, setRan] = useState(false);
   return (
