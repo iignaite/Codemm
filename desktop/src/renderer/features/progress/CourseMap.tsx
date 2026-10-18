@@ -1,25 +1,22 @@
 import type { CourseView, TopicView, Usage } from '../../../shared/api';
 import { useApi } from '../../app/api';
-import { settled } from '../../app/course';
-import { useRouter, type Route } from '../../app/router';
-import { Failed, Stalled } from '../../app/Shell';
+import { useRouter } from '../../app/router';
+import { Failed, Stalled } from '../../app/Problems';
+import { useCourse } from '../../app/useCourse';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { Goal } from '../learn/Goal';
 import { Complete } from './Complete';
+import { continueRoute, reviewText } from '../../app/course';
 
 const STATE_LABEL = { mastered: 'Mastered', now: 'Now', later: 'Later' } as const;
-
-function continueRoute(topic: TopicView): Route {
-  return topic.activity === 'open' ? { to: 'practice', concept: topic.id } : { to: 'topic', topicId: topic.id };
-}
 
 /** Lessons, then an activity, per topic, with mastery so far. */
 export function CourseMap() {
   const api = useApi();
-  const { data: course, error, reload } = useLoad(() => api.course(), [], settled, undefined, true);
+  const { data: course, error, reload } = useCourse();
   // Read again whenever the course is: jobs that finish while the map is open add to it.
   const { data: usage } = useLoad(() => api.usage(), [course]);
   if (error) return <Failed error={error} retry={reload} />;
@@ -85,7 +82,7 @@ function Aside({ course, usage }: { course: CourseView; usage: Usage | null }) {
             <div className="bar" role="img" aria-label={`${t.title}: ${t.state === 'mastered' ? 'mastered' : 'in progress'}`}>
               <i style={{ width: `${Math.round(t.mastery * 100)}%`, ...stagger(0, 500 + i * 100) }} />
             </div>
-            {t.reviewIn && <span className="soon">{t.reviewIn === 1 ? 'Review tomorrow' : `Review in ${t.reviewIn} days`}</span>}
+            {t.reviewIn && <span className="soon">{reviewText(t.reviewIn)}</span>}
           </div>
         ))}
       </section>

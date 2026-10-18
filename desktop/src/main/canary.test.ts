@@ -64,6 +64,8 @@ describe('the learner-safe boundary (D4)', () => {
       jobProgress: [],
       connect: ['claude'],
       chooseModel: ['claude', 'opus'],
+      installAgent: ['cursor'],
+      signIn: ['claude'],
       computer: [],
       installDocker: [],
       openDocker: [],

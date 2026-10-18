@@ -8,10 +8,12 @@ import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type 
   NO_AGENT,
   OFFLINE,
   PLAN_LIMIT,
+  REBUILD,
   SIGNED_OUT,
   type Activity,
   type Agent,
   type AgentId,
+  type AgentInstall,
   type CheckResult,
   type CodemmApi,
   type Concept,
@@ -35,8 +37,12 @@ export interface MockOptions {
   platform?: Platform;
   /** Agents that aren't installed, or whose sign-in check fails. */
   agents?: Partial<Record<AgentId, 'missing' | 'signed-out'>>;
+  /** The track's image is missing or changed: checks aren't counted until it's rebuilt. */
+  imageMissing?: boolean;
   /** Read on every call: agent jobs fail with this until it's cleared. */
   agentProblem?: 'signed-out' | 'plan-limit' | 'offline' | 'failed';
+  /** Installing an agent stops with this problem. */
+  agentInstallProblem?: NonNullable<AgentInstall['problem']>;
   untested?: boolean;
   setupProblem?: SetupProblem;
   /** Read on every call: background work stopped with this until the learner tries again or connects again. */
@@ -67,11 +73,15 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'low-disk': { setupProblem: 'disk' },
   'setup-gates': { setupProblem: 'gates' },
   'no-agent': { agents: { claude: 'missing', codex: 'missing', cursor: 'missing' } },
+  'nothing-installed': { docker: 'missing', agents: { claude: 'missing', codex: 'missing', cursor: 'missing' } },
+  'nothing-installed-offline': { docker: 'missing', agents: { claude: 'missing', codex: 'missing', cursor: 'missing' }, agentInstallProblem: 'offline' },
+  'agent-install-offline': { agents: { claude: 'missing', codex: 'missing', cursor: 'missing' }, agentInstallProblem: 'offline' },
   'signed-out': { agents: { claude: 'signed-out', codex: 'signed-out', cursor: 'missing' } },
   'sign-in-expires': { later: { after: 'approve', set: { agentProblem: 'signed-out' } } },
   'plan-limit': { later: { after: 'approve', set: { agentProblem: 'plan-limit' } } },
   'untested-version': { untested: true },
   'io-track': { style: 'io' },
+  'image-missing': { imageMissing: true },
   'run-time-up': { style: 'io', runLimitMs: 3000 },
   'slow-jobs': { slow: 4 },
   'quiet-jobs': { slow: 4, quiet: true },
@@ -115,9 +125,9 @@ const DOCKER_DOWN: Record<Exclude<Docker, 'ready'>, string> = {
 };
 
 const AGENTS: Omit<Agent, 'state' | 'untested'>[] = [
-  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', signIn: 'claude auth login', models: modelChoices('claude'), model: modelFor('claude'), experimental: false },
-  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', signIn: 'codex login', models: modelChoices('codex'), model: modelFor('codex'), experimental: false },
-  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', signIn: 'cursor-agent login', models: modelChoices('cursor'), model: modelFor('cursor'), experimental: true },
+  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', signIn: 'claude auth login', canInstall: true, models: modelChoices('claude'), model: modelFor('claude'), experimental: false },
+  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', signIn: 'codex login', canInstall: true, models: modelChoices('codex'), model: modelFor('codex'), experimental: false },
+  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', signIn: 'cursor-agent login', canInstall: false, models: modelChoices('cursor'), model: modelFor('cursor'), experimental: true },
 ];
 
 const TOPICS: [string, string[]][] = [
@@ -197,7 +207,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   let install: DockerInstall | undefined;
   const INSTALL_STEPS: DockerInstall[] = [{ phase: 'downloading', progress: 0.6 }, { phase: 'checking' }, { phase: 'installing' }, { phase: 'starting' }];
   const docker = () => dockerNow ?? options.docker ?? 'ready';
-  const notCounted = () => ({ kind: 'not-counted' as const, reason: DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] });
+  const notCounted = () => ({ kind: 'not-counted' as const, reason: options.imageMissing ? REBUILD : DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] });
+  const counts = () => docker() === 'ready' && !options.imageMissing;
   const find = <T>(map: Map<string, T>, key: string): T => {
     const value = map.get(key);
     if (!value) throw new Error(`Unknown id: ${key}`);
@@ -422,9 +433,38 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
   /** The agent the learner last tried to connect: once it's signed in, it connects. */
   let tried: AgentId | undefined;
+  /** Installs Codemm started, one step further on each look. */
+  const installs = new Map<AgentId, AgentInstall>();
+  const AGENT_STEPS: AgentInstall[] = [{ phase: 'downloading', progress: 0.4 }, { phase: 'checking' }, { phase: 'installing' }];
+  const desktopHost = () => (options.platform ?? hostPlatform()) !== 'linux';
 
   return {
+    async installAgent(id) {
+      const agent = agents.find((a) => a.id === id)!;
+      if (!agent.canInstall || !desktopHost() || agent.state !== 'missing') return;
+      installs.set(id, { phase: 'downloading', progress: 0 });
+    },
+
+    async signIn(id) {
+      tried = id;
+      // The learner signs in with the agent's own login; the next look sees it.
+      if (options.agents?.[id] === 'signed-out') delete options.agents[id];
+    },
+
     async agents() {
+      for (const [id, install] of installs) {
+        if (install.phase === 'done' || install.phase === 'failed') continue;
+        const next = AGENT_STEPS[AGENT_STEPS.findIndex((s) => JSON.stringify(s) === JSON.stringify(install)) + 1];
+        if (next) installs.set(id, next);
+        else if (options.agentInstallProblem) installs.set(id, { phase: 'failed', problem: options.agentInstallProblem });
+        else {
+          installs.set(id, { phase: 'done' });
+          // A fresh install isn't signed in yet: the learner signs in with the agent's own login.
+          tried = id;
+          agents.find((a) => a.id === id)!.state = 'signed-out';
+          options.agents = { ...options.agents, [id]: 'signed-out' };
+        }
+      }
       // A signed-out agent is checked again on every look, as main does.
       for (const a of agents.filter((x) => x.state === 'signed-out' && options.agents?.[x.id] !== 'signed-out')) {
         a.state = tried === a.id ? 'connected' : 'not-connected';
@@ -432,6 +472,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       }
       return agents.map((a) => ({
         ...a,
+        canInstall: a.canInstall && desktopHost(),
+        ...(installs.has(a.id) ? { install: installs.get(a.id) } : {}),
         state: a.state === 'connected' && options.agentProblem === 'signed-out' ? 'signed-out' : a.state,
         untested: Boolean(options.untested) && a.state !== 'missing',
       }));
@@ -659,7 +701,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async tryIt(activityId, run) {
       const { activity } = find(activities, activityId);
-      if (docker() !== 'ready') return notCounted();
+      if (!counts()) return notCounted();
       if (activity.run) {
         const tests = ioTests(run, activity);
         return { kind: 'ran', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests };
@@ -677,7 +719,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async check(activityId, run): Promise<CheckResult> {
       const record = find(activities, activityId);
-      if (docker() !== 'ready') return notCounted();
+      if (!counts()) return notCounted();
       if (++checks === 1) happen('check');
       if (!record.activity.run) progress(run, 'visible', 2);
       deferred.delete(record.activity.concept);

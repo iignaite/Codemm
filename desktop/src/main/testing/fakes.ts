@@ -102,7 +102,7 @@ export function fakeCore() {
     passed,
     total: 2,
     recorded,
-    tests: [{ name: 'prints one', status: passed === 2 ? 'pass' : 'fail', ...(passed === 2 ? {} : { actual: '0' }) }, { name: 'hidden #1', status: 'pass' }],
+    tests: [{ name: 'prints one', status: passed === 2 ? 'pass' : 'fail', ...(passed === 2 ? {} : { actual: '0' }) }, { name: 'hidden #1', index: 1, status: 'pass' }],
   });
   const app: CoreApp = {
     JOB_BRIEFS,

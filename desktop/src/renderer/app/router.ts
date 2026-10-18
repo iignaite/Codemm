@@ -5,6 +5,7 @@ export type Route =
   | { to: 'welcome' }
   | { to: 'connect'; then?: Route }
   | { to: 'computer'; then: Route }
+  | { to: 'setup' }
   | { to: 'goal' }
   | { to: 'research'; goal: Goal }
   | { to: 'course'; roadmap: Roadmap }
