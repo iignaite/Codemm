@@ -1,6 +1,6 @@
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed } from '../../app/Shell';
+import { Failed } from '../../app/Problems';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
