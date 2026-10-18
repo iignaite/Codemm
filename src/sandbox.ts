@@ -293,41 +293,23 @@ export type BuildProblem = { message: string; kind: "docker" | "disk" | "offline
 
 /** Reads a failed build's output for causes outside the track: no network, or no disk space. */
 export function buildProblem(log: string): BuildProblem | undefined {
-  // Disk first, then the network, then Docker itself, as a log can show more than one.
-  if (/no space left on device|not enough disk space|ran out of disk space/i.test(log)) {
+  if (/no space left on device/i.test(log)) {
     return {
       kind: "disk",
       message: `Docker ran out of disk space while building the track, so nothing was installed. ${NOT_THE_TRACK} ` +
         "after freeing space (`docker system prune` removes unused images and build cache).",
     };
   }
-  const lineOf = (pattern: RegExp) => log.split("\n").find((l) => pattern.test(l))?.trim().slice(0, 300);
-  const offline = lineOf(/temporary failure (?:in name resolution|resolving)|could not resolve (?:host|proxy)|no such host|network is unreachable|couldn't reach the network|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)/i);
-  if (offline) {
+  const offline = /temporary failure (?:in name resolution|resolving)|could not resolve (?:host|proxy)|no such host|network is unreachable|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)/i;
+  const line = log.split("\n").find((l) => offline.test(l));
+  if (line) {
     return {
       kind: "offline",
-      message: `The track build couldn't reach the network (${offline}), so nothing was installed. ` +
+      message: `The track build couldn't reach the network (${line.trim().slice(0, 300)}), so nothing was installed. ` +
         `Docker may be offline, or a VPN, proxy or firewall may be blocking it. ${NOT_THE_TRACK} once the connection works.`,
     };
   }
-  // The daemon going away mid-build is this computer's Docker problem.
-  const daemon = lineOf(/Cannot connect to the Docker daemon/i);
-  if (daemon) {
-    return {
-      kind: "docker",
-      message: `Docker stopped answering during the build (${daemon}), so nothing was installed. ` +
-        `Check that Docker Desktop is running. ${NOT_THE_TRACK} afterwards.`,
-    };
-  }
-  // Docker's credential helper failing (a missing or locked keychain helper) is this computer's Docker problem.
-  const credentials = lineOf(/error getting credentials/i);
-  if (credentials) {
-    return {
-      kind: "docker",
-      message: `Docker couldn't get registry credentials (${credentials}), so nothing was installed. ` +
-        `Fix Docker's credential helper (or sign in again in Docker Desktop). ${NOT_THE_TRACK} afterwards.`,
-    };
-  }
+  // Anything else is a gate failure, whose kind still shows Docker's own problems (a credential helper, a lost daemon).
   return undefined;
 }
 

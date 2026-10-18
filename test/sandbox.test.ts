@@ -89,29 +89,10 @@ describe("runtime guidance", () => {
 });
 
 describe("buildProblem", () => {
-  it("reads disk before network before Docker, as a build log can show more than one", () => {
-    expect(buildProblem("ERROR: not enough disk space")?.kind).toBe("disk");
-    expect(buildProblem("Docker ran out of disk space")?.kind).toBe("disk");
-    expect(buildProblem("the build couldn't reach the network")?.kind).toBe("offline");
-    expect(buildProblem("Cannot connect to the Docker daemon\nnetwork is unreachable")?.kind).toBe("offline");
-    expect(buildProblem("error getting credentials: network is unreachable")?.kind).toBe("offline");
-    expect(buildProblem("error getting credentials: not enough disk space")?.kind).toBe("disk");
-  });
-
-  it("blames Docker, not the track, when the build loses the daemon", () => {
-    const line = "ERROR: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?";
-    const problem = buildProblem(`#5 [2/3] RUN install\n${line}\n`);
-    expect(problem?.kind).toBe("docker");
-    expect(problem?.message).toContain("Cannot connect to the Docker daemon");
-    expect(problem?.message).toMatch(/not a problem with the track files/);
-  });
-
-  it("blames Docker, not the track, when its credential helper fails", () => {
-    const line = '#2 ERROR: error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``';
-    const problem = buildProblem(`#2 [internal] load metadata for docker.io/library/alpine:3.20\n${line}\n`);
-    expect(problem?.kind).toBe("docker");
-    expect(problem?.message).toMatch(/credentials.*not a problem with the track files/s);
-    expect(problem?.message).toContain("error getting credentials");
+  it("leaves a credential-helper failure to the build gate, which reads it as Docker's problem", () => {
+    const log = '#2 ERROR: error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``';
+    expect(buildProblem(log)).toBeUndefined();
+    expect(new GateError("build", `the image didn't build:\n${log}`).kind).toBe("docker");
   });
 
   it.each([
@@ -182,6 +163,8 @@ describe("gate failures that are this computer's problem", () => {
   it("carry the kind their details show, so setup keeps the proposal, and plain gate failures carry none", () => {
     expect(new GateError("probe pass", "the io pass probe should pass every test:\n  01: error (write: no space left on device)").kind).toBe("disk");
     expect(new GateError("build", "the image didn't build:\nfailed to create container runtime task").kind).toBe("docker");
+    expect(new GateError("build", "the image didn't build:\nCannot connect to the Docker daemon at unix:///var/run/docker.sock").kind).toBe("docker");
+    expect(new GateError("build", "the image didn't build:\nnot enough disk space").kind).toBe("disk");
     expect(new GateError("build", "the image didn't build:\nDocker is running Windows containers").kind).toBe("docker");
     expect(new GateError("build", "the image didn't build:\ncould not resolve host: deb.debian.org").kind).toBe("offline");
     expect(new GateError("starter unsolved", "the unedited starter passes every test.").kind).toBeUndefined();
