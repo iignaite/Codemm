@@ -1,14 +1,8 @@
 // An infrastructure failure during Try it, Check, Run or a lesson example isn't counted (DESIGN §5): the learner
 // sees why, and nothing is recorded.
-import { REBUILD } from '../shared/api';
+import { NOT_COUNTED, REBUILD } from '../shared/api';
 import { infraOf, kindOf } from './core/failures';
 import type { Log } from './log';
-
-const NOT_COUNTED: Record<'docker' | 'disk' | 'offline', string> = {
-  docker: "Docker isn't running.",
-  disk: 'Docker ran out of disk space.',
-  offline: "Docker couldn't reach the network.",
-};
 
 /** Why an error means the run wasn't counted, or null for any other error. */
 export function notCounted(error: unknown): string | null {

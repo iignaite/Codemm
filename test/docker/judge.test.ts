@@ -71,9 +71,12 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
     await expect(runIo(track, "visible", { "main.sh": "echo hi\n" }, { "01.in": "" })).rejects.toThrow(/missing a tool/);
   });
 
-  it("Run: stops a program at its time limit and leaves no container", async () => {
-    const run = runProgram(ioTrack, { "main.sh": "read -r n\n" }, () => undefined, { limitMs: 1_000 });
+  it("Run: stops a program at its time limit, says nothing of its own, and leaves no container", async () => {
+    let err = "";
+    const run = runProgram(ioTrack, { "main.sh": "read -r n\n" }, (text, stream) => (err += stream === "stderr" ? text : ""), { limitMs: 1_000 });
     expect(await run.done).toMatchObject({ stage: "run", timedOut: true });
+    // Codemm's own "time's up" is the only word on it: the driver's shell doesn't report the kill ("Killed").
+    expect(err).toBe("");
     // --rm finishes removing it just after the exit.
     await expect.poll(() => ownedContainers(), { timeout: 10_000 }).toEqual([]);
   });
@@ -92,7 +95,7 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
     it("errors on a crash, a timeout and a build failure", async () => {
       expect(statuses(await grade("read a b\nexit 3\n"))).toEqual(["error", "error"]);
       const slow = await grade("read a b\nsleep 10\n");
-      expect(slow[0]).toMatchObject({ status: "error", message: expect.stringMatching(/Timed out/) });
+      expect(slow[0]).toMatchObject({ status: "error", message: expect.stringMatching(/took longer than \d+ ms/) });
       const broken = await grade("if then\n");
       expect(broken[0]).toMatchObject({ status: "error", message: expect.stringMatching(/Build failed/) });
     });
@@ -176,6 +179,12 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
       }
     });
 
+    it("says a program ran out of memory when the runtime recorded it, though the driver went on", async () => {
+      // One allocation past the limit, as the program's last command: killed for memory well within the time limit.
+      const r = await run("read x\ndd if=/dev/zero of=/dev/null bs=300M count=1 2>/dev/null\n");
+      expect(gradeIoRun(r, { "visible/01": "survived\n" })[0]).toMatchObject({ status: "error", message: expect.stringMatching(/^It ran out of memory \(memory_mb 128\)/) });
+    });
+
     it("caps the container's output stream and errors the set", async () => {
       // 70 cases of ~64 KB each push the framed stream past the 4 MB host cap.
       const inputs = Object.fromEntries(Array.from({ length: 70 }, (_, i) => [`${String(i).padStart(2, "0")}.in`, "x\n"]));
@@ -193,7 +202,7 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
     it("grades a program that ignores SIGTERM as a timeout instead of hanging the check", async () => {
       const r = await run("read x\ntrap '' TERM\nwhile :; do :; done\n");
       expect(r.cases[0]?.exit).not.toBe(0);
-      expect(gradeIoRun(r, { "visible/01": "x" })[0]).toMatchObject({ status: "error", message: expect.stringMatching(/Timed out/) });
+      expect(gradeIoRun(r, { "visible/01": "x" })[0]).toMatchObject({ status: "error", message: expect.stringMatching(/took longer than \d+ ms/) });
     });
 
     it("kills the container at the host deadline and leaves none behind", async () => {

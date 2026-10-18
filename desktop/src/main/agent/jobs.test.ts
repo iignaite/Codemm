@@ -127,6 +127,13 @@ describe('jobs (§3.2)', () => {
     expect(agent.runs()).toBe(1);
   });
 
+  it('a stopped attempt keeps its own reason when its cleanup fails too', async () => {
+    const offline = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: "The build couldn't reach the network." }] } };
+    const agent = fakeAgent([init, call('a', 'save_exercise'), offline], { hang: true });
+    const cleanup = async () => { throw new Error('Docker stopped.'); };
+    expect(await runJob(job(agent.exe, { kind: 'author', done: () => false, cleanup }))).toMatchObject({ ok: false, problem: 'offline' });
+  });
+
   it('reports a sign-out when a failed job finds the agent signed out', async () => {
     const agent = fakeAgent([init, failure('Invalid API key')]);
     expect(await runJob(job(agent.exe, { signedIn: async () => false }))).toMatchObject({ ok: false, problem: 'signed-out' });
@@ -168,13 +175,18 @@ describe('jobs (§3.2)', () => {
     expect(agent.runs()).toBe(1);
   });
 
-  it('a save that fails on Docker, disk or network stops the job without a relaunch', async () => {
+  it('a save that fails on Docker or disk stops the job without a relaunch, and names which', async () => {
     const docker = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: "The container runtime isn't running. Start Docker Desktop." }] } };
     const agent = fakeAgent([init, call('a', 'save_exercise'), docker], { hang: true });
     const started = Date.now();
-    expect(await runJob(job(agent.exe, { kind: 'author', done: () => false }))).toMatchObject({ ok: false, problem: 'infra' });
+    expect(await runJob(job(agent.exe, { kind: 'author', done: () => false }))).toMatchObject({ ok: false, problem: 'docker' });
     expect(agent.runs()).toBe(1);
     expect(Date.now() - started).toBeLessThan(15_000);
+
+    const disk = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: 'Not enough disk space to build the track.' }] } };
+    const full = fakeAgent([init, call('a', 'save_exercise'), disk], { hang: true });
+    expect(await runJob(job(full.exe, { kind: 'author', done: () => false }))).toMatchObject({ ok: false, problem: 'disk' });
+    expect(full.runs()).toBe(1);
   });
 
   it('a save that fails on a track image needing a rebuild stops the job without a relaunch', async () => {

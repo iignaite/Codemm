@@ -15,8 +15,35 @@ describe("tutor instructions (AGENTS.md section)", () => {
     expect(AGENTS_SECTION).toMatch(/Don't state the fix, write the code or list the steps/);
   });
 
+  it("keeps a plain tone in every tutor brief: no praise or cheerleading, just what's right or wrong and the next step", () => {
+    for (const text of [AGENTS_SECTION, JOB_BRIEFS.tutor]) {
+      expect(text).toMatch(/Keep a plain tone: no praise or cheerleading/);
+      expect(text).toMatch(/say what's right or wrong and the next step/);
+    }
+  });
+
   it("says which tools the tutor calls itself and which go through the author subagent", () => {
     expect(AGENTS_SECTION).toMatch(/Only `save_track` and `save_exercise` go through the `codemm-author` subagent/);
+  });
+
+  it("tells a track author its pass probe must pass within a third of time_ms", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) expect(text).toMatch(/pass probe must also pass within a third of `time_ms`/);
+  });
+
+  it("tells a track author to COPY its scripts from the track's files, not write them in the Dockerfile", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).toMatch(/put any script or config the track needs in the track's own files and \`COPY\` it/i);
+      expect(text).toMatch(/never create files inside the Dockerfile with heredocs or long \`echo\` chains/i);
+    }
+  });
+
+  it("asks every author for a task unlike the course's earlier ones, with its own title", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) {
+      expect(text).toMatch(/`earlier` lists the exercises this course already has/);
+      expect(text).toMatch(/a different problem, not one of them renamed/);
+      expect(text).toMatch(/title must differ from the concept's title/);
+    }
+    expect(AGENTS_SECTION).toMatch(/contract and earlier exercises from `next_step`/);
   });
 
   it("shows how a roadmap pins its track", () => {
@@ -25,6 +52,16 @@ describe("tutor instructions (AGENTS.md section)", () => {
 });
 
 describe("author instructions (codemm-author subagent)", () => {
+  it("tells a unit track to find its tests in $TESTS and never hide its runner's failure, without naming a language", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).toMatch(/find the test files in `\$TESTS`/);
+      expect(text).toMatch(/Never hide the runner's own failure, such as finding no test files: a report that lists no tests fails/);
+      // Exiting 0 with a report is required, so the rule can't also forbid what does that.
+      expect(text).not.toMatch(/\|\| true/);
+      expect(text).toMatch(/a report that lists no tests fails/);
+    }
+  });
+
   it("names every tool the judge's driver needs in a track image, and no other", () => {
     const line = AUTHOR_AGENT.split("\n").find((l) => l.startsWith("- The image must have"))!;
     const named = [...line.replace(/, and must not.*/, "").matchAll(/`([a-z]+)`/g)].map((m) => m[1]);
@@ -82,7 +119,7 @@ describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
   it("sends a fresh author to next_step for the exact target and the track's contract", () => {
     expect(JOB_BRIEFS.author).toMatch(/`contract\.files`/);
     expect(JOB_BRIEFS.author).toMatch(/`contract\.examples`/);
-    expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, difficulty, style, track and contract from `next_step`/);
+    expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, difficulty, style, track, contract and earlier exercises from `next_step`/);
   });
 
   it("asks the research job for its sources, and a roadmap change to keep them", () => {

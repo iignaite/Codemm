@@ -76,6 +76,7 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress'
   check: [id, runId],
   runProgram: [id, runId],
   sendRunInput: [runId, text(64 * 1024, 1)],
+  endRunInput: [runId],
   stopRun: [runId],
   ask: [place, words],
   skip: [id],

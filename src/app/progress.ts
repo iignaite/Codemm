@@ -37,10 +37,13 @@ export async function skip(ws: string, concept: string, bound?: string): Promise
 }
 
 export async function setAssist(ws: string, on: boolean): Promise<void> {
-  // Turning assistance on records the evidence first, then grants the permission.
-  const { course, current } = store.readWorkspace(ws);
-  if (on && course && current) await store.withLock(store.courseLockPath(course), async () => noteAssistLocked(course, current));
-  await store.updateWorkspace(ws, (c) => ({ ...c, assist: on }));
+  // Turning assistance on records the evidence first, then grants the permission, in one workspace-locked step, so
+  // opening another exercise meanwhile can't leave the permission without its evidence.
+  await store.updateWorkspace(ws, async (c) => {
+    const { course, current } = c;
+    if (on && course && current) await store.withLock(store.courseLockPath(course), async () => noteAssistLocked(course, current));
+    return { ...c, assist: on };
+  });
 }
 
 export { assertRuntime };

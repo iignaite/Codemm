@@ -429,11 +429,22 @@ describe('Run', () => {
     expect(sent).toEqual(['Ada\n']);
   });
 
-  it("says why a program couldn't run", async () => {
+  it('ends the input with Ctrl+D, as a terminal does, and says so while the program reads', async () => {
+    const { api, user } = await openIo();
+    const ended: string[] = [];
+    api.endRunInput = async (run) => void ended.push(run);
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("What's your name?"));
+    expect(screen.getByText('Ctrl+D ends input.')).toBeInTheDocument();
+    act(() => xterm.type('\x04'));
+    await vi.waitFor(() => expect(ended).toHaveLength(1));
+  });
+
+  it("says why a program couldn't run, and what to do next", async () => {
     const { api, user } = await openIo();
     api.runProgram = async () => ({ kind: 'not-run', reason: "Docker isn't running." });
     await user.click(screen.getByRole('button', { name: 'Run' }));
-    await vi.waitFor(() => expect(mirror()).toHaveTextContent("Docker isn't running."));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("Docker isn't running. Open Docker Desktop, then run again."));
   });
 
   it('Try it prints each visible test as it finishes: the command, the output, then expected and found', async () => {

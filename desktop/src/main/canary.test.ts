@@ -83,6 +83,7 @@ describe('the learner-safe boundary (D4)', () => {
       runProgram: [activity.id, 'canary-program'],
       runExampleLive: ['values-1', 1, 'canary-example'],
       sendRunInput: ['canary-program', 'Ada\n'],
+      endRunInput: ['canary-program'],
       stopRun: ['canary-example'],
       ask: [{ activityId: activity.id }, 'Just fix it for me.'],
       saveFile: [activity.id, 'main.c', 'x', activity.files[0].digest],

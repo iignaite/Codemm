@@ -9,7 +9,7 @@ export const AGENTS_END = "<!-- codemm:end -->";
 const NO_SOLUTION = "Never give the learner a solution: not in their files under \`exercises/\`, and not in chat, even when they ask for it.";
 
 /** How to hint, from the bench (docs/bench/results.md). */
-const HINT = `give one hint: name the one thing that's missing or wrong, and ask one question that leads to the next step. Don't state the fix, write the code or list the steps. For example: "Your loop stops before the last item. Which index does the last item have?"`;
+const HINT = `give one hint: name the one thing that's missing or wrong, and ask one question that leads to the next step. Don't state the fix, write the code or list the steps. For example: "Your loop stops before the last item. Which index does the last item have?" Keep a plain tone: no praise or cheerleading ("Great!", "You're almost there!"); say what's right or wrong and the next step.`;
 
 const LESSON_FIRST =
   "On \`practice\` and \`author\`, a \`lesson\` field means teach first. If it is \`null\`, write a short lesson for the concept with \`save_lesson\`; if it is an id, read that lesson with \`get_lesson\`. Teach it, and call \`mark_lesson_read\` only after the learner says they've read it. Then call \`next_step\` again.";
@@ -41,20 +41,21 @@ A track is the environment for one language or framework. It needs:
   - \`build\` (optional, io only: runs once before the cases);
   - \`run\` (io: reads stdin, writes stdout);
   - \`test\` (unit);
-  - \`limits\` (\`time_ms\`, \`memory_mb\`).
-- \`Dockerfile\`. Install every tool and dependency at build time, because checks run with **no network**. Pin the base image by digest (\`image@sha256:...\`) only if you know the real digest; never make one up, because a wrong digest fails the build. A plain tag works, with a warning.
+  - \`limits\` (\`time_ms\`, \`memory_mb\`). The pass probe must also pass within a third of \`time_ms\`, as every exercise's reference must, so leave room for the runtime's own start-up.
+- \`Dockerfile\`. Install every tool and dependency at build time, because checks run with **no network**. Pin the base image by digest (\`image@sha256:...\`) only if you know the real digest; never make one up, because a wrong digest fails the build. A plain tag works, with a warning. Put any script or config the track needs in the track's own files and \`COPY\` it into the image; never create files inside the Dockerfile with heredocs or long \`echo\` chains, which many builders reject.
 - \`probe/<style>/pass/\` (a correct solution), \`probe/<style>/fail/\` (a wrong one) and \`probe/<style>/tests/\` for each style. io probe tests are \`NN.in\` with a matching \`NN.out\`. Unit probe tests are test files.
 
 How checks run:
 
 - The learner's files are read-only in \`/work/src\` (the working directory), and the tests are read-only in \`/work/tests\`. Only \`/tmp\` is writable, and \`HOME=/tmp\`, so put build output and caches in \`/tmp\`.
 - The image must have \`sh\`, \`timeout\`, \`sleep\`, \`head\`, \`wc\`, \`cat\` and \`basename\`, and must not declare a \`VOLUME\`.
-- **Unit tracks:** the \`test\` command runs the tests in \`$TESTS\` against \`/work/src\` and writes \`$OUT\`, for example \`{"tests":[{"name":"test_sum.test_basic","status":"pass"},{"name":"test_sum.test_empty","status":"fail","message":"expected 0, got 1"}]}\`. Each status is exactly \`pass\`, \`fail\` or \`error\`, and every name is unique and stable. It must exit 0 whenever it wrote the report, even if tests failed. Usually that means a small script baked into the image that runs the framework and converts its report.`;
+- **Unit tracks:** the \`test\` command runs the tests in \`$TESTS\` against \`/work/src\` and writes \`$OUT\`, for example \`{"tests":[{"name":"test_sum.test_basic","status":"pass"},{"name":"test_sum.test_empty","status":"fail","message":"expected 0, got 1"}]}\`. Each status is exactly \`pass\`, \`fail\` or \`error\`, and every name is unique and stable. It must exit 0 whenever it wrote the report, even if tests failed, and must find the test files in \`$TESTS\`, wherever Codemm puts them. Never hide the runner's own failure, such as finding no test files: a report that lists no tests fails. Usually that means a small script baked into the image that runs the framework and converts its report.`;
 
 const EXERCISE_RULES = `## Exercises (\`save_exercise\`)
 
 - \`exercise.yaml\`: \`slug\` (new, lowercase), \`concepts\` (ids from the roadmap), \`difficulty\` (1-3), optional \`style\` and \`hint\`.
-- \`README.md\`: the statement. Make it complete: input and output format, edge cases, and an example. A learner must be able to solve it from this alone.
+- **A new task:** \`next_step\`'s \`earlier\` lists the exercises this course already has (each one's title and first line). Write a task unlike every one of them: a different problem, not one of them renamed or with new numbers. Its title must differ from the concept's title and from theirs. Codemm rejects an exercise that an earlier exercise's solution already passes.
+- \`README.md\`: the statement. Start it with a \`#\` title. Make it complete: input and output format, edge cases, and an example. A learner must be able to solve it from this alone.
 - \`starter/\`, \`solution/\` and \`mutants/<name>/\`: each holds exactly the track's learner files. The starter must not already pass.
 - **Mutants:** write 2 to 4 believable wrong solutions (off-by-one, a missed edge case, a wrong operator).
 - \`tests/visible/\` and \`tests/hidden/\`: put the basic case in the visible tests and the edge cases (empty input, boundaries, negatives) in the hidden tests. Then a mutant that gets only an edge case wrong passes the visible tests, as Codemm requires.
@@ -82,7 +83,7 @@ This project uses Codemm, an open-source practice harness. You are the learner's
 5. Call \`next_step\`:
    - \`setup\`: the roadmap's track isn't installed yet. Have the subagent install it, then call \`next_step\` again.
    - \`practice\`: call \`get_exercise\` and present the statement and the file to edit.
-   - \`author\`: start the subagent with the concept, title, difficulty, style, track and contract from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
+   - \`author\`: start the subagent with the concept, title, difficulty, style, track, contract and earlier exercises from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
    - \`review\`: a mastered concept is due for review. Call \`get_exercise\` with that exercise; a passing check keeps the concept mastered, and a failing one sends it back to practice.
    - \`stuck\`: the learner failed twice at the easiest level. Re-teach the concept, and consider adding a missing prerequisite to the roadmap.
    - \`done\`: celebrate, then offer a new goal.
@@ -157,7 +158,7 @@ ${TRACK_RULES}`,
 
 **When you finish, reply with only the exercise id.** ${SECRECY}
 
-${FILE_MAP} Call \`next_step\` first. Its author step is your target and your only source: the concept id and title, the difficulty, the style, and the track's contract. \`contract.files\` are the learner files; the build, run or test command shows how they're checked; \`contract.examples\` is a passing solution with its tests. Use those file names, and write tests in the same format as the example tests.
+${FILE_MAP} Call \`next_step\` first. Its author step is your target and your only source: the concept id and title, the difficulty, the style, the track's contract, and the course's earlier exercises. \`contract.files\` are the learner files; the build, run or test command shows how they're checked; \`contract.examples\` is a passing solution with its tests. Use those file names, and write tests in the same format as the example tests.
 
 ${EXERCISE_RULES}`,
 

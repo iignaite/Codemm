@@ -19,12 +19,14 @@ export const RUN_LIMIT_MS = 120_000;
 // and how it ended, then the driver exits 0: an end marker means the driver finished, whatever the program printed or
 // returned. A program can print a marker too, but the driver's end marker comes last, and a forged timeout only
 // mislabels the program's own unrecorded run. If `sleep` fails, the watchdog stays quiet and the host deadline stops
-// the run instead; grading checks for `sleep`, so an installed track has it.
+// the run instead; grading checks for `sleep`, so an installed track has it. A shell reports a killed command
+// ("Killed") on the stderr that command was given, so the program takes the real stderr back itself (from fd 3) while
+// the driver's goes to /dev/null as it waits: Codemm's own "time's up" is the only word on it.
 const PROGRAM_DRIVER = `mark() { printf '\\n@@codemm-run %s\\n' "$*" >&2; }
 limited() {
   ( sleep "$2" 2>/dev/null && { mark timeout "$1"; kill -9 -1 2>/dev/null; } ) &
   w=$!
-  sh -c "$3"; c=$?
+  { sh -c "exec 2>&3 3>&-; $3"; c=$?; } 3>&2 2>/dev/null
   kill -9 "$w" 2>/dev/null; kill -9 -1 2>/dev/null
 }
 if [ -n "\${CODEMM_BUILD:-}" ]; then
@@ -42,7 +44,8 @@ exit 0`;
  * learner stopped it. `outOfMemory`: the runtime recorded a memory-limit kill. `exit` is the program's own code.
  */
 export type ProgramResult = { exit: number; stage?: "build" | "run"; timedOut: boolean; flooded: boolean; stopped?: boolean; outOfMemory?: boolean };
-export type ProgramRun = { write(text: string): boolean; kill(): void; done: Promise<ProgramResult> };
+/** `end` closes the program's input, so one that reads until the end can finish; it does nothing once it ran. */
+export type ProgramRun = { write(text: string): boolean; end(): void; kill(): void; done: Promise<ProgramResult> };
 /** Time limits, and `onStart`, told once as each stage starts with that stage's limit (for a countdown). */
 export type ProgramOptions = { limitMs?: number; buildLimitMs?: number; onStart?: (stage: "build" | "run", limitMs: number) => void };
 
@@ -126,6 +129,7 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
     .finally(() => rmSync(dir, { recursive: true, force: true }));
   return {
     write: started.write,
+    end: started.end,
     kill: () => {
       stopped = true;
       started.kill();

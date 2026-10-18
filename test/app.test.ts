@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import type { LearnerEvent } from "../src/learner.js";
+import { infraKind } from "../src/sandbox.js";
 import * as store from "../src/store.js";
 import { fakeDocker, posix } from "./fake-docker.js";
 import { tempDir } from "./temp.js";
@@ -29,10 +30,10 @@ function installFake(ref = "shell-io@1", styles: ("io" | "unit")[] = ["io"]): vo
   });
 }
 
-function addExercise(course: string, slug: string, concept: string, track = "shell-io@1"): void {
+function addExercise(course: string, slug: string, concept: string, track = "shell-io@1", readme = "Print the max."): void {
   store.commitFolder(
     store.exerciseDir(course, slug),
-    { "README.md": "Print the max.", "starter/main.sh": "echo todo\n", "solution/main.sh": "SECRET-SOLUTION\n", "tests/visible/01.in": "3 1 2\n", "tests/hidden/01.in": "HIDDEN-INPUT\n" },
+    { "README.md": readme, "starter/main.sh": "echo todo\n", "solution/main.sh": "SECRET-SOLUTION\n", "tests/visible/01.in": "3 1 2\n", "tests/hidden/01.in": "HIDDEN-INPUT\n" },
     {
       "exercise.json": {
         format_version: 1, slug, style: "io", concepts: [concept], difficulty: 1, track, createdAt: new Date().toISOString(),
@@ -120,6 +121,23 @@ describe("roadmap draft", () => {
     await app.saveRoadmap(ws, "shell", roadmap(withPrereq));
     expect(store.readEvents("shell").filter((e) => e.kind === "retry")).toHaveLength(1);
   });
+
+  // A read-only file stands in for a full disk only on POSIX and for a non-root user.
+  it.runIf(posix && process.getuid?.() !== 0)("still gives the fresh start when the same roadmap is saved again after the retry couldn't be recorded", async () => {
+    await app.saveRoadmap(ws, "shell", roadmap());
+    for (let i = 0; i < 2; i++) store.appendEvent("shell", event({ kind: "check", exercise: "e1", concepts: ["sh.loops"], difficulty: 1, passed: 0, total: 1, assisted: false }));
+    const withPrereq = "  - { id: sh.basics, title: Basics, requires: [] }\n  - { id: sh.vars, title: Variables, requires: [] }\n  - { id: sh.loops, title: Loops, requires: [sh.basics, sh.vars] }\n";
+    const events = join(process.env.CODEMM_HOME!, "courses", "shell", "events.jsonl");
+    chmodSync(events, 0o444);
+    try {
+      await expect(app.saveRoadmap(ws, "shell", roadmap(withPrereq))).rejects.toThrow();
+    } finally {
+      chmodSync(events, 0o644);
+    }
+    await app.saveRoadmap(ws, "shell", roadmap(withPrereq));
+    expect(store.readEvents("shell").filter((e) => e.kind === "retry")).toEqual([expect.objectContaining({ concept: "sh.loops" })]);
+    expect(app.progress(ws).concepts.find((c) => c.id === "sh.loops")).toMatchObject({ stuck: false });
+  });
 });
 
 describe("the author step", () => {
@@ -141,7 +159,23 @@ describe("the author step", () => {
           tests: { "negatives.check": files["probe/unit/tests/negatives.check"], "sums.check": files["probe/unit/tests/sums.check"] },
         },
       },
+      earlier: [],
     });
+  });
+});
+
+describe("authoring a new exercise", () => {
+  it("lists the course's earlier exercises by title and first line, so the next one can differ", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    addExercise("shell", "sum-two", "sh.basics", "shell-io@1", "# Sum two numbers\n\nRead two integers on one line and print their sum.\n\n## Example\n\n`3 5` prints `8`.\n");
+    for (let i = 0; i < 4; i++) {
+      store.appendEvent("shell", event({ kind: "check", at: new Date().toISOString(), exercise: "sum-two", concepts: ["sh.basics"], difficulty: 1, passed: 1, total: 1, assisted: false }));
+    }
+    const step = app.nextStep(ws);
+    expect(step).toMatchObject({ kind: "author", earlier: [{ title: "Sum two numbers", summary: "Read two integers on one line and print their sum." }] });
+    // The statement only: never the solution or hidden tests.
+    expect(JSON.stringify(step)).not.toMatch(/SECRET|HIDDEN/);
   });
 });
 
@@ -164,13 +198,45 @@ describe("error kinds", () => {
     expect(() => app.nextStep(ws)).toThrow(expect.objectContaining({ kind: "no-course", message: expect.stringMatching(/No course in this workspace yet/) }));
   });
 
-  // The fake docker is a shell script, so this one runs where a shell does.
+  // The fake docker is a shell script, so these run where a shell does.
+  it.runIf(posix)("calls a Docker failure while inspecting the image a Docker problem, not a missing image", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    addExercise("shell", "e1", "sh.basics");
+    fakeDocker("inspect-fails");
+    const failure = await app.testExercise(ws, "e1").catch((e: Error) => e);
+    expect(failure).toMatchObject({ kind: "docker" });
+    // Agents relay core's messages as text, which the desktop classifies with the same markers as infraKind.
+    expect(infraKind((failure as Error).message)).toBe("docker");
+  });
+
   it.runIf(posix)("names a missing track image", async () => {
     installFake();
     await app.saveRoadmap(ws, "shell", roadmap());
     addExercise("shell", "e1", "sh.basics");
     fakeDocker("no-image");
     await expect(app.testExercise(ws, "e1")).rejects.toMatchObject({ kind: "image-missing", message: expect.stringMatching(/is missing or changed/) });
+  });
+});
+
+describe("assistance", () => {
+  it("records assistance on the exercise that ends up current, even when opening one races turning it on", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    addExercise("shell", "e1", "sh.basics");
+    addExercise("shell", "e2", "sh.basics");
+    await app.getExercise(ws, "e1");
+    // Hold the course lock, so turning assistance on has to wait for it while e2 is opened.
+    let release!: () => void;
+    const held = store.withLock(store.courseLockPath("shell"), () => new Promise<void>((r) => (release = r)));
+    const assisting = app.setAssist(ws, true);
+    await new Promise((r) => setTimeout(r, 50));
+    const opening = app.getExercise(ws, "e2");
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    await Promise.all([held, assisting, opening]);
+    expect(store.readWorkspace(ws)).toMatchObject({ current: "e2", assist: true });
+    expect(store.readEvents("shell").filter((e) => e.kind === "assist").map((e) => (e as { exercise: string }).exercise)).toContain("e2");
   });
 });
 

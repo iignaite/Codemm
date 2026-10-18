@@ -7,6 +7,12 @@ import { SAY, problemOf, repairDetail } from './errors';
 import { useRouter } from './router';
 import { useBusy } from './useBusy';
 
+/** This computer's problems behind a stall: the learner fixes them here, not in the agent. */
+const COMPUTER = {
+  docker: 'Docker stopped. Start Docker, then try again.',
+  disk: 'Not enough disk space. Free some space on this computer, then try again.',
+};
+
 /** Background work stopped after its retry, and nothing was recorded (§5). A sign-out goes to connect instead. */
 export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['stalled']>; retry: () => void }) {
   const api = useApi();
@@ -30,8 +36,9 @@ export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['s
 
   return (
     <div className="failed" role="alert">
-      {stalled === 'failed' ? "Codemm couldn't finish that." : SAY[stalled]}
+      {stalled === 'failed' ? "Codemm couldn't finish that." : stalled === 'docker' || stalled === 'disk' ? COMPUTER[stalled] : SAY[stalled]}
       {stalled === 'failed' && <Button variant="text" onClick={() => go({ to: 'connect', then: route })}>Check your agent</Button>}
+      {stalled === 'docker' && <Button variant="text" onClick={() => go({ to: 'computer', then: route })}>Check this computer</Button>}
       {/* An agent Codemm couldn't stop is still running: only quitting stops it (§3.1). */}
       {stalled !== 'unstoppable' && <Button variant="text" disabled={starting.busy} onClick={again}>Try again</Button>}
     </div>

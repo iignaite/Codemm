@@ -76,6 +76,7 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'docker-starting': { docker: 'starting' },
   'windows-containers': { docker: 'windows-containers', platform: 'windows' },
   'docker-stops': { later: { after: 'check', set: { docker: 'stopped' } } },
+  'docker-stops-jobs': { later: { after: 'approve', set: { docker: 'stopped', stalled: 'docker' } } },
   'docker-wont-start': { docker: 'missing', dockerWontStart: true },
   'offline-setup': { setupProblem: 'offline' },
   'low-disk': { setupProblem: 'disk' },
@@ -91,6 +92,7 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'plan-limit': { later: { after: 'approve', set: { agentProblem: 'plan-limit' } } },
   'untested-version': { untested: true },
   'io-track': { style: 'io' },
+  'io-docker-stopped': { style: 'io', docker: 'stopped' },
   'image-missing': { imageMissing: true },
   'run-time-up': { style: 'io', runLimitMs: 3000 },
   'update-available': { update: { kind: 'available', version: '1.0.1', url: 'https://github.com/iignaite/Codemm/releases/tag/v1.0.1' } },
@@ -511,6 +513,9 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       if (!lesson.examples[index - 1] || lesson.style !== 'io') throw new Error(`Lesson "${lessonId}" has no example ${index}.`);
       return greet(run);
     },
+
+    // The mock's programs read one line each, so there's no more input to end.
+    async endRunInput() {},
 
     async sendRunInput(run, text) {
       const program = programs.get(run);

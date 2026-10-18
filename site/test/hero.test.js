@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
-// A minimal page for public/hero.js: one orbit, three agent names, and a
+// A minimal page for public/hero.js: the walking scene, three agents, and a
 // reduced-motion preference. Every element records the animations it starts.
 function element() {
   const el = {
@@ -21,28 +22,43 @@ function element() {
   return el;
 }
 
-async function loadWith({ reduced }) {
-  const orbit = element();
-  const parts = { '.orbit-scene': element(), '.orbit-ring': element(), '.core': element(), '.emm': element(), '.motion': element() };
+async function loadWith({ reduced, frames = [] }) {
+  const stage = element();
+  const parts = { '.walk-scene': element(), '.emm': element(), '.tongue': element(), '.motion': element() };
   const agents = [element(), element(), element()];
-  orbit.querySelector = (q) => parts[q];
-  orbit.querySelectorAll = (q) => (q === '.agent' ? agents : []);
+  stage.querySelector = (q) => parts[q];
+  stage.querySelectorAll = (q) => (q === '.agent' ? agents : []);
   Object.assign(globalThis, {
-    document: { querySelector: (q) => (q === '.orbit' ? orbit : null), hidden: false },
+    document: { querySelector: (q) => (q === '.walk' ? stage : null), hidden: false },
     matchMedia: () => ({ matches: reduced, addEventListener() {} }),
-    requestAnimationFrame: () => 0,
+    requestAnimationFrame: (fn) => frames.push(fn),
     IntersectionObserver: class { observe() {} },
     addEventListener() {},
     getComputedStyle: () => ({ boxShadow: 'none' }),
   });
   await import(`../public/hero.js?${Math.random()}`);
-  return { orbit, parts, agents };
+  return { stage, parts, agents };
 }
 
 test('with reduced motion, clicking an agent changes Emm\'s colors and starts no animation', async () => {
-  const { orbit, parts, agents } = await loadWith({ reduced: true });
-  for (const fn of agents[0].listeners.click) fn();
-  assert.equal(orbit.style.props['--emm-b'], '#E8875F');
-  const started = [orbit, ...Object.values(parts), ...agents].flatMap((el) => el.animations);
+  const { stage, parts, agents } = await loadWith({ reduced: true });
+  for (const fn of agents[1].listeners.click) fn();
+  assert.equal(stage.style.props['--emm-b'], '#7383F7');
+  const started = [stage, ...Object.values(parts), ...agents].flatMap((el) => el.animations);
   assert.deepEqual(started, []);
+});
+
+test('Emm wakes, catches and eats the first agent within three seconds', async () => {
+  const frames = [];
+  const { stage } = await loadWith({ reduced: false, frames });
+  // Runs the page's frames, 16 ms apart, until three seconds have passed.
+  for (let now = performance.now(), end = now + 3000; now < end && frames.length; now += 16) frames.shift()(now);
+  // Eating Claude Code turns Emm its color.
+  assert.equal(stage.style.props['--emm-b'], '#E8875F');
+});
+
+test("Emm carries Codemm's mark on its back", () => {
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const emm = html.match(/<svg class="emm"[\s\S]*?<\/svg>/)[0];
+  assert.match(emm, /<g class="mark"[\s\S]*?<polyline [^>]*points="[^"]+"/);
 });

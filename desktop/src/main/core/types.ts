@@ -72,6 +72,8 @@ export interface CoreLesson {
 /** core judge.ts ProgramRun: a running program. `write` is false when the input wasn't taken. */
 export interface CoreProgramRun {
   write(text: string): boolean;
+  /** Closes the program's input; nothing once it ended. */
+  end(): void;
   kill(): void;
   done: Promise<{ exit: number; stage?: 'build' | 'run'; timedOut: boolean; flooded: boolean; stopped?: boolean; outOfMemory?: boolean }>;
 }

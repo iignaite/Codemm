@@ -296,11 +296,25 @@ describe('status commands', () => {
     expect(AGENT_CLIS.cursor.version.read({ code: 0, output: '2026.01.23-916f423\n' })).toBe('2026.01.23-916f423');
     expect(AGENT_CLIS.claude.version.read({ code: 0, output: 'garbage' })).toBeNull();
     expect(AGENT_CLIS.claude.version.read({ code: 1, output: '2.1.283' })).toBeNull();
-    expect(isTested('claude', '2.1.283')).toBe(true);
-    expect(isTested('codex', '0.157.0')).toBe(false);
     expect(isTested('codex', AGENT_CLIS.codex.version.read({ code: 0, output: 'codex-cli 0.156.1-alpha.1\n' })!)).toBe(false);
+  });
+
+  it('counts a later release of a tested major as tested, since agents update themselves (D6)', () => {
+    expect(isTested('claude', '2.1.283')).toBe(true);
+    // Codemm installs the maker's latest, and the agent keeps itself current: a newer 2.x is what learners have.
+    expect(isTested('claude', '2.1.302')).toBe(true);
+    expect(isTested('claude', '2.4.0')).toBe(true);
+    expect(isTested('codex', '0.157.0')).toBe(true);
+    // Another major, older than the oldest tested, or a prerelease: untested.
+    expect(isTested('claude', '3.0.0')).toBe(false);
+    expect(isTested('claude', '2.1.200')).toBe(false);
+    expect(isTested('claude', '1.0.0')).toBe(false);
+    expect(isTested('claude', '2.2.0-beta.1')).toBe(false);
+    expect(isTested('claude', 'unknown')).toBe(false);
     // The fixtures were recorded on 2026.10.16-e3cb207, which cursor-agent updated itself to at sign-in.
     expect(isTested('cursor', '2026.10.16-e3cb207')).toBe(true);
+    expect(isTested('cursor', '2026.10.20-a1b2c3d')).toBe(true);
     expect(isTested('cursor', '2026.01.23-916f423')).toBe(false);
+    expect(isTested('cursor', '2027.01.05-a1b2c3d')).toBe(false);
   });
 });

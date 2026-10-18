@@ -23,6 +23,20 @@ export const REPAIR = 'codemm:repair';
 export const UNSTOPPABLE = 'codemm:unstoppable';
 /** Why a check wasn't counted when a track's image is missing or changed: the fix is under Tracks, not this computer (§5). */
 export const REBUILD = 'This environment needs a rebuild. Rebuild it under Tracks.';
+/** Why a run wasn't counted, or didn't run, when this computer caused it (notCounted.ts). */
+export const NOT_COUNTED = {
+  docker: "Docker isn't running.",
+  disk: 'Docker ran out of disk space.',
+  offline: "Docker couldn't reach the network.",
+} as const;
+/** Run and lesson examples have no recovery screen, so their line says what to do next (§4.10). */
+export const RUN_AGAIN: Record<string, string> = {
+  [NOT_COUNTED.docker]: 'Open Docker Desktop, then run again.',
+  [NOT_COUNTED.disk]: 'Free up disk space, then run again.',
+  [NOT_COUNTED.offline]: 'Connect to the internet, then run again.',
+};
+/** A run that didn't run: why, then what to do next. */
+export const notRunLine = (reason: string) => (RUN_AGAIN[reason] ? `${reason} ${RUN_AGAIN[reason]}` : reason);
 /** A learner file changed outside Codemm since the editor loaded it (§4.5). */
 export const CHANGED = 'codemm:changed';
 
@@ -196,7 +210,7 @@ export interface CourseView {
   topics: TopicView[];
   done: boolean;
   /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
-  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'failed' | 'unstoppable';
+  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'disk' | 'failed' | 'unstoppable';
 }
 
 export interface Lesson {
@@ -405,6 +419,8 @@ export interface CodemmApi {
   runProgram(activityId: string, run: string): Promise<RunResult>;
   /** Typed input for a Run this window started. False if it wasn't taken: the run ended, or too much is waiting. */
   sendRunInput(run: string, text: string): Promise<boolean>;
+  /** Ends a Run's input, as Ctrl+D does in a terminal, so a program that reads until the end can finish. */
+  endRunInput(run: string): Promise<void>;
   /** Stops a Run this window started. */
   stopRun(run: string): Promise<void>;
 

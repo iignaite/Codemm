@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { REBUILD, type CheckProgress, type CheckResult, type TestView, type TryResult, type VisibleTest } from '../../../shared/api';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
@@ -40,8 +41,16 @@ function tone(shown: Shown): string {
 
 /** The results panel under the editor. Its changes are announced. */
 export function Results(props: Props) {
+  const box = useRef<HTMLElement>(null);
+  // A finished Check brings its result and next step into view: they can sit below the window's edge.
+  const checked = props.shown.kind === 'check' ? props.shown.result : undefined;
+  useEffect(() => {
+    if (!checked) return;
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    box.current?.scrollIntoView?.({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+  }, [checked]);
   return (
-    <section className={`res ${tone(props.shown)}`} aria-live="polite" aria-label="Results">
+    <section ref={box} className={`res ${tone(props.shown)}`} aria-live="polite" aria-label="Results">
       <Body {...props} />
     </section>
   );
@@ -181,7 +190,7 @@ function TestLines({ tests, visibleTests }: { tests: TestView[]; visibleTests: V
             {t.status === 'fail' && (t.actual !== undefined || t.message) && (
               <span className="cmp">
                 {expected !== undefined && <span className="e">expected {expected}</span>}
-                {t.actual !== undefined ? <span className="f">found {t.actual}</span> : <span className="f">{t.message}</span>}
+                {t.actual !== undefined ? <span className="f">found {t.actual || '(no output)'}</span> : <span className="f">{t.message}</span>}
               </span>
             )}
           </div>

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { type FileMap, subMap, validateFileMap, writeFileMap } from "./files.js";
-import { gradeRuns, type IoRun, redact, type TestResult } from "./grading.js";
+import { gradeRuns, type IoRun, redact, type Runs, type TestResult, type UnitRun } from "./grading.js";
 import { type JudgeTrack, runSets } from "./judge.js";
 import { buildImage, type BuildStep, infraKind, inspectImage } from "./sandbox.js";
 import {
@@ -13,10 +13,11 @@ import {
 
 /** A gate failed. The message names the gate and never contains hidden inputs or outputs. */
 export class GateError extends CodemmError {
-  constructor(gate: string, details: string) {
-    // A failure whose details show this computer's problem (a probe out of disk, a build that lost Docker) isn't
-    // the track's: its kind tells the desktop to keep the proposal.
-    super(`Gate "${gate}" failed: ${details}`, infraKind(details));
+  constructor(gate: string, details: string, output = "") {
+    // A failure whose details show this computer's problem (a build that lost Docker) isn't the track's: its kind
+    // tells the desktop to keep the proposal. What the track's own code printed never sets the kind: a probe that
+    // fills its /tmp says "no space left on device" too.
+    super(`Gate "${gate}" failed: ${details}${output}`, infraKind(details));
   }
 }
 
@@ -34,6 +35,41 @@ function summarize(tests: TestResult[]): string {
     })
     .join("\n");
 }
+
+/**
+ * One line per test, with its status only: for the reference, whose messages and output come from running hidden
+ * code (a compiler error or a traceback can quote it). Visible tests are named, so the agent knows which to fix;
+ * hidden ones stay numbered.
+ */
+const statuses = (tests: TestResult[]) => redact(tests).map((t) => `  ${t.name}: ${t.status}`).join("\n");
+
+/**
+ * The end of what a track's own run printed (its build, or a probe's test runner): the last 40 lines and 4 KB.
+ * Track gates show it so the agent can see why its track failed. Probes are track code the agent wrote, not
+ * exercise material; exercise gates never show what the reference printed.
+ */
+function tail(text: string): string {
+  const lines = text.trimEnd().split("\n").slice(-40).join("\n");
+  const bytes = Buffer.from(lines);
+  // Cut by bytes, dropping a character the cut split.
+  return bytes.length > 4096 ? `…${bytes.subarray(-4096).toString("utf8").replace(/^\uFFFD+/, "")}` : lines;
+}
+/** What a run printed, unless the lines above (\`shown\`) already show it. */
+function printed(text: string, shown = ""): string {
+  const end = tail(text).trim();
+  return end && !shown.includes(end) ? `\nIt printed:\n${end}` : "";
+}
+
+/** What a probe's run printed: a unit runner's own output, or io's build output and each case's errors. */
+function probeOutput(runs: Runs): string {
+  const unit = runs.visible as UnitRun;
+  if (unit && "report" in unit) return unit.report.log;
+  const io = runs.visible as IoRun;
+  return [io.build?.output ?? "", ...io.cases.map((c) => c.stderr)].filter((t) => t.trim()).join("\n");
+}
+
+/** A reference, and a track's pass probe, must still pass within a third of the time limit (DESIGN §4.4, §4.5). */
+const fastMs = (limits: { time_ms: number }) => Math.max(100, Math.floor(limits.time_ms / 3));
 
 const allPass = (tests: TestResult[]) => tests.length > 0 && tests.every((t) => t.status === "pass");
 
@@ -116,7 +152,7 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
     builtId = built.imageId ?? "";
     // Offline, out of disk or no runtime isn't the track's fault, so it's no gate failure.
     if (built.problem) throw new CodemmError(built.problem.message, built.problem.kind);
-    if (!built.ok) throw new GateError("build", `the image didn't build:\n${built.log}`);
+    if (!built.ok) throw new GateError("build", "the image didn't build.", printed(built.log));
   } finally {
     rmSync(context, { recursive: true, force: true });
   }
@@ -130,13 +166,30 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
   onProgress?.({ phase: "checking" });
   for (const p of probes) {
     const exp = { expected: p.expected };
-    const pass1 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
-    if (!allPass(pass1)) throw new GateError("probe pass", `the ${p.style} pass probe should pass every test:\n${summarize(pass1)}`);
-    const failed = gradeRuns(p.style, await runSets(track, p.style, p.fail, { visible: p.inputs }), exp);
-    if (!failed.some((t) => t.status === "fail") || failed.some((t) => t.status === "error")) {
-      throw new GateError("probe fail", `the ${p.style} fail probe should fail at least one test without errors:\n${summarize(failed)}`);
+    const passRuns = await runSets(track, p.style, p.pass, { visible: p.inputs });
+    const pass1 = gradeRuns(p.style, passRuns, exp);
+    if (!allPass(pass1)) {
+      const tests = `\n${summarize(pass1)}`;
+      throw new GateError("probe pass", `the ${p.style} pass probe should pass every test:`, tests + printed(probeOutput(passRuns), tests));
     }
-    const pass2 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
+    const failRuns = await runSets(track, p.style, p.fail, { visible: p.inputs });
+    const failed = gradeRuns(p.style, failRuns, exp);
+    if (!failed.some((t) => t.status === "fail") || failed.some((t) => t.status === "error")) {
+      const tests = `\n${summarize(failed)}`;
+      throw new GateError("probe fail", `the ${p.style} fail probe should fail at least one test without errors:`, tests + printed(probeOutput(failRuns), tests));
+    }
+    // The second run gets a third of the time limit, as every exercise's reference will: a track whose own solution
+    // can't pass there would fail every exercise.
+    const fast = fastMs(spec.limits);
+    const pass2 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }, { timeMs: fast }), exp);
+    if (!allPass(pass2)) {
+      throw new GateError(
+        "probe fast",
+        `the ${p.style} pass probe must also pass with a third of the time limit (${fast} ms), as every exercise's reference must. ` +
+          "Raise limits.time_ms or limits.memory_mb in track.yaml:",
+        `\n${summarize(pass2)}`,
+      );
+    }
     if (JSON.stringify(pass1) !== JSON.stringify(pass2)) throw new GateError("deterministic", `the ${p.style} pass probe gave different results on a second run.`);
   }
   const unpinned = unpinnedBases(files.Dockerfile);
@@ -148,11 +201,15 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
 
 // ---------- exercises ----------
 
-function pickFiles(files: FileMap, folder: string, names: string[], label: string): FileMap {
+/** `quiet` counts the other files instead of naming them: a mutant's folder is hidden material. */
+function pickFiles(files: FileMap, folder: string, names: string[], label: string, quiet = false): FileMap {
   const src = subMap(files, folder);
   for (const n of names) if (!(n in src)) throw new GateError("valid", `${label} must contain ${n}.`);
   const extra = Object.keys(src).filter((p) => !names.includes(p));
-  if (extra.length > 0) throw new GateError("valid", `${label} may only contain the track's learner files (${names.join(", ")}); found ${extra.join(", ")}.`);
+  if (extra.length > 0) {
+    const found = quiet ? `${extra.length} other file${extra.length === 1 ? "" : "s"}` : extra.join(", ");
+    throw new GateError("valid", `${label} may only contain the track's learner files (${names.join(", ")}); found ${found}.`);
+  }
   return src;
 }
 
@@ -176,7 +233,9 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
   const solution = pickFiles(files, "solution", track.files, "solution/");
   const mutantNames = [...new Set(Object.keys(subMap(files, "mutants")).map((p) => p.split("/")[0]!))].sort();
   if (mutantNames.length < 2 || mutantNames.length > 4) throw new GateError("valid", `write 2 to 4 mutants under mutants/<name>/ (found ${mutantNames.length}).`);
-  const mutants = mutantNames.map((name) => ({ name, src: pickFiles(files, `mutants/${name}`, track.files, `mutants/${name}/`) }));
+  // A mutant's folder name can say what bug it holds, which hints at the hidden tests, so diagnostics number
+  // mutants in name order instead (they reach the learner through tools, the CLI and the app).
+  const mutants = mutantNames.map((name, i) => ({ label: `mutant #${i + 1}`, src: pickFiles(files, `mutants/${name}`, track.files, `mutant #${i + 1}`, true) }));
 
   const sets = { visible: subMap(files, "tests/visible"), hidden: subMap(files, "tests/hidden") };
   if (style === "io") {
@@ -196,14 +255,28 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
 /** The exercise gate running, by name only: the reference passes, the starter fails, the tests catch each mutant. */
 export type ExerciseGate = "reference" | "starter" | "mutants";
 
-/** Runs exercise gates 1-6 (DESIGN §6). Returns the record to store, with io expected outputs or the unit inventory. */
+/** An exercise the course already has: its solution, to check that a new exercise is a new task. */
+export type EarlierSolution = { slug: string; style: Style; concepts: string[]; createdAt: string; solution: FileMap };
+
+/**
+ * Which earlier exercises gate 7 runs, to bound the wait: at most 3 on a concept the new one shares, then the 3 most
+ * recent others, newest first. Each costs one run of the visible tests.
+ */
+export function comparedEarlier(earlier: EarlierSolution[], style: Style, concepts: string[]): EarlierSolution[] {
+  const pool = earlier.filter((e) => e.style === style).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const shared = pool.filter((e) => e.concepts.some((c) => concepts.includes(c))).slice(0, 3);
+  return [...shared, ...pool.filter((e) => !shared.includes(e)).slice(0, 3)];
+}
+
+/** Runs exercise gates 1-7 (DESIGN §6). Returns the record to store, with io expected outputs or the unit inventory. */
 export async function verifyExercise(
   trackRecord: TrackRecord, course: CourseRecord, files: FileMap, taken: Set<string>, onGate?: (gate: ExerciseGate) => void,
+  earlier: EarlierSolution[] = [],
 ): Promise<ExerciseRecord> {
   const { spec, style, starter, solution, mutants, sets } = validate(trackRecord, course, files, taken);
   onGate?.("reference");
   const track = { ...trackRecord, image: trackRecord.imageId };
-  const fast = Math.max(100, Math.floor(track.limits.time_ms / 3));
+  const fast = fastMs(track.limits);
 
   // Gate 2 + 3: the reference passes, twice, the second time with a third of the time limit.
   const first = await runSets(track, style, solution, sets);
@@ -212,18 +285,29 @@ export async function verifyExercise(
   if (style === "io") {
     const runs = [first, second].map((r) => [...(r.visible as IoRun).cases, ...(r.hidden as IoRun).cases]);
     const [a, b] = runs as [IoRun["cases"], IoRun["cases"]];
-    // Only the visible run's build output may be shown; a hidden-run frame could carry hidden data.
+    // The reference's own output is never shown: building or running it is running hidden code, and a compiler
+    // error or a traceback can quote it. Only the phase, exit codes and the visible test names are.
     const visibleBuild = (first.visible as IoRun).build;
-    if (visibleBuild && visibleBuild.exit !== 0) throw new GateError("reference passes", `the reference doesn't build:\n${visibleBuild.output.slice(0, 2000)}`);
+    if (visibleBuild && visibleBuild.exit !== 0) {
+      throw new GateError(
+        "reference passes",
+        `the reference doesn't build (exit ${visibleBuild.exit})${track.build ? ` with the track's build command (\`${track.build}\`)` : ""}. ` +
+          `Check that solution/ holds exactly the track's learner files (${track.files.join(", ")}) and builds with the track's toolchain. ` +
+          "Codemm doesn't show the build output, because it can quote the reference.",
+      );
+    }
     const hiddenBuild = (first.hidden as IoRun).build;
     if (hiddenBuild && hiddenBuild.exit !== 0) throw new GateError("reference passes", "the reference didn't build for the hidden tests.");
     const bad = a.filter((c) => c.exit !== 0 || c.big);
     if (bad.length > 0 || a.length !== counts(sets)) {
+      // A visible case is named only when it matches an input the author gave; any other name came from the run.
+      const inputs = new Set(Object.keys(sets.visible).filter((p) => p.endsWith(".in")).map((p) => `visible/${p.slice(0, -3)}`));
       let hidden = 0;
+      let other = 0;
       const lines = a.map((c) =>
         c.name.startsWith("hidden/")
           ? `  hidden #${(hidden += 1)}: ${c.exit === 0 && !c.big ? "ok" : "error"}`
-          : `  ${c.name}: exit ${c.exit}${c.big ? ", printed over 64 KB" : ""}${c.stderr ? ` (${c.stderr.slice(0, 300)})` : ""}`,
+          : `  ${inputs.has(c.name) ? c.name : `unexpected case #${(other += 1)}`}: exit ${c.exit}${c.big ? ", printed over 64 KB" : ""}`,
       );
       throw new GateError("reference passes", `the reference must run every input without errors:\n${lines.join("\n")}`);
     }
@@ -235,7 +319,7 @@ export async function verifyExercise(
     exp.expected = Object.fromEntries(a.map((c) => [c.name, c.stdout]));
   } else {
     const r1 = gradeRuns(style, first, {});
-    if (!allPass(r1)) throw new GateError("reference passes", `the reference must pass every test:\n${summarize(r1)}`);
+    if (!allPass(r1)) throw new GateError("reference passes", `the reference must pass every test:\n${statuses(r1)}`);
     exp.inventory = {
       visible: r1.filter((t) => t.set === "visible").map((t) => t.name.slice("visible/".length)).sort(),
       hidden: r1.filter((t) => t.set === "hidden").map((t) => t.name.slice("hidden/".length)).sort(),
@@ -245,7 +329,7 @@ export async function verifyExercise(
     }
     // Compare the full second report (no inventory filter), so added or changed tests can't slip through.
     const r2 = gradeRuns(style, second, {});
-    if (!allPass(r2)) throw new GateError("reference fast", `the reference must still pass with a third of the time limit (${fast} ms):\n${summarize(r2)}`);
+    if (!allPass(r2)) throw new GateError("reference fast", `the reference must still pass with a third of the time limit (${fast} ms):\n${statuses(r2)}`);
     const shape = (tests: TestResult[]) => JSON.stringify(tests.map((t) => [t.name, t.status]).sort());
     if (shape(r1) !== shape(r2)) throw new GateError("reference passes", "the test report differed between two identical runs. Make test names and results deterministic.");
   }
@@ -261,12 +345,20 @@ export async function verifyExercise(
   for (const m of mutants) {
     const tests = gradeRuns(style, await runSets(track, style, m.src, sets), exp);
     if (allPass(tests.filter((t) => t.set === "hidden"))) {
-      throw new GateError("mutants caught", `mutant "${m.name}" passes every hidden test. Strengthen the hidden tests or replace the mutant.`);
+      throw new GateError("mutants caught", `${m.label} (in name order under mutants/) passes every hidden test. Strengthen the hidden tests or replace the mutant.`);
     }
     if (allPass(tests.filter((t) => t.set === "visible"))) anyPassesVisible = true;
   }
   if (!anyPassesVisible) {
     throw new GateError("hidden tests matter", "every mutant already fails a visible test, so the hidden tests add nothing. Include a mutant that passes the visible tests but fails a hidden one.");
+  }
+
+  // Gate 7: it's a new task. An earlier exercise's solution that passes every visible test here means the same task
+  // again, whatever its title.
+  for (const e of comparedEarlier(earlier, style, spec.concepts)) {
+    if (allPass(gradeRuns(style, await runSets(track, style, e.solution, { visible: sets.visible }), exp))) {
+      throw new GateError("new task", `the solution to "${e.slug}" already passes every visible test of this exercise, so it's the same task again. Write a different problem, not a renamed one.`);
+    }
   }
 
   return {

@@ -1,5 +1,5 @@
 // The main navigation (§1): Learn, Practice and Tracks, wide with the course or slim beside a workspace.
-import type { ReactNode } from 'react';
+import { useSyncExternalStore, type ReactNode } from 'react';
 import type { CourseView } from '../../shared/api';
 import { Button } from '../ui/Button';
 import { hueColor } from '../ui/Emm';
@@ -26,8 +26,19 @@ function practiceRoute(course: CourseView | null | undefined): Route {
   return continueRoute(now);
 }
 
-/** The main navigation: wide with labels, or slim with icons beside a workspace. */
-export function Sidebar({ slim = false }: { slim?: boolean }) {
+/** A narrow window, or a wide one at 200% zoom: the screen needs the sidebar's room (WCAG reflow). Matches app.css. */
+const NARROW = '(max-width: 760px)';
+const narrowNow = () => typeof window.matchMedia === 'function' && window.matchMedia(NARROW).matches;
+function onNarrowChange(changed: () => void) {
+  if (typeof window.matchMedia !== 'function') return () => undefined;
+  const query = window.matchMedia(NARROW);
+  query.addEventListener('change', changed);
+  return () => query.removeEventListener('change', changed);
+}
+
+/** The main navigation: wide with labels, or slim with icons beside a workspace or in a narrow window. */
+export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
+  const slim = useSyncExternalStore(onNarrowChange, narrowNow) || slimHere;
   const api = useApi();
   const { route, go } = useRouter();
   const { data: course } = useLoad(() => api.course(), [route]);
@@ -55,6 +66,7 @@ export function Sidebar({ slim = false }: { slim?: boolean }) {
       <nav className="slim" aria-label="Main">
         <div className="lg"><Mark size={22} /></div>
         {nav}
+        <UpdateNotice slim />
       </nav>
     );
   }
@@ -86,11 +98,30 @@ export function WithSide({ children }: { children: ReactNode }) {
  * A new version (§7.2). An unsigned build links to the release, which opens in the browser; a signed one has
  * downloaded it and offers Restart to update. Read on each screen, and every 30 s until there is something to show.
  */
-function UpdateNotice() {
+function UpdateNotice({ slim = false }: { slim?: boolean }) {
   const api = useApi();
   const { route, fail } = useRouter();
   // Read until there is something to say: main checks at start and every 6 hours, so news can come at any time.
   const { data: update } = useLoad(() => api.update(), [route], { settled: (u) => u.kind === 'available' || u.kind === 'ready', every: 30_000 });
+  // The slim sidebar has room for one word; the sentence is still read out.
+  if (slim) {
+    return (
+      <div role="status" aria-label="Codemm updates" className="slim-update">
+        {update?.kind === 'available' && (
+          <>
+            <span className="sr-only">A new version is available.</span>
+            <ExternalLink href={update.url}>Update</ExternalLink>
+          </>
+        )}
+        {update?.kind === 'ready' && (
+          <>
+            <span className="sr-only">A new version is ready.</span>
+            <Button variant="text" onClick={() => void api.restartToUpdate().catch(fail)}>Restart</Button>
+          </>
+        )}
+      </div>
+    );
+  }
   // One status region stays in place, so a screen reader hears the news when it arrives, without a focus move.
   return (
     <div role="status" aria-label="Codemm updates" className={update?.kind === 'available' || update?.kind === 'ready' ? 'update' : undefined}>
