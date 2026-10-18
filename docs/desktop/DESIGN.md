@@ -96,7 +96,7 @@ desktop/
 
 ### 3.1 Launch, isolate, stream, cancel, sign in
 
-Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor was proved with cursor-agent 2026.01.23-916f423, signed in on the free plan: recorded fixtures and a canary run.
+Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor was proved with cursor-agent 2026.10.16-e3cb207 (it updated itself from 2026.01.23 at sign-in), signed in on the free plan: recorded fixtures and a canary run.
 
 | | Claude Code | Codex | Cursor (experimental) |
 |---|---|---|---|

@@ -216,6 +216,8 @@ describe('status commands', () => {
     expect(isTested('claude', '2.1.283')).toBe(true);
     expect(isTested('codex', '0.157.0')).toBe(false);
     expect(isTested('codex', AGENT_CLIS.codex.version.read({ code: 0, output: 'codex-cli 0.156.1-alpha.1\n' })!)).toBe(false);
-    expect(isTested('cursor', '2026.01.23-916f423')).toBe(true);
+    // The fixtures were recorded on 2026.10.16-e3cb207, which cursor-agent updated itself to at sign-in.
+    expect(isTested('cursor', '2026.10.16-e3cb207')).toBe(true);
+    expect(isTested('cursor', '2026.01.23-916f423')).toBe(false);
   });
 });

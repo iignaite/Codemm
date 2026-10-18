@@ -59,7 +59,7 @@ export interface AgentCli {
 }
 
 /** The CLI versions the recorded fixtures come from (§3.3). */
-export const TESTED: Record<AgentId, string[]> = { claude: ['2.1.283'], codex: ['0.156.1'], cursor: ['2026.01.23-916f423'] };
+export const TESTED: Record<AgentId, string[]> = { claude: ['2.1.283'], codex: ['0.156.1'], cursor: ['2026.10.16-e3cb207'] };
 export const isTested = (agent: AgentId, version: string) => TESTED[agent].includes(version);
 
 function json(line: string): Record<string, unknown> | null {
