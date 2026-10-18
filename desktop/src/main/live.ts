@@ -9,6 +9,7 @@ import {
   CHANGED,
   OFFLINE,
   PLAN_LIMIT,
+  REBUILD,
   REPAIR,
   SIGNED_OUT,
   UNSTOPPABLE,
@@ -84,7 +85,7 @@ const MAX_PROGRAMS = 4;
 
 function notCounted(error: unknown): string | null {
   const message = error instanceof Error ? error.message : String(error);
-  if (/image for .* is missing or changed/i.test(message)) return 'This environment needs a rebuild. Rebuild it under Tracks.';
+  if (/image for .* is missing or changed/i.test(message)) return REBUILD;
   const kind = infra(message);
   return kind ? NOT_COUNTED[kind] : null;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CHANGED, NO_AGENT, PLAN_LIMIT, SIGNED_OUT, type CodemmApi, type CourseView, type JobProgress } from '../shared/api';
+import { CHANGED, NO_AGENT, PLAN_LIMIT, REBUILD, SIGNED_OUT, type CodemmApi, type CourseView, type JobProgress } from '../shared/api';
 import { isSafeLink } from './links';
 import { createMock, scenario, SCENARIOS, type MockOptions } from './mock';
 
@@ -232,6 +232,12 @@ describe('mock: environment', () => {
     expect((await api.activity(activity.concept)).files[0]).toMatchObject({ text: 'mine', digest });
   });
 
+  it('says a check needs a rebuild when the track image is missing, and records nothing', async () => {
+    const { api, activity } = await practising(scenario('image-missing'));
+    expect(await api.check(activity.id)).toEqual({ kind: 'not-counted', reason: REBUILD });
+    expect(await api.tryIt(activity.id)).toEqual({ kind: 'not-counted', reason: REBUILD });
+  });
+
   it('fails setup offline or low on disk, records nothing, and retries the same proposal', async () => {
     for (const [name, problem] of [['offline-setup', 'offline'], ['low-disk', 'disk']] as const) {
       const { api, roadmap } = await roadmapped(scenario(name));
@@ -256,7 +262,7 @@ describe('mock: environment', () => {
   });
 
   it('names every scenario, and rejects unknown ones', () => {
-    expect(Object.keys(SCENARIOS)).toHaveLength(17);
+    expect(Object.keys(SCENARIOS)).toHaveLength(18);
     expect(scenario(undefined)).toEqual({});
     expect(() => scenario('nope')).toThrow('Unknown mock scenario');
   });

@@ -85,6 +85,7 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
     easier: () => act(() => api.easier(activity.concept), { to: 'learn' }),
     later: () => act(() => api.skip(activity.concept), { to: 'learn' }),
     computer: () => go({ to: 'computer', then: { to: 'practice', concept: activity.concept } }),
+    tracks: () => go({ to: 'tracks' }),
     next: () => go({ to: 'learn' }),
   };
 
