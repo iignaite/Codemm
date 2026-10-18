@@ -88,6 +88,15 @@ describe("runtime guidance", () => {
 });
 
 describe("buildProblem", () => {
+  it("reads disk before network before Docker, as a build log can show more than one", () => {
+    expect(buildProblem("ERROR: not enough disk space")?.kind).toBe("disk");
+    expect(buildProblem("Docker ran out of disk space")?.kind).toBe("disk");
+    expect(buildProblem("the build couldn't reach the network")?.kind).toBe("offline");
+    expect(buildProblem("Cannot connect to the Docker daemon\nnetwork is unreachable")?.kind).toBe("offline");
+    expect(buildProblem("error getting credentials: network is unreachable")?.kind).toBe("offline");
+    expect(buildProblem("error getting credentials: not enough disk space")?.kind).toBe("disk");
+  });
+
   it("blames Docker, not the track, when the build loses the daemon", () => {
     const line = "ERROR: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?";
     const problem = buildProblem(`#5 [2/3] RUN install\n${line}\n`);
