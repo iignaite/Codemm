@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -195,6 +195,35 @@ async function installedExercise(): Promise<string> {
   writeFileSync(join(path, "main.sh"), "read -r x; echo $x\n");
   return ws;
 }
+
+describe.runIf(posix)("live lesson examples", () => {
+  /** Writes a lesson whose examples were already checked, as save_lesson stores it. */
+  const lesson = (examples: Record<string, string>[], style: "io" | "unit" = "io") =>
+    store.writeLesson("shell", { format_version: 1, id: "echo", concept: "sh.basics", title: "Echo", created: new Date().toISOString(), examples: examples.length, track: "shell-io@1", style }, "```example\n1\n```\n", examples);
+
+  it("runs an io example live with the learner's input, and records nothing", async () => {
+    const ws = await installedExercise();
+    lesson([{ "main.sh": "read -r x; echo $x\n" }]);
+    fakeDocker("interactive");
+    const out = { stdout: "", stderr: "" };
+    const run = await app.runExampleLive(ws, "echo", 1, (text, stream) => (out[stream] += text));
+    run.write("Ada\n");
+    expect(await run.done).toMatchObject({ exit: 0, timedOut: false });
+    expect(out.stdout).toContain("hello Ada");
+    expect(store.readEvents("shell")).toEqual([]);
+  });
+
+  it("refuses a missing example, a unit example (which runs as tests), and files that no longer fit the track", async () => {
+    const ws = await installedExercise();
+    fakeDocker("interactive");
+    lesson([{ "main.sh": "echo 1\n" }], "unit");
+    await expect(app.runExampleLive(ws, "echo", 2, () => undefined)).rejects.toThrow(/no example 2/);
+    await expect(app.runExampleLive(ws, "echo", 1, () => undefined)).rejects.toThrow(/runs as tests/);
+    rmSync(store.lessonDir("shell", "echo"), { recursive: true });
+    lesson([{ "other.sh": "echo 1\n" }]);
+    await expect(app.runExampleLive(ws, "echo", 1, () => undefined)).rejects.toThrow(/exactly the track's learner files/);
+  });
+});
 
 describe("Run's driver markers", () => {
   const feed = (chunks: string[]) => {
