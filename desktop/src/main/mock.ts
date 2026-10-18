@@ -2,7 +2,7 @@
 // development (CODEMM_MOCK). Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner replaced the starter's
 // placeholder, and reports hidden results as statuses only.
-import { type CheckProgress,
+import { type CheckProgress, type ResearchProgress,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
@@ -251,6 +251,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
   // Progress as a real check reports it: each test, as counts only.
   const progressListeners = new Set<(p: CheckProgress) => void>();
+  const researchListeners = new Set<(p: ResearchProgress) => void>();
   const progress = (run: string | undefined, phase: CheckProgress['phase'], total: number) => {
     for (let done = 0; done <= total; done++) progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
   };
@@ -267,6 +268,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     onCheckProgress(listener) {
       progressListeners.add(listener);
       return () => void progressListeners.delete(listener);
+    },
+
+    onResearchProgress(listener) {
+      researchListeners.add(listener);
+      return () => void researchListeners.delete(listener);
     },
 
     async chooseModel(id, model) {
@@ -310,12 +316,17 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async research(goal) {
       agentJob();
       if (research?.topic !== goal.topic) research = { topic: goal.topic, calls: 0 };
-      if (++research.calls < 3) return { state: 'running' };
+      if (++research.calls < 3) {
+        const step: ResearchProgress = research.calls === 1 ? { kind: 'search', query: `${goal.topic} roadmap` } : { kind: 'read', url: 'roadmap.sh/react' };
+        researchListeners.forEach((l) => l(step));
+        return { state: 'running' };
+      }
       roadmap = {
         goal: goal.topic,
         track: goal.topic,
         installed: tracks.some((t) => t.name === goal.topic),
         concepts: TOPICS.map(([title, requires]) => ({ id: slugOf(title), title, requires: [...requires] })),
+        sources: [],
       };
       return { state: 'done', roadmap: structuredClone(roadmap) };
     },

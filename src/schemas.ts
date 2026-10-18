@@ -63,6 +63,19 @@ export function parseTrackYaml(yaml: string): TrackSpec {
   return { ...t, limits: { time_ms: clamp(t.limits?.time_ms, LIMITS.time_ms), memory_mb: clamp(t.limits?.memory_mb, LIMITS.memory_mb) } };
 }
 
+/** An https link with no credentials: the only kind the app opens, in the learner's browser. */
+const httpsUrl = z.string().max(2000).refine((u) => {
+  try {
+    const url = new URL(u);
+    return url.protocol === "https:" && url.username === "" && url.password === "";
+  } catch {
+    return false;
+  }
+}, "must be an https link");
+
+/** The roadmaps and docs the agent used while planning (optional). */
+const Source = z.object({ title: z.string().min(1).max(120), url: httpsUrl }).strict();
+
 const RoadmapYaml = z
   .object({
     goal: z.string().min(1).max(500),
@@ -72,6 +85,7 @@ const RoadmapYaml = z
       .array(z.object({ id: Id, title: z.string().min(1).max(200), requires: z.array(Id).max(20).default([]) }).strict())
       .min(1, "add at least one concept")
       .max(200),
+    sources: z.array(Source).max(10, "list at most 10 sources").optional(),
   })
   .strict();
 export type Roadmap = z.infer<typeof RoadmapYaml>;

@@ -34,6 +34,8 @@ export interface CoreRoadmap {
   track: string;
   style: string;
   concepts: { id: string; title: string; requires: string[] }[];
+  /** The roadmaps and docs the research job used (core §5): https links only. */
+  sources?: { title: string; url: string }[];
 }
 
 export type CoreNextStep =
