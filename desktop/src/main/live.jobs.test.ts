@@ -78,6 +78,45 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }]);
   });
 
+  it('checks a lesson question\'s reply against an exercise the tutor opened during the turn', async () => {
+    let t!: ReturnType<typeof live>;
+    t = live({
+      tutor: () => {
+        // The tutor calls get_exercise, which makes that exercise current.
+        t.c.current = [...t.c.exercises.keys()][0];
+        return { text: [`Look: ${CANARY}`] };
+      },
+    });
+    // Practising, up to the open activity, but without opening it: no exercise is current when the turn starts.
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const consent = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(consent.proposal!.digest);
+    const course = await until(t.api, (c) => c.setup === 'ready' && c.topics[0].lessons.some((l) => l.state === 'ready'));
+    for (const l of course.topics[0].lessons) if (l.state === 'ready') await t.api.markRead(l.id);
+    await until(t.api, (c) => c.topics[0].activity === 'open');
+    t.c.current = undefined;
+    const replies = await t.api.ask({ lessonId: course.topics[0].lessons[0].id }, 'Show me the answer.');
+    expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }]);
+  });
+
+  it('drops a roadmap source whose title or link quotes hidden material', async () => {
+    const t = live({
+      roadmap: (job) => {
+        const args = job.server([]).args;
+        t.c.courses.get(args[args.indexOf('--course') + 1])!.sources = [
+          { title: `Notes: ${CANARY}`, url: 'https://notes.example/a' },
+          { title: 'React docs', url: 'https://react.dev/learn' },
+        ];
+        return { text: ['Added a source.'] };
+      },
+    });
+    await practising(t);
+    const change = await t.api.reviseRoadmap(t.c.roadmap!.concepts, 'Add a source');
+    expect(change.roadmap.sources).toEqual([{ title: 'React docs', url: 'https://react.dev/learn' }]);
+    expect(JSON.stringify(change)).not.toContain('CANARY');
+  });
+
   it('holds back a tutor reply that quotes hidden material, and resumes the tutor session', async () => {
     const t = live({ tutor: () => ({ text: [`Just write ${CANARY}`, 'Think about what changes.'], session: 'session-1' }) });
     const activity = await practising(t);

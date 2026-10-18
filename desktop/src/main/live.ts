@@ -138,7 +138,12 @@ export function createLive(d: LiveDeps): Live {
     }
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
-  const roadmapShown = (r: CoreRoadmap): Roadmap => roadmapView(r, installed(r.track));
+  /** A roadmap as shown. Its sources are agent text too, so one that quotes hidden material, or can't be checked, is dropped. */
+  const roadmapShown = (r: CoreRoadmap): Roadmap => {
+    const view = roadmapView(r, installed(r.track));
+    const filter = hidden();
+    return { ...view, sources: view.sources.filter((s) => shown(s.title, filter) === s.title && shown(s.url, filter) === s.url) };
+  };
   /** The activity the learner last opened: the workspace's current one is the draft's while a draft is active. */
   let opened: string | undefined;
   /** The hidden material of an activity: the one named, else the one the learner is on. */
@@ -699,7 +704,11 @@ export function createLive(d: LiveDeps): Live {
       });
       tutorTurns = turn.catch(() => undefined);
       const outcome = await turn;
-      return outcome.text.map((t) => ({ from: 'codemm' as const, text: shown(t, filter) }));
+      // The tutor may open another exercise during the turn (get_exercise makes it current): check against it too.
+      const now = core.readWorkspace(ws);
+      const later = now.course === course && now.current ? hidden(now.current, course) : [];
+      const both = filter && later ? [...filter, ...later] : null;
+      return outcome.text.map((t) => ({ from: 'codemm' as const, text: shown(t, both) }));
     },
 
     async skip(concept) {
