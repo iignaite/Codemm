@@ -226,6 +226,8 @@ export function createLive(d: LiveDeps): Live {
         done,
         blocked: () => unstoppable,
         signedIn: () => d.connect.recheck(id, exe),
+        // A cancelled or stopped attempt's gate container is removed before a relaunch or the end (§5).
+        cleanup: () => core.cleanupLeftovers(),
         onEvent: (e) => {
           tracker.event(e);
           // A save that ended leaves its last gate in the file; the next save starts from none.

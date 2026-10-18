@@ -67,6 +67,11 @@ export interface Job {
   blocked?: () => boolean;
   /** Asked when a job fails for an unknown reason. */
   signedIn: () => Promise<boolean>;
+  /**
+   * Removes the containers of Codemm processes that are gone (core's removeAbandoned), after an attempt Codemm ended:
+   * a cancelled job's gate container would otherwise run on beside the next one (§5).
+   */
+  cleanup?: () => Promise<void>;
   deadlineMs?: number;
   /** Hears each of the agent's events, for the job's progress (§4.11). */
   onEvent?: (event: AgentEvent) => void;
@@ -85,6 +90,8 @@ interface Attempt {
   text: string[];
   /** A cancel the agent's process group survived (§3.1). */
   unstoppable: boolean;
+  /** Codemm ended the attempt (a cancel, the deadline, or a failure that stops it), so it may have left containers. */
+  ended: boolean;
   /** `server`: the Codemm server didn't start. `tool`: a Codemm tool hit Docker or disk; `offline`: the network. `unstarted`: the agent exited before it started. */
   infra?: 'server' | 'tool' | 'offline' | 'unstarted';
 }
@@ -107,7 +114,7 @@ function jobFolder(agentDir: string, agent: AgentId, files: NonNullable<Invocati
 
 async function once(job: Job): Promise<Attempt> {
   const cli = AGENT_CLIS[job.agent];
-  if (!cli.launch || !cli.parse) return { ok: false, error: 'This agent is experimental and can not run jobs yet.', text: [], unstoppable: false };
+  if (!cli.launch || !cli.parse) return { ok: false, error: 'This agent is experimental and can not run jobs yet.', text: [], unstoppable: false, ended: false };
   const spec = JOBS[job.kind];
   const deadlineMs = job.deadlineMs ?? spec.deadlineMs;
   const stop = new AbortController();
@@ -164,7 +171,7 @@ async function once(job: Job): Promise<Attempt> {
     if (!started && !result.cancelled && result.code !== 0) infra ??= 'unstarted';
     // A conversational success needs the agent's done event and a clean exit.
     const ok = !result.cancelled && result.code === 0 && done?.ok === true;
-    return { ok, error: done?.error, session, text, unstoppable: result.cancelled && result.stopped === false, infra };
+    return { ok, error: done?.error, session, text, unstoppable: result.cancelled && result.stopped === false, ended: result.cancelled, infra };
   } finally {
     clearTimeout(deadline);
     job.signal?.removeEventListener('abort', cancel);
@@ -184,6 +191,8 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     if (job.blocked?.()) return { ok: false, problem: 'unstoppable', text: last?.text ?? [] };
     if (attempt > 0) job.onRelaunch?.();
     last = await once(job);
+    // Before a relaunch or the end, an attempt Codemm ended leaves no container behind.
+    if (last.ended) await job.cleanup?.().catch(() => undefined);
     if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };
     if (job.signal?.aborted) break;
