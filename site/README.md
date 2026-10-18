@@ -24,7 +24,9 @@ test/         node:test suites
 4. The browser goes to `/downloads#d=…`. The fragment never reaches a server or a Referer header, and the page removes it from the address bar. `GET /api/downloads` with the download token returns the newest published release (stable first, otherwise the newest beta), reduced to its `.dmg` and `.exe` links on GitHub. The page picks the installer for the visitor's computer.
 5. `/unsubscribe#u=…` deletes the email after a click. `scripts/unsubscribe-link.mjs` makes one link per subscriber, for the owner's release emails.
 
-**What's stored.** The `subscribers` table holds `email`, `consent`, `created_at` and an id. Nothing else is stored: no IP, name or user agent. Rate limits are keyed by an HMAC of the IP or email, never the value itself, and are deleted after a day. Emails are never logged; errors log only an error code.
+**What's stored.** The `subscribers` table holds `email`, `consent`, `created_at` and an id. Nothing else is stored: no IP, name or user agent. Rate limits are keyed by an HMAC of the IP or email, never the value itself, and are deleted after a day. When someone unsubscribes, their row is deleted and an HMAC of the email goes into `suppressions`, so nobody can put it back on the list through the form. Emails are never logged; errors log only an error code.
+
+**No inbox confirmation yet.** Anyone can submit any address, so the list may hold emails whose owners never asked. Double opt-in (a confirmation email before `consent = 1`) needs an email provider, which is the owner's choice.
 
 **Security headers** (`vercel.json`): a CSP with `script-src 'self'` and no inline code, `connect-src 'self'` (the browser talks only to this site; the server calls GitHub), `frame-ancestors 'none'`, HSTS, `nosniff`, `Referrer-Policy: no-referrer`, a restrictive `Permissions-Policy`, and same-origin COOP and CORP. API responses are `no-store`.
 
@@ -99,4 +101,4 @@ If you'd rather use the Turso integration in the Vercel Marketplace, install it 
 
 **Later.** Commits that don't touch `site/` don't redeploy (`ignoreCommand`). A new GitHub release needs no redeploy. To email subscribers, `node --env-file=.env.turso scripts/unsubscribe-link.mjs https://your-domain subscribers.tsv` writes each email and its unsubscribe link to a new file only you can read, and prints just the count. It needs `SITE_SECRET` in `.env.turso` too. Delete the file after sending, and never commit it.
 
-**Rotating `SITE_SECRET`** invalidates every unsubscribe link already sent, so rotate it only if it leaks.
+**Rotating `SITE_SECRET`** invalidates every unsubscribe link already sent and every suppression, so rotate it only if it leaks.

@@ -220,6 +220,19 @@ test('submitting someone else\'s email gives no way to remove them', async () =>
   assert.equal((await rows()).length, 1);
 });
 
+test('an unsubscribed email can\'t be put back on the list by anyone', async () => {
+  await subscribe('ada@example.org');
+  const [row] = await rows();
+  await app.unsubscribe(req('/api/unsubscribe', { method: 'POST', body: { token: unsubscribeTokenFor(SECRET, Number(row.id)) } }));
+  const again = await subscribe('ADA@example.org', { ip: '192.0.2.50' });
+  assert.equal(again.status, 200);
+  assert.deepEqual(Object.keys(again.body), ['download']);
+  assert.equal((await rows()).length, 0);
+  const kept = (await db.execute('SELECT * FROM suppressions')).rows;
+  assert.equal(kept.length, 1);
+  assert.ok(!JSON.stringify(kept).includes('ada'));
+});
+
 test('a missing or short secret fails closed', async () => {
   const bad = createApp({ db, secret: 'short', now: () => clock.t, releases: async () => RELEASES });
   assert.equal((await bad.form(req('/api/form'))).status, 500);

@@ -36,6 +36,7 @@ export function createApp({ db, secret, now, releases }) {
   const keys = configured && {
     form: subkey(secret, 'form'), download: subkey(secret, 'download'),
     unsubscribe: subkey(secret, 'unsubscribe'), limit: subkey(secret, 'rate-limit'),
+    suppress: subkey(secret, 'suppression'),
   };
 
   async function readJson(request) {
@@ -119,10 +120,12 @@ export function createApp({ db, secret, now, releases }) {
       if (!email) throw new Refusal(400, 'Enter a valid email address.');
       await limit('email', email);
       const t = now();
+      // An email that unsubscribed stays off the list; the answer is the same either way.
       await db.execute({
-        sql: `INSERT INTO subscribers (email, consent, created_at) VALUES (?, 1, ?)
+        sql: `INSERT INTO subscribers (email, consent, created_at)
+              SELECT ?, 1, ? WHERE NOT EXISTS (SELECT 1 FROM suppressions WHERE email_hash = ?)
               ON CONFLICT (email) DO UPDATE SET consent = 1`,
-        args: [email, t],
+        args: [email, t, keyedHash(keys.suppress, email)],
       });
       await db.execute({ sql: 'DELETE FROM rate_limits WHERE window_start < ?', args: [t - 24 * 60 * 60 * 1000] });
       // No unsubscribe token here: whoever submits an email hasn't shown they own it.
@@ -140,13 +143,19 @@ export function createApp({ db, secret, now, releases }) {
       return json(200, { release });
     }),
 
-    /** POST { token }: deletes the subscriber. Idempotent. */
+    /** POST { token }: deletes the subscriber and keeps a keyed hash so the email can't be re-added. Idempotent. */
     unsubscribe: handle('unsubscribe', async (request) => {
       const body = await readJson(request);
       await limit('unsubscribe', ip(request));
       const payload = verify(keys.unsubscribe, body.token, 'unsub', now());
       if (!payload || !Number.isSafeInteger(payload.id)) throw new Refusal(400, 'This link isn\'t valid.');
-      await db.execute({ sql: 'DELETE FROM subscribers WHERE id = ?', args: [payload.id] });
+      const { rows } = await db.execute({ sql: 'SELECT email FROM subscribers WHERE id = ?', args: [payload.id] });
+      if (rows.length) {
+        await db.batch([
+          { sql: 'INSERT OR IGNORE INTO suppressions (email_hash, created_at) VALUES (?, ?)', args: [keyedHash(keys.suppress, String(rows[0].email)), now()] },
+          { sql: 'DELETE FROM subscribers WHERE id = ?', args: [payload.id] },
+        ], 'write');
+      }
       return json(200, { ok: true });
     }),
   };
