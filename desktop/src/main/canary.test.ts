@@ -20,8 +20,24 @@ describe('the learner-safe boundary (D4)', () => {
     for (const level of ['log', 'info', 'warn', 'error', 'debug'] as const) {
       vi.spyOn(console, level).mockImplementation((...args: unknown[]) => void logged.push(args.map(String).join(' ')));
     }
-    const t = live({ tutor: () => ({ text: [`Here is the answer: ${CANARY}`, 'Count what changes.'], session: 's1' }) });
+    const docker: string[] = [];
+    const t: ReturnType<typeof live> = live(
+      {
+        tutor: () => ({ text: [`Here is the answer: ${CANARY}`, 'Count what changes.'], session: 's1' }),
+        // Research reports its steps; once the course has hidden material, one step quotes it and must be dropped.
+        research: (job) => {
+          job.onProgress?.({ kind: 'search', query: 'react hooks' });
+          if (t.c.exercises.size > 0) job.onProgress?.({ kind: 'search', query: CANARY });
+          const args = job.server([]).args;
+          t.c.roadmap = { course: args[args.indexOf('--course') + 1]!, goal: 'React', track: 'react@1', style: 'io', concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }] };
+          return {};
+        },
+      },
+      { docker: { install: () => void docker.push('install'), open: async () => void docker.push('open') } },
+    );
     const activity = await practising(t);
+    // The first lesson has an example, so Run on it takes its success path.
+    Object.assign(t.c.lessons.find((l) => l.id === 'values-1')!, { examples: [{ 'main.c': 'int main(void) { return 0; }' }], style: 'io' });
     // What the renderer hears without asking: check, research and Run events.
     const heard: unknown[] = [];
     t.api.onCheckProgress((p) => heard.push(p));
@@ -73,17 +89,29 @@ describe('the learner-safe boundary (D4)', () => {
       research: [{ topic: 'React', known: '', depth: 'standard' }],
     };
     const payloads = [await call('ask', [{ lessonId: 'values-1' }, 'Why?'])];
+    const results: Partial<Record<Method, string>> = {};
     const running: Promise<string>[] = [];
     for (const [method, args] of Object.entries(calls) as [Method, unknown[]][]) {
-      const result = call(method, args);
+      const result = call(method, args).then((r) => (results[method] = r));
       if (method === 'runProgram' || method === 'runExampleLive') running.push(result);
       else payloads.push(await result);
       // Input sent before the program starts would go nowhere.
       if (method === 'runProgram') await vi.waitFor(() => expect(heard).toContainEqual({ run: 'canary-program', started: 'run', limitMs: expect.any(Number) }));
     }
-    payloads.push(...(await Promise.all(running)), JSON.stringify(heard));
-    // The Run path really ran: its output reached the listener.
-    expect(JSON.stringify(heard)).toContain('hello Ada');
+    payloads.push(...(await Promise.all(running)));
+    // The last research call started a job; wait for it, so its progress is heard.
+    for (let i = 0; i < 20 && (await t.api.research({ topic: 'React', known: '', depth: 'standard' })).state === 'running'; i++) await new Promise((r) => setTimeout(r, 5));
+    payloads.push(JSON.stringify(heard));
+
+    // Each path really ran, so its success payload was checked, not only an error.
+    expect(results.runExample).toMatch(/"kind":"ran"/);
+    expect(results.runProgram).toMatch(/"kind":"ran","exit":0/);
+    expect(results.sendRunInput).toBe('true');
+    expect(results.runExampleLive).toMatch(/"stopped":true/);
+    expect(heard).toContainEqual({ run: 'canary-program', stream: 'stdout', text: 'hello Ada\n' });
+    expect(heard).toContainEqual({ run: 'canary-example', started: 'run', limitMs: expect.any(Number) });
+    expect(heard).toContainEqual({ kind: 'search', query: 'react hooks' });
+    expect(docker).toEqual(['install', 'open']);
 
     for (const payload of payloads) expect(payload).not.toMatch(leaks);
     for (const line of logged) expect(line).not.toMatch(leaks);
