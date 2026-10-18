@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Activity, CourseView } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useConversation } from '../../app/useConversation';
@@ -35,26 +35,37 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
   // Codemm reads the saved files, so pending edits are saved before each question.
   const ask = (text: string) => chat.ask(text, save);
 
-  async function attempt(label: string, work: () => Promise<Shown>) {
+  // While the tests run, show how far they've got: only this run's progress, and none after leaving.
+  const listening = useRef<() => void>(undefined);
+  useEffect(() => () => listening.current?.(), []);
+
+  async function attempt(label: string, work: (run: string) => Promise<Shown>) {
     const before = shown;
+    const run = crypto.randomUUID();
     setShown({ kind: 'busy', label });
+    listening.current?.();
+    const stop = api.onCheckProgress((progress) => progress.run === run && setShown((s) => (s.kind === 'busy' ? { ...s, progress } : s)));
+    listening.current = stop;
     try {
       await save();
-      setShown(await work());
+      setShown(await work(run));
     } catch (e) {
       setShown(before);
       fail(e);
+    } finally {
+      stop();
+      if (listening.current === stop) listening.current = undefined;
     }
   }
 
   const check = () =>
-    attempt('Checking', async () => {
-      const result = await api.check(activity.id);
+    attempt('Checking', async (run) => {
+      const result = await api.check(activity.id, run);
       if (result.kind === 'not-counted') chat.add({ from: 'codemm', text: 'Your code is saved. Nothing was recorded.' });
       return { kind: 'check', result, keepTrying: false };
     });
 
-  const tryIt = () => attempt('Running', async () => ({ kind: 'try', result: await api.tryIt(activity.id) }));
+  const tryIt = () => attempt('Running', async (run) => ({ kind: 'try', result: await api.tryIt(activity.id, run) }));
 
   async function act(work: () => Promise<void>, then: Parameters<typeof go>[0]) {
     try {
@@ -79,6 +90,7 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
   return (
     <div className="ws">
       <section className="stmt" aria-labelledby="activity-title">
+        {topic?.review === 'due' && <span className="pill" style={{ alignSelf: 'flex-start' }}>Review</span>}
         <h1 className="h2" id="activity-title">{activity.title}</h1>
         <Markdown text={activity.statement} />
       </section>

@@ -58,7 +58,7 @@ async function masterEverything(page: Page) {
       for (const l of now.lessons) await call('markRead', l.id);
       const { id, files } = await call('activity', now.id);
       await call('saveFile', id, files[0].path, 'count + 1', files[0].digest);
-      await call('check', id);
+      await call('check', id, 'e2e');
     }
   });
 }
@@ -260,15 +260,30 @@ test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', 
   await app.close();
 });
 
-/** Presses Tab until the control named `name` has focus. Fails if it never does. */
+/** Elements Tab can stop on right now. */
+const focusables = (page: Page) =>
+  page.evaluate(
+    () =>
+      [...document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]')].filter(
+        (el) => el.tabIndex >= 0 && !el.matches(':disabled') && el.checkVisibility(),
+      ).length,
+  );
+
+/**
+ * Presses Tab until the control named `name` has focus. It waits for the control first, so a screen still loading
+ * (the agent list, a lesson) is never tabbed through early. Then one lap through every focusable element, plus the
+ * stop on the page itself, must reach it, or it fails.
+ */
 async function tabTo(page: Page, role: 'button' | 'textbox' | 'menuitem' | 'combobox', name: string | RegExp) {
   const target = page.getByRole(role, { name, exact: typeof name === 'string' }).first();
-  for (let i = 0; i < 120; i++) {
-    // count() first: evaluate() on a missing element would wait forever.
-    if ((await target.count()) > 0 && (await target.evaluate((el) => el === document.activeElement))) return;
+  await expect(target).toBeVisible();
+  await expect(target).toBeEnabled();
+  const laps = (await focusables(page)) + 2;
+  for (let i = 0; i < laps; i++) {
+    if (await target.evaluate((el) => el === document.activeElement)) return;
     await page.keyboard.press('Tab');
   }
-  throw new Error(`Tab never reached ${role} "${name}" on:\n${await page.locator('body').ariaSnapshot()}`);
+  throw new Error(`Tab never reached ${role} "${name}" in ${laps} presses on:\n${await page.locator('body').ariaSnapshot()}`);
 }
 
 async function press(page: Page, name: string | RegExp) {

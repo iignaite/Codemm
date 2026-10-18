@@ -7,7 +7,7 @@ import { HELD_BACK } from './views';
 describe('live CodemmApi', () => {
   it('needs a connected agent before research', async () => {
     const t = live();
-    await expect(t.api.research({ topic: 'React', known: '' })).rejects.toThrow('codemm:no-agent');
+    await expect(t.api.research({ topic: 'React', known: '', depth: 'standard' })).rejects.toThrow('codemm:no-agent');
   });
 
   it('researches a new course on a server bound to it, then shows the roadmap', async () => {
@@ -28,6 +28,23 @@ describe('live CodemmApi', () => {
     await t.api.chooseModel('claude', 'haiku');
     await t.api.reviseRoadmap(t.c.roadmap!.concepts, 'Add testing');
     expect(t.jobs.ran.map((j) => j.model)).toEqual(['sonnet', 'haiku']);
+  });
+
+  it('forwards check progress to listeners, counts only, until they stop listening', async () => {
+    const t = live();
+    const { id } = await practising(t);
+    const seen: unknown[] = [];
+    const off = t.api.onCheckProgress((p) => seen.push(p));
+    await t.api.tryIt(id, 'run-1');
+    await t.api.check(id, 'run-2');
+    expect(seen).toEqual([
+      { run: 'run-1', phase: 'visible', done: 1, total: 1 },
+      { run: 'run-2', phase: 'visible', done: 1, total: 1 },
+      { run: 'run-2', phase: 'hidden', done: 1, total: 2 },
+    ]);
+    off();
+    await t.api.check(id, 'run-3');
+    expect(seen).toHaveLength(3);
   });
 
   it('saves edits, then asks for changes', async () => {
@@ -199,11 +216,41 @@ describe('live CodemmApi', () => {
     expect(await s.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: "Docker isn't running." });
   });
 
+  it("shows a lesson's examples and runs one in core's sandbox; a stopped Docker means it didn't run", async () => {
+    const t = live();
+    await practising(t);
+    t.c.lessons.push({ id: 'ex', concept: 'values', title: 'Run it', markdown: 'See:\n\n```example\n1\n```\n', notes: '', examples: [{ 'main.c': 'int main(){}' }] });
+    expect((await t.api.lesson('ex')).examples).toEqual([{ files: [{ path: 'main.c', text: 'int main(){}' }] }]);
+    expect(await t.api.runExample('ex', 1)).toEqual({ kind: 'ran', exit: 0, output: 'ran main.c\n', errors: '' });
+    t.c.down = true;
+    expect(await t.api.runExample('ex', 1)).toEqual({ kind: 'not-run', reason: "Docker isn't running." });
+  });
+
   it('keeps a stuck activity open beside the ways forward', async () => {
     const t = live();
     const activity = await practising(t);
     t.c.stuck = 'values';
     expect((await t.api.course())!.topics[0]).toMatchObject({ state: 'now', stuck: true, activity: 'open' });
+    expect((await t.api.activity('values')).id).toBe(activity.id);
+  });
+
+  it('starts writing a review exercise when a review comes due while the app is open', async () => {
+    const t = live();
+    await practising(t);
+    t.c.mastered.add('values');
+    const authors = () => t.jobs.ran.filter((j) => j.kind === 'author').length;
+    const before = authors();
+    t.c.reviewWithout = 'values';
+    expect((await t.api.course())!.topics[0]).toMatchObject({ review: 'writing' });
+    await until(t.api, () => authors() === before + 1);
+  });
+
+  it('reopens a mastered topic for its due review, on the exercise core names', async () => {
+    const t = live();
+    const activity = await practising(t);
+    t.c.mastered.add('values');
+    t.c.review = { concept: 'values', exercise: activity.id };
+    expect((await t.api.course())!.topics[0]).toMatchObject({ state: 'mastered', review: 'due', activity: 'open' });
     expect((await t.api.activity('values')).id).toBe(activity.id);
   });
 

@@ -20,7 +20,7 @@ export function fakeCore() {
     roadmap: null as null | { course: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[] },
     tracks: [] as string[],
     proposals: [] as { track: string; digest: string; created: string; files: Record<string, string> }[],
-    lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string }[],
+    lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string; examples?: Record<string, string>[] }[],
     reads: new Set<string>(),
     exercises: new Map<string, { concept: string; file: string; digest: string; created: string; difficulty?: number }>(),
     /** The difficulty next_step asks the author for, and the one the fake author writes. */
@@ -33,6 +33,10 @@ export function fakeCore() {
     /** The concept core says the learner is stuck on. */
     stuck: undefined as string | undefined,
     current: undefined as string | undefined,
+    /** A mastered concept due for review, on this exercise (core §7). */
+    review: undefined as undefined | { concept: string; exercise: string },
+    /** A mastered concept due for review with no unused exercise: core asks for one (author, review: true). */
+    reviewWithout: undefined as string | undefined,
     install: async (_ref: string, _digest: string): Promise<unknown> => {
       c.tracks.push('react@1');
       return {};
@@ -43,6 +47,8 @@ export function fakeCore() {
   const next = (): CoreNextStep => {
     const r = c.roadmap!;
     if (!c.tracks.includes(r.track)) return { kind: 'setup', track: r.track };
+    if (c.review) return { kind: 'review', concept: c.review.concept, difficulty: c.wanted, exercise: c.review.exercise };
+    if (c.reviewWithout) return { kind: 'author', concept: c.reviewWithout, difficulty: c.wanted, review: true };
     const concept = r.concepts.find((x) => !c.mastered.has(x.id) && x.requires.every((q) => c.mastered.has(q)));
     if (!concept) return { kind: 'done' };
     if (c.stuck === concept.id) return { kind: 'stuck', concept: concept.id };
@@ -91,12 +97,15 @@ export function fakeCore() {
       c.current = slug;
       return { course: c.roadmap!.course, exercise: slug!, path: '/Users/me/Codemm/exercises/x', style: 'io', concepts: [c.exercises.get(slug!)!.concept], difficulty: 1, files: ['main.c'], statement: '# Count up\n\nPrint one.', visibleTests: [{ name: 'prints one', input: '', expected: '1' }] };
     },
-    testExercise: async (_ws, slug) => {
+    testExercise: async (_ws, slug, _bound, onProgress) => {
       if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
+      onProgress?.({ phase: 'visible', done: 1, total: 1 });
       return view(slug!, 1, false);
     },
-    checkExercise: async (_ws, slug) => {
+    checkExercise: async (_ws, slug, _bound, onProgress) => {
       if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
+      onProgress?.({ phase: 'visible', done: 1, total: 1 });
+      onProgress?.({ phase: 'hidden', done: 1, total: 2 });
       c.checks.push(slug!);
       const done = c.exercises.get(slug!)!.file.includes('count + 1');
       if (done) c.mastered.add(c.exercises.get(slug!)!.concept);
@@ -111,7 +120,13 @@ export function fakeCore() {
     listProposals: () => c.proposals,
     installProposal: (ref, digest) => c.install(ref, digest),
     dropProposal: async () => void (c.proposals = []),
-    getLesson: (_ws, id) => c.lessons.find((l) => l.id === id)!,
+    getLesson: (_ws, id) => ({ examples: [], ...c.lessons.find((l) => l.id === id)! }),
+    runExample: async (_ws, id, index) => {
+      if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
+      const files = c.lessons.find((l) => l.id === id)?.examples?.[index - 1];
+      if (!files) throw new Error(`Lesson "${id}" has no example ${index}.`);
+      return { exit: 0, output: `ran ${Object.keys(files).join(',')}\n`, errors: '' };
+    },
     listExercises: (_ws, bound) => (c.bound.push(bound), [...c.exercises.entries()].map(([exercise, e]) => ({ exercise, concepts: [e.concept], difficulty: e.difficulty ?? 1, created: e.created }))),
     listLessons: (_ws, bound) => {
       c.bound.push(bound);
@@ -206,10 +221,10 @@ export async function until(api: CodemmApi, done: (c: CourseView) => boolean) {
 
 export async function researched(t: ReturnType<typeof live>) {
   await t.api.connect('claude');
-  let r = await t.api.research({ topic: 'React', known: '' });
+  let r = await t.api.research({ topic: 'React', known: '', depth: 'standard' });
   for (let i = 0; i < 20 && r.state === 'running'; i++) {
     await new Promise((res) => setTimeout(res, 5));
-    r = await t.api.research({ topic: 'React', known: '' });
+    r = await t.api.research({ topic: 'React', known: '', depth: 'standard' });
   }
   return r;
 }

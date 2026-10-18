@@ -50,7 +50,7 @@ The desktop app, the private beta and the minimum model per agent are in scope f
 ### Deferred (not needed for 1.0)
 
 - The full cross-host model bench, including the desktop's per-job flow.
-- Independent-solve gate, spaced review, placement quiz, per-test concept tags.
+- Independent-solve gate, placement quiz, per-test concept tags.
 - Practice hooks for Codex and Cursor in the terminal; protection is advisory there.
 - Multi-container tracks, course sharing, watch mode.
 - Publishing to npm. GitHub releases are built as drafts, and only the owner publishes them.
@@ -126,6 +126,12 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
   3. A report is `{ "tests": [ { "name", "status": "pass"|"fail"|"error", "message"? } ] }`. It must be non-empty, with unique names.
 - **Unit inventory.** When an exercise is verified, Codemm records the reference's test names for each set. At check time, a test missing from the learner's report counts as `error`, and unknown extra names are ignored, so the denominator never shrinks.
 - **Known limitation: results can be forged from inside.** The driver (PID 1) holds the container's output stream on a saved descriptor while a case runs. A program running as the same user could write forged frames to it through `/proc/1/fd`. This doesn't weaken host isolation, but it does mean grading is honor-system, consistent with §1 and §2. Tamper-proof grading would need a separate trusted grader and is out of scope for 1.0.
+- **Progress.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }`:
+  - `phase` is `building`, `visible` or `hidden`;
+  - io reports the build, then each visible test as it finishes, counted from the frame headers as they stream (bodies are skipped, never decoded);
+  - hidden tests, and unit tests (whose runner reports at the end), report their phase once with `total` 0, so nothing per hidden test, not even timing, leaves;
+  - a listener that throws is dropped, and the check goes on.
+  Code in the container could print extra frames, but that can only move progress, never a grade.
 - **Disclosure.** Visible results include messages and program output. Hidden results include only an index and a status: no messages, output or names leave Codemm, in tool output, CLI output or gate diagnostics.
 
 ### 4.3 Host-owned sandbox settings
@@ -169,7 +175,7 @@ Other ceilings:
 - **The build context** is a fresh folder holding only the track's files. No secrets, SSH agent or Docker socket are forwarded.
 - **The build** times out after 10 minutes and the process is killed. Build resource limits are not enforced in 1.0 (a known limitation).
 - **Infrastructure failures.** A build that fails because the runtime is down, the network is unreachable or the disk is full is reported as that, not as a gate failure, and installs nothing. The agent retries the same files instead of rewriting a correct track.
-- **The image** is tagged `codemm-track-<id>:<version>`, and its ID is stored in `track.json`. The ID is the one the build itself reports (`--iidfile`), never the tag looked up afterwards, so a concurrent build of the same tag can't swap the image being verified. Every check verifies that the ID still matches. If the image is missing or has changed, the check fails with "Run `codemm track rebuild <id>@<version>`".
+- **The image** is tagged `codemm-track-<home>-<id>:<version>`, where `<home>` is the first 8 hex characters of the SHA-256 of the Codemm home's real path, so two homes on one Docker never share a tag. Its ID is stored in `track.json`, and checks use that ID. A track installed before this naming keeps its old tag, which only `track rebuild` uses. The ID is the one the build itself reports (`--iidfile`), never the tag looked up afterwards, so a concurrent build of the same tag can't swap the image being verified. Every check verifies that the ID still matches. If the image is missing or has changed, the check fails with "Run `codemm track rebuild <id>@<version>`".
 - **Base images.** Each `FROM` should pin its image by digest (`image@sha256:…`). An unpinned `FROM` (other than `scratch` or an earlier stage) installs with a warning rather than failing a gate: checks run by the recorded image ID, and a rebuild that pulls a different base must pass every gate below, so an unpinned base can make a rebuild fail but can't change results silently.
 - **Rebuild** re-runs the track gates, then re-runs exercise gates 2 to 6 for every stored exercise on the new image. io outputs must also equal the stored expected outputs, and unit inventories must match. Only then is the new image ID recorded. Otherwise rebuild fails and lists the exercises that changed. Nothing rebuilds silently.
 - **Locks.** Installs, rebuilds and exercise saves (from validation through commit) hold that track's lock, so an exercise can't be validated on an image that a rebuild is replacing.
@@ -195,9 +201,16 @@ concepts:
 
 ### Lessons
 
-- **Saving.** `save_lesson { id, concept, title, markdown }`: the id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. Lessons are static text; nothing in them runs, and they are checked for structure only. A lesson needs the course, not an installed track.
+- **Saving.** `save_lesson { id, concept, title, markdown, examples? }`: the id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. The text is checked for structure only. A lesson without examples needs the course, not an installed track.
+- **Examples.** A lesson may carry up to 5 runnable examples, each a file map of at most 64 KB:
+  - Each holds exactly the installed track's learner files; for a unit course, it adds test files under `tests/`.
+  - The Markdown places example N as an unindented fence (``` or ~~~) whose info string is `example`, then one line holding N, then the closing fence. A fence inside another fence (which may be indented up to 3 spaces) is shown, never run. Every example is placed, and every placement names an example. Examples hold at most 250 files in all.
+  - The lesson records the track and style its examples were checked with, and they always run with those.
+  - The gate: under the course lock, then the track lock, each example runs in the track's image exactly as a check runs code, with the same sandbox and limits. io runs the build and run commands once, with empty input; unit runs the test command on the example's tests. Each must exit 0 within the limits. A runtime failure is infrastructure and saves nothing.
+  - Examples need the installed track, and `get_roadmap` over MCP includes the track's contract once it's installed.
+- **Running.** `runExample(ws, lesson, n)` runs a saved example the same way and returns its exit code, output (capped at 16 KB) and errors (capped at 4 KB). It is never recorded.
 - **Storage.** `lesson.md` never changes after saving. The learner's `notes.md` (at most 64 KB) sits beside it. Writes are atomic and hold the course lock.
-- **Reading.** `get_lesson` returns the text and the notes and records nothing. Only an acknowledgement records a read: `mark_lesson_read` appends a `read` event the first time.
+- **Reading.** `get_lesson` returns the text, the notes and the examples, and records nothing. Only an acknowledgement records a read: `mark_lesson_read` appends a `read` event the first time.
 
 ## 6. Exercises and gates
 
@@ -260,15 +273,23 @@ For each `check`, in order, for each concept it lists:
 
 **Assistance.** A check is assisted if assist mode is on in the workspace, or the course log has an `assist` event for that exercise. While assist mode is on, Codemm records an `assist` event for every exercise that becomes current (`get_exercise`) or is checked, unless that exercise already has one. Turning assist mode off doesn't remove them.
 
+**Reviews.** When a check first makes a concept mastered, its first review is due 1 day later. The first check of that concept at or after the due time is the review:
+
+- a perfect check moves to the next interval: 3, then 7, 21 and 60 days after that check. After the 60-day review there are no more;
+- any other check lowers mastery below the threshold (to at most 0.75), so the concept is practised again, and mastering it again starts over at 1 day.
+
+Checks before the due time are ordinary checks. A concept that drops below mastery any other way loses its review too.
+
 **Next step**, in order:
 
 1. If the roadmap's track isn't installed, return `setup` with the track.
-2. Candidates are concepts that aren't mastered and whose prerequisites are all mastered, in topological order with ties broken by roadmap order.
-3. Among candidates that aren't deferred, take the lowest mastery; the first in order wins ties. If every candidate is deferred, take the first in order.
-4. If that concept is stuck, return `stuck`.
-5. Otherwise, if an exercise exists for that concept at its current difficulty with no perfect check, return `practice`. The earliest-created such exercise wins.
-6. Otherwise return `author` with the concept, difficulty and the course style.
-7. If there are no candidates, return `done`.
+2. If a mastered concept's review is due, the earliest due first: return `review` with the concept, its difficulty and an exercise of that concept at that difficulty the learner has never checked; if there is none, return `author` with `review: true`.
+3. Candidates are concepts that aren't mastered and whose prerequisites are all mastered, in topological order with ties broken by roadmap order.
+4. Among candidates that aren't deferred, take the lowest mastery; the first in order wins ties. If every candidate is deferred, take the first in order.
+5. If that concept is stuck, return `stuck`.
+6. Otherwise, if an exercise exists for that concept at its current difficulty with no perfect check, return `practice`. The earliest-created such exercise wins.
+7. Otherwise return `author` with the concept, difficulty and the course style.
+8. If there are no candidates, return `done`. A review can still come due later.
 
 `practice` and `author` carry a `lesson` field: `null` when the concept has no lesson yet, the id of the earliest unread lesson, or absent once every lesson for the concept is read. The tutor teaches first until it is absent. Lessons never change mastery.
 
@@ -284,11 +305,11 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `save_track` | `files` | `{ installed: "id@v", warning? }` or diagnostics; with `--desktop`, `{ proposed: "id@v", note }` (§4.4) |
 | `save_roadmap` | `course`, `roadmap` (YAML text) | ok or errors |
 | `get_roadmap` | — | `{ course, goal, track, style, concepts }` |
-| `next_step` | — | `setup` / `practice` / `author` / `stuck` / `done`; `author` carries the concept's `title`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests) |
+| `next_step` | — | `setup` / `review` / `practice` / `author` / `stuck` / `done`; `author` carries the concept's `title`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests) |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
 | `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint |
 | `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |
-| `progress` | — | mastery and difficulty per concept, next step |
+| `progress` | — | mastery and difficulty per concept (with `reviewDue` for a mastered concept whose review is scheduled), next step |
 | `save_lesson` | `id`, `concept`, `title`, `markdown` | `{ lesson: id }` or errors |
 | `get_lesson` | `id` | `{ id, concept, title, markdown, notes }`; records nothing |
 | `mark_lesson_read` | `id` | ok; records a `read` event once |

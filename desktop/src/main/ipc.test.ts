@@ -6,13 +6,13 @@ import { dispatch } from './ipc';
 const echo = new Proxy({} as CodemmApi, { get: (_t, method) => async (...args: unknown[]) => ({ method, args }) });
 
 const concepts = [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }];
-const GOOD: Record<keyof CodemmApi, unknown[]> = {
+const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress'>, unknown[]> = {
   agents: [],
   connect: ['claude'],
   chooseModel: ['claude', 'opus'],
   computer: [],
   tracks: [],
-  research: [{ topic: 'React', known: 'Python' }],
+  research: [{ topic: 'React', known: 'Python', depth: 'standard' }],
   reviseRoadmap: [concepts, 'Add testing'],
   approve: [concepts],
   course: [],
@@ -24,8 +24,9 @@ const GOOD: Record<keyof CodemmApi, unknown[]> = {
   markRead: ['values-1'],
   activity: ['values'],
   saveFile: ['values-easy-1', 'src/Counter.jsx', 'x', 'b'.repeat(64)],
-  tryIt: ['values-easy-1'],
-  check: ['values-easy-1'],
+  tryIt: ['values-easy-1', 'run-1'],
+  runExample: ['values-1', 2],
+  check: ['values-easy-1', 'run-1'],
   ask: [{ activityId: 'values-easy-1' }, 'Why?'],
   skip: ['values'],
   easier: ['values'],
@@ -58,10 +59,15 @@ describe('dispatch', () => {
     expect(() => dispatch(echo, 'ask', [{ activityId: 'a' }, ''])).toThrow('Bad input');
     expect(() => dispatch(echo, 'ask', [{ lessonId: 'a', activityId: 'b' }, 'Why?'])).toThrow('Bad input');
     expect(() => dispatch(echo, 'install', ['not-a-digest'])).toThrow('Bad input');
+    for (const n of [0, 6, 1.5, '1', -1]) expect(() => dispatch(echo, 'runExample', ['values-1', n])).toThrow('Bad input');
   });
 
   it('rejects goals and roadmaps with the wrong shape', () => {
-    expect(() => dispatch(echo, 'research', [{ topic: '', known: '' }])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'research', [{ topic: '', known: '', depth: 'standard' }])).toThrow('Bad input');
+    // How deep the roadmap goes: one of three presets, always given.
+    for (const depth of ['overview', 'standard', 'in-depth']) expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', depth }])).not.toThrow();
+    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', depth: 'bottomless' }])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '' }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'research', [{ topic: 'React' }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', extra: 1 }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', constructor: 1 }])).toThrow('Bad input');

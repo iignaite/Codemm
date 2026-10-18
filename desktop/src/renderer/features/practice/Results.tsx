@@ -1,4 +1,4 @@
-import type { CheckResult, TestView, TryResult, VisibleTest } from '../../../shared/api';
+import type { CheckProgress, CheckResult, TestView, TryResult, VisibleTest } from '../../../shared/api';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
@@ -6,7 +6,7 @@ import { stagger } from '../../ui/motion';
 
 export type Shown =
   | { kind: 'idle' }
-  | { kind: 'busy'; label: string }
+  | { kind: 'busy'; label: string; progress?: CheckProgress }
   | { kind: 'try'; result: TryResult }
   | { kind: 'check'; result: CheckResult; keepTrying: boolean };
 
@@ -46,7 +46,16 @@ export function Results(props: Props) {
 
 function Body({ shown, name, topic, visibleTests, ways }: Props) {
   if (shown.kind === 'idle') return <div className="idle">Only Check is graded.</div>;
-  if (shown.kind === 'busy') return <div className="idle"><span className="busy"><Status kind="run" size={18} />{shown.label}</span></div>;
+  if (shown.kind === 'busy') {
+    return (
+      <div className="idle">
+        <div className="busy-stack">
+          <span className="busy"><Status kind="run" size={18} />{shown.label}</span>
+          {shown.progress && <Progress {...shown.progress} />}
+        </div>
+      </div>
+    );
+  }
   const { result } = shown;
   if (result.kind === 'not-counted') {
     return (
@@ -118,6 +127,21 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
         </div>
       )}
     </>
+  );
+}
+
+const PHASE: Record<CheckProgress['phase'], string> = { building: 'Building', visible: 'Visible tests', hidden: 'Hidden tests' };
+
+/** A quiet bar: how far the tests have got. With no count (unit tests), just the phase. */
+function Progress({ phase, done, total }: CheckProgress) {
+  const counted = total > 0;
+  return (
+    <div className="cprog">
+      <span>{PHASE[phase]}{counted && ` ${done} of ${total}`}</span>
+      <div className="bar" role="progressbar" aria-label={PHASE[phase]} aria-valuemin={0} {...(counted ? { 'aria-valuemax': total, 'aria-valuenow': done } : {})}>
+        {counted && <i style={{ width: `${(done / total) * 100}%` }} />}
+      </div>
+    </div>
   );
 }
 

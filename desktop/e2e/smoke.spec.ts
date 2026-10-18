@@ -1,4 +1,7 @@
 import { _electron as electron, expect, test } from '@playwright/test';
+import { mkdtempSync, readFileSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // Launches the built app with the mock (CODEMM_MOCK) and walks the main journey.
 test('connect, computer check, goal, course, lesson and practice', async () => {
@@ -123,5 +126,52 @@ test('errors cross IPC as their own message', async () => {
     return [await call('nope', []), await call('lesson', [42])];
   });
   expect(messages).toEqual(['Unknown call', 'Bad input']);
+  await app.close();
+});
+
+// A separate profile (--user-data-dir) keeps its log too, so runs with one never write to the learner's log.
+test('logs live under a given user-data-dir', async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-profile-')));
+  const app = await electron.launch({ args: ['.', `--user-data-dir=${dir}`], env: { ...process.env, CODEMM_MOCK: '' } });
+  const page = await app.firstWindow();
+  await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
+  expect(await app.evaluate(({ app: a }) => a.getPath('logs'))).toBe(join(dir, 'logs'));
+  await app.close();
+  expect(readFileSync(join(dir, 'logs', 'codemm.log'), 'utf8')).toContain(' start ');
+});
+
+// Check progress: main sends it to the app window, the preload hands the page only a phase and counts,
+// and the renderer can't call it as a method.
+test('check progress reaches the page as phase and counts only', async () => {
+  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: '' } });
+  const page = await app.firstWindow();
+  await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
+  const { events, asCall } = await page.evaluate(async () => {
+    type P = { phase: string; done: number; total: number };
+    const bridge = (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<any>; onCheckProgress(l: (p: P) => void): () => void } }).codemm;
+    const events: P[] = [];
+    const stop = bridge.onCheckProgress((p) => events.push(p));
+    const call = (m: string, ...a: unknown[]) => bridge.invoke(m, a);
+    await call('connect', 'claude');
+    const goal = { topic: 'React', known: '', depth: 'standard' };
+    let r = await call('research', goal);
+    while (r.state === 'running') r = await call('research', goal);
+    await call('approve', r.roadmap.concepts);
+    let c = await call('course');
+    while (c.setup !== 'consent') c = await call('course');
+    await call('install', c.proposal.digest);
+    while (!(c.setup === 'ready' && c.topics[0].lessons.every((l: { state: string }) => l.state !== 'writing'))) c = await call('course');
+    for (const l of c.topics[0].lessons) await call('markRead', l.id);
+    const { id } = await call('activity', c.topics[0].id);
+    await call('check', id, 'e2e-run');
+    // Events travel apart from the call's reply, so the last ones can land just after it.
+    await new Promise((r) => setTimeout(r, 300));
+    stop();
+    const asCall = await bridge.invoke('onCheckProgress', []).then(() => 'resolved', (e: Error) => e.message);
+    return { events, asCall };
+  });
+  expect(events.at(-1)).toEqual({ run: 'e2e-run', phase: 'hidden', done: 0, total: 0 });
+  for (const e of events) expect(Object.keys(e).sort()).toEqual(['done', 'phase', 'run', 'total']);
+  expect(asCall).toBe('Unknown call');
   await app.close();
 });

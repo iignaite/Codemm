@@ -43,6 +43,46 @@ export function parseFrames(buf: Buffer): Frame[] {
   return frames;
 }
 
+/**
+ * Follows the driver's frames as they stream, for progress only, never grading. It keeps no bodies and decodes
+ * only headers: "built" when the build frame arrives, then the count of finished io cases (case or big).
+ */
+export function frameProgress(on: (milestone: "built" | number) => void): (chunk: Buffer) => void {
+  let pending = Buffer.alloc(0); // a marker or header split across chunks
+  let skip = 0; // body bytes still to pass over
+  let cases = 0;
+  return (chunk) => {
+    const buf = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+    pending = Buffer.alloc(0);
+    let pos = 0;
+    while (pos < buf.length) {
+      if (skip > 0) {
+        const n = Math.min(skip, buf.length - pos);
+        skip -= n;
+        pos += n;
+        continue;
+      }
+      const start = buf.indexOf(MARKER, pos);
+      if (start < 0) {
+        pending = Buffer.from(buf.subarray(Math.max(pos, buf.length - (MARKER.length - 1)))); // maybe a partial marker
+        return;
+      }
+      const headerEnd = buf.indexOf(0x0a, start + MARKER.length);
+      if (headerEnd < 0) {
+        if (buf.length - start <= 1024) pending = Buffer.from(buf.subarray(start)); // a real header is short
+        return;
+      }
+      const [kind, , , bytes] = buf.toString("utf8", start + MARKER.length, headerEnd).split(" ");
+      const size = Number(bytes);
+      pos = headerEnd + 1;
+      if (!Number.isInteger(size) || size < 0) continue;
+      skip = size;
+      if (kind === "build") on("built");
+      if (kind === "case" || kind === "big") on((cases += 1));
+    }
+  };
+}
+
 export function normalizeOutput(text: string): string {
   return text
     .replace(/\r\n/g, "\n")

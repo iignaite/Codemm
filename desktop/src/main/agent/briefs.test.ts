@@ -7,11 +7,15 @@ const briefs = briefsFrom(JOB_BRIEFS);
 
 describe('job briefs', () => {
   it("start with core's brief for the job, then add only the job's details", () => {
-    const research = briefs.research('react-1', 'React', 'HTML');
+    const research = briefs.research('react-1', 'React', 'HTML', 'in-depth');
     expect(research.startsWith(JOB_BRIEFS.research)).toBe(true);
     expect(research).toContain('Course id: react-1');
     expect(research).toContain('React');
     expect(research).toContain('They already know: HTML');
+    // The learner chose how deep: the number of single-skill topics follows it.
+    expect(research).toContain('Depth: in depth, about 25 to 30 topics');
+    expect(briefs.research('r', 'React', '', 'overview')).toContain('Depth: an overview, about 8 topics');
+    expect(briefs.research('r', 'React', '', 'standard')).toContain('Depth: standard, about 15 topics');
     expect(briefs.easier('state', 'State').startsWith(JOB_BRIEFS.roadmap)).toBe(true);
     expect(briefs.setup('react@1', 'io', 'no test runner')).toContain('no test runner');
     // The exact track: a proposal for another id or version doesn't set up this course.

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
-import { gradeIo, gradeUnit, parseFrames, type RawBuild, type RawCase, type TestResult, type TestSet } from "./grading.js";
+import { frameProgress, gradeIo, gradeUnit, parseFrames, type RawBuild, type RawCase, type TestResult, type TestSet } from "./grading.js";
 import { runSandboxed, runtimeDown, startHelp } from "./sandbox.js";
 
 /** What the judge needs from an installed track. */
@@ -14,7 +14,8 @@ export type JudgeTrack = {
   test?: string | undefined;
   limits: { time_ms: number; memory_mb: number };
 };
-export type RunOptions = { timeMs?: number; deadlineMs?: number };
+/** `onProgress`: "built" when the build is done, then how many io cases have finished, as each does (for progress, never grading). */
+export type RunOptions = { timeMs?: number; deadlineMs?: number; onProgress?: (milestone: "built" | number) => void };
 
 /** `flooded` and `outOfMemory` mean the program got the whole container killed, so every test in the set is an error. */
 export type IoRun = { build?: RawBuild; cases: RawCase[]; flooded: boolean; outOfMemory?: boolean };
@@ -30,8 +31,9 @@ const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
 // supplies starts with $OOM, which makes it the out-of-memory killer's first choice (raising
 // oom_score_adj needs no privilege), so a program that runs out of memory usually dies instead of the
 // driver. It's best effort: the program could lower its score back to 0. If the write fails, nothing changes.
+// Shell functions share variables, so emit() keeps its own (size) apart from the loop's case name (n).
 const EMIT = `OOM='{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || :; '
-emit() { n=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$n"; cat "$4"; }
+emit() { size=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$size"; cat "$4"; }
 for u in timeout head wc cat basename; do command -v "$u" >/dev/null 2>&1 || { echo "the image has no '$u'" > /tmp/m; emit fatal tools 1 /tmp/m; exit 0; }; done`;
 
 const IO_DRIVER = `${EMIT}
@@ -58,7 +60,7 @@ if [ -f /tmp/report.json ] && [ $(($(wc -c < /tmp/report.json))) -le 1048576 ]; 
 head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc
 exit 0`;
 
-async function runDriver(track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number) {
+async function runDriver(track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number, onStdout?: (chunk: Buffer) => void) {
   const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
   try {
     writeFileMap(join(dir, "src"), src);
@@ -73,6 +75,7 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       ],
       memoryMb: track.limits.memory_mb,
       deadlineMs,
+      ...(onStdout ? { onStdout } : {}),
     });
     if (result.cleanupFailed) throw new CodemmError("A check container couldn't be removed, so nothing was recorded. Run `codemm doctor --fix`, then retry.");
     if (result.timedOut) throw new CodemmError("The check didn't finish in time, so nothing was recorded. Check that the container runtime is healthy and retry.");
@@ -110,7 +113,7 @@ export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, input
   const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * (timeMs + 1000) + SLACK_MS;
   const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_TIME_S: seconds(timeMs) };
   if (track.build) env.CODEMM_BUILD = track.build;
-  const { frames, flooded, outOfMemory } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline);
+  const { frames, flooded, outOfMemory } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, opts.onProgress && frameProgress(opts.onProgress));
 
   const buildFrame = frames.find((f) => f.kind === "build");
   const stderrOf = new Map(frames.filter((f) => f.kind === "stderr").map((f) => [f.name, f.body]));

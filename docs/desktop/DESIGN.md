@@ -231,7 +231,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 
 ### 4.3 Lessons
 
-- **Saving.** `save_lesson { id, concept, title, markdown }`. The id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. Lessons are static text: nothing in them runs.
+- **Saving.** `save_lesson { id, concept, title, markdown, examples? }`. The id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. Optional runnable examples are checked by running them in the sandbox (core §5).
 - **Storage.** `courses/<course>/lessons/<id>/` holds:
   - `lesson.json` (`format_version`, id, concept, title, created);
   - `lesson.md`, the agent's text, never changed after saving;
@@ -248,7 +248,8 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - an id: the earliest unread lesson.
   - absent: every lesson for the concept has been read.
   The activity stays locked, and the tutor teaches first, until the field is absent. The author job can still run in the background, because the step names the activity. Lessons never change mastery.
-- **Not verified.** Lessons are checked for structure only; only activities are "checked before you see it".
+- **Not verified.** Lesson text is checked for structure only, and examples only for a clean run. Only activities are "checked before you see it".
+- **Run.** Each example block shows its files and a Run button. Run calls core's `runExample` through IPC, so the example runs in the sandbox, never on the host. It shows the output and errors (capped) and records nothing. A Docker problem shows "This didn't run." with Check this computer.
 
 ### 4.4 Honest skip
 
@@ -281,6 +282,25 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 - `--tools <list>` registers only the listed tools.
 
 With neither option, the server behaves as in core.
+
+### 4.7 Reviews
+
+Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In the app:
+
+- **Due.** A due review shows as "Review" on the course map and the topic page, and the activity opens with a "Review" label. If no unused exercise fits, an author job writes one (`review: true`), shown as the review being written. A review comes due with time, not with a learner action, so reading the course starts that job when it isn't running (an exception to D9's "reads start nothing", which is about reopening saved work). The course map and topic page re-read the course when the window regains focus, and every 10 minutes once settled, so a review that came due while the app was open shows up.
+- **Scheduled.** The mastery panel, and the completed-course screen, show "Review tomorrow" or "Review in N days" for a mastered topic. They never show dates. Overdue reviews wait their turn behind the one being offered, without a countdown.
+- **Outcome.** A review is an ordinary Check. A pass keeps the topic mastered; a fail sends it back to practice.
+
+### 4.8 Check progress
+
+- **Core.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }` (core §4.2).
+  - io reports each visible test as it finishes; the build, when the track has one, shows once as `building`.
+  - Hidden tests and unit tests report their phase only (`total` 0): no names, counts or timing per hidden test.
+- **Desktop.**
+  - The renderer passes a run id with each Try it or Check. `live` tags that run's events with it and keeps only `phase`, `done` and `total`.
+  - Main sends each event to the app's windows only, on the one-way channel `codemm:check-progress`.
+  - The preload exposes it as `onCheckProgress(listener)`, which returns a function that stops listening. It isn't an IPC call: `invoke('onCheckProgress')` is refused.
+- **Renderer.** While Try it or Check runs, the results panel shows a quiet bar with the phase and "3 of 8". With no count, it shows the phase alone. It hears only its own run's events, and stops listening when the learner leaves.
 
 ## 5. Failure states
 
@@ -435,12 +455,12 @@ Work test-first. For each behavior, write a failing test, make it pass simply, t
 
 Cut from 1.0 by the owner's scope ledger:
 
-- **Lessons:** running code examples in the sandbox (the lesson gate), predict questions, and learner edits of lesson text. Notes stay.
+- **Lessons:** predict questions, and learner edits of lesson text. Notes stay. (Runnable examples are in 1.0: §4.3.)
 - **Usage:** recording agent usage and showing cost per topic. Lesson caching stays (§4.3).
 - **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
-- **Review scheduling** and the prototype's review card, streaks and activity history.
+- The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
 - **Research sources:** storing and showing the agent's sources with the roadmap. The agent may still research before writing it.
-- **Progress:** streaming check and install progress. Jobs show `running`, `done` or `failed`.
+- **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.8).
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.
 - **Platforms:** Linux installers, Windows and Linux arm64, Colima, and Podman.
 - **Cursor** beyond experimental, and its stream parser.
