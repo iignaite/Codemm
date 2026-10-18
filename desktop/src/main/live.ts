@@ -160,6 +160,13 @@ export function createLive(d: LiveDeps): Live {
   };
   /** Agent text as it may be shown: held back when it quotes hidden material, or when that can't be checked. */
   const shown = (text: string, filter: string[] | null) => (filter ? filterReply(text, filter) : HELD_BACK);
+  /** The course whose hidden material a job's text is checked against: the one approved when the job starts. */
+  const protectedCourse = () => approved() ?? core.readWorkspace(ws).course;
+  /**
+   * Whether text may be shown, checked against that course's hidden material as it is when the text arrives: an
+   * exercise saved while a job runs counts too.
+   */
+  const safeIn = (course: string | undefined) => (text: string) => !course || shown(text, hidden(course)) === text;
 
   /** The roadmap not approved yet: the active course, unless it is the approved one. */
   function draft(): CoreRoadmap | null {
@@ -204,8 +211,7 @@ export function createLive(d: LiveDeps): Live {
       const began = Date.now();
       log('job-start', { kind, lane, agent: id });
       // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
-      const filter = hidden();
-      const tracker = jobTracker(kind, { concept, retry, shows: (text) => shown(text, filter) === text });
+      const tracker = jobTracker(kind, { concept, retry, shows: safeIn(protectedCourse()) });
       trackers.set(key, tracker);
       tellJob(tracker.snapshot());
       // An author's save runs the exercise gates in its server; the server names the running gate in this file.
@@ -496,8 +502,7 @@ export function createLive(d: LiveDeps): Live {
         const course = courseId(goal.topic, Date.now());
         const reads: { title: string; url: string }[] = [];
         // The same backstop as tutor replies (§2.2): a page that shows hidden material is no source.
-        const filter = hidden();
-        const safe = (text: string) => shown(text, filter) === text;
+        const safe = safeIn(protectedCourse());
         const onSource = (source: { title: string; url: string }) => {
           if (safe(source.url)) reads.push({ title: source.title.slice(0, 120), url: source.url });
         };
@@ -521,10 +526,11 @@ export function createLive(d: LiveDeps): Live {
     async reviseRoadmap(concepts, request) {
       await saveConcepts(concepts);
       const course = core.getRoadmap(ws).course;
-      // What's hidden now, before the job: the course or exercise may change while it runs.
-      const filter = hidden();
+      // Checked against the course approved when the change starts, with any exercise saved meanwhile.
+      const protect = protectedCourse();
       const { outcome, changed, after } = await roadmapJob(course, briefs.roadmap(request), (before) => (turn) => turn.ok || JSON.stringify(core.getRoadmap(ws, course)) !== before);
       schedule();
+      const filter = protect ? hidden(protect) : [];
       return { roadmap: roadmapShown(after), changed, text: outcome.text.map((t) => shown(t, filter)).join('\n\n') };
     },
 

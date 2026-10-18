@@ -122,6 +122,22 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }]);
   });
 
+  it('checks a roadmap-change reply against an exercise saved while the change ran', async () => {
+    const t = live({
+      roadmap: () => {
+        // The approved course's background author finishes an exercise while the change runs.
+        t.c.exercises.set('values-late-1', { concept: 'values', file: '', digest: '0'.repeat(64), created: new Date().toISOString() });
+        return { text: [`Quoting it: ${CANARY}`] };
+      },
+    });
+    await practising(t);
+    const material = t.app.hiddenMaterial;
+    // Only the exercise saved during the change has this hidden material.
+    t.app.hiddenMaterial = (c, slug) => (slug === 'values-late-1' ? material(c, slug) : []);
+    const change = await t.api.reviseRoadmap(t.c.roadmap!.concepts, 'Add testing');
+    expect(change.text).toBe(HELD_BACK);
+  });
+
   it('drops a roadmap source whose title or link quotes hidden material', async () => {
     const t = live({
       roadmap: (job) => {
