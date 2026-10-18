@@ -8,7 +8,6 @@ import {
   CHANGED,
   OFFLINE,
   PLAN_LIMIT,
-  REBUILD,
   REPAIR,
   SIGNED_OUT,
   UNSTOPPABLE,
@@ -33,6 +32,7 @@ import { errorFields, SafeError } from './errors';
 import type { CoreApp, CoreProgress, CoreRoadmap } from './core/types';
 import { courseView, currentConcept, otherReady, type Setup } from './courseView';
 import { noLog, type Log } from './log';
+import { asNotCounted } from './notCounted';
 import { programs } from './programs';
 import type { desktopState } from './state';
 import type { usageStore } from './usage';
@@ -74,19 +74,6 @@ const PROPOSAL_BOUND = 3;
 const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
 /** Why background work stalled: an infrastructure failure is a plain failure the learner retries. */
 const stallOf = (problem: JobProblem = 'failed'): NonNullable<CourseView['stalled']> => (problem === 'infra' ? 'failed' : problem);
-const NOT_COUNTED: Record<'docker' | 'disk' | 'offline', string> = {
-  docker: "Docker isn't running.",
-  disk: 'Docker ran out of disk space.',
-  offline: "Docker couldn't reach the network.",
-};
-
-/** An infrastructure failure during Try it or Check isn't counted (§5). */
-function notCounted(error: unknown): string | null {
-  if (kindOf(error) === 'image-missing') return REBUILD;
-  const kind = infraOf(error);
-  return kind ? NOT_COUNTED[kind] : null;
-}
-
 /** core store.ts's damaged-record errors: the learner repairs them; a retry can't (§5). */
 function repairable(e: unknown): unknown {
   if (kindOf(e) === 'damaged') (e as Error).message = `${REPAIR}\n${(e as Error).message}`;
@@ -411,7 +398,7 @@ export function createLive(d: LiveDeps): Live {
   }
 
   // Run's programs, by run id (§4.10): programs.ts.
-  const programRuns = programs({ whenDockerReady, notCounted, log });
+  const programRuns = programs({ whenDockerReady, log });
 
   /** Research jobs that ended but whose sources aren't saved yet. */
   const finishing = new Set<string>();
@@ -632,12 +619,7 @@ export function createLive(d: LiveDeps): Live {
       try {
         return exampleRunView(await whenDockerReady(() => core.runExample(ws, lessonId, index, approved())));
       } catch (e) {
-        const reason = notCounted(e);
-        if (reason) {
-          log('not-counted', { run: 'example', reason });
-          return { kind: 'not-run', reason };
-        }
-        throw e;
+        return asNotCounted(e, log, 'example', 'not-run');
       }
     },
     saveNotes: (id, notes) => core.saveNotes(ws, id, notes, approved()),
@@ -668,12 +650,7 @@ export function createLive(d: LiveDeps): Live {
       try {
         return tryView(await whenDockerReady(() => core.testExercise(ws, activityId, approved(), progressOf(run))));
       } catch (e) {
-        const reason = notCounted(e);
-        if (reason) {
-          log('not-counted', { run: 'try', reason });
-          return { kind: 'not-counted', reason };
-        }
-        throw e;
+        return asNotCounted(e, log, 'try', 'not-counted');
       }
     },
 
@@ -693,12 +670,7 @@ export function createLive(d: LiveDeps): Live {
         schedule();
         return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false, later: otherReady(progress, concepts) });
       } catch (e) {
-        const reason = notCounted(e);
-        if (reason) {
-          log('not-counted', { run: 'check', reason });
-          return { kind: 'not-counted', reason };
-        }
-        throw e;
+        return asNotCounted(e, log, 'check', 'not-counted');
       }
     },
 

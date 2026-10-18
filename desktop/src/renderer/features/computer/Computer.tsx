@@ -2,13 +2,14 @@ import { useEffect, useRef } from 'react';
 import type { Computer as ComputerView, ComputerCheck, DockerInstall, Platform } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
-import { Failed } from '../../app/Shell';
+import { Failed, Stale } from '../../app/Problems';
 import { timing, useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { CHECK_NAMES, DETAILS, FIXES, INSTALL, NOT_YET } from './fixes';
 import { DockerProgress } from './DockerProgress';
+import { ExternalLink } from '../../ui/ExternalLink';
 
 const STATE_TEXT = { ok: 'Ready', problem: 'Needs a step', waiting: 'Waiting' } as const;
 
@@ -20,7 +21,7 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
   // check starts, before React re-renders with `loading`, so a focus in between can't start a second one.
   const checking = useRef(false);
   const last = useRef<ComputerView | undefined>(undefined);
-  const { data, error, loading, reload } = useLoad(
+  const { data, error, stale, loading, reload } = useLoad(
     async () => {
       checking.current = true;
       try {
@@ -103,6 +104,7 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
           )}
         </div>
       </div>
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }
@@ -144,7 +146,7 @@ function CheckItem({ check, computer, index, onInstall, onOpen }: ItemProps) {
             <ol>{fix.steps.map((s) => <li key={s}>{s}</li>)}</ol>
             <div className="actions">
               {offerOpen && <Button onClick={onOpen}>Open Docker Desktop</Button>}
-              {fix.link && <a className="btn ghost" href={fix.link.url} target="_blank" rel="noreferrer">{fix.link.label}</a>}
+              {fix.link && <ExternalLink className="btn ghost" href={fix.link.url}>{fix.link.label}</ExternalLink>}
             </div>
           </div>
         )
@@ -168,10 +170,10 @@ function InstallDocker({ install, platform, manualUrl, onInstall }: { install?: 
       {problem && <p className="alert" role="alert">{INSTALL.problem[problem]}</p>}
       <div className="actions">
         {(!problem || INSTALL.retry.has(problem)) && <Button onClick={onInstall}>{problem ? 'Try again' : 'Install Docker'}</Button>}
-        {manualUrl && <a className="btn ghost" href={manualUrl} target="_blank" rel="noreferrer">Install it myself</a>}
+        {manualUrl && <ExternalLink className="btn ghost" href={manualUrl}>Install it myself</ExternalLink>}
       </div>
       <p className="quiet-text">
-        {INSTALL.terms} <a className="inline" href={INSTALL.termsUrl} target="_blank" rel="noreferrer">Read them</a>
+        {INSTALL.terms} <ExternalLink className="inline" href={INSTALL.termsUrl}>Read them</ExternalLink>
       </p>
     </div>
   );

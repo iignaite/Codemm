@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { Agent, AgentId, AgentInstall } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
-import { Failed } from '../../app/Shell';
+import { Failed, Stale } from '../../app/Problems';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { StageFill } from '../../ui/StageFill';
+import { ExternalLink } from '../../ui/ExternalLink';
 
 /** The only screen that names agents. Each one that can't run yet shows its next step. */
 export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
@@ -15,7 +16,7 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
   const { go, fail } = useRouter();
   // Coming back to the window looks again: an agent installed or signed in meanwhile shows up. An install is
   // followed until it ends.
-  const { data, error, reload } = useLoad(() => api.agents(), [], { settled: (as) => !as.some((a) => running(a.install)), onFocus: true });
+  const { data, error, stale, reload } = useLoad(() => api.agents(), [], { settled: (as) => !as.some((a) => running(a.install)), onFocus: true });
   const [agents, setAgents] = useState<Agent[]>();
   useEffect(() => setAgents(undefined), [data]);
   const [busy, setBusy] = useState<string>();
@@ -100,12 +101,12 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
                 {a.state === 'missing' && a.canInstall && <InstallProgress agent={a} />}
               </div>
               {a.state === 'connected' ? (
-                <span className="state"><Status kind="ok" size={24} />Connected</span>
+                <span className="state"><Status kind="ok" size={24} decorative />Connected</span>
               ) : a.state === 'missing' ? (
                 !running(a.install) && (
                   <div className="actions">
                     {a.canInstall && <Button variant="ghost" onClick={() => act(a.id, () => api.installAgent(a.id))}>{a.install?.problem ? 'Try again' : 'Install'}</Button>}
-                    <a className="btn ghost" href={a.installUrl} target="_blank" rel="noreferrer">{a.canInstall ? 'Get it myself' : `Get ${a.name}`}</a>
+                    <ExternalLink className="btn ghost" href={a.installUrl}>{a.canInstall ? 'Get it myself' : `Get ${a.name}`}</ExternalLink>
                   </div>
                 )
               ) : (
@@ -126,6 +127,7 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
           <Button size="lg" disabled={!list.some((a) => a.state === 'connected')} onClick={() => go(next)}>Continue</Button>
         </div>
       </div>
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }

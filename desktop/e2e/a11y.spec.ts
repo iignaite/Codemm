@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { _electron as electron, expect as baseExpect, test, type ElectronApplication, type Page } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
+import { expect as baseExpect, test } from './launch';
 
 // Screens change after IPC round trips to the app; slow CI runners need more than the default 5 s.
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -9,16 +10,8 @@ const expect = baseExpect.configure({ timeout: 15_000 });
 
 const AA = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
-async function launch(scenario = ''): Promise<{ app: ElectronApplication; page: Page }> {
-  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: scenario } });
-  const page = await app.firstWindow();
-  // Chromium keeps a zoom level per origin across launches; every test starts at 100%.
-  await page.waitForLoadState('domcontentloaded');
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
-  // Animations finish at once, so every scan sees the settled screen.
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  return { app, page };
-}
+// Every test starts at 100% zoom, with reduced motion (launch.ts).
+test.use({ settled: true });
 
 /** Elements still animating or transitioning. With reduced motion there must be none. */
 const moving = (page: Page) =>
@@ -83,7 +76,7 @@ async function toRoadmap(page: Page) {
   await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });
 }
 
-test('every screen of the journey passes WCAG AA checks', async () => {
+test('every screen of the journey passes WCAG AA checks', async ({ launch }) => {
   const { app, page } = await launch();
   await audit(page, 'welcome');
   await button(page, 'Connect an agent').click();
@@ -159,14 +152,14 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await app.close();
 });
 
-test('a relaunch with a connected agent opens on Welcome, connected, which passes WCAG AA checks', async () => {
+test('a relaunch with a connected agent opens on Welcome, connected, which passes WCAG AA checks', async ({ launch }) => {
   const { app, page } = await launch('relaunch');
   await expect(heading(page, 'Ready when you are.')).toBeVisible();
   await audit(page, 'welcome, connected');
   await app.close();
 });
 
-test('failure and environment screens pass WCAG AA checks', async () => {
+test('failure and environment screens pass WCAG AA checks', async ({ launch }) => {
   // Nine launches, each with a scan: on CI runners that's well past the default minute.
   test.setTimeout(240_000);
   for (const scenario of ['no-agent', 'untested-version']) {
@@ -264,7 +257,7 @@ test('failure and environment screens pass WCAG AA checks', async () => {
 const zoom = (app: ElectronApplication, factor: number) =>
   app.evaluate(({ BrowserWindow }, f) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(f), factor);
 
-test('the setup consent fits the window at 200% zoom, scrolls, and keeps its actions reachable', async () => {
+test('the setup consent fits the window at 200% zoom, scrolls, and keeps its actions reachable', async ({ launch }) => {
   const { app, page } = await launch();
   await toRoadmap(page);
   await zoom(app, 2);
@@ -285,7 +278,7 @@ test('the setup consent fits the window at 200% zoom, scrolls, and keeps its act
   await app.close();
 });
 
-test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', async () => {
+test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', async ({ launch }) => {
   const { app, page } = await launch();
   await toRoadmap(page);
   await button(page, 'Approve').click();
@@ -312,7 +305,7 @@ test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', 
   await app.close();
 });
 
-test('at 1280 px and narrower, the side columns narrow so the editor keeps its room', async () => {
+test('at 1280 px and narrower, the side columns narrow so the editor keeps its room', async ({ launch }) => {
   const { app, page } = await launch();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1200, 800));
   await toActivity(page);
@@ -363,7 +356,7 @@ async function typeInto(page: Page, name: string, text: string) {
   await page.keyboard.type(text);
 }
 
-test('the journey works with the keyboard alone', async () => {
+test('the journey works with the keyboard alone', async ({ launch }) => {
   // Every Tab is a round trip to the app; on CI runners the whole walk takes far longer than locally.
   test.setTimeout(240_000);
   const { app, page } = await launch();
@@ -444,7 +437,7 @@ test('the journey works with the keyboard alone', async () => {
 
 // Run (§4.10): the terminal pane passes WCAG AA while a program runs and with test output, and works by keyboard.
 // The program gets the full 2 minutes, so the scans never race its time limit.
-test('the terminal pane passes WCAG AA checks and works with the keyboard alone', async () => {
+test('the terminal pane passes WCAG AA checks and works with the keyboard alone', async ({ launch }) => {
   test.setTimeout(120_000);
   const { app, page } = await launch('io-track');
   await toActivity(page, 'Greet by name');
@@ -470,7 +463,7 @@ test('the terminal pane passes WCAG AA checks and works with the keyboard alone'
 });
 
 // The time limit: the pane and its header say the time is up, and pass WCAG AA.
-test('the terminal pane says when the time is up', async () => {
+test('the terminal pane says when the time is up', async ({ launch }) => {
   test.setTimeout(120_000);
   const { app, page } = await launch('run-time-up');
   await toActivity(page, 'Greet by name');

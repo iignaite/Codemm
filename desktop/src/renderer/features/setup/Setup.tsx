@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Agent, AgentId, Computer, DockerInstall } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed } from '../../app/Shell';
+import { Failed, Stale } from '../../app/Problems';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
@@ -10,6 +10,7 @@ import { stagger } from '../../ui/motion';
 import { INSTALL } from '../computer/fixes';
 import { InstallProgress, running } from '../connect/Connect';
 import { DockerProgress } from '../computer/DockerProgress';
+import { ExternalLink } from '../../ui/ExternalLink';
 
 /** Each agent's maker and terms, for the learner's go-ahead. */
 const TERMS: Partial<Record<AgentId, { vendor: string; url: string }>> = {
@@ -36,7 +37,7 @@ export function Setup() {
   const [wanted, setWanted] = useState<{ docker: boolean; agent?: AgentId }>();
   const [choice, setChoice] = useState<AgentId>('claude');
   // Once started, follow both installs, and look again when the learner comes back from a sign-in or Docker's window.
-  const { data, error, reload } = useLoad(async () => ({ computer: await api.computer(), agents: await api.agents() }), [wanted], { settled: () => !wanted, onFocus: true });
+  const { data, error, stale, reload } = useLoad(async () => ({ computer: await api.computer(), agents: await api.agents() }), [wanted], { settled: () => !wanted, onFocus: true });
   const agent = wanted?.agent ? data?.agents.find((a) => a.id === wanted.agent) : undefined;
   const ready = Boolean(wanted && data && (!wanted.docker || data.computer.ready) && (!wanted.agent || agent?.state === 'connected'));
   useEffect(() => {
@@ -82,7 +83,7 @@ export function Setup() {
                 <b>Docker Desktop</b>
               </div>
               {!wanted ? (
-                <p className="quiet-text">{INSTALL.terms} <a className="inline" href={INSTALL.termsUrl} target="_blank" rel="noreferrer">Read them</a></p>
+                <p className="quiet-text">{INSTALL.terms} <ExternalLink className="inline" href={INSTALL.termsUrl}>Read them</ExternalLink></p>
               ) : data.computer.ready ? (
                 <span className="quiet-text">Ready</span>
               ) : install?.phase === 'failed' ? (
@@ -113,7 +114,7 @@ export function Setup() {
                     ))}
                   </div>
                   {TERMS[choice] && (
-                    <p className="quiet-text">{choices.find((a) => a.id === choice)?.name} is from {TERMS[choice]!.vendor}. Its terms apply. <a className="inline" href={TERMS[choice]!.url} target="_blank" rel="noreferrer">Read them</a></p>
+                    <p className="quiet-text">{choices.find((a) => a.id === choice)?.name} is from {TERMS[choice]!.vendor}. Its terms apply. <ExternalLink className="inline" href={TERMS[choice]!.url}>Read them</ExternalLink></p>
                   )}
                 </>
               ) : agent?.state === 'connected' ? (
@@ -140,6 +141,7 @@ export function Setup() {
           </div>
         )}
       </div>
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }

@@ -190,3 +190,22 @@ describe('re-checking', () => {
     finish();
   });
 });
+
+describe('a look that fails after one worked', () => {
+  it('keeps the checks on screen when a later check fails, says so, and Try again checks again', async () => {
+    const user = userEvent.setup();
+    const api = createMock({ docker: 'missing', platform: 'mac' });
+    const computer = api.computer.bind(api);
+    let failing = false;
+    api.computer = () => (failing ? Promise.reject(new Error('codemm:offline')) : computer());
+    renderApp({ to: 'computer', then: welcome }, api);
+    expect(await screen.findByRole('listitem', { name: 'Docker is installed' })).toBeInTheDocument();
+    failing = true;
+    await user.click(screen.getByRole('button', { name: 'Check now' }));
+    expect(await screen.findByText(/Codemm couldn't refresh this/)).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('listitem', { name: 'Docker is installed' })).toBeInTheDocument();
+    failing = false;
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByText(/Codemm couldn't refresh this/)).not.toBeInTheDocument());
+  });
+});
