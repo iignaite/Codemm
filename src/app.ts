@@ -338,7 +338,8 @@ export async function runExample(ws: string, lessonId: string, index: number, bo
 /** The lesson and the learner's notes. Reading records nothing: only markLessonRead does. */
 export function getLesson(ws: string, id: string, bound?: string) {
   const { record, markdown, notes, examples } = store.readLesson(activeCourse(ws, bound).course, id);
-  return { id: record.id, concept: record.concept, title: record.title, markdown, notes, examples };
+  // The style says how its examples run: io ones take typed input (runExampleLive), unit ones run as tests.
+  return { id: record.id, concept: record.concept, title: record.title, markdown, notes, examples, ...(record.style ? { style: record.style } : {}) };
 }
 
 export function listLessons(ws: string, bound?: string) {

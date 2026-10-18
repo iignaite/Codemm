@@ -204,6 +204,8 @@ describe.runIf(posix)("live lesson examples", () => {
   it("runs an io example live with the learner's input, and records nothing", async () => {
     const ws = await installedExercise();
     lesson([{ "main.sh": "read -r x; echo $x\n" }]);
+    // The reader learns its examples run as programs, so Run can take typed input.
+    expect(app.getLesson(ws, "echo")).toMatchObject({ style: "io" });
     fakeDocker("interactive");
     const out = { stdout: "", stderr: "" };
     const run = await app.runExampleLive(ws, "echo", 1, undefined, (text, stream) => (out[stream] += text));
