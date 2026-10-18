@@ -468,6 +468,24 @@ describe('live CodemmApi', () => {
     expect((await t.api.jobProgress()).map((p) => p.kind)).not.toContain('lesson');
   });
 
+  it("shows a setup's install as Codemm's own stage, and another proposal as a retry", async () => {
+    const t = live();
+    const heard: JobProgress[] = [];
+    t.api.onJobProgress((p) => heard.push(p));
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const consent = await until(t.api, (c) => c.setup === 'consent');
+    t.c.install = async () => {
+      throw new Error('Gate 3 failed: the image has no test runner');
+    };
+    await t.api.install(consent.proposal!.digest);
+    await until(t.api, (c) => c.setup === 'consent');
+    const install = heard.find((p) => p.kind === 'setup' && p.stage === 1)!;
+    expect(install).toMatchObject({ thinking: false });
+    expect(heard.filter((p) => p.job === install.job).at(-1)!.ended).toBe(true);
+    expect(heard.filter((p) => p.kind === 'setup' && p.stage === 0).at(-1)!.retry).toEqual({ attempt: 2, of: 3 });
+  });
+
   it('says when a failed job runs again', async () => {
     const t = live(undefined, {
       runJob: async (job) => {

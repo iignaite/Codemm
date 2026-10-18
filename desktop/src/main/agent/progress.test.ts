@@ -119,6 +119,16 @@ describe('job progress (§4.11)', () => {
     expect(t.snapshot().stage).toBe(0);
   });
 
+  it("follows Codemm's own work, such as a setup's build, which isn't the agent thinking", () => {
+    const t = jobTracker('setup', { id: 'job-1' });
+    t.reach(1);
+    expect(t.snapshot()).toMatchObject({ stage: 1, thinking: false });
+  });
+
+  it('starts as a retry when it is one, such as another setup proposal', () => {
+    expect(jobTracker('setup', { id: 'job-1', retry: { attempt: 2, of: 3 } }).snapshot().retry).toEqual({ attempt: 2, of: 3 });
+  });
+
   it('a tutor turn has one stage', () => {
     const t = jobTracker('tutor', { id: 'job-1' });
     t.event({ type: 'session', id: 's1' });

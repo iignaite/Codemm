@@ -195,7 +195,7 @@ export function createLive(d: LiveDeps): Live {
    */
   function start(
     key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'],
-    { resume, onSource, concept }: { resume?: string; onSource?: Job['onSource']; concept?: string } = {},
+    { resume, onSource, concept, retry }: { resume?: string; onSource?: Job['onSource']; concept?: string; retry?: JobProgress['retry'] } = {},
   ): Promise<JobOutcome> {
     const existing = running.get(key);
     if (existing) return existing.outcome;
@@ -215,7 +215,7 @@ export function createLive(d: LiveDeps): Live {
       log('job-start', { kind, lane, agent: id });
       // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
       const filter = hidden();
-      const tracker = jobTracker(kind, { concept, shows: (text) => filterReply(text, filter) === text });
+      const tracker = jobTracker(kind, { concept, retry, shows: (text) => filterReply(text, filter) === text });
       trackers.set(key, tracker);
       tellJob(tracker.snapshot());
       const outcome = await runJob({
@@ -265,9 +265,12 @@ export function createLive(d: LiveDeps): Live {
   }
 
   /** Background work: a failure stalls it until the learner retries, instead of relaunching on every look. */
-  function background(key: string, kind: JobKind, brief: string, course: string, done: Job['done'], lane: 'fg' | 'bg' = 'bg', concept?: string) {
+  function background(
+    key: string, kind: JobKind, brief: string, course: string, done: Job['done'],
+    { lane = 'bg', concept, retry }: { lane?: 'fg' | 'bg'; concept?: string; retry?: JobProgress['retry'] } = {},
+  ) {
     if (stopping || stalled || running.has(key)) return;
-    const outcome = start(key, lane, kind, brief, course, done, { concept });
+    const outcome = start(key, lane, kind, brief, course, done, { concept, retry });
     const controller = running.get(key)?.stop;
     // The first stall is the one the learner sees.
     outcome
@@ -318,7 +321,9 @@ export function createLive(d: LiveDeps): Live {
         // Done once it proposed: the proposal may already be gone if the learner approved it and its gates failed.
         const installs = setup.installs;
         const proposed = () => setup.installs > installs || core.listProposals().some((p) => p.track === ref && !before.has(p.digest));
-        background(`setup:${progress.course}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed);
+        // Another proposal after one failed its gates is a retry, within the bound (§3.2).
+        const retry = setup.gateFailures > 0 ? { attempt: setup.gateFailures + 1, of: PROPOSAL_BOUND } : undefined;
+        background(`setup:${progress.course}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed, { retry });
       }
       work(progress, state.state === 'ready');
     } catch (e) {
@@ -335,7 +340,7 @@ export function createLive(d: LiveDeps): Live {
     if (lessons() === 0) {
       // The course's first lesson runs in the foreground, beside setup (§3.2).
       const lane = core.listLessons(ws, course).length === 0 ? 'fg' : 'bg';
-      background(`lesson:${course}:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), course, () => lessons() > 0, lane, concept.id);
+      background(`lesson:${course}:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), course, () => lessons() > 0, { lane, concept: concept.id });
     }
     if (ready && progress.next.kind === 'author') {
       // Done only by a new exercise for this concept at the requested difficulty (§3.2).
@@ -343,7 +348,7 @@ export function createLive(d: LiveDeps): Live {
       const { difficulty } = progress.next;
       const before = new Set(core.listExercises(ws, course).map((e) => e.exercise));
       const made = () => core.listExercises(ws, course).some((e) => !before.has(e.exercise) && e.concepts.includes(concept.id) && e.difficulty === difficulty);
-      background(`author:${course}:${concept.id}:${difficulty}`, 'author', briefs.author(), course, made, 'bg', concept.id);
+      background(`author:${course}:${concept.id}:${difficulty}`, 'author', briefs.author(), course, made, { concept: concept.id });
     }
   }
 
@@ -582,6 +587,11 @@ export function createLive(d: LiveDeps): Live {
       setup.approved = proposal;
       setup.problem = undefined;
       setup.installs++;
+      // Codemm builds and checks the approved files: the setup's later stages (§4.11).
+      const tracker = jobTracker('setup');
+      trackers.set(`install:${ref}`, tracker);
+      tracker.reach(1);
+      tellJob(tracker.snapshot());
       setup.installing = dockerReady()
         .then(() => core.installProposal(ref, digest))
         .then(() => {
@@ -602,6 +612,8 @@ export function createLive(d: LiveDeps): Live {
           await core.dropProposal(ref).catch(() => undefined);
         })
         .finally(() => {
+          trackers.delete(`install:${ref}`);
+          tellJob({ ...tracker.snapshot(), ended: true });
           setup.installing = undefined;
           schedule();
         });
