@@ -165,8 +165,7 @@ export function createLive(d: LiveDeps): Live {
     const current = activity ?? opened ?? (workspace.course === course ? workspace.current : undefined);
     if (!course || !current) return [];
     try {
-      const { record, files } = core.readExercise(course, current);
-      return hiddenLines(files, record.expected);
+      return hiddenLines(core.hiddenMaterial(course, current));
     } catch {
       return [];
     }
