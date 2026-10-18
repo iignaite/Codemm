@@ -75,6 +75,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     ws,
     runtime,
     agentDir: join(userData, 'agents'),
+    progressDir: join(userData, 'progress'),
     log,
     dockerReady: () => waitWhileStarting(computer, () => new Promise((r) => setTimeout(r, 3000))),
     docker: desktop,

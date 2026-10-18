@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CodemmApi } from '../shared/api';
+import type { CodemmApi, JobProgress } from '../shared/api';
 import { dispatch } from './ipc';
 import { CANARY, live, practising } from './testing/fakes';
 import { HELD_BACK } from './views';
@@ -10,7 +10,7 @@ import { HELD_BACK } from './views';
 // hold canary strings. Every IPC handler is driven; no renderer-bound payload
 // or app log may hold a canary, and a tutor reply quoting one is held back.
 const leaks = /CANARY/;
-type Method = Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgress' | 'onRunOutput'>;
+type Method = Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' | 'onRunOutput'>;
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -23,11 +23,16 @@ describe('the learner-safe boundary (D4)', () => {
     const docker: string[] = [];
     const t: ReturnType<typeof live> = live(
       {
-        tutor: () => ({ text: [`Here is the answer: ${CANARY}`, 'Count what changes.'], session: 's1' }),
+        // A tutor's agent that searches the web anyway (Codex can): only research shows searches and pages (§4.11).
+        tutor: (job) => {
+          job.onEvent?.({ type: 'progress', step: { kind: 'search', query: `how to solve ${CANARY}` } });
+          job.onEvent?.({ type: 'progress', step: { kind: 'read', url: 'example.com/CANARY', href: 'https://example.com/CANARY' } });
+          return { text: [`Here is the answer: ${CANARY}`, 'Count what changes.'], session: 's1' };
+        },
         // Research reports its steps; once the course has hidden material, one step quotes it and must be dropped.
         research: (job) => {
-          job.onProgress?.({ kind: 'search', query: 'react hooks' });
-          if (t.c.exercises.size > 0) job.onProgress?.({ kind: 'search', query: CANARY });
+          job.onEvent?.({ type: 'progress', step: { kind: 'search', query: 'react hooks' } });
+          if (t.c.exercises.size > 0) job.onEvent?.({ type: 'progress', step: { kind: 'search', query: CANARY } });
           const args = job.server([]).args;
           t.c.roadmap = { course: args[args.indexOf('--course') + 1]!, goal: 'React', track: 'react@1', style: 'io', concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }] };
           return {};
@@ -38,10 +43,11 @@ describe('the learner-safe boundary (D4)', () => {
     const activity = await practising(t);
     // The first lesson has an example, so Run on it takes its success path.
     Object.assign(t.c.lessons.find((l) => l.id === 'values-1')!, { examples: [{ 'main.c': 'int main(void) { return 0; }' }], style: 'io' });
-    // What the renderer hears without asking: check, research and Run events.
+    // What the renderer hears without asking: check, job and Run events.
     const heard: unknown[] = [];
+    const jobs: JobProgress[] = [];
     t.api.onCheckProgress((p) => heard.push(p));
-    t.api.onResearchProgress((p) => heard.push(p));
+    t.api.onJobProgress((p) => (heard.push(p), jobs.push(p)));
     t.api.onRunOutput((o) => heard.push(o));
     const call = async (method: Method, args: unknown[]) => {
       try {
@@ -55,6 +61,7 @@ describe('the learner-safe boundary (D4)', () => {
     // Every method dispatch takes, in this order: the type makes a new IPC method fail to compile until it's here.
     const calls: Record<Method, unknown[]> = {
       agents: [],
+      jobProgress: [],
       connect: ['claude'],
       chooseModel: ['claude', 'opus'],
       installAgent: ['cursor'],
@@ -112,7 +119,10 @@ describe('the learner-safe boundary (D4)', () => {
     expect(results.runExampleLive).toMatch(/"stopped":true/);
     expect(heard).toContainEqual({ run: 'canary-program', stream: 'stdout', text: 'hello Ada\n' });
     expect(heard).toContainEqual({ run: 'canary-example', started: 'run', limitMs: expect.any(Number) });
-    expect(heard).toContainEqual({ kind: 'search', query: 'react hooks' });
+    expect(jobs.some((p) => p.kind === 'research' && p.steps.some((s) => s.kind === 'search' && s.query === 'react hooks'))).toBe(true);
+    // The tutor's own searches and pages never reached the window.
+    expect(jobs.some((p) => p.kind === 'tutor')).toBe(true);
+    expect(jobs.filter((p) => p.kind !== 'research').every((p) => p.steps.every((s) => s.kind === 'step'))).toBe(true);
     expect(docker).toEqual(['install', 'open']);
 
     for (const payload of payloads) expect(payload).not.toMatch(leaks);
