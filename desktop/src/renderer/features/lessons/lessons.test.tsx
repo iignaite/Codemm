@@ -1,26 +1,10 @@
-// jsdom can't lay out xterm.js; this stand-in takes typing. The pane's text mirror shows what was written.
-const xterm = vi.hoisted(() => ({ type: (_data: string) => undefined as void }));
-vi.mock('@xterm/xterm', () => ({
-  Terminal: class {
-    options = {};
-    loadAddon() {}
-    open() {}
-    write() {}
-    reset() {}
-    onData(listener: (data: string) => void) {
-      xterm.type = listener;
-      return { dispose() {} };
-    }
-    dispose() {}
-    focus() {}
-    attachCustomKeyEventHandler() {}
-  },
-}));
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }));
+vi.mock('@xterm/xterm', () => import('../../testing/xterm'));
+vi.mock('@xterm/addon-fit', () => import('../../testing/xterm'));
 
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { xterm } from '../../testing/xterm';
 import { scenario, type MockOptions } from '../../../main/mock';
 import { mockWithCourse, mockWithRoadmap, renderApp } from '../../test-utils';
 
@@ -124,7 +108,7 @@ describe('topic page and setup consent', () => {
     await user.click(screen.getByRole('button', { name: 'Set up' }));
     expect(await screen.findByRole('button', { name: 'Read useState' })).toBeInTheDocument();
     expect(screen.queryByText(/Setting up React/)).not.toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Opens after the lessons' })).toBeInTheDocument();
+    expect(screen.getByText('Opens after you finish the lessons')).toBeInTheDocument();
   });
 
   it('reaches Details from the keyboard', async () => {
@@ -377,6 +361,16 @@ describe('lessons', () => {
   });
 });
 
+describe('a locked activity', () => {
+  it('says why, in the lesson outline too, until the lessons are read', async () => {
+    const { api, course } = await mockWithCourse();
+    const lesson = course.topics[0].lessons[0].id;
+    renderApp({ to: 'lesson', lessonId: lesson }, api);
+    const outline = await screen.findByRole('navigation', { name: 'JavaScript basics' });
+    expect(within(outline).getByText('Opens after you finish the lessons')).toBeInTheDocument();
+  });
+});
+
 describe('the activity while the agent writes it', () => {
   it('shows it being written, not locked, once every lesson is read', async () => {
     const { api, course } = await mockWithCourse({ read: true });
@@ -385,6 +379,6 @@ describe('the activity while the agent writes it', () => {
     api.course = async () => writing;
     renderApp({ to: 'topic', topicId: course.topics[0].id }, api);
     expect(await screen.findByRole('img', { name: 'Writing the activity' })).toBeInTheDocument();
-    expect(screen.queryByRole('img', { name: 'Opens after the lessons' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Opens after you finish the lessons')).not.toBeInTheDocument();
   });
 });

@@ -53,6 +53,21 @@ describe.runIf(posix)("building a track image", () => {
     expect(built).toMatchObject({ ok: true, imageId: "sha256:built" });
   });
 
+  it("reports each build step as a count, and nothing of the build's output", async () => {
+    fakeDocker("builds");
+    const steps: unknown[] = [];
+    await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1", undefined, (step) => steps.push(step));
+    expect(steps).toEqual([{ done: 1, total: 3 }, { done: 2, total: 3 }, { done: 3, total: 3 }]);
+  });
+
+  it("keeps building when a step listener throws", async () => {
+    fakeDocker("builds");
+    const built = await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1", undefined, () => {
+      throw new Error("listener bug");
+    });
+    expect(built).toMatchObject({ ok: true, imageId: "sha256:built" });
+  });
+
   it("blames the runtime, not the track, when a build reports no image ID", async () => {
     fakeDocker("no-iid");
     const built = await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1");
@@ -71,6 +86,21 @@ describe.runIf(posix)("installing a track", () => {
     await expect(failure).rejects.toThrow(message);
     await expect(failure).rejects.not.toThrow(/Gate/);
     expect(app.listTracks()).toEqual([]);
+  });
+
+  it("reports a setup's build steps, then its checks, as phases and counts only", async () => {
+    fakeDocker("builds");
+    await app.proposeTrack(track());
+    const { digest } = app.listProposals()[0]!;
+    const seen: unknown[] = [];
+    // The fake's containers fail after the build, so the install stops at the probes.
+    await expect(app.installProposal("shell-io@1", digest, (p) => seen.push(p))).rejects.toThrow();
+    expect(seen).toEqual([
+      { phase: "building", done: 1, total: 3 },
+      { phase: "building", done: 2, total: 3 },
+      { phase: "building", done: 3, total: 3 },
+      { phase: "checking" },
+    ]);
   });
 
   it("keeps a proposal when its install fails offline, so Try again needs no new consent", async () => {
