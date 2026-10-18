@@ -48,7 +48,7 @@ describe('review on the topic page', () => {
     view.unmount();
     api.course = withReview('writing');
     renderApp({ to: 'topic', topicId: TOPIC }, api);
-    expect(await screen.findByRole('img', { name: 'Writing the review' })).toBeInTheDocument();
+    expect(await screen.findByText('Writing the review')).toBeInTheDocument();
   });
 });
 
@@ -417,7 +417,17 @@ describe('the activity while the agent writes it', () => {
     const writing = { ...course, topics: course.topics.map((t, i) => (i === 0 ? { ...t, activity: 'writing' as const } : t)) };
     api.course = async () => writing;
     renderApp({ to: 'topic', topicId: course.topics[0].id }, api);
-    expect(await screen.findByRole('img', { name: 'Writing the activity' })).toBeInTheDocument();
+    expect(await screen.findByText('Writing the activity')).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: 'Opens after the lessons' })).not.toBeInTheDocument();
+  });
+
+  it('says it waits for the lesson while that is still being written, and shows no placeholder', async () => {
+    const { api, course } = await mockWithCourse({ read: true });
+    const first = course.topics[0];
+    const waiting = { ...course, topics: course.topics.map((t, i) => (i === 0 ? { ...t, activity: 'writing' as const, lessons: [...first.lessons, { id: 'x-writing', title: 'Lesson', state: 'writing' as const }] } : t)) };
+    api.course = async () => waiting;
+    renderApp({ to: 'topic', topicId: first.id }, api);
+    expect(await screen.findByText('Waiting for the lesson')).toBeInTheDocument();
+    expect(document.querySelector('.shim')).toBeNull();
   });
 });
