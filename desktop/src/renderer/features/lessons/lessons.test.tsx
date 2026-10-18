@@ -1,26 +1,11 @@
-// jsdom can't lay out xterm.js; this stand-in takes typing. The pane's text mirror shows what was written.
-const xterm = vi.hoisted(() => ({ type: (_data: string) => undefined as void }));
-vi.mock('@xterm/xterm', () => ({
-  Terminal: class {
-    options = {};
-    loadAddon() {}
-    open() {}
-    write() {}
-    reset() {}
-    onData(listener: (data: string) => void) {
-      xterm.type = listener;
-      return { dispose() {} };
-    }
-    dispose() {}
-    focus() {}
-    attachCustomKeyEventHandler() {}
-  },
-}));
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }));
+vi.mock('@xterm/xterm', () => import('../../testing/xterm'));
+vi.mock('@xterm/addon-fit', () => import('../../testing/xterm'));
 
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { JobProgress } from '../../../shared/api';
+import { xterm } from '../../testing/xterm';
 import { scenario, type MockOptions } from '../../../main/mock';
 import { mockWithCourse, mockWithRoadmap, renderApp } from '../../test-utils';
 
@@ -47,7 +32,7 @@ describe('review on the topic page', () => {
     view.unmount();
     api.course = withReview('writing');
     renderApp({ to: 'topic', topicId: TOPIC }, api);
-    expect(await screen.findByRole('img', { name: 'Writing the review' })).toBeInTheDocument();
+    expect(await screen.findByText('Writing the review')).toBeInTheDocument();
   });
 });
 
@@ -107,6 +92,38 @@ describe('lesson examples', () => {
   });
 });
 
+describe('job progress on the topic page (§4.11)', () => {
+  it('shows setup and the lesson being written as staged progress, then the lesson to read', async () => {
+    const { api } = await approved({ slow: 3 });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const setup = await screen.findByRole('group', { name: 'Setting up React' });
+    expect(within(setup).getByRole('listitem', { current: 'step' })).toHaveTextContent('Proposing the setup');
+    const lesson = await screen.findByRole('group', { name: 'Writing the lesson' });
+    expect(within(lesson).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Starting', 'Writing the lesson', 'Saving the lesson']);
+    expect(await screen.findByRole('button', { name: 'Read useState' }, { timeout: 8000 })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Writing the lesson' })).not.toBeInTheDocument();
+  }, 15_000);
+});
+
+describe('setup progress while a proposing agent ends its turn', () => {
+  it("follows the install's job, not the proposal's late events or its end", async () => {
+    let hear: (p: JobProgress) => void = () => undefined;
+    const { api } = await approved();
+    api.onJobProgress = (listener) => ((hear = listener), () => undefined);
+    const real = (await api.course())!;
+    api.course = async () => ({ ...real, setup: 'installing' as const });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await screen.findByRole('heading', { name: 'JavaScript basics' });
+    // The screen subscribes again once it knows setup is installing.
+    await waitFor(() => expect(screen.getByText('Setting up React', { exact: false })).toBeInTheDocument());
+    const at = (job: string, stage: number, ended?: true): JobProgress => ({ job, kind: 'setup', stage, steps: [], count: 0, thinking: false, elapsedMs: 0, idleMs: 0, ...(ended ? { ended } : {}) });
+    act(() => hear(at('install', 1)));
+    act(() => hear(at('proposal', 0)));
+    act(() => hear(at('proposal', 0, true)));
+    await waitFor(() => expect(within(screen.getByRole('group', { name: 'Setting up React' })).getByRole('listitem', { current: 'step' })).toHaveTextContent('Building'));
+  });
+});
+
 describe('topic page and setup consent', () => {
   it('asks once before setup, shows exactly what will be built, and sets up', async () => {
     const user = userEvent.setup();
@@ -124,7 +141,7 @@ describe('topic page and setup consent', () => {
     await user.click(screen.getByRole('button', { name: 'Set up' }));
     expect(await screen.findByRole('button', { name: 'Read useState' })).toBeInTheDocument();
     expect(screen.queryByText(/Setting up React/)).not.toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Opens after the lessons' })).toBeInTheDocument();
+    expect(screen.getByText('Opens after you finish the lessons')).toBeInTheDocument();
   });
 
   it('reaches Details from the keyboard', async () => {
@@ -162,6 +179,30 @@ describe('topic page and setup consent', () => {
       expect(await screen.findByRole('button', { name: 'Read useState' })).toBeInTheDocument();
       view.unmount();
     }
+  });
+
+  it('keeps the lesson list beside a failed setup', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved(scenario('offline-setup'));
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("You're offline.");
+    expect(screen.getByRole('heading', { name: 'JavaScript basics' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Read What javascript basics is' })).toBeInTheDocument();
+  });
+
+  it('offers setup from a lesson without blocking the reading', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved();
+    let course = (await api.course())!;
+    while (course.setup !== 'consent' || course.topics[0].lessons[0].state !== 'ready') course = (await api.course())!;
+    renderApp({ to: 'lesson', lessonId: course.topics[0].lessons[0].id }, api);
+    expect(await screen.findByRole('heading', { name: 'What javascript basics is' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Set up React' }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Set up React on this computer?' })).getByRole('button', { name: 'Set up' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Set up React' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('says when Docker stopped during setup, and offers Check this computer', async () => {
@@ -353,6 +394,16 @@ describe('lessons', () => {
   });
 });
 
+describe('a locked activity', () => {
+  it('says why, in the lesson outline too, until the lessons are read', async () => {
+    const { api, course } = await mockWithCourse();
+    const lesson = course.topics[0].lessons[0].id;
+    renderApp({ to: 'lesson', lessonId: lesson }, api);
+    const outline = await screen.findByRole('navigation', { name: 'JavaScript basics' });
+    expect(within(outline).getByText('Opens after you finish the lessons')).toBeInTheDocument();
+  });
+});
+
 describe('the activity while the agent writes it', () => {
   it('shows it being written, not locked, once every lesson is read', async () => {
     const { api, course } = await mockWithCourse({ read: true });
@@ -360,7 +411,17 @@ describe('the activity while the agent writes it', () => {
     const writing = { ...course, topics: course.topics.map((t, i) => (i === 0 ? { ...t, activity: 'writing' as const } : t)) };
     api.course = async () => writing;
     renderApp({ to: 'topic', topicId: course.topics[0].id }, api);
-    expect(await screen.findByRole('img', { name: 'Writing the activity' })).toBeInTheDocument();
-    expect(screen.queryByRole('img', { name: 'Opens after the lessons' })).not.toBeInTheDocument();
+    expect(await screen.findByText('Writing the activity')).toBeInTheDocument();
+    expect(screen.queryByText('Opens after you finish the lessons')).not.toBeInTheDocument();
+  });
+
+  it('says it waits for the lesson while that is still being written, and shows no placeholder', async () => {
+    const { api, course } = await mockWithCourse({ read: true });
+    const first = course.topics[0];
+    const waiting = { ...course, topics: course.topics.map((t, i) => (i === 0 ? { ...t, activity: 'writing' as const, lessons: [...first.lessons, { id: 'x-writing', title: 'Lesson', state: 'writing' as const }] } : t)) };
+    api.course = async () => waiting;
+    renderApp({ to: 'topic', topicId: first.id }, api);
+    expect(await screen.findByText('Waiting for the lesson')).toBeInTheDocument();
+    expect(document.querySelector('.shim')).toBeNull();
   });
 });

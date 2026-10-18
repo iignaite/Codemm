@@ -1,13 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { appendEvent, assertFreeSpace, materialize, readEvents, trackImageTag, withLock, withWorkspaceLock } from "../src/store.js";
+import { appendEvent, assertFreeSpace, digestText, materialize, readEvents, replaceLearnerFile, trackImageTag, withLock, withWorkspaceLock, writeTextAtomic } from "../src/store.js";
+import { tempDir } from "./temp.js";
 
 let home: string;
 beforeEach(() => {
-  home = mkdtempSync(join(tmpdir(), "codemm-home-"));
+  home = tempDir("codemm-home-");
   process.env.CODEMM_HOME = home;
 });
 
@@ -61,8 +61,8 @@ describe("withLock", () => {
 
 describe("withWorkspaceLock", () => {
   it("is one lock for every spelling of the workspace", async () => {
-    const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
-    const alias = join(mkdtempSync(join(tmpdir(), "codemm-alias-")), "ws");
+    const ws = tempDir("codemm-ws-");
+    const alias = join(tempDir("codemm-alias-"), "ws");
     symlinkSync(ws, alias);
     const order: string[] = [];
     const slow = withWorkspaceLock(ws, async () => {
@@ -79,8 +79,8 @@ describe("withWorkspaceLock", () => {
 
 describe("withWorkspaceLock for a folder that doesn't exist yet", () => {
   it("is the same lock before and after the folder is created", async () => {
-    const real = mkdtempSync(join(tmpdir(), "codemm-ws-"));
-    const alias = join(mkdtempSync(join(tmpdir(), "codemm-alias-")), "ws");
+    const real = tempDir("codemm-ws-");
+    const alias = join(tempDir("codemm-alias-"), "ws");
     symlinkSync(real, alias);
     const order: string[] = [];
     const slow = withWorkspaceLock(join(alias, "new"), async () => {
@@ -97,7 +97,7 @@ describe("withWorkspaceLock for a folder that doesn't exist yet", () => {
 
 describe("materialize", () => {
   it("writes missing files and never overwrites the learner's edits", () => {
-    const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+    const ws = tempDir("codemm-ws-");
     materialize(ws, "exercises/demo/sum", { "main.sh": "starter", "README.md": "v1" });
     writeFileSync(join(ws, "exercises/demo/sum/main.sh"), "my edit");
     materialize(ws, "exercises/demo/sum", { "main.sh": "starter", "README.md": "v1", "tests/01.in": "1" });
@@ -106,11 +106,29 @@ describe("materialize", () => {
   });
 
   it("refuses to write through a symlinked folder", () => {
-    const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
-    const outside = mkdtempSync(join(tmpdir(), "codemm-outside-"));
+    const ws = tempDir("codemm-ws-");
+    const outside = tempDir("codemm-outside-");
     symlinkSync(outside, join(ws, "exercises"));
     expect(() => materialize(ws, "exercises/demo/sum", { "main.sh": "x" })).toThrow(/symlink/i);
     expect(readdirSync(outside)).toEqual([]);
+  });
+});
+
+describe.runIf(process.platform !== "win32")("file modes", () => {
+  it("keeps the umask's modes for Codemm's own files, and 0644 for learner files", () => {
+    const old = process.umask(0o002);
+    try {
+      const ws = tempDir("codemm-ws-");
+      const mode = (path: string) => statSync(join(ws, path)).mode & 0o777;
+      writeTextAtomic(join(ws, "own.json"), "{}");
+      expect(mode("own.json")).toBe(0o664);
+      materialize(ws, "ex", { "main.sh": "a" });
+      expect(mode("ex/main.sh")).toBe(0o644);
+      replaceLearnerFile(ws, "ex", "main.sh", "b", digestText("a"));
+      expect(mode("ex/main.sh")).toBe(0o644);
+    } finally {
+      process.umask(old);
+    }
   });
 });
 
@@ -151,11 +169,11 @@ describe("trackImageTag", () => {
     const a = trackImageTag("python", 1);
     expect(a).toMatch(/^codemm-track-[0-9a-f]{8}-python:1$/);
     expect(trackImageTag("python", 1)).toBe(a);
-    const other = mkdtempSync(join(tmpdir(), "codemm-home-"));
+    const other = tempDir("codemm-home-");
     process.env.CODEMM_HOME = other;
     expect(trackImageTag("python", 1)).not.toBe(a);
     // The same home spelled through a symlink is the same home.
-    const link = join(mkdtempSync(join(tmpdir(), "codemm-link-")), "home");
+    const link = join(tempDir("codemm-link-"), "home");
     symlinkSync(other, link);
     const direct = trackImageTag("python", 1);
     process.env.CODEMM_HOME = link;

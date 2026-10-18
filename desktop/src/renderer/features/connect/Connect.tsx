@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Agent, AgentId } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
@@ -12,8 +12,10 @@ import { stagger } from '../../ui/motion';
 export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
   const api = useApi();
   const { go, fail } = useRouter();
-  const { data, error, reload } = useLoad(() => api.agents(), []);
+  // Coming back to the window looks again: an agent installed or signed in meanwhile shows up.
+  const { data, error, reload } = useLoad(() => api.agents(), [], undefined, undefined, true);
   const [agents, setAgents] = useState<Agent[]>();
+  useEffect(() => setAgents(undefined), [data]);
   const [busy, setBusy] = useState<string>();
   const list = agents ?? data;
   if (error) return <Failed error={error} retry={reload} />;
@@ -63,7 +65,12 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
                 )}
                 {a.untested && <div className="quiet-text">Untested version. It may still work.</div>}
                 {a.state === 'missing' && <div className="alert">Not installed</div>}
-                {a.state === 'signed-out' && <div className="alert">Sign in to {a.name}, then try again.</div>}
+                {a.state === 'signed-out' && (
+                  <>
+                    <div className="alert">Sign in to {a.name}, then try again.</div>
+                    <div className="quiet-text">In a terminal: <code className="cmd">{a.signIn}</code></div>
+                  </>
+                )}
               </div>
               {a.state === 'connected' ? (
                 <span className="state"><Status kind="ok" size={24} />Connected</span>

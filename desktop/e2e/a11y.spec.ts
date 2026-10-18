@@ -104,7 +104,14 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await audit(page, 'setup consent');
   await consent.getByText('Details').click();
   await audit(page, 'setup consent, details');
+  // Not now: a lesson offers setup without blocking the reading.
+  await consent.getByRole('button', { name: 'Not now', exact: true }).click();
+  await button(page, 'Read What javascript basics is').click();
+  await expect(button(page, 'Set up React')).toBeVisible();
+  await audit(page, 'lesson, setup waiting');
+  await button(page, 'Set up React').click();
   await consent.getByRole('button', { name: 'Set up', exact: true }).click();
+  await button(page, 'Previous').click();
   await expect(button(page, 'Read useState')).toBeVisible({ timeout: 15_000 });
   await audit(page, 'topic');
   await button(page, 'Read What javascript basics is').click();
@@ -131,6 +138,18 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await button(page, 'Learn').click();
   await expect(heading(page, 'React complete')).toBeVisible();
   await audit(page, 'course complete');
+  // A new goal's roadmap is a draft: the course stays, and the goal screen offers the draft again.
+  await button(page, 'Learn something new').click();
+  await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('Vue');
+  await button(page, 'Start').click();
+  await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });
+  await button(page, 'Learn').click();
+  await expect(heading(page, 'React complete')).toBeVisible();
+  await button(page, 'Learn something new').click();
+  await expect(button(page, 'Resume roadmap')).toBeVisible();
+  await audit(page, 'goal, with a roadmap to resume');
+  await button(page, 'Resume roadmap').click();
+  await expect(heading(page, 'Vue')).toBeVisible();
   await app.close();
 });
 
@@ -189,7 +208,7 @@ test('failure and environment screens pass WCAG AA checks', async () => {
     await page.getByRole('textbox', { name: 'Counter.jsx' }).fill('wrong /* your code */');
     for (let i = 0; i < 3; i++) {
       await button(page, 'Check').click();
-      await expect(results.getByRole('heading', { name: /passed|Try another way/ })).toBeVisible();
+      await expect(results.getByRole('heading', { name: /passed|Try another way/ }).first()).toBeVisible();
     }
     await expect(results.getByRole('heading', { name: 'Try another way' })).toBeVisible();
     await audit(page, 'results, stuck');
@@ -344,7 +363,7 @@ test('the journey works with the keyboard alone', async () => {
   await typeInto(page, 'Counter.jsx', 'wrong /* your code */');
   for (let i = 0; i < 3; i++) {
     await press(page, 'Check');
-    await expect(results.getByRole('heading', { name: /passed|Try another way/ })).toBeVisible();
+    await expect(results.getByRole('heading', { name: /passed|Try another way/ }).first()).toBeVisible();
   }
   await press(page, 'Come back later');
   await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();

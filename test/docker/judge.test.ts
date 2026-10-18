@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { createServer } from "node:http";
@@ -9,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { gradeIoRun, gradeUnitRun, type JudgeTrack, runIo, runProgram, runUnit } from "../../src/judge.js";
 import { buildImage, ownedContainers } from "../../src/sandbox.js";
 import { buildFixture, dockerUp, expectedFrom, fixtureTrack, inputsOnly, subMap } from "./helpers.js";
+import { tempDir } from "../temp.js";
 
 const io = fixtureTrack("shell-io");
 const unit = fixtureTrack("shell-unit");
@@ -55,7 +55,7 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
   });
 
   it("an image without sleep: Run isn't cut short as a timeout, and grading names the missing tool", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "codemm-nosleep-"));
+    const dir = tempDir("codemm-nosleep-");
     writeFileSync(join(dir, "Dockerfile"), `${io.files["Dockerfile"]!.trim()}\nRUN rm /bin/sleep\n`);
     const built = await buildImage(dir, "codemm-test-nosleep:1");
     expect(built.ok).toBe(true);
@@ -196,8 +196,7 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
 
     it("kills the container at the host deadline and leaves none behind", async () => {
       await expect(runIo({ ...ioTrack, build: undefined }, "visible", { "main.sh": "read x\nsleep 60\n" }, { "01.in": "x\n" }, { timeMs: 30_000, deadlineMs: 3000 })).rejects.toThrow(/didn't finish/);
-      await new Promise((r) => setTimeout(r, 1500));
-      expect((await ownedContainers()).filter((c) => c.pid === process.pid)).toEqual([]);
+      await expect.poll(async () => (await ownedContainers()).filter((c) => c.pid === process.pid), { timeout: 10_000 }).toEqual([]);
     });
   });
 });

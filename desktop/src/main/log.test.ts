@@ -1,11 +1,12 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { readFileSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createLog } from './log';
+import { tempDir } from './testing/temp';
 
-const dir = () => mkdtempSync(join(tmpdir(), 'codemm-log-'));
+const dir = () => tempDir('codemm-log-');
 
 describe('the app log', () => {
   it('writes one line per event, with only short, redacted values', () => {

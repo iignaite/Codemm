@@ -81,6 +81,20 @@ describe('connect journey', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
   });
 
+  it('shows the command that signs in, and connects once the learner signed in and came back', async () => {
+    const user = userEvent.setup();
+    const options = scenario('signed-out');
+    renderApp({ to: 'connect' }, createMock(options));
+    const codex = await screen.findByRole('listitem', { name: 'Codex' });
+    await user.click(within(codex).getByRole('button', { name: 'Connect' }));
+    expect(await within(codex).findByText('codex login')).toBeInTheDocument();
+    // Signed in from a terminal; coming back to Codemm checks again.
+    options.agents = {};
+    window.dispatchEvent(new Event('focus'));
+    expect(await within(codex).findByText('Connected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+
   it('links to each agent\'s install page when none is installed', async () => {
     renderApp({ to: 'connect' }, createMock(scenario('no-agent')));
     const claude = await screen.findByRole('listitem', { name: 'Claude Code' });

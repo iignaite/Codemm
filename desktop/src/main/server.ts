@@ -13,9 +13,13 @@ export interface ServerPlaces {
 }
 
 export function codemmServer({ runtime, coreDir, ws, env }: ServerPlaces) {
-  return (course: string | undefined, tools: string[]): McpServer => ({
+  /** `progress`: a file where save_exercise writes which gate runs, for the job's progress (§4.11). */
+  return (course: string | undefined, tools: string[], progress?: string): McpServer => ({
     command: runtime,
-    args: [join(coreDir, 'dist', 'cli.mjs'), 'mcp', '--workspace', ws, ...(course ? ['--course', course] : []), '--tools', tools.join(','), '--desktop'],
+    args: [
+      join(coreDir, 'dist', 'cli.mjs'), 'mcp', '--workspace', ws, ...(course ? ['--course', course] : []), '--tools', tools.join(','), '--desktop',
+      ...(progress ? ['--progress', progress] : []),
+    ],
     // Codex starts MCP servers without the app's environment, so the server is told where Codemm's data is,
     // and the PATH the app found Docker and its helpers on (§3.1).
     env: { ELECTRON_RUN_AS_NODE: '1', ...(env.CODEMM_HOME ? { CODEMM_HOME: env.CODEMM_HOME } : {}), ...(env.PATH ? { PATH: env.PATH } : {}) },

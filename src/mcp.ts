@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -42,11 +43,13 @@ export function parseToolList(text: string): string[] {
 /**
  * One server per agent job (docs/desktop/DESIGN.md §4.6): `course` replaces the workspace's active course,
  * `tools` limits the registered tools, and `desktop` makes save_track only propose (the learner consents in the app).
+ * `progress` is a file where save_exercise writes which gate runs, by name only, for the app to show (§4.11).
  */
-export type ServerOptions = { course?: string; tools?: string[]; desktop?: boolean };
+export type ServerOptions = { course?: string; tools?: string[]; desktop?: boolean; progress?: string };
 
-export function createServer(ws: string, version: string, { course, tools, desktop }: ServerOptions = {}): McpServer {
+export function createServer(ws: string, version: string, { course, tools, desktop, progress }: ServerOptions = {}): McpServer {
   if (course !== undefined) assertId("course", course);
+  if (progress !== undefined && !isAbsolute(progress)) throw new CodemmError("--progress needs an absolute path.");
   const server = new McpServer({ name: "codemm", version });
   const want = (name: (typeof TOOL_NAMES)[number]) => !tools || tools.includes(name);
 
@@ -108,7 +111,7 @@ export function createServer(ws: string, version: string, { course, tools, deskt
         "Codemm runs every gate and stores it only if all pass. Returns only the exercise id; report nothing else to the tutor.",
       inputSchema: { files },
     },
-    ({ files: f }) => respond(() => app.saveExercise(ws, f, course)),
+    ({ files: f }) => respond(() => app.saveExercise(ws, f, course, progress ? app.gateProgressTo(progress) : undefined)),
   );
 
   if (want("get_exercise")) server.registerTool("get_exercise", { description: "Show an exercise to the learner: statement, the file(s) to edit, visible tests and hint.", inputSchema: { slug } }, ({ slug: s }) =>

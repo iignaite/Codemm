@@ -6,8 +6,9 @@ import { dispatch } from './ipc';
 const echo = new Proxy({} as CodemmApi, { get: (_t, method) => async (...args: unknown[]) => ({ method, args }) });
 
 const concepts = [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }];
-const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgress' | 'onRunOutput'>, unknown[]> = {
+const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' | 'onRunOutput'>, unknown[]> = {
   agents: [],
+  jobProgress: [],
   connect: ['claude'],
   chooseModel: ['claude', 'opus'],
   computer: [],
@@ -17,6 +18,8 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgr
   research: [{ topic: 'React', known: 'Python', depth: 'standard' }],
   reviseRoadmap: [concepts, 'Add testing'],
   approve: [concepts],
+  draft: [],
+  saveDraft: [concepts],
   course: [],
   install: ['a'.repeat(64)],
   retrySetup: [],

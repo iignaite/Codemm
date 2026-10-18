@@ -1,13 +1,14 @@
 // @vitest-environment node
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { JOBS, runJob, type Job } from './jobs';
+import { tempDir } from '../testing/temp';
 
 /** A fake Claude Code: a Node script that replays stream-json lines, the way recorded fixtures do. */
 function fakeAgent(lines: object[], { exitCode = 0, hang = false, stderr = [] as string[] } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'codemm-agent-'));
+  const dir = tempDir('codemm-agent-');
   const script = join(dir, 'claude.js');
   writeFileSync(
     script,
@@ -64,7 +65,7 @@ describe('jobs (§3.2)', () => {
     const agent = fakeAgent([init, fetch('f1', 'https://good.example/a'), result('f1', false), fetch('f2', 'https://bad.example/b'), result('f2', true), success]);
     const sources: unknown[] = [];
     const steps: unknown[] = [];
-    await runJob(job(agent.exe, { kind: 'research', done: () => true, onProgress: (s) => steps.push(s), onSource: (s) => sources.push(s) }));
+    await runJob(job(agent.exe, { kind: 'research', done: () => true, onEvent: (e) => e.type === 'progress' && steps.push(e.step), onSource: (s) => sources.push(s) }));
     expect(steps).toHaveLength(2);
     expect(sources).toEqual([{ title: 'good.example/a', url: 'https://good.example/a' }]);
   });
@@ -81,6 +82,13 @@ describe('jobs (§3.2)', () => {
     const outcome = await runJob(job(agent.exe, { kind: 'lesson', done: () => false }));
     expect(outcome).toMatchObject({ ok: false, problem: 'failed' });
     expect(agent.runs()).toBe(2);
+  });
+
+  it('tells its listener each event and each relaunch, for its progress (§4.11)', async () => {
+    const agent = fakeAgent([init, say('Saved!'), success]);
+    const heard: string[] = [];
+    await runJob(job(agent.exe, { kind: 'lesson', done: () => false, onEvent: (e) => heard.push(e.type), onRelaunch: () => heard.push('relaunch') }));
+    expect(heard).toEqual(['session', 'text', 'done', 'relaunch', 'session', 'text', 'done']);
   });
 
   it('is not relaunched when its save landed just before a crash', async () => {
@@ -183,8 +191,8 @@ describe('jobs (§3.2)', () => {
   });
 
   it('cursor: runs in a Codemm-owned folder holding only its config, the same folder for the same config (so a chat resumes)', async () => {
-    const agentDir = mkdtempSync(join(tmpdir(), 'codemm-agents-'));
-    const ws = mkdtempSync(join(tmpdir(), 'codemm-ws-'));
+    const agentDir = tempDir('codemm-agents-');
+    const ws = tempDir('codemm-ws-');
     const cursorInit = { type: 'system', subtype: 'init', session_id: 'chat-1' };
     const agent = fakeAgent([cursorInit, success]);
     expect(await runJob(job(agent.exe, { agent: 'cursor', cwd: ws, agentDir }))).toMatchObject({ ok: true, session: 'chat-1' });
@@ -202,7 +210,7 @@ describe('jobs (§3.2)', () => {
 
   it('cursor: a plan limit on stderr ends the job without a relaunch', async () => {
     const agent = fakeAgent([{ type: 'system', subtype: 'init', session_id: 'chat-1' }], { exitCode: 1, stderr: ["Error: You've hit your usage limit"] });
-    const agentDir = mkdtempSync(join(tmpdir(), 'codemm-agents-'));
+    const agentDir = tempDir('codemm-agents-');
     expect(await runJob(job(agent.exe, { agent: 'cursor', agentDir }))).toMatchObject({ ok: false, problem: 'plan-limit' });
     expect(agent.runs()).toBe(1);
   });
