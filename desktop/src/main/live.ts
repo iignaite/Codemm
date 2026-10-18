@@ -5,6 +5,7 @@ import { isSafeLink } from './links';
 import {
   AGENT_FAILED,
   CHANGED,
+  OFFLINE,
   PLAN_LIMIT,
   REPAIR,
   SIGNED_OUT,
@@ -43,11 +44,15 @@ export interface LiveDeps {
   server: (course: string | undefined, tools: string[]) => McpServer;
   /** The app's own executable, which runs Node-script agents. */
   runtime?: string;
+  /** A Codemm-owned folder for agents that read their config from the working directory (Cursor). */
+  agentDir?: string;
   runJob?: (job: Job) => Promise<JobOutcome>;
   /** Lifecycle and detection events only (log.ts). */
   log?: Log;
   /** Resolves once Docker isn't starting any more (§6.1). */
   dockerReady?: () => Promise<void>;
+  /** Installs and opens Docker Desktop for the learner (dockerDesktop.ts, §6.1). */
+  docker?: { install(): void; open(): Promise<void> };
 }
 
 export interface Live extends CodemmApi {
@@ -57,7 +62,7 @@ export interface Live extends CodemmApi {
 
 /** Setup proposals per setup before the learner gets Stop or Try again (§3.2). */
 const PROPOSAL_BOUND = 3;
-const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, failed: AGENT_FAILED, infra: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
+const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
 /** Why background work stalled: an infrastructure failure is a plain failure the learner retries. */
 const stallOf = (problem: JobProblem = 'failed'): NonNullable<CourseView['stalled']> => (problem === 'infra' ? 'failed' : problem);
 const NOT_COUNTED: Record<'docker' | 'disk' | 'offline', string> = {
@@ -193,6 +198,7 @@ export function createLive(d: LiveDeps): Live {
         brief,
         server: (tools) => d.server(course, tools),
         cwd: ws,
+        agentDir: d.agentDir,
         // The learner's model choice, or the recommended one (O6), for every agent with choices.
         model,
         resume,
@@ -388,6 +394,13 @@ export function createLive(d: LiveDeps): Live {
       const agent = await d.connect.chooseModel(id, model);
       log('model', { agent: id, model });
       return agent;
+    },
+    async installDocker() {
+      log('docker-install', {});
+      d.docker?.install();
+    },
+    async openDocker() {
+      await d.docker?.open();
     },
     async computer() {
       const computer = await d.computer();

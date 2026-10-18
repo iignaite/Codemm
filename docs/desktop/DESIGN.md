@@ -96,14 +96,14 @@ desktop/
 
 ### 3.1 Launch, isolate, stream, cancel, sign in
 
-Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor is unverified.
+Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor was proved with cursor-agent 2026.10.16-e3cb207 (it updated itself from 2026.01.23 at sign-in), signed in on the free plan: recorded fixtures and a canary run.
 
 | | Claude Code | Codex | Cursor (experimental) |
 |---|---|---|---|
-| Headless turn | `claude -p <brief> --output-format stream-json --verbose` | `codex exec --json --skip-git-repo-check <brief>` | `cursor-agent -p --output-format stream-json --approve-mcps --workspace <ws>` |
-| Codemm server | `--mcp-config <json> --strict-mcp-config` | `-c mcp_servers.codemm.{command,args,env}=…` | `<ws>/.cursor/mcp.json` (no flag exists) |
-| Codemm tools | `--allowedTools mcp__codemm__<tool>,…` | `-c mcp_servers.codemm.enabled_tools=[…]`, then `default_tools_approval_mode="approve"` | `--approve-mcps` |
-| Built-in tools | `--tools ""` (web search and fetch for the research job only) | `--ignore-user-config`, `--disable shell_tool --disable unified_exec --disable browser_use --disable computer_use --disable apps --disable multi_agent`, and `-c sandbox_mode="read-only"` | `--mode ask` |
+| Headless turn | `claude -p <brief> --output-format stream-json --verbose` | `codex exec --json --skip-git-repo-check <brief>` | `cursor-agent -p --output-format stream-json --approve-mcps --trust [--model <m>] <brief>`, run in a job folder |
+| Codemm server | `--mcp-config <json> --strict-mcp-config` | `-c mcp_servers.codemm.{command,args,env}=…` | `.cursor/mcp.json` in the job folder, `<userData>/agents/cursor-<config hash>` (no flag exists, and the workspace and `~/.cursor` stay untouched) |
+| Codemm tools | `--allowedTools mcp__codemm__<tool>,…` | `-c mcp_servers.codemm.enabled_tools=[…]`, then `default_tools_approval_mode="approve"` | `.cursor/cli.json` in the job folder: `permissions.allow` `Mcp(codemm:<tool>)`, … |
+| Built-in tools | `--tools ""` (web search and fetch for the research job only) | `--ignore-user-config`, `--disable shell_tool --disable unified_exec --disable browser_use --disable computer_use --disable apps --disable multi_agent`, and `-c sandbox_mode="read-only"` | The same file denies `Shell(*)`, `Read` and `Write` of `**` and `/**`, and `WebFetch(*)` except for research. Research adds `--force`, since print mode approves web search and fetch only with it |
 | Follow-up turn | `--resume <session_id>` | `codex exec resume <thread_id>` | `--resume <chatId>` |
 | Sign-in check | `claude auth status --json`, field `loggedIn` | `codex login status`, exit 0 and "Logged in" | `cursor-agent status`, "Not logged in" |
 
@@ -115,6 +115,21 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor i
   - `--ignore-user-config` drops the learner's own MCP servers and plugins. It also means Codex uses its default model, or the bench's recommendation (§8).
   - `enabled_tools` limits the Codemm tools, and `multi_agent` is off.
   - Code mode (`functions.exec`) remains, because Codex calls MCP tools through it. Whether it can read files is unproven. Hidden data is therefore protected by the reply filter and the honor system, under the reworded invariant (decision 10).
+- **Cursor.**
+  - It reads MCP servers and permissions from its working directory, and keeps chats per working directory. So each job runs in a Codemm-owned folder named by its config: the same config gets the same folder, and a tutor turn resumes its chat. `--trust` stops an untrusted folder from halting print mode.
+  - The folder's `cli.json` allows only the job's Codemm tools. It denies the shell, file reads and writes, and web fetches outside research. Deny rules win over the learner's own allow list.
+  - **What the canary showed** (a signed-in run asked to break out, with and without `--force`):
+    - The shell, file reads and writes were denied, inside the job folder and outside it.
+    - Grep returned no matches and glob no file names, though glob reported a file count.
+    - Without `--force`, web search and fetch were rejected. With it, research could search and fetch, and the denials held.
+  - Gaps, like Codex's (O8):
+    - The learner's own MCP servers and plugins load, and `--approve-mcps` approves them. Their tools run only where the learner's own allow list permits, or in research, under `--force`.
+    - Cursor's subagent tool (`task`) is not turned off. It runs under the same permissions.
+    - Hidden data is protected by the reply filter and the honor system.
+  - **No startup signal.** Cursor never reports that a server failed to start. Its tool lookup can't find the `codemm` namespace, or a call fails with "MCP server does not exist", and either becomes the server event (recorded).
+  - **Errors.** They go to stderr, which is drained. Only a plan limit or a lost connection is read from it, as a fixed message.
+  - **Models.** The free plan runs only Auto ("Named models unavailable"), so Auto is the one tested model.
+  - **Plan limit (recorded).** On the free plan, stderr says "You've hit your usage limit", with no result event. Codemm shows the plan-limit state.
 - **The invariant.** Codemm never runs agent-written code on the host, and runs untrusted code only through `sandbox.ts`. What the agent's own tools do happens under the agent's own sandbox, exactly as in a terminal. Turning those tools off is defense in depth.
 
 **Running processes.**
@@ -338,6 +353,7 @@ Infrastructure failures record nothing. Learner-caused outcomes are graded as `e
 | Track image missing or changed | "Rebuild" on the track; runs `rebuildTrack` | nothing |
 | No agent found, or signed out | the connect screen with its fix | nothing |
 | Agent plan limit reached | "Your agent's plan limit is reached. Try again later." | nothing; no relaunch |
+| Offline during an agent job (the agent can't reach its service, or a Codemm tool can't reach the network) | "You're offline. Connect to the internet, then try again." Try again | nothing; no relaunch |
 | Another agent failure (model refused, crash, deadline) or not done by its check | "Codemm couldn't finish that." Try again, or Check your agent (opens connect) | nothing; saves are atomic |
 | Track gates fail | "Couldn't set up React." A new proposal asks again; after the bound, Stop or Try again | nothing |
 | Author bound reached | "Couldn't write this activity." Try again | nothing |
@@ -363,13 +379,22 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 
 | Step | Passes when | While it fails |
 |---|---|---|
-| Docker is installed | the `docker` CLI is found (§3.1 lookup) | "Install Docker Desktop." with a link to Docker's install page. Windows adds the WSL 2 backend. The wording comes from core's `runtimeHelp`. |
-| Docker is running | the daemon answers with Linux containers | For the first 3 minutes after Docker is found but not answering: "Docker is starting. This can take a few minutes." After that: "Open Docker Desktop." A Docker Desktop on Windows containers gets "Switch Docker Desktop to Linux containers." |
+| Docker is installed | the `docker` CLI is found (§3.1 lookup) | On macOS and Windows: **Install Docker**, which Codemm does for the learner (below), plus "Install it myself", linking to Docker's install page. On Linux: Docker Engine's install steps and link. |
+| Docker is running | the daemon answers with Linux containers | A Docker that doesn't answer is stopped: "Open Docker Desktop, then wait until it says it is running.", with an **Open Docker Desktop** button on macOS and Windows. It is "Docker is starting. This can take a few minutes." only for the 3 minutes after Codemm itself opened or installed Docker, since Codemm can't tell a stopped daemon from a starting one otherwise. A Docker Desktop on Windows containers gets "Switch Docker Desktop to Linux containers." |
 | The sandbox works | doctor's network check passes | "Codemm couldn't confirm the sandbox. Restart Docker and check again." |
 
 - **Re-checking.** Only the first failing row shows its message. Only one check runs at a time: the next starts 5 seconds after the last finishes, or at once when the window regains focus and no check is running. Re-checking stops once every row passes, and Continue unlocks.
 - **Docker stopping mid-session.** A check or setup that loses Docker fails as an infrastructure failure, records nothing, and opens this screen.
-- **Docker's slow first start.** Setup and checks started while Docker is starting wait up to 3 minutes for the daemon before failing, and record nothing.
+- **Docker's slow first start.** Setup and checks started while Docker is starting (in the 3 minutes after Codemm opened or installed it) wait for the daemon before failing, and record nothing. With a stopped Docker they fail at once as not counted.
+- **Installing Docker Desktop for the learner** (`desktop/src/main/dockerDesktop.ts`). One click on Install Docker, on macOS and Windows:
+  1. Codemm checks there is room (4 GB on macOS, 8 GB on Windows), then downloads Docker Desktop for this chip from `desktop.docker.com` over https. A redirect may only land on another https docker.com host.
+  2. It runs the download only if Docker signed it:
+     - macOS: `codesign --verify --deep --strict`, Docker's team id `9BNSXJN65R`, and `spctl --assess`;
+     - Windows: `Get-AuthenticodeSignature` reports Valid, signed by `O=Docker Inc`. The path reaches PowerShell as an environment variable, never inside the command text.
+     Otherwise it deletes the download and says so.
+  3. macOS: Docker.app is copied to /Applications with `ditto` and opened. If the copy isn't allowed, the disk image opens in Finder for the learner to drag. Windows: Docker's installer runs with its own window, where Windows asks for permission.
+  4. Codemm never accepts Docker's terms or asks for a password: Docker's own window does both on its first start, and the screen says so.
+  5. The screen shows the download's progress, then each step. A stop says why: offline, low disk, not signed by Docker, Windows needs a restart, or the installer didn't finish. Every command is an argument array, and the download is deleted afterwards.
 - **Offline or low disk during setup.** These count as infrastructure failures: nothing is recorded and no agent attempt is spent.
   - **Disk.** Before building, `installProposal` checks that the volume holding `$CODEMM_HOME` has at least 5 GB free, failing with "Not enough disk space".
   - **Build output.** A failed build whose output matches a known offline or disk-full marker (for example "no space left on device", "could not resolve host" or "network is unreachable") is an infrastructure failure. Any other failed build is a gate failure.
@@ -377,6 +402,7 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 - **Agent problems.**
   - No agent found and signed out go to the connect screen.
   - A plan limit is recognized from the agent's `done` error, by known per-agent limit markers ("usage limit", "rate limit", HTTP 429). A plan limit is never relaunched and spends no retry. An unrecognized error is a generic failure.
+  - Offline is recognized the same way, from network errors in the agent's `done` error ("Connection error", ENOTFOUND, EAI_AGAIN, "network is unreachable", "could not resolve host", "error sending request", "connection lost"), or from core's offline markers in a failed tool result. It is never relaunched, spends no retry, and never offers Check your agent.
   - The markers are recorded as fixtures the first time each one is seen; until then they are unverified.
 
 ## 7. Packaging and release
@@ -436,7 +462,7 @@ Each item is verified by an automated test unless marked *journey* or *release*.
 | D10 | **Skip.** Skip defers without changing mastery and never satisfies a prerequisite. With every candidate deferred, the earliest is chosen. `done` needs every concept mastered. After `retry`, a concept that was stuck isn't stuck, and its mastery is unchanged. |
 | D11 | **Activity.** A save with a stale digest is refused, and one through a symlinked path is refused. Run and Try it record nothing. Check of edited files that completes grading records one attempt; core §7's exceptions hold, so a check of unchanged starter files or an infrastructure failure records nothing. Tutor turns launch with no edit tools. |
 | D12 | **Jobs.** `codemm mcp --tools a,b` lists and accepts only `a` and `b`, and `--course` scopes course tools. Switching courses during an author job doesn't redirect its save. Done checks read records created after the job started, and a job whose save committed before a crash isn't relaunched. An author job is cancelled after 3 failed saves. Every job stops at its deadline, and a failed job is relaunched at most once. Cancelling during a check leaves no owned container behind. |
-| D13 | **Check this computer and the environment matrix.** With the fake Docker and fake agent, each case shows its message and records nothing: missing Docker; not running; still starting (the starting message for 3 minutes, then the fix); Windows containers; stopping mid-check; offline during setup; low disk during setup; no agent; signed out; plan limit. Offline, low disk and plan limit spend no agent retry. For the Docker cases, fixing the fake makes the screen pass on its own within one re-check, and repeated focus events never start a second check. The setup cases recover through Try again on the same proposal, and the agent cases through the connect screen. |
+| D13 | **Check this computer and the environment matrix.** With the fake Docker and fake agent, each case shows its message and records nothing: missing Docker; not running; still starting (the starting message for 3 minutes after Codemm opened Docker, then the fix); installing Docker for the learner, including a download not signed by Docker; Windows containers; stopping mid-check; offline during setup; low disk during setup; no agent; signed out; plan limit. Offline, low disk and plan limit spend no agent retry. For the Docker cases, fixing the fake makes the screen pass on its own within one re-check, and repeated focus events never start a second check. The setup cases recover through Try again on the same proposal, and the agent cases through the connect screen. |
 | D14 | **Failure states.** Each row in §5 maps to a tested screen state. |
 | D15 | **UI rules and no language dispatch.** Rendering every screen shows agent names only on the connect screen, the tutor named "Codemm", and no ids, versions, paths or timestamps. Core A1's scan covers `desktop/`, and track names and colors come from `list_tracks` or the learner. |
 | D16 | **Accessibility (WCAG AA).** Every journey screen passes an automated accessibility check with no AA violations, and every control has a screen-reader name. The D17 flow completes with the keyboard alone. With reduced motion set, nothing animates. |

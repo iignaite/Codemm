@@ -1,6 +1,7 @@
 // @vitest-environment node
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { CHANGED, PLAN_LIMIT, REPAIR, UNSTOPPABLE } from '../shared/api';
+import { CHANGED, OFFLINE, PLAN_LIMIT, REPAIR, UNSTOPPABLE } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
 import { HELD_BACK } from './views';
 
@@ -19,6 +20,8 @@ describe('live CodemmApi', () => {
     expect(course).toMatch(/^react-[a-z0-9]+$/);
     expect(job.server(['list_tracks', 'save_roadmap']).args).toEqual(['core/cli.mjs', 'mcp', '--course', course, '--tools', 'list_tracks,save_roadmap']);
     expect(job.brief).toContain(`Course id: ${course}`);
+    // Agents that read config from their working directory get Codemm's own folder, never the workspace.
+    expect([job.cwd, job.agentDir]).toEqual(['/Users/me/Codemm', '/userData/agents']);
   });
 
   it('runs every job with the chosen model: the recommended one until the learner picks another', async () => {
@@ -213,6 +216,16 @@ describe('live CodemmApi', () => {
     t.c.bound.length = 0;
     await t.api.course();
     expect(t.c.bound.every((b) => b === t.c.roadmap!.course)).toBe(true);
+  });
+
+  it('an offline job stalls background work as offline, and research says so', async () => {
+    const t = live({ setup: () => ({ ok: false, problem: 'offline' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'offline' });
+
+    const s = live({ research: () => ({ ok: false, problem: 'offline' }) });
+    await expect(researched(s)).rejects.toThrow(OFFLINE);
   });
 
   it('keeps the first stall, and launches no queued background work after it', async () => {
@@ -637,5 +650,16 @@ describe('live CodemmApi', () => {
     release();
     expect(await ask).toContain('codemm:unstoppable');
     expect(t.jobs.ran.filter((j) => j.kind === 'tutor')).toHaveLength(0);
+  });
+});
+
+describe('Docker Desktop for the learner (§6.1)', () => {
+  it('installs and opens Docker through the installer, and logs the install', async () => {
+    const calls: string[] = [];
+    const t = live({}, { docker: { install: () => void calls.push('install'), open: async () => void calls.push('open') } });
+    await t.api.installDocker();
+    await t.api.openDocker();
+    expect(calls).toEqual(['install', 'open']);
+    expect(readFileSync(t.logFile, 'utf8')).toMatch(/ docker-install\n/);
   });
 });

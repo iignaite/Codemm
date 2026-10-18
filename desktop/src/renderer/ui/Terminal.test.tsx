@@ -3,7 +3,7 @@ import { createRef } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // jsdom can't lay out xterm.js, so a stand-in records what it was given; the real one runs in e2e.
-const xterm = vi.hoisted(() => ({ written: '' as string, type: (_data: string) => undefined as void, keys: (_e: { key: string }) => true, options: {} as Record<string, unknown>, resets: 0 }));
+const xterm = vi.hoisted(() => ({ written: '' as string, type: (_data: string) => undefined as void, keys: (_e: { key: string }): boolean => true, options: {} as Record<string, unknown>, resets: 0 }));
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     options: Record<string, unknown>;

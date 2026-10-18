@@ -60,7 +60,7 @@ test('no agent installed: install links on the connect screen', async () => {
   await app.close();
 });
 
-test('no Docker: install steps, a link and a re-check', async () => {
+test('no Docker: Install Docker, a link to do it by hand, and a re-check', async () => {
   const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: 'no-docker' } });
   const page = await app.firstWindow();
   await page.getByRole('button', { name: 'Connect an agent', exact: true }).click();
@@ -68,7 +68,9 @@ test('no Docker: install steps, a link and a re-check', async () => {
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   const installed = page.getByRole('listitem', { name: 'Docker is installed' });
   await expect(installed.getByText('Needs a step')).toBeVisible();
-  await expect(installed.getByRole('link', { name: /^Get Docker/ })).toBeVisible();
+  // macOS and Windows: Codemm installs Docker, and doing it by hand stays possible.
+  await expect(installed.getByRole('button', { name: 'Install Docker', exact: true })).toBeVisible();
+  await expect(installed.getByRole('link', { name: 'Install it myself' })).toBeVisible();
   await expect(page.getByRole('status')).toHaveText("Docker isn't installed yet. Checking again every few seconds.");
   await page.getByRole('button', { name: 'Later', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Ready when you are.' })).toBeVisible();
