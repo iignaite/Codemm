@@ -187,11 +187,15 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
 
 // ---------- exercises ----------
 
-function pickFiles(files: FileMap, folder: string, names: string[], label: string): FileMap {
+/** `quiet` counts the other files instead of naming them: a mutant's folder is hidden material. */
+function pickFiles(files: FileMap, folder: string, names: string[], label: string, quiet = false): FileMap {
   const src = subMap(files, folder);
   for (const n of names) if (!(n in src)) throw new GateError("valid", `${label} must contain ${n}.`);
   const extra = Object.keys(src).filter((p) => !names.includes(p));
-  if (extra.length > 0) throw new GateError("valid", `${label} may only contain the track's learner files (${names.join(", ")}); found ${extra.join(", ")}.`);
+  if (extra.length > 0) {
+    const found = quiet ? `${extra.length} other file${extra.length === 1 ? "" : "s"}` : extra.join(", ");
+    throw new GateError("valid", `${label} may only contain the track's learner files (${names.join(", ")}); found ${found}.`);
+  }
   return src;
 }
 
@@ -215,7 +219,9 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
   const solution = pickFiles(files, "solution", track.files, "solution/");
   const mutantNames = [...new Set(Object.keys(subMap(files, "mutants")).map((p) => p.split("/")[0]!))].sort();
   if (mutantNames.length < 2 || mutantNames.length > 4) throw new GateError("valid", `write 2 to 4 mutants under mutants/<name>/ (found ${mutantNames.length}).`);
-  const mutants = mutantNames.map((name) => ({ name, src: pickFiles(files, `mutants/${name}`, track.files, `mutants/${name}/`) }));
+  // A mutant's folder name can say what bug it holds, which hints at the hidden tests, so diagnostics number
+  // mutants in name order instead (they reach the learner through tools, the CLI and the app).
+  const mutants = mutantNames.map((name, i) => ({ label: `mutant #${i + 1}`, src: pickFiles(files, `mutants/${name}`, track.files, `mutant #${i + 1}`, true) }));
 
   const sets = { visible: subMap(files, "tests/visible"), hidden: subMap(files, "tests/hidden") };
   if (style === "io") {
@@ -311,7 +317,7 @@ export async function verifyExercise(
   for (const m of mutants) {
     const tests = gradeRuns(style, await runSets(track, style, m.src, sets), exp);
     if (allPass(tests.filter((t) => t.set === "hidden"))) {
-      throw new GateError("mutants caught", `mutant "${m.name}" passes every hidden test. Strengthen the hidden tests or replace the mutant.`);
+      throw new GateError("mutants caught", `${m.label} (in name order under mutants/) passes every hidden test. Strengthen the hidden tests or replace the mutant.`);
     }
     if (allPass(tests.filter((t) => t.set === "visible"))) anyPassesVisible = true;
   }
