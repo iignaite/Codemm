@@ -1,4 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { REBUILD } from '../../../shared/api';
 import type { CoreCheckView } from '../../../main/core/types';
@@ -38,6 +40,28 @@ describe('Results with real core result shapes', () => {
   it('shows expected next to found after Try it', () => {
     render(<Results shown={{ kind: 'try', result: tryView(core) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
     expect(results()).toHaveTextContent('expected Count: 1');
+  });
+
+  it("shows an error's message, not expected and found, even when the program printed nothing", () => {
+    // Core's shape for a program that exits non-zero (src/grading.ts): the reason in message, stdout in actual.
+    const crashed: CoreCheckView = { ...core, tests: [{ name: 'visible/02', status: 'error', message: 'Exited with code 1: SyntaxError: missing ) after argument list', actual: '' }] };
+    render(<Results shown={{ kind: 'try', result: tryView(crashed) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(results()).toHaveTextContent('Exited with code 1: SyntaxError: missing ) after argument list');
+    expect(results()).not.toHaveTextContent('found');
+    expect(results()).not.toHaveTextContent('expected');
+  });
+
+  it("keeps an error's lines, so a traceback's caret still points at the mistake", () => {
+    // The real stylesheet (tests run from desktop/), so the computed style is the one the window uses.
+    const sheet = document.createElement('style');
+    sheet.textContent = readFileSync(resolve('src/renderer/styles/app.css'), 'utf8');
+    document.head.append(sheet);
+    const traceback = 'Exited with code 1:\n  File "main.py", line 3\n    print("Hello, " + name\n                     ^\nSyntaxError: \'(\' was never closed';
+    const crashed: CoreCheckView = { ...core, tests: [{ name: 'visible/02', status: 'error', message: traceback, actual: '' }] };
+    render(<Results shown={{ kind: 'try', result: tryView(crashed) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    const reason = within(results()).getByText((_, el) => el?.textContent === traceback && el.tagName === 'SPAN' && el.children.length === 0);
+    expect(getComputedStyle(reason).whiteSpace).toBe('pre-wrap');
+    sheet.remove();
   });
 
   it('names tests by the name the exercise uses, without the set prefix', () => {
