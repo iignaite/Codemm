@@ -65,6 +65,61 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     expect(after).not.toHaveProperty('setupProblem');
   });
 
+  it('quitting waits for a track install that is running', async () => {
+    const t = live();
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    let finish!: () => void;
+    t.c.install = () => new Promise((done) => (finish = () => done({})));
+    await t.api.install(proposal!.digest);
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    let stopped = false;
+    const stopping = t.api.stop().then(() => (stopped = true));
+    await new Promise((res) => setTimeout(res, 20));
+    expect(stopped).toBe(false);
+    finish();
+    await stopping;
+  });
+
+  it('an install still waiting for Docker when quitting starts never runs, and records nothing', async () => {
+    let open: () => void = () => {};
+    const dockerUp = new Promise<void>((r) => (open = r));
+    let ready = async () => {};
+    const t = live({}, { dockerReady: () => ready() });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    let installs = 0;
+    t.c.install = async () => (installs++, {});
+    ready = () => dockerUp;
+    await t.api.install(proposal!.digest);
+    let stopped = false;
+    const stopping = t.api.stop().then(() => (stopped = true));
+    await new Promise((res) => setTimeout(res, 20));
+    expect(stopped).toBe(false);
+    open();
+    await stopping;
+    expect(installs).toBe(0);
+    // Quitting isn't a failed gate: the proposal stays.
+    expect(t.c.proposals.map((p) => p.digest)).toContain(proposal!.digest);
+  });
+
+  it('quitting waits for a track rebuild', async () => {
+    const t = live();
+    await practising(t);
+    let finish!: () => void;
+    t.app.rebuildTrack = () => new Promise((done) => (finish = () => done({})));
+    const rebuilding = t.api.rebuild('react@1');
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    let stopped = false;
+    const stopping = t.api.stop().then(() => (stopped = true));
+    await new Promise((res) => setTimeout(res, 20));
+    expect(stopped).toBe(false);
+    finish();
+    await Promise.all([rebuilding, stopping]);
+  });
+
   it('asks for a new proposal after the gates fail', async () => {
     const t = live();
     const r = await researched(t);

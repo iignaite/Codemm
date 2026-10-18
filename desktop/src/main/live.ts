@@ -568,19 +568,22 @@ export function createLive(d: LiveDeps): Live {
       trackers.set(`install:${ref}`, tracker);
       tracker.reach(1);
       tellJob(tracker.snapshot());
-      mine.installing = dockerReady()
-        .then(() =>
-          core.installProposal(ref, digest, (p) => {
-            // Counts only: the build's steps, then its checks.
-            if (p.phase === 'building') tracker.reach(1, { done: p.done, total: p.total });
-            else tracker.reach(2);
-            tellJob(tracker.snapshot());
-          }),
-        )
+      // Tracked and guarded like every container operation: quitting waits for it, and one still waiting for Docker
+      // when quitting starts never runs.
+      mine.installing = whenDockerReady(() =>
+        core.installProposal(ref, digest, (p) => {
+          // Counts only: the build's steps, then its checks.
+          if (p.phase === 'building') tracker.reach(1, { done: p.done, total: p.total });
+          else tracker.reach(2);
+          tellJob(tracker.snapshot());
+        }),
+      )
         .then(() => {
           mine.approved = undefined;
         })
         .catch(async (e: Error) => {
+          // Quitting isn't a failed setup: nothing is recorded and the proposal stays.
+          if (stopping) return;
           // This computer's problems keep the proposal for Try again; nothing is recorded and no agent runs (§6.1).
           const kind = infraOf(e);
           log('setup-failed', { problem: kind ?? 'gates' });
@@ -708,7 +711,8 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async rebuild(ref) {
-      await core.rebuildTrack(ref);
+      // Tracked and guarded like the install, so quitting waits for it.
+      await whenDockerReady(() => core.rebuildTrack(ref));
     },
 
     // The course on screen: the approved one, as course() shows, not a draft being researched.
