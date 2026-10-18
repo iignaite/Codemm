@@ -27,7 +27,7 @@ test('the build fills in every absolute URL', () => {
   }
 });
 
-test('the site is static and collects nothing', () => {
+test('the site is static and collects no personal data', () => {
   const out = join(mkdtempSync(join(tmpdir(), 'codemm-site-')), 'dist');
   try {
     build(out, {});
@@ -35,8 +35,10 @@ test('the site is static and collects nothing', () => {
     const html = files.filter((f) => f.endsWith('.html'));
     assert.deepEqual(html, ['index.html']);
     const page = readFileSync(join(out, 'index.html'), 'utf8');
-    // No forms or inputs, no analytics, no inline code.
-    assert.doesNotMatch(page, /<form|<input|<textarea|_vercel\/|analytics|gtag|googletagmanager/i);
+    // No forms or inputs, no inline code, and no tracking beyond Vercel Web Analytics
+    // (cookieless, aggregate page views). No Speed Insights or other trackers.
+    assert.doesNotMatch(page, /<form|<input|<textarea|speed-insights|gtag|googletagmanager|cookie/i);
+    assert.deepEqual(page.match(/_vercel\/[a-z-]+\/script\.js/g), ['_vercel/insights/script.js']);
     assert.doesNotMatch(page, /<script(?![^>]*\b(src=|type="application\/ld\+json"))|\son[a-z]+=|style="/);
     // No third-party logos: the agents appear as plain text only.
     assert.equal(files.some((f) => f.includes('agents')), false);
@@ -48,14 +50,14 @@ test('the site is static and collects nothing', () => {
   }
 });
 
-test('Vercel serves files only, with a CSP that reaches GitHub alone', () => {
+test('Vercel serves files only, with a CSP that reaches only this site and GitHub', () => {
   const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
   assert.equal(config.functions, undefined);
   assert.equal(existsSync(new URL('../api', import.meta.url)), false);
   const csp = config.headers[0].headers.find((h) => h.key === 'Content-Security-Policy').value;
   assert.match(csp, /default-src 'none'/);
   assert.match(csp, /script-src 'self';/);
-  assert.match(csp, /connect-src https:\/\/api\.github\.com;/);
+  assert.match(csp, /connect-src 'self' https:\/\/api\.github\.com;/);
   assert.match(csp, /form-action 'none'/);
   assert.match(csp, /frame-ancestors 'none'/);
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
