@@ -3,6 +3,7 @@ import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
+import { Busy } from '../../ui/Busy';
 
 export type Shown =
   | { kind: 'idle' }
@@ -50,7 +51,7 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
     return (
       <div className="idle">
         <div className="busy-stack">
-          <span className="busy"><Status kind="run" size={18} />{shown.label}</span>
+          <Busy>{shown.label}</Busy>
           {shown.progress && <Progress {...shown.progress} />}
         </div>
       </div>
