@@ -44,6 +44,8 @@ test('the site is static and collects no personal data', () => {
     // footer still says they're trademarks of their owners.
     for (const [name, file] of [['Claude Code', 'claude'], ['Codex', 'codex'], ['Cursor', 'cursor']]) {
       assert.ok(files.includes(join('img', 'agents', `${file}.svg`)), file);
+      // lobe-icons is MIT: its notice ships with the copies.
+      assert.match(readFileSync(join(out, 'img', 'agents', 'LICENSE-lobe-icons.txt'), 'utf8'), /Copyright \(c\) 2023 LobeHub[\s\S]*Permission is hereby granted/);
       assert.match(page, new RegExp(`aria-label="${name}"><img src="/img/agents/${file}\\.svg" alt=""`));
     }
     assert.match(page, /Codemm isn't affiliated with or endorsed by them\./);
