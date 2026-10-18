@@ -50,16 +50,19 @@ export function pickRelease(releases) {
 export function downloads(release, platform) {
   if (!release) return { status: 'soon' };
   const all = installersIn(release);
-  // Unknown Mac chips get Apple Silicon: every Mac sold since 2023 has it.
-  const want = platform.os === 'mac' ? (platform.arch === 'x86' ? 'mac-x64' : 'mac-arm64') : platform.os === 'windows' ? 'win-x64' : null;
-  const primary = all.find((i) => i.id === want) ?? null;
-  const others = all.filter((i) => i !== primary).sort((a, b) => (b.os === platform.os) - (a.os === platform.os));
+  // A Mac whose chip the browser doesn't report (Safari, Firefox) gets both Mac
+  // builds as equal choices: guessing would hand Intel Macs the wrong one.
+  const want = platform.os === 'mac'
+    ? (platform.arch === 'x86' ? ['mac-x64'] : platform.arch === 'arm' ? ['mac-arm64'] : ['mac-arm64', 'mac-x64'])
+    : platform.os === 'windows' ? ['win-x64'] : [];
+  const primaries = all.filter((i) => want.includes(i.id));
+  const others = all.filter((i) => !primaries.includes(i)).sort((a, b) => (b.os === platform.os) - (a.os === platform.os));
   return {
     status: 'ready',
     version: release.tag_name.replace(/^v/, ''),
     beta: Boolean(release.prerelease),
     url: release.html_url,
-    primary,
+    primaries,
     others,
   };
 }
