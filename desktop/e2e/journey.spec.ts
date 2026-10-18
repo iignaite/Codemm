@@ -86,6 +86,7 @@ async function step(name: string, run: () => Promise<string | void>) {
     note = (e as Error).message.split('\n')[0].replace(/\u001b\[[0-9;]*m/g, '');
     throw e;
   } finally {
+    await everyScreen(`${name}${ok ? '' : ' failed'}`).catch(() => undefined);
     appendFileSync(join(dir!, 'results.jsonl'), `${JSON.stringify({ label, step: name, ok, s: Math.round((Date.now() - began) / 1000), note })}\n`);
     await shot(name).catch(() => undefined);
   }
@@ -125,7 +126,36 @@ async function waiting(name: string, locator: Locator) {
 }
 
 /** Every waiting state the app shows, checked while the driver waits. */
+/**
+ * JOURNEY_WALKTHROUGH=<dir>: a human-perspective record. Every time the screen changes (its text or its dialog), a
+ * numbered screenshot goes to <dir> (shared across runs through <dir>/.count) with a one-line caption in captions.md.
+ */
+const walkDir = process.env.JOURNEY_WALKTHROUGH;
+let lastScreen = '';
+async function everyScreen(why = '') {
+  if (!walkDir) return;
+  const text = await page.locator('body').innerText().catch(() => '');
+  const sig = text.replace(/\d+:\d\d|\d+%|\d+ (of|steps?)\b.*$/gm, '#').replace(/\s+/g, ' ').slice(0, 4000);
+  if (!why && sig === lastScreen) return;
+  lastScreen = sig;
+  mkdirSync(walkDir, { recursive: true });
+  const countFile = join(walkDir, '.count');
+  const n = (existsSync(countFile) ? Number(readFileSync(countFile, 'utf8')) : 0) + 1;
+  writeFileSync(countFile, String(n));
+  const file = `${String(n).padStart(3, '0')}.jpg`;
+  const banner = (on: boolean) => page.evaluate(([show, t]) => { document.getElementById('journey-banner')?.style.setProperty('display', show ? 'block' : 'none'); const bar = document.querySelector('.tbar'); if (bar?.hasAttribute('data-title')) bar.textContent = show ? t : bar.getAttribute('data-title'); }, [on, LABEL] as const).catch(() => undefined);
+  await banner(false);
+  await page.screenshot({ path: join(walkDir, file), type: 'jpeg', quality: 70 }).catch(() => undefined);
+  await banner(true);
+  const dialog = await page.getByRole('dialog').first().innerText().catch(() => '');
+  const h1 = await page.getByRole('heading', { level: 1 }).first().innerText({ timeout: 500 }).catch(() => '');
+  const alert = await page.getByRole('alert').first().innerText({ timeout: 500 }).catch(() => '');
+  const caption = [why && `[${why}]`, dialog ? `dialog: ${dialog.split('\n')[0]}` : h1 || text.split('\n').find((l) => l.trim()) || '', alert && `alert: ${alert.replace(/\s+/g, ' ')}`].filter(Boolean).join(' — ').replace(/\s+/g, ' ').slice(0, 220);
+  appendFileSync(join(walkDir, 'captions.md'), `- ${file}: ${caption} (${label})\n`);
+}
+
 async function waitingStates() {
+  await everyScreen();
   await waiting('research', page.getByRole('heading', { name: /^Researching / }));
   await waiting('preparing-setup', page.getByText(/^Preparing setup for /));
   await waiting('setting-up', page.getByText(/^Setting up /));
@@ -378,7 +408,16 @@ async function launch(env: Record<string, string>) {
   page = await app.firstWindow();
   expect(await app.evaluate(({ app: a }) => [a.getPath('userData'), a.getPath('logs')])).toEqual([join(dir!, 'userData'), join(dir!, 'userData', 'logs')]);
   await labelWindow();
+  // Walkthrough: also look for a changed screen every 0.8 s between the driver's own waits.
+  if (walkDir && !walkTimer) walkTimer = setInterval(() => {
+    if (walking) return;
+    walking = true;
+    void everyScreen().finally(() => (walking = false));
+  }, 800);
 }
+
+let walkTimer: ReturnType<typeof setInterval> | undefined;
+let walking = false;
 
 const LABEL = "Codemm — automated test run, please don't use";
 
@@ -1070,6 +1109,7 @@ test(`journey: ${label}`, async () => {
     }
   }
 
+  if (walkTimer) clearInterval(walkTimer);
   await app.close();
   // Isolation: the run used its own folders only. Anything that wrote to the real ones is a bug.
   expect(snapshot(), "the run changed the learner's real Codemm data, profile or log").toEqual(untouched);
