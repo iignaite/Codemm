@@ -42,7 +42,7 @@ A track is the environment for one language or framework. It needs:
   - \`run\` (io: reads stdin, writes stdout);
   - \`test\` (unit);
   - \`limits\` (\`time_ms\`, \`memory_mb\`). The pass probe must also pass within a third of \`time_ms\`, as every exercise's reference must, so leave room for the runtime's own start-up.
-- \`Dockerfile\`. Install every tool and dependency at build time, because checks run with **no network**. Pin the base image by digest (\`image@sha256:...\`) only if you know the real digest; never make one up, because a wrong digest fails the build. A plain tag works, with a warning.
+- \`Dockerfile\`. Install every tool and dependency at build time, because checks run with **no network**. Pin the base image by digest (\`image@sha256:...\`) only if you know the real digest; never make one up, because a wrong digest fails the build. A plain tag works, with a warning. Put any script or config the track needs in the track's own files and \`COPY\` it into the image; never create files inside the Dockerfile with heredocs or long \`echo\` chains, which many builders reject.
 - \`probe/<style>/pass/\` (a correct solution), \`probe/<style>/fail/\` (a wrong one) and \`probe/<style>/tests/\` for each style. io probe tests are \`NN.in\` with a matching \`NN.out\`. Unit probe tests are test files.
 
 How checks run:
