@@ -243,7 +243,7 @@ tests/visible/...            io: NN.in only · unit: test files
 tests/hidden/...
 ```
 
-A failure goes back to the caller with the failing gate and capped output. Hidden inputs and expected outputs never appear in diagnostics returned to tools.
+A failure goes back to the caller with the failing gate and capped output. Hidden inputs and expected outputs never appear in diagnostics returned to tools. Neither does anything the reference or a mutant printed, since building or running them runs hidden code: a reference failure names its phase, exit codes and the visible tests' names and statuses.
 
 **Track gates:**
 1. The files are valid, each style's pass probe and probe tests total at most 64 KB (authors receive them as the track's example), and `id@version` is either new or identical to the installed one, in which case the install is a no-op.

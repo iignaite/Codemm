@@ -83,6 +83,29 @@ case "$1" in
       fi
       exit 0
     fi
+    # leaks-build / leaks: a run that prints the source it was given, as a compiler error or a traceback does.
+    # leaks-build fails the build; leaks fails each io case (source on stderr) and each unit test (source as the message).
+    if [ "$FAKE_DOCKER" = leaks-build ] || [ "$FAKE_DOCKER" = leaks ]; then
+      tests=""; src=""; build=""
+      for a in "$@"; do case "$a" in *target=/work/tests,*) tests="${a#*source=}"; tests="${tests%%,target=*}" ;; *target=/work/src,*) src="${a#*source=}"; src="${src%%,target=*}" ;; CODEMM_BUILD=*) build=1 ;; esac; done
+      text=$(/bin/cat "$src"/* | /usr/bin/tr -d '\n"\\') # ASCII, so its length is its size in bytes
+      if [ "$FAKE_DOCKER" = leaks-build ] && [ -n "$build" ]; then printf '\n@@codemm build build 1 %s\n%s' "${#text}" "$text"; exit 0; fi
+      if [ -n "$build" ]; then printf '\n@@codemm build build 0 0\n'; fi
+      found=""
+      for f in "$tests"/*.in; do
+        [ -e "$f" ] || continue
+        found=1
+        n="${f##*/}"; n="${n%.in}"
+        printf '\n@@codemm case %s 1 0\n' "$n"
+        printf '\n@@codemm stderr %s 1 %s\n%s' "$n" "${#text}" "$text"
+      done
+      if [ -z "$found" ]; then
+        r="{\"tests\":[{\"name\":\"t\",\"status\":\"fail\",\"message\":\"$text\"}]}"
+        printf '\n@@codemm report report 0 %s\n%s' "${#r}" "$r"
+        printf '\n@@codemm log log 0 0\n'
+      fi
+      exit 0
+    fi
     # An outside kill can land after the driver already reported a case.
     case "$FAKE_DOCKER" in oom) exit 137 ;; killed) printf '\n@@codemm case 01 0 2\n3\n'; exit 137 ;; esac
     # One frame gets out, then the connection drops. With "stops" the daemon stays down.

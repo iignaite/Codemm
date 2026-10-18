@@ -35,6 +35,12 @@ function summarize(tests: TestResult[]): string {
     .join("\n");
 }
 
+/**
+ * One line per test, with its status only: for the reference, whose messages and output come from running hidden
+ * code (a compiler error or a traceback can quote it).
+ */
+const statuses = (tests: TestResult[]) => redact(tests).map((t) => `  ${t.name}: ${t.status}`).join("\n");
+
 const allPass = (tests: TestResult[]) => tests.length > 0 && tests.every((t) => t.status === "pass");
 
 // ---------- tracks ----------
@@ -212,9 +218,10 @@ export async function verifyExercise(
   if (style === "io") {
     const runs = [first, second].map((r) => [...(r.visible as IoRun).cases, ...(r.hidden as IoRun).cases]);
     const [a, b] = runs as [IoRun["cases"], IoRun["cases"]];
-    // Only the visible run's build output may be shown; a hidden-run frame could carry hidden data.
+    // The reference's own output is never shown: building or running it is running hidden code, and a compiler
+    // error or a traceback can quote it. Only the phase, exit codes and the visible test names are.
     const visibleBuild = (first.visible as IoRun).build;
-    if (visibleBuild && visibleBuild.exit !== 0) throw new GateError("reference passes", `the reference doesn't build:\n${visibleBuild.output.slice(0, 2000)}`);
+    if (visibleBuild && visibleBuild.exit !== 0) throw new GateError("reference passes", `the reference doesn't build (exit ${visibleBuild.exit}). Build it yourself to see why.`);
     const hiddenBuild = (first.hidden as IoRun).build;
     if (hiddenBuild && hiddenBuild.exit !== 0) throw new GateError("reference passes", "the reference didn't build for the hidden tests.");
     const bad = a.filter((c) => c.exit !== 0 || c.big);
@@ -223,7 +230,7 @@ export async function verifyExercise(
       const lines = a.map((c) =>
         c.name.startsWith("hidden/")
           ? `  hidden #${(hidden += 1)}: ${c.exit === 0 && !c.big ? "ok" : "error"}`
-          : `  ${c.name}: exit ${c.exit}${c.big ? ", printed over 64 KB" : ""}${c.stderr ? ` (${c.stderr.slice(0, 300)})` : ""}`,
+          : `  ${c.name}: exit ${c.exit}${c.big ? ", printed over 64 KB" : ""}`,
       );
       throw new GateError("reference passes", `the reference must run every input without errors:\n${lines.join("\n")}`);
     }
@@ -235,7 +242,7 @@ export async function verifyExercise(
     exp.expected = Object.fromEntries(a.map((c) => [c.name, c.stdout]));
   } else {
     const r1 = gradeRuns(style, first, {});
-    if (!allPass(r1)) throw new GateError("reference passes", `the reference must pass every test:\n${summarize(r1)}`);
+    if (!allPass(r1)) throw new GateError("reference passes", `the reference must pass every test:\n${statuses(r1)}`);
     exp.inventory = {
       visible: r1.filter((t) => t.set === "visible").map((t) => t.name.slice("visible/".length)).sort(),
       hidden: r1.filter((t) => t.set === "hidden").map((t) => t.name.slice("hidden/".length)).sort(),
@@ -245,7 +252,7 @@ export async function verifyExercise(
     }
     // Compare the full second report (no inventory filter), so added or changed tests can't slip through.
     const r2 = gradeRuns(style, second, {});
-    if (!allPass(r2)) throw new GateError("reference fast", `the reference must still pass with a third of the time limit (${fast} ms):\n${summarize(r2)}`);
+    if (!allPass(r2)) throw new GateError("reference fast", `the reference must still pass with a third of the time limit (${fast} ms):\n${statuses(r2)}`);
     const shape = (tests: TestResult[]) => JSON.stringify(tests.map((t) => [t.name, t.status]).sort());
     if (shape(r1) !== shape(r2)) throw new GateError("reference passes", "the test report differed between two identical runs. Make test names and results deterministic.");
   }
