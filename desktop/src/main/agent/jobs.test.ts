@@ -198,6 +198,16 @@ describe('jobs (§3.2)', () => {
     expect(agent.runs()).toBe(1);
   });
 
+  it('launches nothing of an agent Codemm started installing again, the relaunch included (§3.1)', async () => {
+    const agent = fakeAgent([init, success]);
+    expect(await runJob(job(agent.exe, { kind: 'lesson', usable: () => false }))).toMatchObject({ ok: false, problem: 'signed-out' });
+    expect(agent.runs()).toBe(0);
+    let usable = true;
+    const outcome = await runJob(job(agent.exe, { kind: 'lesson', done: () => false, usable: () => usable, signedIn: async () => ((usable = false), true) }));
+    expect(outcome).toMatchObject({ ok: false, problem: 'signed-out' });
+    expect(agent.runs()).toBe(1);
+  });
+
   it('cursor: runs in a Codemm-owned folder holding only its config, the same folder for the same config (so a chat resumes)', async () => {
     const agentDir = tempDir('codemm-agents-');
     const ws = tempDir('codemm-ws-');

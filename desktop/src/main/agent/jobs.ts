@@ -65,6 +65,8 @@ export interface Job {
   done: (turn: { ok: boolean }) => boolean | Promise<boolean>;
   /** True once no agent may launch: another job's agent couldn't be stopped (§3.1). */
   blocked?: () => boolean;
+  /** False once Codemm has started installing this agent again: nothing of it launches until that install is done (§3.1). */
+  usable?: () => boolean;
   /** Asked when a job fails for an unknown reason. */
   signedIn: () => Promise<boolean>;
   deadlineMs?: number;
@@ -182,6 +184,7 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     if (job.signal?.aborted) break;
     // Checked before every launch, the relaunch included.
     if (job.blocked?.()) return { ok: false, problem: 'unstoppable', text: last?.text ?? [] };
+    if (job.usable?.() === false) return { ok: false, problem: 'signed-out', text: last?.text ?? [] };
     if (attempt > 0) job.onRelaunch?.();
     last = await once(job);
     if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
