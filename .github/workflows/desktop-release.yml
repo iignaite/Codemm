@@ -88,8 +88,18 @@ jobs:
       # The renderer journeys on the tagged commit: smoke and accessibility (D16) e2e.
       - run: npm run test:e2e
       # Signing comes only from repository secrets (desktop/SIGNING.md). With
-      # none set, every value is empty and the build is unsigned.
-      - run: npm run dist
+      # none set, every value is empty and the build is unsigned. An empty
+      # variable still counts as set for electron-builder (an empty CSC_LINK is
+      # read as a certificate path), so empty ones are unset first.
+      - name: Build the installers
+        shell: bash
+        run: |
+          for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID \
+                   AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_SIGNING_ENDPOINT \
+                   AZURE_SIGNING_ACCOUNT AZURE_SIGNING_PROFILE AZURE_SIGNING_PUBLISHER; do
+            if [ -z "${!v}" ]; then unset "$v"; fi
+          done
+          npm run dist
         env:
           CSC_LINK: ${{ matrix.os == 'macos-latest' && secrets.MAC_CERTS || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.MAC_CERTS_PASSWORD || '' }}
