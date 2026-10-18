@@ -1,8 +1,10 @@
 import type { CheckResult, FinishedTest, TestView, TryResult, VisibleTest } from '../../../shared/api';
 import type { TerminalHandle } from '../../ui/Terminal';
 
+/** The core names visible results "visible/<name>"; the exercise names its tests "<name>". */
+export const testName = (name: string) => name.replace(/^visible\//, '');
 /** "visible/01" is shown as "test 01". */
-const label = (name: string) => `test ${name.replace(/^visible\//, '')}`;
+const label = (name: string) => `test ${testName(name)}`;
 const trimEnd = (text: string) => text.replace(/\n+$/, '');
 /** A value under its label, later lines lined up with the first. */
 const labelled = (name: string, text: string) => `  ${name.padEnd(10)}${trimEnd(text).split('\n').join(`\n${' '.repeat(12)}`)}`;

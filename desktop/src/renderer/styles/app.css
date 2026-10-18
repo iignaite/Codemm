@@ -292,6 +292,10 @@ button.grow.link:hover { background: var(--soft); }
 .md.small pre { padding: 10px 12px; font-size: 13px; }
 
 /* Narrow windows and high zoom (WCAG reflow): the workspace stacks its columns and scrolls. Last, so it wins. */
+/* Smaller windows: the side columns narrow first, so the editor keeps its room. */
+@media (max-width: 1280px) {
+  .ws, .ws.lesson { grid-template-columns: 280px minmax(0, 1fr) 280px; }
+}
 @media (max-width: 1000px) {
   .ws, .ws.lesson { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
   .stmt, .reader { overflow: visible; border-right: none; border-bottom: 1px solid var(--line); }

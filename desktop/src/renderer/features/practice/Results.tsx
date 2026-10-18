@@ -1,9 +1,10 @@
-import type { CheckProgress, CheckResult, TestView, TryResult, VisibleTest } from '../../../shared/api';
+import { REBUILD, type CheckProgress, type CheckResult, type TestView, type TryResult, type VisibleTest } from '../../../shared/api';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { Busy } from '../../ui/Busy';
+import { testName } from './paneReport';
 
 export type Shown =
   | { kind: 'idle' }
@@ -18,6 +19,7 @@ export interface Ways {
   easier: () => void;
   later: () => void;
   computer: () => void;
+  tracks: () => void;
   next: () => void;
 }
 
@@ -67,7 +69,11 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
           <p className="sub a-up" style={stagger(1)}>{result.reason}</p>
           <div className="actions a-up" style={stagger(2)}>
             <Button size="lg" onClick={ways.retry}>Try again</Button>
-            <Button variant="ghost" size="lg" onClick={ways.computer}>Check this computer</Button>
+            {result.reason === REBUILD ? (
+              <Button variant="ghost" size="lg" onClick={ways.tracks}>Go to Tracks</Button>
+            ) : (
+              <Button variant="ghost" size="lg" onClick={ways.computer}>Check this computer</Button>
+            )}
           </div>
         </div>
       </div>
@@ -155,9 +161,6 @@ function Progress({ phase, done, total }: CheckProgress) {
     </div>
   );
 }
-
-/** The core names visible results "visible/<name>"; the exercise names its tests "<name>". */
-const testName = (name: string): string => name.replace(/^visible\//, '');
 
 /** Visible results, with what was expected next to what was found. */
 function TestLines({ tests, visibleTests }: { tests: TestView[]; visibleTests: VisibleTest[] }) {

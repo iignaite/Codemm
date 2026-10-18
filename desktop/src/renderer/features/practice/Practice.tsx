@@ -1,20 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { Activity, CourseView } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { continueRoute } from '../../app/course';
 import { useConversation } from '../../app/useConversation';
 import { useRouter } from '../../app/router';
-import { Failed, Sidebar } from '../../app/Shell';
+import { Failed } from '../../app/Problems';
+import { Sidebar } from '../../app/Sidebar';
 import { useLoad } from '../../app/useLoad';
+import { useRun } from '../../app/useRun';
 import { Button } from '../../ui/Button';
 import { Markdown } from '../../ui/Markdown';
 import { Rail } from '../../ui/Rail';
 import { Terminal, type TerminalHandle } from '../../ui/Terminal';
 import { Editor } from './Editor';
-import { Results, type Shown } from './Results';
-import { printCheck, printTest, printTry } from './paneReport';
+import { Results } from './Results';
+import { useAttempt } from './useAttempt';
 import { useLearnerFiles } from './useLearnerFiles';
-import { useRun } from './useRun';
 import { RunButton } from '../../ui/RunButton';
 
 export function Practice({ concept }: { concept: string }) {
@@ -33,64 +34,31 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
   const api = useApi();
   const { go, fail } = useRouter();
   const [open, setOpen] = useState(activity.files[0].path);
-  const [shown, setShown] = useState<Shown>({ kind: 'idle' });
   const chat = useConversation({ activityId: activity.id }, 'Use what you just read.');
   const { add } = chat;
   const onReloaded = useCallback(() => add({ from: 'codemm', text: 'This file changed outside Codemm, so it was reloaded.' }), [add]);
   const { files, edit, save } = useLearnerFiles(activity, onReloaded);
   const topic = course.topics.find((t) => t.id === activity.concept);
   const terminal = useRef<TerminalHandle>(null);
-  const program = useRun((run) => api.runProgram(activity.id, run), activity.run, terminal, save, fail);
+  const program = useRun({ begin: (run) => api.runProgram(activity.id, run), command: activity.run, terminal, save, fail });
   // The pane appears with the first Run, Try it or Check, and stays.
   const [ran, setRan] = useState(false);
   /** What the pane shows now: a Run, with its countdown or time-up, or a test report. */
   const [paneFor, setPaneFor] = useState<'run' | 'tests'>('run');
+
+  const { shown, setShown, attempt } = useAttempt({
+    activity, terminal, save, fail,
+    // A running program owns the pane; Results' Try again can't take it.
+    blocked: () => program.running,
+    onStart: () => {
+      setPaneFor('tests');
+      if (activity.run) setRan(true);
+    },
+  });
+
   const busy = shown.kind === 'busy' || program.running;
   // Codemm reads the saved files, so pending edits are saved before each question.
   const ask = (text: string) => chat.ask(text, save);
-
-  // While the tests run, show how far they've got: only this run's progress, and none after leaving.
-  const listening = useRef<() => void>(undefined);
-  useEffect(() => () => listening.current?.(), []);
-
-  async function attempt(label: string, work: (run: string) => Promise<Shown>) {
-    // A running program owns the pane; Results' Try again can't take it.
-    if (program.running) return;
-    setPaneFor('tests');
-    const before = shown;
-    const run = crypto.randomUUID();
-    setShown({ kind: 'busy', label });
-    listening.current?.();
-    // An io activity also prints each visible test into the terminal as it finishes, then the summary.
-    const command = activity.run;
-    const streamed = new Set<string>();
-    if (command) setRan(true);
-    const stop = api.onCheckProgress((progress) => {
-      if (progress.run !== run) return;
-      setShown((s) => (s.kind === 'busy' ? { ...s, progress } : s));
-      if (command && progress.test && terminal.current) {
-        streamed.add(progress.test.name);
-        printTest(terminal.current, command, progress.test, activity.visibleTests);
-      }
-    });
-    listening.current = stop;
-    try {
-      await save();
-      terminal.current?.clear();
-      const result = await work(run);
-      if (command && terminal.current) {
-        if (result.kind === 'try') printTry(terminal.current, command, result.result, streamed, activity.visibleTests);
-        if (result.kind === 'check') printCheck(terminal.current, command, result.result, streamed, activity.visibleTests);
-      }
-      setShown(result);
-    } catch (e) {
-      setShown(before);
-      fail(e);
-    } finally {
-      stop();
-      if (listening.current === stop) listening.current = undefined;
-    }
-  }
 
   const check = () =>
     attempt('Checking', async (run) => {
@@ -118,6 +86,7 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
     easier: () => act(() => api.easier(activity.concept), { to: 'learn' }),
     later: () => act(() => api.skip(activity.concept), { to: 'learn' }),
     computer: () => go({ to: 'computer', then: { to: 'practice', concept: activity.concept } }),
+    tracks: () => go({ to: 'tracks' }),
     // Straight on to the next topic; a finished course shows its celebration.
     next: async () => {
       try {

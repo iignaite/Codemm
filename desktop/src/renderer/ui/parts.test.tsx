@@ -3,15 +3,32 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { Banner } from './Banner';
 import { Busy } from './Busy';
+import { Status } from './Icon';
 import { ExternalLink } from './ExternalLink';
 import { Panel } from './Panel';
 import { RunButton } from './RunButton';
+
+describe('Status', () => {
+  it('is an image named for its state when it stands alone', () => {
+    render(<Status kind="ok" />);
+    expect(screen.getByRole('img', { name: 'Passed' })).toBeInTheDocument();
+  });
+
+  it('is hidden from screen readers when the words beside it say the same', () => {
+    const { container } = render(<span><Status kind="ok" decorative />Connected</span>);
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(container.querySelector('.ico')).toHaveAttribute('aria-hidden', 'true');
+    expect(container.querySelector('.ico')).not.toHaveAttribute('aria-label');
+  });
+});
 
 describe('shared parts', () => {
   it('Busy: the running status beside its text', () => {
     render(<Busy>Checking</Busy>);
     expect(screen.getByText('Checking')).toHaveClass('busy');
-    expect(screen.getByRole('img', { name: 'In progress' })).toBeInTheDocument();
+    // The words say it: the icon isn't read too ("In progress, Checking").
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.getByText('Checking').querySelector('.ico')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('Panel: an alert with art, a heading at the asked level, text and actions', () => {

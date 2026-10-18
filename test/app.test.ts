@@ -7,7 +7,7 @@ import { readFileMap } from "../src/files.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import type { LearnerEvent } from "../src/learner.js";
 import * as store from "../src/store.js";
-import { fakeDocker } from "./fake-docker.js";
+import { fakeDocker, posix } from "./fake-docker.js";
 import { tempDir } from "./temp.js";
 
 /** Use cases that need no container runtime: tracks and exercises are written straight into the store. */
@@ -159,6 +159,21 @@ describe("reviews", () => {
   });
 });
 
+describe("error kinds", () => {
+  it("names a missing course, so the desktop needn't read the English", () => {
+    expect(() => app.nextStep(ws)).toThrow(expect.objectContaining({ kind: "no-course", message: expect.stringMatching(/No course in this workspace yet/) }));
+  });
+
+  // The fake docker is a shell script, so this one runs where a shell does.
+  it.runIf(posix)("names a missing track image", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    addExercise("shell", "e1", "sh.basics");
+    fakeDocker("no-image");
+    await expect(app.testExercise(ws, "e1")).rejects.toMatchObject({ kind: "image-missing", message: expect.stringMatching(/is missing or changed/) });
+  });
+});
+
 describe("lessons", () => {
   const lesson = (id: string, concept = "sh.basics") => ({ id, concept, title: `About ${id}`, markdown: `# ${id}\n\nText.` });
 
@@ -259,7 +274,7 @@ describe("learner files", () => {
     const { digest } = app.readLearnerFiles(ws, "e1")["main.sh"]!;
     expect(await app.writeLearnerFile(ws, "e1", "main.sh", "echo 3\n", digest)).toEqual({ digest: sha("echo 3\n") });
     expect(readFileSync(file(), "utf8")).toBe("echo 3\n");
-    await expect(app.writeLearnerFile(ws, "e1", "main.sh", "echo 4\n", digest)).rejects.toThrow(/Changed outside Codemm/);
+    await expect(app.writeLearnerFile(ws, "e1", "main.sh", "echo 4\n", digest)).rejects.toMatchObject({ kind: "changed", message: expect.stringMatching(/Changed outside Codemm/) });
     expect(readFileSync(file(), "utf8")).toBe("echo 3\n");
   });
 
