@@ -42,6 +42,7 @@ const bridge: Bridge = {
     const forward = (_event: unknown, p: Record<string, unknown>) => {
       if (typeof p?.job !== 'string' || !kinds.includes(p.kind as string)) return;
       const retry = p.retry as { attempt?: unknown; of?: unknown } | undefined;
+      const part = p.part as { done?: unknown; total?: unknown } | undefined;
       listener({
         job: text(p.job, 64),
         kind: p.kind as JobProgress['kind'],
@@ -50,6 +51,7 @@ const bridge: Bridge = {
         steps: (Array.isArray(p.steps) ? p.steps.slice(0, 8) : []).flatMap(step),
         count: count(p.count),
         ...(retry && typeof retry === 'object' ? { retry: { attempt: count(retry.attempt), of: count(retry.of) } } : {}),
+        ...(part && typeof part === 'object' ? { part: { done: count(part.done), total: count(part.total) } } : {}),
         thinking: p.thinking === true,
         elapsedMs: count(p.elapsedMs),
         idleMs: count(p.idleMs),

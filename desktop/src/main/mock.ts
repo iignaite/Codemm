@@ -83,18 +83,23 @@ export const SCENARIOS: Record<string, MockOptions> = {
 
 const step = (label: string): JobStep => ({ kind: 'step', label });
 /** What each mock job reports, beat by beat, as a real one would (§4.11). `codemm`: Codemm's own tool is running. */
-type Beat = { stage: number; step?: JobStep; codemm?: true; retry?: JobProgress['retry'] };
+type Beat = { stage: number; step?: JobStep; codemm?: true; retry?: JobProgress['retry']; part?: JobProgress['part'] };
+const CHECKING = step('Codemm is checking the exercise');
+const gate = (n: number, label: string, retry?: JobProgress['retry']): Beat => ({ stage: 2, step: step(label), codemm: true, part: { done: n, total: 3 }, ...(retry ? { retry } : {}) });
 const BEATS: Record<Exclude<JobKind, 'research'> | 'install', Beat[]> = {
   roadmap: [{ stage: 0 }, { stage: 1, step: step('Reading the roadmap') }, { stage: 2, step: step('Saving the roadmap'), codemm: true }],
   setup: [{ stage: 0 }, { stage: 0, step: step('Checking the installed tracks') }, { stage: 0, step: step('Proposing the setup'), codemm: true }],
-  install: [{ stage: 1, codemm: true }, { stage: 2, codemm: true }],
+  install: [1, 2, 3, 4, 5].map((done): Beat => ({ stage: 1, codemm: true, part: { done, total: 5 } })).concat([{ stage: 2, codemm: true }]),
   lesson: [{ stage: 0 }, { stage: 1, step: step('Reading the roadmap') }, { stage: 2, step: step('Saving the lesson'), codemm: true }],
   author: [
     { stage: 0 },
     { stage: 1, step: step('Writing the exercise') },
-    { stage: 2, step: step('Codemm is checking the exercise'), codemm: true },
+    { stage: 2, step: CHECKING, codemm: true },
+    gate(1, 'Codemm is checking that the reference passes'),
+    gate(2, 'Codemm is checking that the starter fails'),
     { stage: 1, step: step('Writing the exercise'), retry: { attempt: 2, of: 3 } },
-    { stage: 2, step: step('Codemm is checking the exercise'), codemm: true, retry: { attempt: 2, of: 3 } },
+    { stage: 2, step: CHECKING, codemm: true, retry: { attempt: 2, of: 3 } },
+    gate(3, 'Codemm is checking that the tests catch each broken version', { attempt: 2, of: 3 }),
   ],
   tutor: [{ stage: 0 }, { stage: 0, step: step('Reading the activity') }],
 };
@@ -335,7 +340,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     const beat = beats.at(-1)!;
     const steps = beats.flatMap((b) => (b.step ? [b.step] : [])).reverse().slice(0, 8);
     return {
-      job, kind, ...(concept ? { concept } : {}), stage: beat.stage, steps, count: steps.length, ...(beat.retry ? { retry: beat.retry } : {}),
+      job, kind, ...(concept ? { concept } : {}), stage: beat.stage, steps, count: steps.length, ...(beat.retry ? { retry: beat.retry } : {}), ...(beat.part ? { part: beat.part } : {}),
       thinking: !beat.codemm, elapsedMs: Date.now() - started + quietMs(), idleMs: quietMs(),
     };
   }
