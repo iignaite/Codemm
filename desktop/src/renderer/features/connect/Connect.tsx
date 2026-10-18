@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Agent, AgentId } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
@@ -18,6 +18,14 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
   useEffect(() => setAgents(undefined), [data]);
   const [busy, setBusy] = useState<string>();
   const list = agents ?? data;
+  // The only supported agent installed is the learner's choice already: its sign-in check runs at once, once.
+  const picked = useRef(false);
+  useEffect(() => {
+    if (!data || picked.current) return;
+    picked.current = true;
+    const installed = data.filter((a) => a.state !== 'missing' && !a.experimental);
+    if (installed.length === 1 && installed[0].state === 'not-connected' && !data.some((a) => a.state === 'connected')) void connect(installed[0].id);
+  }, [data]);
   if (error) return <Failed error={error} retry={reload} />;
   if (!list) return null;
 

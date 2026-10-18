@@ -67,6 +67,7 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'low-disk': { setupProblem: 'disk' },
   'setup-gates': { setupProblem: 'gates' },
   'no-agent': { agents: { claude: 'missing', codex: 'missing', cursor: 'missing' } },
+  'one-agent': { agents: { codex: 'missing', cursor: 'missing' } },
   'signed-out': { agents: { claude: 'signed-out', codex: 'signed-out', cursor: 'missing' } },
   'sign-in-expires': { later: { after: 'approve', set: { agentProblem: 'signed-out' } } },
   'plan-limit': { later: { after: 'approve', set: { agentProblem: 'plan-limit' } } },

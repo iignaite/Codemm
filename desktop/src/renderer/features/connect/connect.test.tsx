@@ -105,3 +105,19 @@ describe('connect journey', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
   });
 });
+
+describe('the only agent', () => {
+  it('connects the only installed agent by itself, so Continue is the one click left', async () => {
+    renderApp({ to: 'connect' }, createMock({ agents: { codex: 'missing', cursor: 'missing' } }));
+    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+    expect(await within(claude).findByText('Connected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+
+  it('lets the learner choose when more than one agent is installed', async () => {
+    renderApp({ to: 'connect' }, createMock({ agents: { cursor: 'missing' } }));
+    await screen.findByRole('listitem', { name: 'Claude Code' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument();
+  });
+});
