@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import type { RunResult } from '../../shared/api';
+import { notRunLine, type RunResult } from '../../shared/api';
 import type { TerminalHandle } from '../ui/Terminal';
 import { useApi } from './api';
 
@@ -20,7 +20,7 @@ const clock = (ms: number) => {
 
 /** Codemm's last line for a run, and its tone. */
 function ending(r: RunResult, limits: Record<'build' | 'run', number>): [string, 'ok' | 'fail' | 'quiet'] {
-  if (r.kind === 'not-run') return [r.reason, 'fail'];
+  if (r.kind === 'not-run') return [notRunLine(r.reason), 'fail'];
   const what = r.stage === 'build' ? 'The build' : 'The program';
   if (r.stopped) return ['Stopped.', 'quiet'];
   if (r.timedOut) return [`Time's up. ${what} was stopped after ${duration(limits[r.stage ?? 'run'])}.`, 'fail'];

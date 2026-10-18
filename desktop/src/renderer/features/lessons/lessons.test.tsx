@@ -55,6 +55,24 @@ describe('lesson examples', () => {
     expect(screen.getByText('After')).toBeInTheDocument();
   });
 
+  it("says why an example didn't run, and what to do next", async () => {
+    const user = userEvent.setup();
+    const { api, course } = await mockWithCourse({ read: true });
+    const first = course.topics[0].lessons[0];
+    const real = await api.lesson(first.id);
+    api.lesson = async () => ({ ...real, markdown: '```example\n1\n```', examples: [{ files: [{ path: 'main.js', text: 'console.log(1)' }] }] });
+    const reasons = ["Docker isn't running.", 'Docker ran out of disk space.', "Docker couldn't reach the network."];
+    const next = ['Open Docker Desktop, then run again.', 'Free up disk space, then run again.', 'Connect to the internet, then run again.'];
+    let i = 0;
+    api.runExample = async () => ({ kind: 'not-run', reason: reasons[i] });
+    renderApp({ to: 'lesson', lessonId: first.id }, api);
+    const example = await screen.findByRole('region', { name: 'Example 1' });
+    for (; i < reasons.length; i++) {
+      await user.click(within(example).getByRole('button', { name: 'Run' }));
+      expect(await within(example).findByText(`This didn't run. ${reasons[i]} ${next[i]}`)).toBeInTheDocument();
+    }
+  });
+
   it('runs an io example in the terminal pane with typed input, and stops it on leaving', async () => {
     const user = userEvent.setup();
     const { api, course } = await mockWithCourse({ read: true, style: 'io' });
