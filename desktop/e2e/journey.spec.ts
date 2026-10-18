@@ -88,7 +88,11 @@ async function step(name: string, run: () => Promise<string | void>) {
 
 async function shot(name: string) {
   mkdirSync(join(dir!, 'shots'), { recursive: true });
+  // The test-run banner stays out of the screenshots used for the visual review.
+  const banner = (on: boolean) => page.evaluate((show) => document.getElementById('journey-banner')?.style.setProperty('display', show ? 'block' : 'none'), on).catch(() => undefined);
+  await banner(false);
   await page.screenshot({ path: join(dir!, 'shots', `${label}-${name}.jpg`), type: 'jpeg', quality: 60 });
+  await banner(true);
 }
 
 /** Screenshots a waiting state the first time it shows. */
@@ -268,6 +272,33 @@ async function launch(env: Record<string, string>) {
   app = await electron.launch({ executablePath: exe!, args: [`--user-data-dir=${join(dir!, 'userData')}`], env, cwd: dir! });
   page = await app.firstWindow();
   expect(await app.evaluate(({ app: a }) => [a.getPath('userData'), a.getPath('logs')])).toEqual([join(dir!, 'userData'), join(dir!, 'userData', 'logs')]);
+  await labelWindow();
+}
+
+const LABEL = "Codemm — automated test run, please don't use";
+
+/** Marks the driver's window so nobody mistakes it for their own Codemm: its title, and a thin banner (driver-only). */
+async function labelWindow() {
+  await app.evaluate(({ BrowserWindow }, title) => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      w.setTitle(title);
+      w.on('page-title-updated', (e) => e.preventDefault());
+    }
+  }, LABEL);
+  await page.evaluate((text) => {
+    const banner = document.createElement('div');
+    banner.id = 'journey-banner';
+    banner.setAttribute('aria-hidden', 'true');
+    banner.textContent = text;
+    Object.assign(banner.style, {
+      position: 'fixed', left: '0', right: '0', bottom: '0', zIndex: '2147483647', pointerEvents: 'none',
+      background: '#b42318', color: '#fff', font: '600 12px system-ui, sans-serif', textAlign: 'center', padding: '3px 0',
+    });
+    document.body.appendChild(banner);
+  }, LABEL);
+  // One screenshot with the label showing, as evidence it is there.
+  mkdirSync(join(dir!, 'shots'), { recursive: true });
+  if (!existsSync(join(dir!, 'shots', `${label}-test-run-label.jpg`))) await page.screenshot({ path: join(dir!, 'shots', `${label}-test-run-label.jpg`), type: 'jpeg', quality: 60 });
 }
 
 async function connect(id: string) {
