@@ -109,7 +109,7 @@ async function waitingStates() {
   await waiting('tutor-answering', page.locator('[role="log"][aria-busy="true"]'));
   await waiting('stalled', page.getByRole('alert'));
   // A setup proposal can arrive late, for example after a relaunch mid-setup.
-  const consent = page.getByRole('dialog', { name: /^Set up .* on this computer\?$/ });
+  const consent = page.getByRole('dialog', { name: /^Set up .* on this computer\?$|^Codemm has another way/ });
   if (await visible(consent)) {
     await shot('consent-late');
     note('consent-late', (await consent.getByRole('heading').first().innerText()).trim());
@@ -359,8 +359,10 @@ test(`journey: ${label}`, async () => {
       await app.close();
       writeFileSync(fake, 'signed-out');
       await launch(env);
-      await toMap();
-      await page.getByRole('button', { name: 'Continue', exact: true }).click();
+      // A signed-out agent at launch: the welcome screen offers Connect an agent, which shows the sign-in fix.
+      await until('the welcome screen', () => visible(button('Connect an agent')), MIN);
+      await shot('fake-signed-out-welcome');
+      await button('Connect an agent').click();
       await until('the connect screen', () => visible(heading('Connect an agent')), 5 * MIN);
       const row = (await page.getByRole('listitem', { name: 'Claude Code' }).innerText()).replace(/\s+/g, ' ');
       rmSync(fake);
