@@ -3,7 +3,7 @@ import { CodemmError } from "./errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./files.js";
 import { checkTrackFiles, verifyExercise, verifyTrack } from "./gates.js";
 import { type CaseFrames, gradeIo, type Status, type TestResult, type TestSet } from "./grading.js";
-import { gradeIoRun, gradeUnitRun, type IoRun, type ProgramLimits, type ProgramRun, runIo, runProgram, runUnit, type UnitRun } from "./judge.js";
+import { gradeIoRun, gradeUnitRun, type IoRun, type ProgramOptions, type ProgramRun, runIo, runProgram, runUnit, type UnitRun } from "./judge.js";
 import { type LearnerEvent, MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
 import { assertRuntime, cli as sandboxCli, inspectImage } from "./sandbox.js";
 import { assertNotes, type CourseRecord, type ExerciseRecord, parseLesson, parseRoadmapYaml, type TrackRecord } from "./schemas.js";
@@ -471,6 +471,7 @@ export async function getExercise(ws: string, slug?: string, bound?: string) {
     concepts: record.concepts,
     difficulty: record.difficulty,
     files: track.files,
+    ...(record.style === "io" && track.run ? { run: track.run } : {}),
     statement: files["README.md"] ?? "",
     ...(record.hint ? { hint: record.hint } : {}),
     visibleTests:
@@ -590,7 +591,7 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
  * Run: the learner's program, interactively, in the sandbox, with typed stdin and live output. io tracks only.
  * Never recorded; infrastructure failures reject `done`.
  */
-export async function runInteractive(ws: string, slug: string | undefined, bound: string | undefined, output: (text: string, stream: "stdout" | "stderr") => void, limits: ProgramLimits = {}): Promise<ProgramRun> {
+export async function runInteractive(ws: string, slug: string | undefined, bound: string | undefined, output: (text: string, stream: "stdout" | "stderr") => void, limits: ProgramOptions = {}): Promise<ProgramRun> {
   const ctx = loadExercise(ws, slug, bound);
   if (!ctx.track.run) throw new CodemmError("This track has no run command, so Run isn't available.");
   await ensureImage(ctx.track);

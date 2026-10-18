@@ -141,13 +141,14 @@ exit 0`;
  */
 export type ProgramResult = { exit: number; stage?: "build" | "run"; timedOut: boolean; flooded: boolean; stopped?: boolean; outOfMemory?: boolean };
 export type ProgramRun = { write(text: string): boolean; kill(): void; done: Promise<ProgramResult> };
-export type ProgramLimits = { limitMs?: number; buildLimitMs?: number };
+/** Time limits, and `onStart`, told once as each stage starts with that stage's limit (for a countdown). */
+export type ProgramOptions = { limitMs?: number; buildLimitMs?: number; onStart?: (stage: "build" | "run", limitMs: number) => void };
 
 /**
  * Run: the learner's program, interactively, with typed stdin and its output as it comes. Only the learner's
  * files are mounted, never tests. The build, then the run command, in the full sandbox, time-limited. Not graded.
  */
-export function runProgram(track: JudgeTrack, src: FileMap, output: (text: string, stream: "stdout" | "stderr") => void, limits: ProgramLimits = {}): ProgramRun {
+export function runProgram(track: JudgeTrack, src: FileMap, output: (text: string, stream: "stdout" | "stderr") => void, limits: ProgramOptions = {}): ProgramRun {
   if (!track.run) throw new CodemmError("This track has no run command, so Run isn't available.");
   const limitMs = limits.limitMs ?? RUN_LIMIT_MS;
   const buildLimitMs = limits.buildLimitMs ?? BUILD_SECONDS * 1000;
@@ -156,12 +157,17 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
   const say = (stream: "stdout" | "stderr", text: string) => text && output(text, stream);
   let ended: { stage: "build" | "run"; code: number } | undefined;
   let timedOutIn: "build" | "run" | undefined;
+  const begun = new Set<"build" | "run">();
   const markers = runMarkers(
     (text) => say("stderr", text),
     ([what, stage, code]) => {
       if (stage !== "build" && stage !== "run") return;
       if (what === "end" && code !== undefined && /^\d+$/.test(code)) ended = { stage, code: Number(code) };
       if (what === "timeout") timedOutIn = stage;
+      if (what === "start" && !begun.has(stage)) {
+        begun.add(stage);
+        limits.onStart?.(stage, stage === "build" ? buildLimitMs : limitMs);
+      }
     },
   );
   let stopped = false;

@@ -169,7 +169,7 @@ Other ceilings:
 - **Sandbox:** the same `startSandboxed` path and every flag above. The only addition is `-i`, which keeps stdin open, so typed lines reach the program.
 - **What's mounted:** only the learner's files, at `/work/src`. No tests.
 - **Driver:** the build, if the track has one (60 s), then the run command, with stdout and stderr streamed as they come.
-- **How it ended:** the driver writes short markers to stderr when each stage starts and how it ended, then exits 0. The host strips the markers from what the learner sees.
+- **How it ended:** the driver writes short markers to stderr when each stage starts and how it ended, then exits 0. The host strips the markers from what the learner sees. The first start marker of each stage is reported once, with that stage's limit, so the app can count down.
   - An end marker means the driver finished, so the program's own exit code and output are reported as they are, even when they look like Docker's.
   - **Time limits:** 120 s for the run, because a person is typing, and 60 s for the build. Each stage runs in the foreground, keeping stdin, with a watchdog beside it. At the limit the watchdog writes a timeout marker, then `kill -9 -1` stops everything but the driver, which stays PID 1. A timeout is therefore the driver's own statement: it is never read from an exit code or guessed from timing, and it doesn't depend on which `timeout` tool the image has. The watchdog fires only after `sleep` succeeds; if it can't, the host deadline stops the run. Grading checks the image has `sleep`, so installed tracks have it.
   - **Memory:** a stage that ends with 137 and didn't time out is checked against the runtime's memory-kill events, so a program killed for memory says so even though the driver went on.
@@ -325,7 +325,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `get_roadmap` | — | `{ course, goal, track, style, concepts }` |
 | `next_step` | — | `setup` / `review` / `practice` / `author` / `stuck` / `done`; `author` carries the concept's `title`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests) |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
-| `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint |
+| `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint, and for io the track's run command |
 | `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |
 | `progress` | — | mastery and difficulty per concept (with `reviewDue` for a mastered concept whose review is scheduled), next step |
 | `save_lesson` | `id`, `concept`, `title`, `markdown` | `{ lesson: id }` or errors |

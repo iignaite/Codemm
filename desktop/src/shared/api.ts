@@ -217,7 +217,20 @@ export interface Activity {
   statement: string;
   visibleTests: VisibleTest[];
   files: LearnerFile[];
+  /** The track's run command, for io activities only: they have Run. */
+  run?: string;
 }
+
+/** What Run's program printed, or a stage starting with its time limit, for the countdown. */
+export type RunOutput = { run: string; stream: 'stdout' | 'stderr'; text: string } | { run: string; started: 'build' | 'run'; limitMs: number };
+
+/**
+ * How Run ended. Never recorded. `exit` is the program's own code. `stopped`: the learner stopped it.
+ * `timedOut`: its time limit did. `flooded`: it printed too much. `not-run`: Codemm couldn't run it.
+ */
+export type RunResult =
+  | { kind: 'ran'; exit: number; stage?: 'build' | 'run'; timedOut: boolean; stopped: boolean; flooded: boolean; outOfMemory: boolean }
+  | { kind: 'not-run'; reason: string };
 
 export type TestStatus = 'pass' | 'fail' | 'error';
 
@@ -274,6 +287,8 @@ export interface CodemmApi {
   onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
   /** Hears what research is looking at while it runs; returns a function that stops listening. An event, not a call. */
   onResearchProgress(listener: (progress: ResearchProgress) => void): () => void;
+  /** Hears what Run's programs print; returns a function that stops listening. An event, not a call. */
+  onRunOutput(listener: (output: RunOutput) => void): () => void;
   computer(): Promise<Computer>;
   /** Downloads Docker Desktop from Docker, checks Docker signed it, installs and opens it. Follow it with computer(). */
   installDocker(): Promise<void>;
@@ -309,6 +324,15 @@ export interface CodemmApi {
   /** Runs a lesson's example `index` (from 1) in the sandbox. Never recorded. */
   runExample(lessonId: string, index: number): Promise<ExampleRun>;
   check(activityId: string, run?: string): Promise<CheckResult>;
+  /**
+   * Run: the learner's program with typed input, time-limited, never recorded. Resolves when it ends; what it prints
+   * arrives through onRunOutput, tagged with `run`, and only in the window that started it.
+   */
+  runProgram(activityId: string, run: string): Promise<RunResult>;
+  /** Typed input for a Run this window started. False if it wasn't taken: the run ended, or too much is waiting. */
+  sendRunInput(run: string, text: string): Promise<boolean>;
+  /** Stops a Run this window started. */
+  stopRun(run: string): Promise<void>;
 
   /** A tutor turn. A reply that shows hidden material is held back (§2.2). */
   ask(place: Place, text: string): Promise<Message[]>;
@@ -326,7 +350,8 @@ export type ResearchProgress = { kind: 'search'; query: string } | { kind: 'read
 /** What the preload script exposes as `window.codemm`. */
 export interface Bridge {
   invoke(method: string, args: unknown[]): Promise<unknown>;
-  /** Events main sends, to the app window only: check progress and research progress. */
+  /** Events main sends, to the app window only: check progress, research progress, and Run's output (to the window that started it). */
   onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
   onResearchProgress(listener: (progress: ResearchProgress) => void): () => void;
+  onRunOutput(listener: (output: RunOutput) => void): () => void;
 }

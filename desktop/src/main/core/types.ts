@@ -26,6 +26,8 @@ export interface CoreExercise {
   statement: string;
   hint?: string;
   visibleTests: { name: string; input?: string; expected?: string }[];
+  /** The track's run command, for io exercises. */
+  run?: string;
 }
 
 export interface CoreRoadmap {
@@ -65,6 +67,13 @@ export interface CoreLesson {
   examples: Record<string, string>[];
 }
 
+/** core judge.ts ProgramRun: a running program. `write` is false when the input wasn't taken. */
+export interface CoreProgramRun {
+  write(text: string): boolean;
+  kill(): void;
+  done: Promise<{ exit: number; stage?: 'build' | 'run'; timedOut: boolean; flooded: boolean; stopped?: boolean; outOfMemory?: boolean }>;
+}
+
 export interface CoreApp {
   /** core templates.ts: one brief per agent job, the same text the terminal uses. */
   JOB_BRIEFS: Record<'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor', string>;
@@ -88,6 +97,11 @@ export interface CoreApp {
   installProposal(ref: string, digest: string): Promise<unknown>;
   dropProposal(ref: string): Promise<void>;
   getLesson(ws: string, id: string, bound?: string): CoreLesson;
+  /**
+   * Run: the current exercise's program with typed input, streamed, time-limited, never recorded. io tracks only.
+   * `done` rejects only on an infrastructure failure.
+   */
+  runInteractive(ws: string, slug: string | undefined, bound: string | undefined, output: (text: string, stream: 'stdout' | 'stderr') => void, options?: { onStart?: (stage: 'build' | 'run', limitMs: number) => void }): Promise<CoreProgramRun>;
   /** Runs a saved lesson example in the sandbox; output and errors are capped. Never recorded. */
   runExample(ws: string, lessonId: string, index: number, bound?: string): Promise<{ exit: number; output: string; errors: string }>;
   listLessons(ws: string, bound?: string): { id: string; concept: string; title: string; read: boolean }[];
