@@ -362,6 +362,18 @@ export function getLesson(ws: string, id: string, bound?: string) {
   return { id: record.id, concept: record.concept, title: record.title, markdown, notes, examples, ...(record.style ? { style: record.style } : {}) };
 }
 
+/**
+ * The texts no output may show: an exercise's solution, mutants, hidden tests and hidden expected outputs. Only for
+ * the desktop's reply filter, which holds back an agent reply that quotes them (desktop DESIGN §2.2).
+ */
+export function hiddenMaterial(course: string, slug: string): string[] {
+  const { record, files } = store.readExercise(course, slug);
+  return [
+    ...Object.entries(files).filter(([path]) => /^(solution|mutants|tests\/hidden)\//.test(path)).map(([, text]) => text),
+    ...Object.entries(record.expected ?? {}).filter(([name]) => name.startsWith("hidden/")).map(([, text]) => text),
+  ];
+}
+
 export function listLessons(ws: string, bound?: string) {
   const course = activeCourse(ws, bound).course;
   const read = new Set(store.readEvents(course).flatMap((e) => (e.kind === "read" ? [e.lesson] : [])));

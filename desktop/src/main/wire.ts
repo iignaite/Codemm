@@ -18,8 +18,6 @@ import { codemmServer } from './server';
 import { agentSignIn, nodeSignInDeps } from './signIn';
 import { desktopState, workspaceOf } from './state';
 
-const RUNTIME_INFO = ['info', '--format', '{{.ServerVersion}}|{{.OSType}}'];
-
 export interface Places {
   /** out/core in development, <resources>/core when packaged. */
   coreDir: string;
@@ -62,8 +60,8 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     startedAt: desktop.startedAt,
     canInstall: desktop.canInstall,
     install: desktop.status,
-    info: async (docker) => (await ask(docker, RUNTIME_INFO, ({ code, output }) => ({ exit: code ?? -1, output }), { timeoutMs: 20_000 })) ?? { exit: -1, output: '' },
-    sandbox: async () => (await core.doctor(false)).some((c) => c.name === 'network isolation' && c.ok),
+    state: () => core.runtimeState(),
+    sandbox: async () => (await core.networkIsolation()).ok,
     now: () => Date.now(),
   });
 

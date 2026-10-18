@@ -11,7 +11,7 @@ const core: CoreApp = entry;
 
 describe('the bundled core', () => {
   it('has every function the desktop calls', () => {
-    const needed: (keyof CoreApp)[] = ['getRoadmap', 'listProposals', 'installProposal', 'dropProposal', 'getLesson', 'listLessons', 'listExercises', 'saveNotes', 'markLessonRead', 'readLearnerFiles', 'writeLearnerFile', 'cleanupLeftovers', 'progress', 'checkExercise'];
+    const needed: (keyof CoreApp)[] = ['getRoadmap', 'listProposals', 'installProposal', 'dropProposal', 'getLesson', 'listLessons', 'listExercises', 'saveNotes', 'markLessonRead', 'readLearnerFiles', 'writeLearnerFile', 'cleanupLeftovers', 'progress', 'checkExercise', 'hiddenMaterial', 'runtimeState', 'networkIsolation'];
     for (const name of needed) expect([name, typeof core[name]]).toEqual([name, 'function']);
   });
 

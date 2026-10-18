@@ -43,14 +43,8 @@ export function activityView(ex: CoreExercise, files: Record<string, { text: str
 export const HELD_BACK = 'Codemm held back a reply that showed hidden material.';
 const MIN_LINE = 24;
 const normalize = (text: string) => text.replace(/\s+/g, ' ').trim();
-const HIDDEN_FILES = /^(solution|mutants|tests\/hidden)\//;
-
-/** The normalized lines, 24 characters or longer, of an exercise's solution, mutants, hidden tests and hidden expected outputs. */
-export function hiddenLines(files: Record<string, string>, expected: Record<string, string> = {}): string[] {
-  const texts = [
-    ...Object.entries(files).filter(([path]) => HIDDEN_FILES.test(path)).map(([, text]) => text),
-    ...Object.entries(expected).filter(([key]) => key.startsWith('hidden/')).map(([, text]) => text),
-  ];
+/** The normalized lines, 24 characters or longer, of an exercise's hidden material (core hiddenMaterial). */
+export function hiddenLines(texts: string[]): string[] {
   return [...new Set(texts.flatMap((t) => t.split('\n')).map(normalize).filter((l) => l.length >= MIN_LINE))];
 }
 

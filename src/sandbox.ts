@@ -64,17 +64,28 @@ export function startHelp(platform: NodeJS.Platform = process.platform): string 
 /** Asks the engine for its version and the kind of containers it runs. */
 export const RUNTIME_INFO = ["info", "--format", "{{.ServerVersion}}|{{.OSType}}"];
 
+export type RuntimeState = "missing" | "down" | "windows" | "ready";
+
 /**
  * Reads the RUNTIME_INFO answer. `docker info` exits 0 even when the daemon is down, so a running
  * engine is one that reported a version.
  */
-export function runtimeProblem(r: { exit: number; output: string }, platform: NodeJS.Platform = process.platform): string | undefined {
+export function runtimeStateOf(r: { exit: number; output: string }): RuntimeState {
   // A configured CLI that doesn't exist fails to spawn.
-  if (r.exit === -1 && /ENOENT/.test(r.output)) return `No container runtime found. ${runtimeHelp(platform)}`;
+  if (r.exit === -1 && /ENOENT/.test(r.output)) return "missing";
   const m = /^(\S+)\|(\w+)\s*$/m.exec(r.output);
-  if (r.exit !== 0 || !m) return `The container runtime isn't running. ${startHelp(platform)}`;
-  if (m[2] === "windows") return "Docker is running Windows containers. Switch Docker Desktop to Linux containers and retry.";
-  return undefined;
+  if (r.exit !== 0 || !m) return "down";
+  return m[2] === "windows" ? "windows" : "ready";
+}
+
+/** What the runtime's state means for the learner, or undefined when it can run checks. */
+export function runtimeProblem(r: { exit: number; output: string }, platform: NodeJS.Platform = process.platform): string | undefined {
+  switch (runtimeStateOf(r)) {
+    case "missing": return `No container runtime found. ${runtimeHelp(platform)}`;
+    case "down": return `The container runtime isn't running. ${startHelp(platform)}`;
+    case "windows": return "Docker is running Windows containers. Switch Docker Desktop to Linux containers and retry.";
+    case "ready": return undefined;
+  }
 }
 
 /** The full `run` argument list. Pure, so the isolation flags are easy to test. */
@@ -276,6 +287,11 @@ export function cli(args: string[], timeoutMs = 60_000, onOutput?: (text: string
   });
 }
 
+/** Whether the runtime is there, running, and running Linux containers (the desktop's computer check). */
+export async function runtimeState(): Promise<RuntimeState> {
+  return runtimeStateOf(await cli(RUNTIME_INFO, 20_000));
+}
+
 /** Why the runtime can't run containers right now, or undefined when it can. */
 export async function runtimeDown(): Promise<string | undefined> {
   return runtimeProblem(await cli(RUNTIME_INFO, 20_000));
@@ -409,3 +425,15 @@ export async function ownedContainers(): Promise<{ id: string; pid: number }[]> 
 
 /** True when the Codemm process that started a container is gone, so the container is abandoned. */
 export const ownerGone = (pid: number): boolean => !pid || !processAlive(pid);
+
+/**
+ * Removes the containers whose owning Codemm process is gone; live ones are never touched (after a cancel or a
+ * crash, and doctor --fix). Returns how many were abandoned and how many of those are still there.
+ */
+export async function removeAbandoned(): Promise<{ abandoned: number; left: number }> {
+  const abandoned = (await ownedContainers()).filter((c) => ownerGone(c.pid));
+  if (abandoned.length === 0) return { abandoned: 0, left: 0 };
+  await cli(["rm", "-f", ...abandoned.map((c) => c.id)]);
+  const left = (await ownedContainers()).filter((c) => abandoned.some((a) => a.id === c.id)).length;
+  return { abandoned: abandoned.length, left };
+}

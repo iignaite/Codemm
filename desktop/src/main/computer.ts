@@ -7,8 +7,8 @@ import { STARTING_MS } from './dockerDesktop';
 
 export interface Probe {
   find(): Executable | null;
-  /** `docker info --format '{{.ServerVersion}}|{{.OSType}}'`. */
-  info(docker: Executable): Promise<{ exit: number; output: string }>;
+  /** core sandbox.ts runtimeState: whether the engine is there, running, and running Linux containers. */
+  state(): Promise<'missing' | 'down' | 'windows' | 'ready'>;
   /** Core doctor's network-isolation check. */
   sandbox(): Promise<boolean>;
   now(): number;
@@ -30,16 +30,14 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
   let sandboxOk = false;
 
   async function failing(): Promise<{ at: number; detail?: ComputerCheck['detail'] } | null> {
-    const docker = probe.find();
-    if (!docker) return { at: 0 };
-    const { exit, output } = await probe.info(docker);
-    // `docker info` exits 0 even when the daemon is down: a running engine reports a version.
-    const m = /^(\S+)\|(\w+)\s*$/m.exec(output);
-    if (exit !== 0 || !m) {
+    if (!probe.find()) return { at: 0 };
+    const state = await probe.state();
+    if (state === 'missing') return { at: 0 };
+    if (state === 'down') {
       const started = probe.startedAt?.();
       return { at: 1, ...(started !== undefined && probe.now() - started <= STARTING_MS ? { detail: 'starting' as const } : {}) };
     }
-    if (m[2] === 'windows') return { at: 1, detail: 'windows-containers' };
+    if (state === 'windows') return { at: 1, detail: 'windows-containers' };
     sandboxOk ||= await probe.sandbox();
     return sandboxOk ? null : { at: 2 };
   }
