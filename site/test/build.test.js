@@ -45,6 +45,9 @@ test('the site is static and collects no personal data', () => {
     assert.match(page, />Claude Code<\/button>/);
     assert.match(page, /Codemm isn't affiliated with or endorsed by them\./);
     assert.match(page, /provided as is, without warranty/);
+    // The design rules allow no dots: no dotted or dashed strokes or borders.
+    const css = readFileSync(join(out, 'styles.css'), 'utf8');
+    assert.doesNotMatch(css, /stroke-dasharray|\b(dotted|dashed)\b/);
   } finally {
     rmSync(join(out, '..'), { recursive: true, force: true });
   }

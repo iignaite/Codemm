@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { CourseView, Lesson as LessonData, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { cacheFor } from '../../app/cache';
+import { useBusy } from '../../app/useBusy';
 import { useConversation } from '../../app/useConversation';
 import { useRouter, type Route } from '../../app/router';
 import { settled } from '../../app/course';
@@ -90,14 +91,17 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
     }
   }
 
-  async function onNext() {
-    try {
-      await api.markRead(lesson.id);
-      go(next((await api.course())!));
-    } catch (e) {
-      fail(e);
-    }
-  }
+  // Marking the lesson read takes a moment: Next runs once, and waits meanwhile.
+  const moving = useBusy();
+  const onNext = () =>
+    moving.guard(async () => {
+      try {
+        await api.markRead(lesson.id);
+        go(next((await api.course())!));
+      } catch (e) {
+        fail(e);
+      }
+    });
 
   return (
     <div className="ws lesson">
@@ -131,7 +135,7 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
         )}
         <div className="actions a-up" style={stagger(6)}>
           <Button variant="ghost" size="lg" onClick={() => go(prev)}>Previous</Button>
-          <Button size="lg" onClick={onNext}>Next</Button>
+          <Button size="lg" disabled={moving.busy} onClick={onNext}>Next</Button>
         </div>
       </main>
       <Rail messages={chat.messages} onAsk={(text) => chat.ask(text)} busy={chat.busy} answering={chat.answering} name={course.track} />
