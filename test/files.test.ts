@@ -28,6 +28,11 @@ describe("validateFileMap", () => {
     expect(() => validateFileMap({ [path]: "x" })).toThrow(/path/i);
   });
 
+  it("never echoes a path under mutants/, whose folder names can say what bug each holds", () => {
+    expect(() => validateFileMap({ "mutants/CANARY-forgets-negatives/../x": "x" })).toThrow(/under mutants\//);
+    expect(() => validateFileMap({ "mutants/CANARY-forgets-negatives/../x": "x" })).not.toThrow(/CANARY/);
+  });
+
   it("never echoes a path under tests/hidden/", () => {
     expect(() => validateFileMap({ "tests/hidden/secret-name/../x": "x" })).toThrow(/under tests\/hidden/);
     expect(() => validateFileMap({ "tests/hidden/secret-name/../x": "x" })).not.toThrow(/secret-name/);

@@ -98,9 +98,22 @@ case "$1" in
         found=1; n="${f##*/}"; n="${n%.in}"
         printf '\n@@codemm case %s 137 0\n' "$n"
         printf '\n@@codemm stderr %s 137 7\nKilled\n' "$n"
-        [ "$FAKE_DOCKER" = casekill ] && printf '\n@@codemm timeout %s 137 2\nt\n' "$n"
+        [ "$FAKE_DOCKER" = casekill ] && printf '\n@@codemm timeout %s 137 0\n' "$n"
       done
       if [ -z "$found" ]; then printf '\n@@codemm report report 137 0\n'; printf '\n@@codemm log log 137 6\nKilled'; fi
+      exit 0
+    fi
+    # srcout: each io case prints the last line of the program's source, so programs that end alike grade alike.
+    if [ "$FAKE_DOCKER" = srcout ]; then
+      for a in "$@"; do case "$a" in *target=/work/tests,*) tests="${a#*source=}"; tests="${tests%%,target=*}" ;; *target=/work/src,*) src="${a#*source=}"; src="${src%%,target=*}" ;; CODEMM_BUILD=*) build=1 ;; esac; done
+      for f in "$src"/*; do while IFS= read -r l; do last=$l; done < "$f"; done
+      if [ -n "$build" ]; then printf '\n@@codemm build build 0 0\n'; fi
+      for f in "$tests"/*.in; do
+        [ -e "$f" ] || continue
+        n="${f##*/}"; n="${n%.in}"
+        printf '\n@@codemm case %s 0 %s\n%s\n' "$n" "$((${#last} + 1))" "$last"
+        printf '\n@@codemm stderr %s 0 0\n' "$n"
+      done
       exit 0
     fi
     # An outside kill can land after the driver already reported a case.

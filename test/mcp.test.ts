@@ -193,6 +193,44 @@ describe.runIf(posix)("hidden data through the tools", () => {
   });
 });
 
+describe.runIf(posix)("mutants in gate diagnostics", () => {
+  const fixtures = join(import.meta.dirname, "fixtures");
+  /** io-max with its zero-start mutant (which ends like the solution) in a folder whose name says what it does. */
+  const files = (extra: Record<string, string> = {}) => {
+    const map = readFileMap(join(fixtures, "exercises", "io-max"));
+    for (const path of Object.keys(map)) {
+      if (path.startsWith("mutants/zero-start/")) {
+        map[path.replace("mutants/zero-start/", "mutants/CANARY-forgets-negatives/")] = map[path]!;
+        delete map[path];
+      }
+    }
+    return { ...map, ...extra };
+  };
+  beforeEach(async () => {
+    const track = readFileMap(join(fixtures, "tracks", "shell-io"));
+    store.commitFolder(store.trackDir("shell-io@1"), track, {
+      "track.json": { format_version: 1, ...parseTrackYaml(track["track.yaml"]!), image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
+    });
+    await app.saveRoadmap(ws, "shell", readFileSync(join(fixtures, "roadmaps", "shell-io.yaml"), "utf8"));
+  });
+
+  it("names a mutant that passes every hidden test by its number, never its folder", async () => {
+    const { call } = await connect();
+    fakeDocker("srcout");
+    const message = await call("save_exercise", { files: files() }).then(() => "saved", (e: Error) => e.message);
+    expect(message).toMatch(/Gate "mutants caught" failed: mutant #1 /);
+    expect(message).not.toContain("CANARY");
+  });
+
+  it("names a mutant whose folder doesn't fit by its number, and counts its other files", async () => {
+    const { call } = await connect();
+    fakeDocker("srcout");
+    const message = await call("save_exercise", { files: files({ "mutants/CANARY-forgets-negatives/CANARY-notes.txt": "x" }) }).then(() => "saved", (e: Error) => e.message);
+    expect(message).toMatch(/mutant #1 may only contain the track's learner files \(main\.sh\); found 1 other file/);
+    expect(message).not.toContain("CANARY");
+  });
+});
+
 describe("file maps through the real MCP SDK", () => {
   it("rejects a non-text file value without naming a hidden file", async () => {
     const { client } = await connect();
