@@ -570,17 +570,19 @@ export function createLive(d: LiveDeps): Live {
 
     async install(digest) {
       const ref = core.progress(ws, approved()).track;
-      const proposal = setup.approved?.digest === digest ? setup.approved : latestProposal(ref);
+      // This install's own setup: approving another course replaces `setup`, and this one must not touch that.
+      const mine = setup;
+      const proposal = mine.approved?.digest === digest ? mine.approved : latestProposal(ref);
       if (!proposal || proposal.digest !== digest) throw new SafeError('The setup changed. Look at it again.');
-      setup.approved = proposal;
-      setup.problem = undefined;
-      setup.installs++;
+      mine.approved = proposal;
+      mine.problem = undefined;
+      mine.installs++;
       // Codemm builds and checks the approved files: the setup's later stages (§4.11).
       const tracker = jobTracker('setup');
       trackers.set(`install:${ref}`, tracker);
       tracker.reach(1);
       tellJob(tracker.snapshot());
-      setup.installing = dockerReady()
+      mine.installing = dockerReady()
         .then(() =>
           core.installProposal(ref, digest, (p) => {
             // Counts only: the build's steps, then its checks.
@@ -590,26 +592,26 @@ export function createLive(d: LiveDeps): Live {
           }),
         )
         .then(() => {
-          setup.approved = undefined;
+          mine.approved = undefined;
         })
         .catch(async (e: Error) => {
           // This computer's problems keep the proposal for Try again; nothing is recorded and no agent runs (§6.1).
           const kind = infraOf(e);
           log('setup-failed', { problem: kind ?? 'gates' });
           if (kind) {
-            setup.problem = kind;
+            mine.problem = kind;
             return;
           }
-          setup.approved = undefined;
-          setup.gateFailures++;
-          setup.lastGateProblem = e.message;
+          mine.approved = undefined;
+          mine.gateFailures++;
+          mine.lastGateProblem = e.message;
           // The next proposal is asked for only once this one is gone (it waits for the track lock).
           await core.dropProposal(ref).catch(() => undefined);
         })
         .finally(() => {
           trackers.delete(`install:${ref}`);
           tellJob({ ...tracker.snapshot(), ended: true });
-          setup.installing = undefined;
+          mine.installing = undefined;
           schedule();
         });
     },
