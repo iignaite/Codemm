@@ -41,6 +41,8 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
   const program = useRun((run) => api.runProgram(activity.id, run), activity.run, terminal, save, fail);
   // The pane appears with the first Run, Try it or Check, and stays.
   const [ran, setRan] = useState(false);
+  /** What the pane shows now: a Run, with its countdown or time-up, or a test report. */
+  const [paneFor, setPaneFor] = useState<'run' | 'tests'>('run');
   const busy = shown.kind === 'busy' || program.running;
   // Codemm reads the saved files, so pending edits are saved before each question.
   const ask = (text: string) => chat.ask(text, save);
@@ -50,6 +52,9 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
   useEffect(() => () => listening.current?.(), []);
 
   async function attempt(label: string, work: (run: string) => Promise<Shown>) {
+    // A running program owns the pane; Results' Try again can't take it.
+    if (program.running) return;
+    setPaneFor('tests');
     const before = shown;
     const run = crypto.randomUUID();
     setShown({ kind: 'busy', label });
@@ -130,7 +135,7 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
           tools={<>
             {/* One button that turns into Stop, so keyboard focus stays on it. */}
             {activity.run && (
-              <Button variant="ghost" disabled={busy && !program.running} onClick={program.running ? program.stop : () => (setRan(true), void program.start())}>
+              <Button variant="ghost" disabled={busy && !program.running} onClick={program.running ? program.stop : () => (setRan(true), setPaneFor('run'), void program.start())}>
                 {program.running ? 'Stop' : 'Run'}
               </Button>
             )}
@@ -138,7 +143,7 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
             <Button disabled={busy} onClick={check}>Check</Button>
           </>}
         />
-        {activity.run && ran && <Terminal ref={terminal} label={`Terminal for ${activity.title}`} status={program.status} onInput={program.input} />}
+        {activity.run && ran && <Terminal ref={terminal} label={`Terminal for ${activity.title}`} status={paneFor === 'run' ? program.status : undefined} onInput={program.input} />}
         <Results shown={shown} name={course.track} topic={topic?.title ?? ''} visibleTests={activity.visibleTests} ways={ways} />
       </div>
       <Rail messages={chat.messages} onAsk={ask} busy={chat.busy} name={course.track}>
