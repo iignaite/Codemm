@@ -102,4 +102,6 @@ If you'd rather use the Turso integration in the Vercel Marketplace, install it 
 
 **Later.** Commits that don't touch `site/` don't redeploy (`ignoreCommand`). A new GitHub release needs no redeploy. To email subscribers, `node --env-file=.env.turso scripts/unsubscribe-link.mjs https://your-domain subscribers.tsv` writes each email and its unsubscribe link to a new file only you can read, and prints just the count. It needs `SITE_SECRET` in `.env.turso` too. Delete the file after sending, and never commit it.
 
+**Where `SITE_SECRET` lives.** Vercel can't show a Production value again, so keep a copy. The live site's is in the owner's macOS Keychain: `security find-generic-password -s codemm-site -a SITE_SECRET -w` prints it, for example to run `scripts/unsubscribe-link.mjs`.
+
 **Rotating `SITE_SECRET`** invalidates every unsubscribe link already sent and every suppression, so rotate it only if it leaks.
