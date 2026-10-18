@@ -111,6 +111,21 @@ describe('course editor', () => {
     expect(screen.getByText('Up to 2,000 characters.')).toBeInTheDocument();
   });
 
+  it("locks the learner's own edits while Codemm changes the roadmap, so its change can't overwrite them", async () => {
+    const { api, roadmap, user } = await open();
+    let finish: (c: RoadmapChange) => void = () => undefined;
+    api.reviseRoadmap = () => new Promise((r) => (finish = r));
+    await user.click(screen.getByRole('button', { name: 'Rename Forms' }));
+    await user.click(screen.getByRole('button', { name: 'Go deeper on JSX' }));
+    // An open rename closes unsaved, and every edit waits for the change.
+    expect(screen.queryByRole('textbox', { name: 'Topic name' })).not.toBeInTheDocument();
+    const locked = ['Move JSX', 'Go deeper on Forms', 'Rename JSX', 'Remove JSX', 'Add a topic'];
+    for (const name of locked) expect(screen.getByRole('button', { name })).toBeDisabled();
+    for (const li of within(screen.getByRole('list')).getAllByRole('listitem')) expect(li).toHaveAttribute('draggable', 'false');
+    await act(async () => finish({ roadmap, changed: false, text: 'No change.' }));
+    for (const name of locked) expect(screen.getByRole('button', { name })).toBeEnabled();
+  });
+
   it('shows the change job\'s stages and latest step while Codemm changes the roadmap', async () => {
     let hear: (p: JobProgress) => void = () => undefined;
     const { api, roadmap, user } = await open(undefined, (a) => (a.onJobProgress = (listener) => ((hear = listener), () => undefined)));

@@ -267,6 +267,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - Move changes order only. It is refused, with "Needs ‹title› first", when it would put a topic above one it requires. Move works without dragging.
   - Remove is refused when another topic requires it ("‹title› needs this topic"). Core also rejects removing a concept that an exercise, event or lesson uses; the lesson part is new. Prerequisites are never rewritten silently.
   - Prerequisite changes go through "Ask Codemm for changes".
+  - While "Ask Codemm for changes" or Go deeper runs, the learner's own edits wait: rename, remove, move, drag and add are off, and an open rename closes unsaved. Codemm changes the roadmap as it stood, so its result never overwrites an edit made meanwhile.
 - **A fresh start after a new prerequisite.** When a re-save adds a prerequisite to a concept that is stuck, `save_roadmap` appends `{ kind: "retry", at, concept }`. Replaying a `retry` resets that concept's fail streak and leaves mastery unchanged. Without it, the concept would be stuck again as soon as the new prerequisite was mastered.
 
 ### 4.3 Lessons
