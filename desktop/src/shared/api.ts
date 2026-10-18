@@ -379,6 +379,8 @@ export interface JobProgress {
   steps: JobStep[];
   /** How many steps so far. */
   count: number;
+  /** A real fraction within the stage: a setup's build steps, or which of the exercise's 3 gates runs. */
+  part?: { done: number; total: number };
   /** "Trying again": attempt 2 of 3 after a failed save, or 2 of 2 after a relaunch. */
   retry?: { attempt: number; of: number };
   /** False while one of Codemm's own tools runs: then the agent is waiting, not thinking. */

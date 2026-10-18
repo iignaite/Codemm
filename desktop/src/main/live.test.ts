@@ -1,5 +1,7 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { CHANGED, OFFLINE, PLAN_LIMIT, REPAIR, UNSTOPPABLE, type JobProgress } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
@@ -428,6 +430,50 @@ describe('live CodemmApi', () => {
     expect(install).toMatchObject({ thinking: false });
     expect(heard.filter((p) => p.job === install.job).at(-1)!.ended).toBe(true);
     expect(heard.filter((p) => p.kind === 'setup' && p.stage === 0).at(-1)!.retry).toEqual({ attempt: 2, of: 3 });
+  });
+
+  it("shows a setup's build steps as counts, then its checks", async () => {
+    const t = live();
+    const heard: JobProgress[] = [];
+    t.api.onJobProgress((p) => heard.push(p));
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const consent = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(consent.proposal!.digest);
+    await vi.waitFor(() => expect(heard.some((p) => p.kind === 'setup' && p.stage === 2 && p.ended)).toBe(true));
+    const install = heard.filter((p) => p.kind === 'setup' && p.job === heard.find((x) => x.stage === 1)!.job);
+    expect(install.map((p) => [p.stage, p.part ?? null, p.ended ?? false])).toEqual([
+      [1, null, false], [1, { done: 1, total: 2 }, false], [1, { done: 2, total: 2 }, false], [2, null, false], [2, null, true],
+    ]);
+  });
+
+  it("gives an author's server a gate file, and shows the gate it names during the save", async () => {
+    const progressDir = mkdtempSync(join(tmpdir(), 'codemm-progress-'));
+    const heard: JobProgress[] = [];
+    const t = live({
+      author: async (job) => {
+        const args = job.server(['save_exercise']).args;
+        const file = args[args.indexOf('--progress') + 1];
+        job.onEvent?.({ type: 'tool_call', id: 'c1', name: 'codemm.save_exercise' });
+        writeFileSync(file, JSON.stringify({ format_version: 1, gate: 'mutants' }));
+        await vi.waitFor(() => expect(heard.some((p) => p.part?.done === 3)).toBe(true), { timeout: 2000 });
+        job.onEvent?.({ type: 'tool_result', id: 'c1', error: false });
+        expect(existsSync(file)).toBe(false);
+        const concept = t.c.roadmap!.concepts.find((x) => !t.c.mastered.has(x.id))!.id;
+        t.c.exercises.set(`${concept}-easy-1`, { concept, file: 'int main() {}', digest: '0'.repeat(64), created: new Date().toISOString(), difficulty: t.c.writes });
+        return {};
+      },
+    }, { progressDir });
+    t.api.onJobProgress((p) => heard.push(p));
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const consent = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(consent.proposal!.digest);
+    await vi.waitFor(() => expect(heard.some((p) => p.kind === 'author' && p.ended)).toBe(true), { timeout: 4000 });
+    const gate = heard.find((p) => p.part?.done === 3)!;
+    expect(gate).toMatchObject({ kind: 'author', stage: 2, part: { done: 3, total: 3 }, steps: [{ kind: 'step', label: 'Codemm is checking that the tests catch each broken version' }] });
+    // Other jobs' servers get no gate file.
+    expect(t.jobs.ran.filter((j) => j.kind !== 'author').every((j) => !j.server([]).args.includes('--progress'))).toBe(true);
   });
 
   it('says when a failed job runs again', async () => {

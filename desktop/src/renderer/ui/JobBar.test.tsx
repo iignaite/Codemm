@@ -27,6 +27,15 @@ describe('JobBar (§4.11)', () => {
     expect(document.body.textContent).not.toMatch(/%/);
   });
 
+  it("shows a real fraction where one exists: a build's steps, an exercise's gates", () => {
+    const { rerender } = show(job({ kind: 'setup', stage: 1, part: { done: 3, total: 7 }, thinking: false }));
+    expect(screen.getByText('Step 3 of 7')).toBeInTheDocument();
+    expect(screen.getByRole('listitem', { current: 'step' }).style.getPropertyValue('--part')).toBe('43%');
+    const gate = job({ kind: 'author', stage: 2, part: { done: 2, total: 3 }, steps: [{ kind: 'step', label: 'Codemm is checking that the starter fails' }] });
+    rerender(<JobBar job={{ progress: gate, at: Date.now() }} label="Writing the activity" />);
+    expect(screen.getByText('Codemm is checking that the starter fails 2 of 3')).toBeInTheDocument();
+  });
+
   it('counts the time so far, from where the job was when it arrived', () => {
     vi.useFakeTimers();
     show(job({ elapsedMs: 65_000 }));

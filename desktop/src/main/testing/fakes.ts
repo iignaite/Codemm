@@ -122,7 +122,13 @@ export function fakeCore() {
       return c.roadmap;
     },
     listProposals: () => c.proposals,
-    installProposal: (ref, digest) => c.install(ref, digest),
+    // Reports a two-step build, then its checks, as core does.
+    installProposal: (ref, digest, onProgress) => {
+      onProgress?.({ phase: 'building', done: 1, total: 2 });
+      onProgress?.({ phase: 'building', done: 2, total: 2 });
+      onProgress?.({ phase: 'checking' });
+      return c.install(ref, digest);
+    },
     dropProposal: async () => void (c.proposals = []),
     getLesson: (_ws, id) => ({ examples: [], ...c.lessons.find((l) => l.id === id)! }),
     // Run: asks for a name and greets it; stops when killed.
@@ -226,7 +232,7 @@ export function live(over: Partial<Record<Job['kind'], Act>> = {}, deps: Partial
     state,
     ws: '/Users/me/Codemm',
     agentDir: '/userData/agents',
-    server: (course, tools) => ({ command: '/app', args: ['core/cli.mjs', 'mcp', ...(course ? ['--course', course] : []), '--tools', tools.join(',')] }),
+    server: (course, tools, progress) => ({ command: '/app', args: ['core/cli.mjs', 'mcp', ...(course ? ['--course', course] : []), '--tools', tools.join(','), ...(progress ? ['--progress', progress] : [])] }),
     runJob: jobs.runJob,
     log: createLog(dir),
     ...deps,

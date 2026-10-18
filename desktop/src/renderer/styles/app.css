@@ -316,7 +316,7 @@ a.inline:hover { color: var(--ink); }
 .job .stages li.done { color: var(--muted); }
 .job .stages li.done::before { background: var(--ok); }
 .job .stages li.now { color: var(--ink); font-weight: 600; }
-.job .stages li.now::before { background: var(--blue); }
+.job .stages li.now::before { background: linear-gradient(to right, var(--blue) var(--part, 100%), var(--blue-line) 0); }
 .job-now { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; font-size: 14px; color: var(--muted); }
 .job-now > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .job-time { flex-shrink: 0; }

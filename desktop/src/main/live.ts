@@ -1,6 +1,8 @@
 // The CodemmApi over the real core and the learner's own agent (DESIGN §2–§6).
 // Main calls core `app` functions in-process; agent jobs run through the
 // bridge; everything returned goes through views.ts.
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { isSafeLink } from './links';
 import {
   AGENT_FAILED,
@@ -22,6 +24,7 @@ import {
   type SetupProblem,
 } from '../shared/api';
 import type { McpServer } from './agent/agents';
+import { watchGates } from './agent/gateFile';
 import { jobTracker, type JobTracker } from './agent/progress';
 import { briefsFrom, courseId } from './agent/briefs';
 import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type JobProblem } from './agent/jobs';
@@ -41,8 +44,10 @@ export interface LiveDeps {
   state: ReturnType<typeof desktopState>;
   /** The learner's workspace, ~/Codemm by default (O5). */
   ws: string;
-  /** The MCP server one job's agent starts, bound to its course and tools (§2, §4.6). */
-  server: (course: string | undefined, tools: string[]) => McpServer;
+  /** The MCP server one job's agent starts, bound to its course and tools (§2, §4.6), and for an author, its gate file (§4.11). */
+  server: (course: string | undefined, tools: string[], progress?: string) => McpServer;
+  /** A Codemm-owned folder for the gate files author jobs' servers write (§4.11). */
+  progressDir?: string;
   /** The app's own executable, which runs Node-script agents. */
   runtime?: string;
   /** A Codemm-owned folder for agents that read their config from the working directory (Cursor). */
@@ -201,13 +206,22 @@ export function createLive(d: LiveDeps): Live {
       const tracker = jobTracker(kind, { concept, retry, shows: (text) => filterReply(text, filter) === text });
       trackers.set(key, tracker);
       tellJob(tracker.snapshot());
+      // An author's save runs the exercise gates in its server; the server names the running gate in this file.
+      const gateFile = kind === 'author' && d.progressDir ? join(d.progressDir, `${tracker.id}.json`) : undefined;
+      if (gateFile) mkdirSync(d.progressDir!, { recursive: true });
+      const gates = gateFile
+        ? watchGates(gateFile, (gate) => {
+            tracker.gate(gate);
+            tellJob(tracker.snapshot());
+          })
+        : undefined;
       const outcome = await runJob({
         kind,
         agent: id,
         exe,
         runtime: d.runtime,
         brief,
-        server: (tools) => d.server(course, tools),
+        server: (tools) => d.server(course, tools, gateFile),
         cwd: ws,
         agentDir: d.agentDir,
         // The learner's model choice, or the recommended one (O6), for every agent with choices.
@@ -219,6 +233,8 @@ export function createLive(d: LiveDeps): Live {
         signedIn: () => d.connect.recheck(id, exe),
         onEvent: (e) => {
           tracker.event(e);
+          // A save that ended leaves its last gate in the file; the next save starts from none.
+          if (e.type === 'tool_result') gates?.clear();
           tellJob(tracker.snapshot());
         },
         onRelaunch: () => {
@@ -227,6 +243,7 @@ export function createLive(d: LiveDeps): Live {
         },
         onSource,
       }).finally(() => {
+        gates?.stop();
         trackers.delete(key);
         tellJob({ ...tracker.snapshot(), ended: true });
       });
@@ -525,7 +542,14 @@ export function createLive(d: LiveDeps): Live {
       tracker.reach(1);
       tellJob(tracker.snapshot());
       setup.installing = dockerReady()
-        .then(() => core.installProposal(ref, digest))
+        .then(() =>
+          core.installProposal(ref, digest, (p) => {
+            // Counts only: the build's steps, then its checks.
+            if (p.phase === 'building') tracker.reach(1, { done: p.done, total: p.total });
+            else tracker.reach(2);
+            tellJob(tracker.snapshot());
+          }),
+        )
         .then(() => {
           setup.approved = undefined;
         })

@@ -352,15 +352,17 @@ Every long step shows its live progress, so the learner always knows where it is
   - The stage reached, an index into `JOB_STAGES` (`shared/progress.ts`).
   - The latest 8 steps, newest first, and a count of all of them. Steps come from the stream parser (§4.9): searches, pages as host and path, and a fixed label per Codemm tool.
   - A retry: "Trying again (2 of 3)" after a failed save, within the bound in §3.2, or 2 of 2 when a failed job is relaunched.
+  - A real fraction within the stage, where one exists: a setup's build steps, or which of the exercise's 3 gates runs.
   - Whether the agent is thinking, which is false while one of Codemm's own tools runs, and the time since the job started and since its last event.
   - The final report says the job ended.
 - **Stages.** Each lights up as the job reaches it (`main/agent/progress.ts`):
   - Every job starts on its first stage and moves to the second at the agent's first event.
   - The save tool (`save_roadmap`, `save_lesson`, `save_exercise`) reaches the last stage. A failed save goes back to the second stage and counts as a retry.
   - Setup stays on "Proposing the setup" while its agent runs. A tutor turn has one stage.
-- **Setup.** The setup job proposes; a proposal after one failed its gates starts as "Trying again (2 of 3)". Once the learner consents, Codemm's own install reports on the same channel: "Building", then "Checking the setup". While Codemm works, the agent isn't thinking.
+- **Setup.** The setup job proposes; a proposal after one failed its gates starts as "Trying again (2 of 3)". Once the learner consents, Codemm's own install reports on the same channel: "Building" with core's "Step 3 of 7" (counts only, core §4.4), then "Checking the setup". While Codemm works, the agent isn't thinking.
+- **Exercise gates.** An author job's server gets `--progress <userData>/progress/<job>.json` (core §8). While `save_exercise` runs, main reads the gate's name from that file every half second: "Codemm is checking that the reference passes", "… that the starter fails" or "… that the tests catch each broken version", as 1, 2 or 3 of 3. Only a known gate name is read; the file is cleared when a save ends and removed with the job.
 - **Safe.** The tracker keeps nothing from a tool's arguments or results, a file or Codemm's records. The reply filter (§2.2) drops a step that shows hidden material, as it does for tutor replies.
-- **The bar** (`renderer/ui/JobBar.tsx`). Each stage is a bar segment with its name beneath, filled once reached, the current one marked for screen readers (`aria-current="step"`). Beside it: the latest step or the retry, and the time so far. Where no real fraction exists, it shows the stage and the step, never a percentage. After 90 seconds with no event while the agent thinks, a quiet line says "Still working: the agent is thinking."
+- **The bar** (`renderer/ui/JobBar.tsx`). Each stage is a bar segment with its name beneath, filled once reached, the current one marked for screen readers (`aria-current="step"`) and filled as far as its real fraction, when it has one. Beside it: the latest step or the retry, and the time so far. Where no real fraction exists, it shows the stage and the step, never a percentage. After 90 seconds with no event while the agent thinks, a quiet line says "Still working: the agent is thinking."
 - **Where it shows.**
   - Research: the bar above the live list of searches and pages.
   - The course editor, while "Ask Codemm for changes" or Go deeper runs.
