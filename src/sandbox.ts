@@ -300,6 +300,15 @@ export function buildProblem(log: string): BuildProblem | undefined {
         "after freeing space (`docker system prune` removes unused images and build cache).",
     };
   }
+  // Docker's credential helper failing (a missing or locked keychain helper) is this computer's Docker problem.
+  const credentials = log.split("\n").find((l) => /error getting credentials/i.test(l));
+  if (credentials) {
+    return {
+      kind: "docker",
+      message: `Docker couldn't get registry credentials (${credentials.trim().slice(0, 300)}), so nothing was installed. ` +
+        `Fix Docker's credential helper (or sign in again in Docker Desktop). ${NOT_THE_TRACK} afterwards.`,
+    };
+  }
   const offline = /temporary failure (?:in name resolution|resolving)|could not resolve (?:host|proxy)|no such host|network is unreachable|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)/i;
   const line = log.split("\n").find((l) => offline.test(l));
   if (line) {
@@ -311,6 +320,9 @@ export function buildProblem(log: string): BuildProblem | undefined {
   }
   return undefined;
 }
+
+/** The kind of a runtime's own failure, from its diagnostics: out of disk when it says so, else Docker. */
+export const runtimeKind = (text: string): "disk" | "docker" => (/no space left on device/i.test(text) ? "disk" : "docker");
 
 /** A track build is killed after 10 minutes (DESIGN §4.4). */
 export const BUILD_TIMEOUT_MS = 600_000;
@@ -388,7 +400,7 @@ export async function inspectImage(tag: string): Promise<{ id: string; hasVolume
 /** Every container Codemm started, with the PID of the Codemm process that owns it. Throws if listing fails. */
 export async function ownedContainers(): Promise<{ id: string; pid: number }[]> {
   const r = await cli(["ps", "-a", "--filter", `label=${OWNER_LABEL}`, "--format", '{{.ID}} {{.Label "codemm.pid"}}']);
-  if (r.exit !== 0) throw new CodemmError(`Couldn't list Codemm's containers: ${r.output.trim().slice(0, 300)}`, "docker");
+  if (r.exit !== 0) throw new CodemmError(`Couldn't list Codemm's containers: ${r.output.trim().slice(0, 300)}`, runtimeKind(r.output));
   return r.output.split("\n").filter((l) => l.trim()).map((l) => {
     const [id, pid] = l.trim().split(/\s+/);
     return { id: id!, pid: Number(pid) || 0 };

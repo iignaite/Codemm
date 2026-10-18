@@ -176,6 +176,11 @@ export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exer
             changed.push(`${courseId}/${ex.slug}: results changed`);
           }
         } catch (e) {
+          // This computer's Docker, disk or network failing isn't the image behaving differently.
+          if (e instanceof CodemmError && (e.kind === "docker" || e.kind === "disk" || e.kind === "offline")) {
+            await sandboxCli(["image", "rm", candidate]);
+            throw e;
+          }
           changed.push(`${courseId}/${ex.slug}: ${(e as Error).message.split("\n")[0]}`);
         }
       }

@@ -7,7 +7,7 @@ import { readFileMap } from "../src/files.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import type { LearnerEvent } from "../src/learner.js";
 import * as store from "../src/store.js";
-import { fakeDocker } from "./fake-docker.js";
+import { fakeDocker, posix } from "./fake-docker.js";
 import { tempDir } from "./temp.js";
 
 /** Use cases that need no container runtime: tracks and exercises are written straight into the store. */
@@ -160,8 +160,12 @@ describe("reviews", () => {
 });
 
 describe("error kinds", () => {
-  it("names a missing course and a missing track image, so the desktop needn't read the English", async () => {
+  it("names a missing course, so the desktop needn't read the English", () => {
     expect(() => app.nextStep(ws)).toThrow(expect.objectContaining({ kind: "no-course", message: expect.stringMatching(/No course in this workspace yet/) }));
+  });
+
+  // The fake docker is a shell script, so this one runs where a shell does.
+  it.runIf(posix)("names a missing track image", async () => {
     installFake();
     await app.saveRoadmap(ws, "shell", roadmap());
     addExercise("shell", "e1", "sh.basics");

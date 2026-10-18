@@ -5,7 +5,7 @@ import { StringDecoder } from "node:string_decoder";
 import { CodemmError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
 import { type CaseFrames, frameProgress, gradeIo, gradeUnit, parseFrames, type RawBuild, type RawCase, type TestResult, type TestSet } from "./grading.js";
-import { runSandboxed, runtimeDown, startHelp, startSandboxed } from "./sandbox.js";
+import { runSandboxed, runtimeDown, runtimeKind, startHelp, startSandboxed } from "./sandbox.js";
 
 /** What the judge needs from an installed track. */
 export type JudgeTrack = {
@@ -91,7 +91,7 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       if (await runtimeDown()) throw new CodemmError(`The container runtime stopped during the run, so it wasn't counted. ${startHelp()}`, "docker");
       if (result.oomKilled) return { frames: [], flooded: false, outOfMemory: true };
       // Exit 125 is the runtime's own failure. With no output, no code ran, so its stderr is the runtime's own too.
-      if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`, "docker");
+      if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`, runtimeKind(result.stderr));
       if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.", "docker");
       throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.", "docker");
     }
