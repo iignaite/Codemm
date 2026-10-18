@@ -201,6 +201,8 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .cmp span { padding: 4px 10px; border-radius: 6px; }
 .cmp .e { background: var(--green-soft); color: var(--green-ink); }
 .cmp .f { background: var(--orange-soft); color: var(--orange-ink); }
+/* An error's reason keeps its lines, so a traceback's caret still points at the mistake. */
+.cmp .why { white-space: pre-wrap; }
 .hid { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
 .hid b { color: var(--ink); font-weight: 600; }
 .hid .x { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; }

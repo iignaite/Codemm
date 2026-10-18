@@ -40,6 +40,15 @@ describe('Results with real core result shapes', () => {
     expect(results()).toHaveTextContent('expected Count: 1');
   });
 
+  it("shows an error's message, not expected and found, even when the program printed nothing", () => {
+    // Core's shape for a program that exits non-zero (src/grading.ts): the reason in message, stdout in actual.
+    const crashed: CoreCheckView = { ...core, tests: [{ name: 'visible/02', status: 'error', message: 'Exited with code 1: SyntaxError: missing ) after argument list', actual: '' }] };
+    render(<Results shown={{ kind: 'try', result: tryView(crashed) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(results()).toHaveTextContent('Exited with code 1: SyntaxError: missing ) after argument list');
+    expect(results()).not.toHaveTextContent('found');
+    expect(results()).not.toHaveTextContent('expected');
+  });
+
   it('names tests by the name the exercise uses, without the set prefix', () => {
     render(<Results shown={{ kind: 'try', result: tryView(core) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
     expect(results()).not.toHaveTextContent('visible/');
