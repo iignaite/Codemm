@@ -8,7 +8,7 @@ export function NoteEditor({ note, onSave, onCancel }: { note: string; onSave: (
     onSave(text.trim());
   }
   return (
-    <form className="stack" style={{ maxWidth: 600 }} onSubmit={submit}>
+    <form className="stack note-form" onSubmit={submit}>
       <textarea className="field" aria-label="My note" rows={3} value={text} autoFocus onChange={(e) => setText(e.target.value)} />
       <div className="actions">
         <Button type="submit">Save</Button>

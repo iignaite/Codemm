@@ -58,24 +58,24 @@ function Items({ topic }: { topic: TopicView }) {
     <div className="card">
       {topic.lessons.map((l, i) => (
         <div className={`row a-up${l.state === 'writing' ? ' writing' : ''}`} key={l.id} style={stagger(i, 300)}>
-          <Icon name="book" color={l.state === 'writing' ? '#5B6A84' : '#0E7C35'} size={18} />
+          <Icon name="book" color={l.state === 'writing' ? 'var(--faint)' : 'var(--green-ink)'} size={18} />
           {l.state === 'writing' ? (
             <>
-              <span style={{ flex: 1 }}>{l.title}</span>
+              <span className="fill">{l.title}</span>
               <Writing kind="lesson" concept={topic.id} label="Writing the lesson" />
             </>
           ) : (
             <>
-              <span style={{ flex: 1 }}>{l.title}</span>
-              {l.state === 'read' && <Icon name="check" color="#0E7C35" size={14} />}
+              <span className="fill">{l.title}</span>
+              {l.state === 'read' && <Icon name="check" color="var(--green-ink)" size={14} />}
               <Button variant={l.state === 'read' ? 'ghost' : 'primary'} onClick={() => go({ to: 'lesson', lessonId: l.id })} aria-label={`Read ${l.title}`}>Read</Button>
             </>
           )}
         </div>
       ))}
       <div className={`row a-up${open ? '' : ' off'}${topic.activity === 'writing' ? ' writing' : ''}`} style={stagger(topic.lessons.length, 300)}>
-        <Icon name="code" color="#5B6A84" size={18} />
-        <span style={{ flex: 1 }}>{topic.review ? 'Review' : 'Activity'}</span>
+        <Icon name="code" color="var(--faint)" size={18} />
+        <span className="fill">{topic.review ? 'Review' : 'Activity'}</span>
         {open ? (
           <Button onClick={() => go({ to: 'practice', concept: topic.id })}>{topic.activity === 'passed' ? 'Again' : 'Start'}</Button>
         ) : topic.activity === 'writing' ? (
@@ -84,7 +84,7 @@ function Items({ topic }: { topic: TopicView }) {
             waiting={topic.lessons.some((l) => l.state === 'writing') ? 'Waiting for the lesson' : undefined}
           />
         ) : (
-          <span className="locked"><Icon name="lock" color="#5B6A84" size={16} />Opens after you finish the lessons</span>
+          <span className="locked"><Icon name="lock" color="var(--faint)" size={16} />Opens after you finish the lessons</span>
         )}
       </div>
     </div>
