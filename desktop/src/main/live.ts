@@ -417,7 +417,12 @@ export function createLive(d: LiveDeps): Live {
         finishing.add(key);
         start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, undefined, onProgress, onSource)
           .then(async (o) => {
-            if (o.ok) await addReads(course, reads).catch((e: Error) => log('sources-error', errorFields(e)));
+            if (o.ok) {
+              // Quitting waits for this save, like any other run (stop()).
+              const saving = addReads(course, reads).catch((e: Error) => log('sources-error', errorFields(e)));
+              runs.add(saving);
+              await saving.finally(() => runs.delete(saving));
+            }
             outcomes.set(key, o);
           })
           .catch((e: Error) => outcomes.set(key, { ok: false, problem: e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed', text: [] }));

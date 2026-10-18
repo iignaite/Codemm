@@ -254,10 +254,15 @@ describe('live CodemmApi', () => {
     await t.api.research(goal);
     await new Promise((r) => setTimeout(r, 20));
     expect(await t.api.research(goal)).toEqual({ state: 'running' });
-    release();
+    // Quitting waits for the save.
+    let stopped = false;
+    const stopping = t.api.stop().then(() => (stopped = true));
     await new Promise((r) => setTimeout(r, 20));
+    expect(stopped).toBe(false);
+    release();
+    await stopping;
     expect(t.jobs.ran.filter((j) => j.kind === 'research')).toHaveLength(1);
-    expect((await t.api.research(goal)).state).toBe('done');
+    expect(t.c.roadmap!.sources).toEqual([{ title: 'roadmap.sh/react', url: 'https://roadmap.sh/react' }]);
   });
 
   it('holds back research progress that shows hidden material, and caps source titles', async () => {
