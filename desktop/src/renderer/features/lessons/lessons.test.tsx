@@ -327,6 +327,25 @@ describe('background work that stopped', () => {
     expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
   });
 
+  it('says Docker stopped, with Check this computer and Try again, and no Check your agent', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse({ stalled: 'docker' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Docker stopped. Start Docker, then try again.');
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Check this computer', 'Try again']);
+    await user.click(within(alert).getByRole('button', { name: 'Check this computer' }));
+    expect(await screen.findByRole('heading', { name: 'Check this computer' })).toBeInTheDocument();
+  });
+
+  it('says the disk is full, with Try again and no Check your agent', async () => {
+    const { api } = await mockWithCourse({ stalled: 'disk' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Not enough disk space. Free some space on this computer, then try again.');
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
+  });
+
   it('names a plan limit', async () => {
     const { api } = await mockWithCourse({ stalled: 'plan-limit' });
     renderApp({ to: 'learn' }, api);

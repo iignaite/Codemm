@@ -71,8 +71,8 @@ export interface Live extends CodemmApi {
 
 /** Setup proposals per setup before the learner gets Stop or Try again (§3.2). */
 const PROPOSAL_BOUND = 3;
-const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
-/** Why background work stalled: an infrastructure failure is a plain failure the learner retries. */
+const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, docker: AGENT_FAILED, disk: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
+/** Why background work stalled: Docker and the disk say so; another infrastructure failure is a plain one the learner retries. */
 const stallOf = (problem: JobProblem = 'failed'): NonNullable<CourseView['stalled']> => (problem === 'infra' ? 'failed' : problem);
 /** core store.ts's damaged-record errors: the learner repairs them; a retry can't (§5). */
 function repairable(e: unknown): unknown {

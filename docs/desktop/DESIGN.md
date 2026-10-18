@@ -424,6 +424,7 @@ Infrastructure failures record nothing. Learner-caused outcomes are graded as `e
 | No agent found, or signed out | the connect screen with its fix | nothing |
 | Agent plan limit reached | "Your agent's plan limit is reached. Try again later." | nothing; no relaunch |
 | Offline during an agent job (the agent can't reach its service, or a Codemm tool can't reach the network) | "You're offline. Connect to the internet, then try again." Try again | nothing; no relaunch |
+| Docker stopped or the disk full during an agent job (a Codemm tool says so) | "Docker stopped. Start Docker, then try again." with Check this computer and Try again, or "Not enough disk space. Free some space on this computer, then try again." with Try again. Never Check your agent | nothing; no relaunch |
 | Another agent failure (model refused, crash, deadline) or not done by its check | "Codemm couldn't finish that." Try again, or Check your agent (opens connect) | nothing; saves are atomic |
 | Track gates fail | "Couldn't set up React." A new proposal asks again; after the bound, Stop or Try again | nothing |
 | Author bound reached | "Couldn't write this activity." Try again | nothing |

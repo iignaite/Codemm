@@ -212,6 +212,18 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     await expect(researched(s)).rejects.toThrow(OFFLINE);
   });
 
+  it("a job Docker or the disk stopped stalls background work as this computer's problem, not the agent's", async () => {
+    const t = live({ setup: () => ({ ok: false, problem: 'docker' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'docker' });
+
+    const s = live({ setup: () => ({ ok: false, problem: 'disk' }) });
+    const q = await researched(s);
+    await s.api.approve(q.roadmap!.concepts);
+    expect(await until(s.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'disk' });
+  });
+
   it('keeps the first stall, and launches no queued background work after it', async () => {
     const t = live({ setup: () => ({ ok: false, problem: 'plan-limit' }), lesson: () => ({ ok: false, problem: 'failed' }) });
     const r = await researched(t);
