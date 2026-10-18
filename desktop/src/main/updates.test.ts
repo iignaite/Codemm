@@ -157,6 +157,10 @@ describe('updates', () => {
         'CN=Codemm, OU=Other + CN=Someone Else', // a multi-valued part
         'CN=Codemm, CN=Other', // a key named twice
         'CN=Codemm, O="Codemm, Inc."', // a quoted comma: refused too, the update is then installed by hand
+        'CN=Codemm\uFEFF', // characters JavaScript would trim but Windows keeps
+        'CN=\uFEFFCodemm',
+        'CN=Codemm\u00A0',
+        'CN=Сodemm', // a Cyrillic С
       ];
       for (const subject of refused) {
         expect(await verifyWindowsSignature(['Codemm'], file, signed(subject))).toMatch(/signed by someone else/);

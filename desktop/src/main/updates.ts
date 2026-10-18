@@ -86,18 +86,20 @@ type Exec = (file: string, args: string[], env: NodeJS.ProcessEnv) => Promise<st
 
 /**
  * A distinguished name's parts by key, each with every value it has (a key may repeat, such as OU). Only plain names
- * are read: one with quotes, backslashes or multi-valued parts ("+") is null, so the update is refused rather than
- * matched on a guess at Windows' quoting. Codemm's own certificate has a plain name.
+ * are read: printable ASCII with no quotes, backslashes or multi-valued parts ("+"). Anything else is null, so the
+ * update is refused rather than matched on a guess at Windows' quoting or at Unicode. Codemm's own certificate has a
+ * plain name.
  */
 function dn(name: string): Map<string, string[]> | null {
-  if (/["\\+]/.test(name)) return null;
+  if (/[^\x20-\x7e]|["\\+]/.test(name)) return null;
+  const spaces = (text: string) => text.replace(/^ +| +$/g, '');
   const parts = new Map<string, string[]>();
   for (const part of name.split(',')) {
     const at = part.indexOf('=');
     if (at < 0) return null;
-    const key = part.slice(0, at).trim().toUpperCase();
+    const key = spaces(part.slice(0, at)).toUpperCase();
     if (!/^[A-Z][A-Z0-9.-]*$/.test(key)) return null;
-    parts.set(key, [...(parts.get(key) ?? []), part.slice(at + 1).trim()]);
+    parts.set(key, [...(parts.get(key) ?? []), spaces(part.slice(at + 1))]);
   }
   return parts;
 }
