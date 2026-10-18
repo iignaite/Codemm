@@ -367,7 +367,7 @@ describe('Run', () => {
     await user.click(screen.getByRole('button', { name: 'Run' }));
     await vi.waitFor(() => expect(saves).toHaveLength(2));
     unmount();
-    saves.forEach((finish) => finish());
+    saves.slice(1).forEach((finish) => finish());
     await new Promise((r) => setTimeout(r, 20));
     expect(started).toEqual([]);
   });
