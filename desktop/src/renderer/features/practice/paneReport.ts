@@ -15,7 +15,7 @@ function verdict(term: TerminalHandle, test: Pick<FinishedTest, 'name' | 'status
   const expected = visible.find((v) => `visible/${v.name}` === test.name)?.expected ?? '';
   term.line(`✗ ${label(test.name)}`, 'fail');
   term.line(labelled('expected', expected), 'quiet');
-  term.line(labelled('found', test.actual ?? ''), 'quiet');
+  term.line(labelled('found', test.actual || '(no output)'), 'quiet');
 }
 
 /** One visible test as it finishes: the command, what the program printed, then ✓ or ✗ with expected and found. */
