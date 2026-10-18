@@ -29,7 +29,7 @@ describe.skipIf(!real)("the agents' real downloads (opt-in)", () => {
     await installer.done('claude');
     expect(installer.status('claude')).toEqual({ phase: 'done' });
     expect(progress.at(-1)).toBe(1);
-    expect(ran.filter((c) => c.startsWith('codesign'))).toHaveLength(2);
+    expect(ran.filter((c) => c.startsWith('/usr/bin/codesign --verify --strict -R=anchor apple generic'))).toHaveLength(1);
     expect(ran.at(-1)).toMatch(/\/claude install$/);
     expect(deps.exists(dir)).toBe(false);
   });

@@ -29,8 +29,10 @@ export function agentSignIn(d: SignInDeps) {
     // program started on its own gets its own window.
     if (id === 'claude' && d.platform === 'darwin') {
       const file = posix.join(d.tempDir(), 'Sign in to Claude Code.command');
-      d.write(file, `#!/bin/sh\nexec ${quote(exe.path)} ${args.join(' ')}\n`);
-      await d.start('open', [file]);
+      // A Node-script agent runs with this app as Node, as its jobs do.
+      const command = exe.js ? `ELECTRON_RUN_AS_NODE=1 exec ${quote(d.runtime)} ${quote(exe.path)}` : `exec ${quote(exe.path)}`;
+      d.write(file, `#!/bin/sh\n${command} ${args.join(' ')}\n`);
+      await d.start('/usr/bin/open', [file]);
       return;
     }
     if (exe.js) await d.start(d.runtime, [exe.path, ...args], { ELECTRON_RUN_AS_NODE: '1' });

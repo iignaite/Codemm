@@ -20,7 +20,13 @@ describe("the agent's own sign-in, where the learner sees it", () => {
     const f = fake('darwin');
     await f.signIn('claude', { path: "/Users/o'neil/.local/bin/claude", js: false });
     expect(f.written).toEqual([{ file: '/tmp/codemm-signin/Sign in to Claude Code.command', text: "#!/bin/sh\nexec '/Users/o'\\''neil/.local/bin/claude' auth login\n" }]);
-    expect(f.started).toEqual([{ file: 'open', args: ['/tmp/codemm-signin/Sign in to Claude Code.command'] }]);
+    expect(f.started).toEqual([{ file: '/usr/bin/open', args: ['/tmp/codemm-signin/Sign in to Claude Code.command'] }]);
+  });
+
+  it('a Node-script Claude Code on a Mac signs in with this app as Node, in Terminal too', async () => {
+    const f = fake('darwin');
+    await f.signIn('claude', { path: '/lib/node_modules/@anthropic-ai/claude-code/cli.js', js: true });
+    expect(f.written[0].text).toBe("#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec '/Applications/Codemm.app/Contents/MacOS/Codemm' '/lib/node_modules/@anthropic-ai/claude-code/cli.js' auth login\n");
   });
 
   it('Claude Code on Windows: its login in its own console window', async () => {

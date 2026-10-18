@@ -171,6 +171,24 @@ describe('connect (§3.1, §3.3)', () => {
       expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('connected');
     });
 
+    it('never runs an agent while Codemm is checking its install, or after the check rejected it', async () => {
+      const t = setup(['codex']);
+      const ran: string[] = [];
+      const c = connector(lookup({ find: found(t.installedAfter), version: async (id) => (ran.push(`version ${id}`), '0.157.0'), signedIn: async (id) => (ran.push(`signed-in ${id}`), true) }), state(), t.s);
+      for (const install of [{ phase: 'checking' }, { phase: 'failed', problem: 'unverified' }] as AgentInstall[]) {
+        t.status.set('codex', install);
+        expect((await c.agents()).find((a) => a.id === 'codex')).toMatchObject({ state: 'missing', install });
+        expect(await c.connect('codex')).toMatchObject({ state: 'missing' });
+        await c.signIn('codex');
+      }
+      expect([ran, t.signIns]).toEqual([[], []]);
+      // Nor do jobs, even for the agent chosen before.
+      await expect(c.chosen()).rejects.toThrow(NO_AGENT);
+      // An install that failed for another reason, or none at all: an agent that's there is an agent that's there.
+      t.status.set('codex', { phase: 'failed', problem: 'offline' });
+      expect((await c.agents()).find((a) => a.id === 'codex')!.state).not.toBe('missing');
+    });
+
     it('signing in again never marks a signed-in agent signed out', async () => {
       const t = setup();
       const c = connector(lookup(), state(), t.s);

@@ -20,7 +20,11 @@ export interface AgentInstallDeps extends DesktopDeps {
   find(bin: string): Executable | null;
 }
 
+const KiB = 1024;
+const MiB = 1024 * KiB;
 const GiB = 1024 ** 3;
+/** System tools by absolute path: a tool earlier on PATH can't answer for them. */
+const CODESIGN = '/usr/bin/codesign';
 const POWERSHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
 /** The path arrives as $env:CODEMM_FILE, so nothing outside this text is ever parsed as PowerShell. */
 const SIGNATURE = '$s = Get-AuthenticodeSignature -LiteralPath $env:CODEMM_FILE; "$($s.Status)|$($s.SignerCertificate.Subject)"';
@@ -73,20 +77,24 @@ export function agentInstaller(d: AgentInstallDeps) {
   const running = new Map<AgentId, Promise<void>>();
   const ok = (r: { code: number | null }) => r.code === 0;
 
-  async function get(id: 'claude' | 'codex', url: string, file: string, progress = false) {
+  /** A download from the vendor's host, at most `maxBytes`: small files stay small. */
+  async function get(id: 'claude' | 'codex', url: string, file: string, maxBytes: number, progress = false) {
     try {
-      await d.download(url, file, (p) => progress && status.set(id, { phase: 'downloading', progress: p }), isAgentHost(id));
+      await d.download(url, file, (p) => progress && status.set(id, { phase: 'downloading', progress: p }), isAgentHost(id), maxBytes);
     } catch (e) {
       throw new Stop(e instanceof OfflineError ? 'offline' : 'failed');
     }
   }
 
-  /** The vendor signed this file: Apple's check and team on macOS, Authenticode and organization on Windows. */
+  /**
+   * The vendor signed this file. On macOS, codesign itself checks that the signature is valid and that its
+   * certificate is Apple-issued for the vendor's team; on Windows, Authenticode and the signer's organization.
+   */
   async function assertSigned(id: 'claude' | 'codex', file: string) {
     const { team, orgs } = SIGNERS[id];
     if (d.platform === 'darwin') {
-      const signed = ok(await d.run('codesign', ['--verify', '--strict', file])) && new RegExp(`^TeamIdentifier=${team}$`, 'm').test((await d.run('codesign', ['-dv', '--verbose=2', file])).output);
-      if (!signed) throw new Stop('unverified');
+      const requirement = `-R=anchor apple generic and certificate leaf[subject.OU] = "${team}"`;
+      if (!ok(await d.run(CODESIGN, ['--verify', '--strict', requirement, file]))) throw new Stop('unverified');
     } else {
       const r = await d.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', SIGNATURE], { env: { CODEMM_FILE: file } });
       if (!ok(r) || !signedBy(r.output, orgs)) throw new Stop('unverified');
@@ -96,10 +104,10 @@ export function agentInstaller(d: AgentInstallDeps) {
   /** As Anthropic's install script does, without running a script: the binary is checked before it runs. */
   async function claude(dir: string) {
     const platform = `${d.platform === 'win32' ? 'win32' : 'darwin'}-${d.arch === 'arm64' ? 'arm64' : 'x64'}`;
-    await get('claude', `${CLAUDE_RELEASES}/latest`, path.join(dir, 'latest'));
+    await get('claude', `${CLAUDE_RELEASES}/latest`, path.join(dir, 'latest'), KiB);
     const version = d.readText(path.join(dir, 'latest')).trim();
     if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version)) throw new Stop('failed');
-    await get('claude', `${CLAUDE_RELEASES}/${version}/manifest.json`, path.join(dir, 'manifest.json'));
+    await get('claude', `${CLAUDE_RELEASES}/${version}/manifest.json`, path.join(dir, 'manifest.json'), MiB);
     let checksum: unknown;
     try {
       checksum = JSON.parse(d.readText(path.join(dir, 'manifest.json'))).platforms?.[platform]?.checksum;
@@ -109,7 +117,7 @@ export function agentInstaller(d: AgentInstallDeps) {
     if (typeof checksum !== 'string' || !/^[a-f0-9]{64}$/.test(checksum)) throw new Stop('failed');
     const name = d.platform === 'win32' ? 'claude.exe' : 'claude';
     const bin = path.join(dir, name);
-    await get('claude', `${CLAUDE_RELEASES}/${version}/${platform}/${name}`, bin, true);
+    await get('claude', `${CLAUDE_RELEASES}/${version}/${platform}/${name}`, bin, 2 * GiB, true);
     status.set('claude', { phase: 'checking' });
     if ((await d.sha256(bin)) !== checksum) throw new Stop('unverified');
     await assertSigned('claude', bin);
@@ -122,7 +130,7 @@ export function agentInstaller(d: AgentInstallDeps) {
   /** OpenAI's own install script, as a file run by its interpreter, without prompts; then its binary is checked. */
   async function codex(dir: string) {
     const script = path.join(dir, d.platform === 'win32' ? 'install.ps1' : 'install.sh');
-    await get('codex', `${CODEX_SCRIPTS}/${d.platform === 'win32' ? 'install.ps1' : 'install.sh'}`, script);
+    await get('codex', `${CODEX_SCRIPTS}/${d.platform === 'win32' ? 'install.ps1' : 'install.sh'}`, script, MiB);
     status.set('codex', { phase: 'installing' });
     const env = { CODEX_NON_INTERACTIVE: '1' };
     const r =

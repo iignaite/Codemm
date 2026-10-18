@@ -7,8 +7,6 @@ import { OfflineError } from './dockerDesktop';
 const GiB = 1024 ** 3;
 const SUM = 'a'.repeat(64);
 const MANIFEST = JSON.stringify({ version: '2.1.302', platforms: { 'darwin-arm64': { checksum: SUM, size: 10 }, 'win32-x64': { checksum: SUM, size: 10 } } });
-const ANTHROPIC = 'TeamIdentifier=Q6L2SF6YDW';
-const OPENAI = 'TeamIdentifier=2DC432GLL2';
 
 type Call = { file: string; args: string[]; env?: Record<string, string> };
 
@@ -17,12 +15,13 @@ function fake(platform: NodeJS.Platform, over: Partial<AgentInstallDeps> & { ans
   const downloads: { url: string; file: string; allowed: boolean }[] = [];
   const removed: string[] = [];
   const executable: string[] = [];
+  const caps: (number | undefined)[] = [];
   let installed = false;
   const texts: Record<string, string> = { latest: '2.1.302\n', 'manifest.json': MANIFEST, ...over.texts };
   const answer = (file: string, args: string[]) => {
     const key = [file, ...args].join(' ');
     for (const [prefix, value] of Object.entries(over.answers ?? {})) if (key.startsWith(prefix)) return value;
-    if (file === 'codesign' && args[0] === '-dv') return { code: 0, output: `Executable=/x\n${args.at(-1)!.includes('codex') ? OPENAI : ANTHROPIC}\n` };
+    if (file === '/usr/bin/codesign') return { code: 0, output: '' };
     if (file.endsWith('powershell.exe') && args.includes('-Command')) return { code: 0, output: 'Valid|CN="Anthropic, PBC", O="Anthropic, PBC", L=San Francisco, S=California, C=US\n' };
     return { code: 0, output: '' };
   };
@@ -31,8 +30,9 @@ function fake(platform: NodeJS.Platform, over: Partial<AgentInstallDeps> & { ans
     arch: platform === 'win32' ? 'x64' : 'arm64',
     tempDir: () => (platform === 'win32' ? 'C:\\Temp\\codemm-agent' : '/tmp/codemm-agent'),
     freeBytes: async () => 50 * GiB,
-    download: async (url, file, progress, allowed) => {
+    download: async (url, file, progress, allowed, maxBytes) => {
       downloads.push({ url, file, allowed: allowed ? allowed(url) : false });
+      caps.push(maxBytes);
       progress(1);
     },
     run: async (file, args, opts) => {
@@ -53,7 +53,7 @@ function fake(platform: NodeJS.Platform, over: Partial<AgentInstallDeps> & { ans
     find: (bin) => (installed ? { path: `/Users/me/.local/bin/${bin}`, js: false } : null),
     ...over,
   };
-  return { install: agentInstaller(deps), calls, downloads, removed, executable };
+  return { install: agentInstaller(deps), calls, downloads, removed, executable, caps };
 }
 
 const commands = (calls: Call[]) => calls.map((c) => [c.file, ...c.args].join(' '));
@@ -73,11 +73,13 @@ describe('installing an agent for the learner', () => {
       [`${base}/2.1.302/manifest.json`, true],
       [`${base}/2.1.302/darwin-arm64/claude`, true],
     ]);
+    // An Apple-issued Developer ID for Anthropic's team, checked by codesign itself: not display output, and not a codesign from PATH.
     expect(commands(f.calls)).toEqual([
-      'codesign --verify --strict /tmp/codemm-agent/claude',
-      'codesign -dv --verbose=2 /tmp/codemm-agent/claude',
+      `/usr/bin/codesign --verify --strict -R=anchor apple generic and certificate leaf[subject.OU] = "Q6L2SF6YDW" /tmp/codemm-agent/claude`,
       '/tmp/codemm-agent/claude install',
     ]);
+    // The version and the manifest are small: a huge reply never fills the disk or memory.
+    expect(f.caps).toEqual([1024, 1024 * 1024, 2 * 1024 ** 3]);
     expect(f.executable).toEqual(['/tmp/codemm-agent/claude']);
     expect(f.removed).toEqual(['/tmp/codemm-agent']);
   });
@@ -101,7 +103,7 @@ describe('installing an agent for the learner', () => {
   });
 
   it('refuses a binary Anthropic did not sign, and never runs it', async () => {
-    const f = fake('darwin', { answers: { 'codesign -dv': { code: 0, output: 'TeamIdentifier=XXXXXXXXXX\n' } } });
+    const f = fake('darwin', { answers: { '/usr/bin/codesign': { code: 3, output: 'test-requirement: code failed to satisfy specified code requirement(s)' } } });
     expect(await run(f, 'claude')).toEqual({ phase: 'failed', problem: 'unverified' });
     expect(commands(f.calls).some((c) => c.endsWith(' install'))).toBe(false);
   });
@@ -135,8 +137,7 @@ describe('installing an agent for the learner', () => {
     expect(f.downloads).toEqual([{ url: 'https://releases.openai.com/codex/install.sh', file: '/tmp/codemm-agent/install.sh', allowed: true }]);
     expect(f.calls[0]).toEqual({ file: '/bin/sh', args: ['/tmp/codemm-agent/install.sh'], env: { CODEX_NON_INTERACTIVE: '1' } });
     expect(commands(f.calls).slice(1)).toEqual([
-      'codesign --verify --strict /Users/me/.codex/packages/standalone/current/codex',
-      'codesign -dv --verbose=2 /Users/me/.codex/packages/standalone/current/codex',
+      `/usr/bin/codesign --verify --strict -R=anchor apple generic and certificate leaf[subject.OU] = "2DC432GLL2" /Users/me/.codex/packages/standalone/current/codex`,
     ]);
   });
 
@@ -152,7 +153,7 @@ describe('installing an agent for the learner', () => {
   });
 
   it('says a Codex that OpenAI did not sign is unverified', async () => {
-    const f = fake('darwin', { answers: { 'codesign -dv': { code: 0, output: 'TeamIdentifier=XXXXXXXXXX\n' } } });
+    const f = fake('darwin', { answers: { '/usr/bin/codesign': { code: 3, output: '' } } });
     expect(await run(f, 'codex')).toEqual({ phase: 'failed', problem: 'unverified' });
   });
 

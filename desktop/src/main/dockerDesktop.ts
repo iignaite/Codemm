@@ -19,7 +19,7 @@ export interface DesktopDeps {
    * Saves `url` to `file`, reporting 0 to 1, if every hop is on an `allowed` host (Docker's by default).
    * Rejects with OfflineError when this computer can't reach it.
    */
-  download(url: string, file: string, progress: (fraction: number) => void, allowed?: (url: string) => boolean): Promise<void>;
+  download(url: string, file: string, progress: (fraction: number) => void, allowed?: (url: string) => boolean, maxBytes?: number): Promise<void>;
   /** Runs a program to its end, or until `timeoutMs` (then `code` is null). */
   run(file: string, args: string[], opts?: { env?: Record<string, string>; timeoutMs?: number }): Promise<{ code: number | null; output: string }>;
   /** Starts a program without waiting for it; rejects if it can't start. */
@@ -217,7 +217,7 @@ export function nodeDesktopDeps(): DesktopDeps {
       const s = statfsSync(dir);
       return s.bavail * s.bsize;
     },
-    async download(start, file, progress, allowed = isDockerHost) {
+    async download(start, file, progress, allowed = isDockerHost, maxBytes = MAX_BYTES) {
       const signal = AbortSignal.timeout(DOWNLOAD_DEADLINE_MS);
       let url = start;
       let res: Response | undefined;
@@ -238,12 +238,12 @@ export function nodeDesktopDeps(): DesktopDeps {
       if (!res) throw new Error('Too many redirects.');
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const total = Number(res.headers.get('content-length')) || 0;
-      if (total > MAX_BYTES) throw new Error('The download is larger than any installer.');
+      if (total > maxBytes) throw new Error('The download is larger than expected.');
       let got = 0;
       const count = new Transform({
         transform(chunk: Buffer, _enc, done) {
           got += chunk.length;
-          if (got > MAX_BYTES) return done(new Error('The download is larger than any installer.'));
+          if (got > maxBytes) return done(new Error('The download is larger than expected.'));
           if (total) progress(Math.min(1, got / total));
           done(null, chunk);
         },

@@ -39,8 +39,18 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
   /** The agent the learner last tried to connect: once it's signed in, it connects. */
   let tried: AgentId | undefined;
 
+  /**
+   * The agent's CLI, unless Codemm is installing it or its check rejected what was installed: then nothing of it runs
+   * this session, not even --version. (An agent the learner installed themselves is theirs to trust, as in a terminal.)
+   */
+  function usable(id: AgentId): Executable | null {
+    const install = setup.status(id);
+    const blocked = install !== undefined && install.phase !== 'done' && (install.phase !== 'failed' || install.problem === 'unverified');
+    return blocked ? null : lookup.find(AGENT_CLIS[id].bin);
+  }
+
   async function view(id: AgentId): Promise<Agent> {
-    const exe = lookup.find(AGENT_CLIS[id].bin);
+    const exe = usable(id);
     let agentState: Agent['state'] = 'missing';
     const install = setup.status(id);
     if (exe) {
@@ -85,7 +95,7 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
 
     /** Starts the agent's own login. Signing in shows on the next look, when the learner comes back (agents()). */
     async signIn(id: AgentId): Promise<void> {
-      const exe = lookup.find(AGENT_CLIS[id].bin);
+      const exe = usable(id);
       if (!exe) return;
       tried = id;
       // Checked again on the next look, unless it's known to be signed in already.
@@ -95,7 +105,7 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
 
     async connect(id: AgentId): Promise<Agent> {
       tried = id;
-      const exe = lookup.find(AGENT_CLIS[id].bin);
+      const exe = usable(id);
       if (exe) {
         const ok = await lookup.signedIn(id, exe);
         signedIn.set(id, ok);
@@ -114,7 +124,7 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
     /** The agent jobs run with, and its model. Rejects with NO_AGENT or SIGNED_OUT, which open the connect screen. */
     async chosen(): Promise<{ id: AgentId; exe: Executable; model?: string }> {
       const id = state.read().agent;
-      const exe = id && lookup.find(AGENT_CLIS[id].bin);
+      const exe = id && usable(id);
       if (!id || !exe) throw new Error(NO_AGENT);
       // The status command runs once a session, and again only after a job fails (jobs.ts).
       const ok = signedIn.get(id) ?? (await this.recheck(id, exe));
