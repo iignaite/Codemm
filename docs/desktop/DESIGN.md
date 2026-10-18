@@ -87,7 +87,7 @@ desktop/
 ### 2.2 The learner-safe boundary
 
 - **IPC.** Every IPC result is built in `views.ts` from core results that are already learner-safe: `getExercise`, `CheckView`, `progress`, `getRoadmap`, `getLesson`, `listTracks`, and the learner file reads. Hidden results carry only an index and a status, as in core §4.2.
-- **Agent events.** Only `text` events from tutor and roadmap-change turns reach the renderer. For other jobs the renderer sees a job state: `running`, `done` or `failed`.
+- **Agent events.** Only `text` events from tutor and roadmap-change turns reach the renderer. For other jobs the renderer sees a job state: `running`, `done` or `failed`. Every job also sends its progress (§4.11): a stage, fixed step labels, web searches and pages, counts and times, never a tool's arguments or results.
 - **Never forwarded.** Author, setup and lesson job streams, tool arguments and results, agent stderr, and status-command output.
 - **Reply filter.** Before forwarding text, main compares it with the current exercise's solution, mutants, hidden tests and expected outputs. If any normalized line of at least 24 characters from that material appears verbatim, the message is replaced with "Codemm held back a reply that showed hidden material." This is a backstop, not proof: a paraphrase passes it.
 - **Honor system.** As in core §1 and §4.2, grading is on the honor system, and hidden tests are hidden from the agent's tools, not from the computer. §3.1 says how much each agent can still read (decision 10).
@@ -319,7 +319,7 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 
 ### 4.9 Research sources and progress
 
-- **Progress.** One stream parser in `agent/agents.ts` reads both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. Main sends the research job's steps to the app window only, on the one-way `codemm:research-progress` event, and the preload exposes it as `onResearchProgress`. The research screen lists them quietly, the latest first and fading as they age, with a step count.
+- **Progress.** One stream parser in `agent/agents.ts` reads both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. The research job's steps travel with its progress (§4.11). The research screen lists them quietly, the latest first and fading as they age, with a step count.
 - **Reads become sources.** When research has saved the roadmap, the https pages it read join the agent's own `sources` (at most 10), saved through core's roadmap rules.
 
 - **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
@@ -341,6 +341,24 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
   - **CSP.** xterm.js writes its layout into `<style>` elements, which `style-src 'self'` blocks. The CSP stays as it is; the pane copies only its own style elements' rules into constructed stylesheets, which the CSP doesn't govern.
 - **Renderer.** The pane appears with the first Run, between the editor and the results, and focus moves into it. Run turns into Stop on the same button, so focus stays put. Codemm's last line says how the program ended, for example "Exited with code 0." or "Time's up. The program was stopped after 2 minutes." Leaving the screen stops the program.
 - **Next.** Try it and Check printing each visible test into the pane as it finishes, with hidden tests as an index and a status only.
+
+### 4.11 Job progress
+
+Every long step shows its live progress, so the learner always knows where it is and that it isn't stuck.
+
+- **One channel.** Every agent job (§3.2) reports on the one-way `codemm:job-progress` event, sent to the app's windows only. The preload exposes it as `onJobProgress`, and `invoke('onJobProgress')` is refused. `jobProgress()` lists the jobs running now, so a screen that opens mid-job gets its progress so far.
+- **What a report holds** (`JobProgress` in `shared/api.ts`). It is a whole snapshot, so a later one replaces an earlier one.
+  - An opaque id for this run of the job, its kind, and the topic for a lesson or author job.
+  - The stage reached, an index into `JOB_STAGES` (`shared/progress.ts`).
+  - The latest 8 steps, newest first, and a count of all of them. Steps come from the stream parser (§4.9): searches, pages as host and path, and a fixed label per Codemm tool.
+  - A retry: "Trying again (2 of 3)" after a failed save, within the bound in §3.2, or 2 of 2 when a failed job is relaunched.
+  - Whether the agent is thinking, which is false while one of Codemm's own tools runs, and the time since the job started and since its last event.
+  - The final report says the job ended.
+- **Stages.** Each lights up as the job reaches it (`main/agent/progress.ts`):
+  - Every job starts on its first stage and moves to the second at the agent's first event.
+  - The save tool (`save_roadmap`, `save_lesson`, `save_exercise`) reaches the last stage. A failed save goes back to the second stage and counts as a retry.
+  - Setup stays on "Proposing the setup" while its agent runs. A tutor turn has one stage.
+- **Safe.** The tracker keeps nothing from a tool's arguments or results, a file or Codemm's records. The reply filter (§2.2) drops a step that shows hidden material, as it does for tutor replies.
 
 ## 5. Failure states
 

@@ -2,7 +2,7 @@
 // development (CODEMM_MOCK). Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner replaced the starter's
 // placeholder, and reports hidden results as statuses only.
-import { type CheckProgress, type ResearchProgress, type RunOutput,
+import { type CheckProgress, type JobProgress, type JobStep, type RunOutput,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
@@ -275,7 +275,14 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
   // Progress as a real check reports it: each test, as counts only.
   const progressListeners = new Set<(p: CheckProgress) => void>();
-  const researchListeners = new Set<(p: ResearchProgress) => void>();
+  const jobListeners = new Set<(p: JobProgress) => void>();
+  /** The mock's running jobs, as their latest progress (§4.11). */
+  const jobs = new Map<string, JobProgress>();
+  const tellJob = (p: JobProgress) => {
+    if (p.ended) jobs.delete(p.job);
+    else jobs.set(p.job, p);
+    jobListeners.forEach((l) => l(p));
+  };
   const runListeners = new Set<(o: RunOutput) => void>();
   const tell = (o: RunOutput) => runListeners.forEach((l) => l(o));
   /** Run's programs: each asks for a name and greets it. */
@@ -337,9 +344,13 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       programs.get(run)?.stop();
     },
 
-    onResearchProgress(listener) {
-      researchListeners.add(listener);
-      return () => void researchListeners.delete(listener);
+    onJobProgress(listener) {
+      jobListeners.add(listener);
+      return () => void jobListeners.delete(listener);
+    },
+
+    async jobProgress() {
+      return [...jobs.values()];
     },
 
     async chooseModel(id, model) {
@@ -401,11 +412,13 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async research(goal) {
       agentJob();
       if (research?.topic !== goal.topic) research = { topic: goal.topic, calls: 0 };
+      const job = `research-${goal.topic}`;
       if (++research.calls < 3) {
-        const step: ResearchProgress = research.calls === 1 ? { kind: 'search', query: `${goal.topic} roadmap` } : { kind: 'read', url: 'roadmap.sh/react' };
-        researchListeners.forEach((l) => l(step));
+        const steps: JobStep[] = [{ kind: 'search', query: `${goal.topic} roadmap` }, { kind: 'read', url: 'roadmap.sh/react' }].slice(0, research.calls).reverse() as JobStep[];
+        tellJob({ job, kind: 'research', stage: 1, steps, count: steps.length, thinking: true, elapsedMs: research.calls * 4000, idleMs: 0 });
         return { state: 'running' };
       }
+      tellJob({ job, kind: 'research', stage: 2, steps: [], count: 2, thinking: false, elapsedMs: 12_000, idleMs: 0, ended: true });
       roadmap = {
         goal: goal.topic,
         track: goal.topic,

@@ -11,7 +11,7 @@ import {
   SIGNED_OUT,
   UNSTOPPABLE,
   type CheckProgress,
-  type ResearchProgress,
+  type JobProgress,
   type RunOutput,
   type CodemmApi,
   type Computer,
@@ -21,7 +21,8 @@ import {
   type Roadmap,
   type SetupProblem,
 } from '../shared/api';
-import type { McpServer, ResearchStep } from './agent/agents';
+import type { McpServer } from './agent/agents';
+import { jobTracker, type JobTracker } from './agent/progress';
 import { briefsFrom, courseId } from './agent/briefs';
 import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type JobProblem } from './agent/jobs';
 import type { connector } from './connect';
@@ -166,13 +167,18 @@ export function createLive(d: LiveDeps): Live {
     await core.saveRoadmap(ws, current.course, JSON.stringify({ goal, track, style, concepts, ...(sources ? { sources } : {}) }), current.course);
   }
 
+  // Every job's progress goes to whoever listens (main sends it to the app window): stages, steps and time (§4.11).
+  const jobListeners = new Set<(p: JobProgress) => void>();
+  const trackers = new Map<string, JobTracker>();
+  const tellJob = (p: JobProgress) => jobListeners.forEach((l) => l(p));
+
   /**
    * Runs one agent job in a lane: one foreground job and one background queue,
    * each one at a time (§3.2). The job starts only when its turn comes.
    */
   function start(
-    key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'], resume?: string,
-    onProgress?: Job['onProgress'], onSource?: Job['onSource'],
+    key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'],
+    { resume, onSource, concept }: { resume?: string; onSource?: Job['onSource']; concept?: string } = {},
   ): Promise<JobOutcome> {
     const existing = running.get(key);
     if (existing) return existing.outcome;
@@ -190,6 +196,11 @@ export function createLive(d: LiveDeps): Live {
       if (stop.signal.aborted) return { ok: false, problem: 'failed', text: [] };
       const began = Date.now();
       log('job-start', { kind, lane, agent: id });
+      // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
+      const filter = hidden();
+      const tracker = jobTracker(kind, { concept, shows: (text) => filterReply(text, filter) === text });
+      trackers.set(key, tracker);
+      tellJob(tracker.snapshot());
       const outcome = await runJob({
         kind,
         agent: id,
@@ -206,8 +217,18 @@ export function createLive(d: LiveDeps): Live {
         done,
         blocked: () => unstoppable,
         signedIn: () => d.connect.recheck(id, exe),
-        onProgress,
+        onEvent: (e) => {
+          tracker.event(e);
+          tellJob(tracker.snapshot());
+        },
+        onRelaunch: () => {
+          tracker.relaunch();
+          tellJob(tracker.snapshot());
+        },
         onSource,
+      }).finally(() => {
+        trackers.delete(key);
+        tellJob({ ...tracker.snapshot(), ended: true });
       });
       if (outcome.problem === 'unstoppable') unstoppable = true;
       log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
@@ -227,9 +248,9 @@ export function createLive(d: LiveDeps): Live {
   }
 
   /** Background work: a failure stalls it until the learner retries, instead of relaunching on every look. */
-  function background(key: string, kind: JobKind, brief: string, course: string, done: Job['done'], lane: 'fg' | 'bg' = 'bg') {
+  function background(key: string, kind: JobKind, brief: string, course: string, done: Job['done'], lane: 'fg' | 'bg' = 'bg', concept?: string) {
     if (stopping || stalled || running.has(key)) return;
-    const outcome = start(key, lane, kind, brief, course, done);
+    const outcome = start(key, lane, kind, brief, course, done, { concept });
     const controller = running.get(key)?.stop;
     // The first stall is the one the learner sees.
     outcome
@@ -296,7 +317,7 @@ export function createLive(d: LiveDeps): Live {
     if (lessons() === 0) {
       // The course's first lesson runs in the foreground, beside setup (§3.2).
       const lane = core.listLessons(ws, course).length === 0 ? 'fg' : 'bg';
-      background(`lesson:${course}:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), course, () => lessons() > 0, lane);
+      background(`lesson:${course}:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), course, () => lessons() > 0, lane, concept.id);
     }
     if (ready && progress.next.kind === 'author') {
       // Done only by a new exercise for this concept at the requested difficulty (§3.2).
@@ -304,12 +325,12 @@ export function createLive(d: LiveDeps): Live {
       const { difficulty } = progress.next;
       const before = new Set(core.listExercises(ws, course).map((e) => e.exercise));
       const made = () => core.listExercises(ws, course).some((e) => !before.has(e.exercise) && e.concepts.includes(concept.id) && e.difficulty === difficulty);
-      background(`author:${course}:${concept.id}:${difficulty}`, 'author', briefs.author(), course, made);
+      background(`author:${course}:${concept.id}:${difficulty}`, 'author', briefs.author(), course, made, 'bg', concept.id);
     }
   }
 
   async function foreground(key: string, kind: JobKind, brief: string, course: string | undefined, done: Job['done'], resume?: string) {
-    const outcome = await start(key, 'fg', kind, brief, course, done, resume);
+    const outcome = await start(key, 'fg', kind, brief, course, done, { resume });
     if (!outcome.ok && outcome.problem) throw problemError(outcome.problem);
     return outcome;
   }
@@ -347,8 +368,6 @@ export function createLive(d: LiveDeps): Live {
   const runListeners = new Set<(o: RunOutput) => void>();
   const tell = (o: RunOutput) => runListeners.forEach((l) => l(o));
 
-  // Research progress goes to whoever listens (main sends it to the app window): searches, page hosts and paths, steps.
-  const researchListeners = new Set<(p: ResearchProgress) => void>();
   /** Research jobs that ended but whose sources aren't saved yet. */
   const finishing = new Set<string>();
 
@@ -367,9 +386,12 @@ export function createLive(d: LiveDeps): Live {
       progressListeners.add(listener);
       return () => void progressListeners.delete(listener);
     },
-    onResearchProgress(listener) {
-      researchListeners.add(listener);
-      return () => void researchListeners.delete(listener);
+    onJobProgress(listener) {
+      jobListeners.add(listener);
+      return () => void jobListeners.delete(listener);
+    },
+    async jobProgress() {
+      return [...trackers.values()].map((t) => t.snapshot());
     },
     onRunOutput(listener) {
       runListeners.add(listener);
@@ -429,19 +451,15 @@ export function createLive(d: LiveDeps): Live {
         // A new course, on a server that saves only it (§4.6).
         const course = courseId(goal.topic, Date.now());
         const reads: { title: string; url: string }[] = [];
-        // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
+        // The same backstop as tutor replies (§2.2): a page that shows hidden material is no source.
         const filter = hidden();
         const safe = (text: string) => filterReply(text, filter) === text;
-        const onProgress = (step: ResearchStep) => {
-          const shown: ResearchProgress = step.kind === 'read' ? { kind: 'read', url: step.url } : step;
-          if (safe(step.kind === 'search' ? step.query : step.kind === 'read' ? (step.href ?? step.url) : step.label)) researchListeners.forEach((l) => l(shown));
-        };
         const onSource = (source: { title: string; url: string }) => {
           if (safe(source.url)) reads.push({ title: source.title.slice(0, 120), url: source.url });
         };
         // Research counts as running until its sources are saved, so a poll meanwhile starts no second agent.
         finishing.add(key);
-        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, undefined, onProgress, onSource)
+        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, { onSource })
           .then(async (o) => {
             if (o.ok) {
               // Quitting waits for this save, like any other run (stop()).
@@ -682,7 +700,7 @@ export function createLive(d: LiveDeps): Live {
   };
   // Every call: a damaged record says so, with core's guidance. (onCheckProgress subscribes; it isn't a call.)
   for (const name of Object.keys(api) as (keyof Live)[]) {
-    if (name === 'onCheckProgress' || name === 'onResearchProgress' || name === 'onRunOutput') continue;
+    if (name === 'onCheckProgress' || name === 'onJobProgress' || name === 'onRunOutput') continue;
     const call = api[name] as (...args: unknown[]) => Promise<unknown>;
     (api as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => call.apply(api, args).catch((e: unknown) => Promise.reject(repairable(e)));
   }
