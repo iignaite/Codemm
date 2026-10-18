@@ -14,7 +14,7 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
   const { go, fail } = useRouter();
   // Coming back to the window looks again: an agent installed or signed in meanwhile shows up. An install is
   // followed until it ends.
-  const { data, error, reload } = useLoad(() => api.agents(), [], (as) => !as.some((a) => running(a.install)), undefined, true);
+  const { data, error, reload } = useLoad(() => api.agents(), [], { settled: (as) => !as.some((a) => running(a.install)), onFocus: true });
   const [agents, setAgents] = useState<Agent[]>();
   useEffect(() => setAgents(undefined), [data]);
   const [busy, setBusy] = useState<string>();

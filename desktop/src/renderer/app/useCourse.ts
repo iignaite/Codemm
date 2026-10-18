@@ -9,5 +9,5 @@ import { useLoad } from './useLoad';
  */
 export function useCourse(deps: unknown[] = []) {
   const api = useApi();
-  return useLoad<CourseView | null>(() => api.course(), deps, settled, undefined, true);
+  return useLoad<CourseView | null>(() => api.course(), deps, { settled, onFocus: true });
 }

@@ -1,7 +1,7 @@
 import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed, Stalled } from '../../app/Problems';
+import { Failed, Stale, Stalled } from '../../app/Problems';
 import { useBusy } from '../../app/useBusy';
 import { useJob } from '../../app/useJob';
 import { useCourse } from '../../app/useCourse';
@@ -19,7 +19,7 @@ const BUSY = { proposing: 'Preparing setup for', installing: 'Setting up' } as c
 
 /** A topic's lessons, then its activity. Reading starts as soon as the first lesson exists; setup runs beside it. */
 export function TopicPage({ topicId }: { topicId: string }) {
-  const { data: course, error, reload } = useCourse([topicId]);
+  const { data: course, error, stale, reload } = useCourse([topicId]);
   // Setup's progress: the agent proposing, then Codemm building and checking (§4.11). A proposing agent may still be
   // ending its turn while the install runs, so each state follows its own job.
   const installing = course?.setup === 'installing';
@@ -47,6 +47,7 @@ export function TopicPage({ topicId }: { topicId: string }) {
         <SetupOffer course={course} onChange={reload} />
       </div>
       {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }

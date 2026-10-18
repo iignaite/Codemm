@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { CourseView, TopicView } from '../../../shared/api';
 import { useRouter } from '../../app/router';
-import { Failed, Stalled } from '../../app/Problems';
+import { Failed, Stale, Stalled } from '../../app/Problems';
 import { useCourse } from '../../app/useCourse';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
@@ -14,7 +14,7 @@ const STATE_LABEL = { mastered: 'Mastered', now: 'Now', later: 'Later' } as cons
 
 /** Lessons, then an activity, per topic, with mastery so far. */
 export function CourseMap() {
-  const { data: course, error, reload } = useCourse();
+  const { data: course, error, stale, reload } = useCourse();
   // A finished course celebrates first; View course opens its map again.
   const [viewing, setViewing] = useState(false);
   if (error) return <Failed error={error} retry={reload} />;
@@ -31,6 +31,7 @@ export function CourseMap() {
       </div>
       <Aside course={course} />
       {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }
