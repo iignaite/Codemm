@@ -14,7 +14,8 @@ export interface Lookup {
 }
 
 // signIn: each CLI's own sign-in command, from its --help.
-const INFO: Record<AgentId, { name: string; installUrl: string; signIn: string; experimental: boolean }> = {
+/** Each agent as the connect screen shows it; the mock uses the same (mock.ts). */
+export const AGENT_INFO: Record<AgentId, { name: string; installUrl: string; signIn: string; experimental: boolean }> = {
   claude: { name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', signIn: 'claude auth login', experimental: false },
   codex: { name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', signIn: 'codex login', experimental: false },
   cursor: { name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', signIn: 'cursor-agent login', experimental: true },
@@ -82,7 +83,7 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
     const version = versions.get(id);
     const model = modelFor(id, state.read().models?.[id]);
     return {
-      id, ...INFO[id], state: agentState, models: modelChoices(id), model, untested: Boolean(exe && version && !isTested(id, version)),
+      id, ...AGENT_INFO[id], state: agentState, models: modelChoices(id), model, untested: Boolean(exe && version && !isTested(id, version)),
       canInstall: setup.canInstall(id), ...(install ? { install } : {}),
     };
   }
@@ -123,7 +124,7 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
 
     /** Saves the model for an agent's jobs; only one of its bench-tested models. */
     async chooseModel(id: AgentId, model: string): Promise<Agent> {
-      if (!modelChoices(id).some((m) => m.id === model)) throw new Error(`${model} isn't a tested model for ${INFO[id].name}.`);
+      if (!modelChoices(id).some((m) => m.id === model)) throw new Error(`${model} isn't a tested model for ${AGENT_INFO[id].name}.`);
       state.update((s) => ({ ...s, models: { ...s.models, [id]: model } }));
       return view(id);
     },

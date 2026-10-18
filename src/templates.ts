@@ -115,15 +115,8 @@ ${EXERCISE_RULES}
 
 export type JobKind = "research" | "roadmap" | "setup" | "lesson" | "author" | "tutor";
 
-/** The Codemm tools each job's server exposes (\`codemm mcp --tools\`). */
-export const JOB_TOOLS: Record<JobKind, string[]> = {
-  research: ["list_tracks", "save_roadmap"],
-  roadmap: ["get_roadmap", "save_roadmap"],
-  setup: ["list_tracks", "save_track"],
-  lesson: ["get_roadmap", "save_lesson"],
-  author: ["next_step", "save_exercise"],
-  tutor: ["progress", "next_step", "get_exercise", "get_lesson", "mark_lesson_read", "get_roadmap", "list_tracks"],
-};
+// Each job's Codemm tools live with the jobs in the desktop (desktop/src/main/agent/jobs.ts), which checks these
+// briefs name only their own job's tools.
 
 const ROADMAP_YAML =
   "The roadmap is YAML: \`goal\`, \`track\` (\`id@version\`), \`style\` (\`io\` or \`unit\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`) and optional \`sources\` (up to 10, each with a \`title\` and an https \`url\`).";
