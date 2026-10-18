@@ -1,14 +1,15 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { SIGNED_OUT, type CodemmApi, type Roadmap } from '../../../shared/api';
+import { SIGNED_OUT, type CodemmApi, type JobProgress, type Roadmap, type RoadmapChange } from '../../../shared/api';
 import type { MockOptions } from '../../../main/mock';
 import { mockWithRoadmap, renderApp } from '../../test-utils';
 
 const names = () => within(screen.getByRole('list')).getAllByRole('listitem').map((li) => li.getAttribute('aria-label'));
 
-async function open(options?: MockOptions): Promise<{ api: CodemmApi; roadmap: Roadmap; user: ReturnType<typeof userEvent.setup> }> {
+async function open(options?: MockOptions, before?: (api: CodemmApi) => void): Promise<{ api: CodemmApi; roadmap: Roadmap; user: ReturnType<typeof userEvent.setup> }> {
   const { api, roadmap } = await mockWithRoadmap(options);
+  before?.(api);
   const small = { ...roadmap, concepts: roadmap.concepts.filter((c) => ['javascript-basics', 'jsx', 'lists-and-keys', 'forms'].includes(c.id)) };
   renderApp({ to: 'course', roadmap: small }, api);
   await screen.findByRole('heading', { name: 'React' });
@@ -86,6 +87,20 @@ describe('course editor', () => {
     await waitFor(() => expect(asked).toHaveLength(1));
     expect(asked[0]).toContain('Go deeper on "JSX"');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled());
+  });
+
+  it('shows the change job\'s stages and latest step while Codemm changes the roadmap', async () => {
+    let hear: (p: JobProgress) => void = () => undefined;
+    const { api, roadmap, user } = await open(undefined, (a) => (a.onJobProgress = (listener) => ((hear = listener), () => undefined)));
+    let finish: (c: RoadmapChange) => void = () => undefined;
+    api.reviseRoadmap = () => new Promise((r) => (finish = r));
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Testing{Enter}');
+    act(() => hear({ job: 'j1', kind: 'roadmap', stage: 1, steps: [{ kind: 'step', label: 'Reading the roadmap' }], count: 1, thinking: true, elapsedMs: 3000, idleMs: 0 }));
+    const bar = await screen.findByRole('group', { name: 'Changing the roadmap' });
+    expect(within(bar).getByText('Reading the roadmap')).toBeInTheDocument();
+    expect(within(bar).getByRole('listitem', { current: 'step' })).toHaveTextContent('Changing the roadmap');
+    await act(async () => finish({ roadmap, changed: false, text: 'No change.' }));
+    expect(screen.queryByRole('group', { name: 'Changing the roadmap' })).not.toBeInTheDocument();
   });
 
   it('asks Codemm for changes', async () => {

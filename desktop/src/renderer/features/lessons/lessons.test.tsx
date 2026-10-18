@@ -51,6 +51,19 @@ describe('lesson examples', () => {
   });
 });
 
+describe('job progress on the topic page (§4.11)', () => {
+  it('shows setup and the lesson being written as staged progress, then the lesson to read', async () => {
+    const { api } = await approved({ slow: 3 });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const setup = await screen.findByRole('group', { name: 'Setting up React' });
+    expect(within(setup).getByRole('listitem', { current: 'step' })).toHaveTextContent('Proposing the setup');
+    const lesson = await screen.findByRole('group', { name: 'Writing the lesson' });
+    expect(within(lesson).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Starting', 'Writing the lesson', 'Saving the lesson']);
+    expect(await screen.findByRole('button', { name: 'Read useState' }, { timeout: 8000 })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Writing the lesson' })).not.toBeInTheDocument();
+  }, 15_000);
+});
+
 describe('topic page and setup consent', () => {
   it('asks once before setup, shows exactly what will be built, and sets up', async () => {
     const user = userEvent.setup();

@@ -1,8 +1,10 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import type { Message } from '../../shared/api';
+import type { HeardJob } from '../app/useJob';
 import { Button } from './Button';
 import { Emm } from './Emm';
 import { Field } from './Field';
+import { JobBar } from './JobBar';
 import { Markdown } from './Markdown';
 
 function Entry({ m }: { m: Message }) {
@@ -10,8 +12,10 @@ function Entry({ m }: { m: Message }) {
   return <div className="note a-up"><Markdown text={m.text} className="md small" /></div>;
 }
 
-/** The Codemm tutor beside a lesson or activity. */
-export function Rail({ messages, onAsk, busy = false, name, children }: { messages: Message[]; onAsk: (text: string) => void; busy?: boolean; name?: string; children?: ReactNode }) {
+/** The Codemm tutor beside a lesson or activity. While it answers, `answering` is that turn's progress (§4.11). */
+export function Rail({ messages, onAsk, busy = false, answering, name, children }: {
+  messages: Message[]; onAsk: (text: string) => void; busy?: boolean; answering?: HeardJob; name?: string; children?: ReactNode;
+}) {
   const [text, setText] = useState('');
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -25,6 +29,12 @@ export function Rail({ messages, onAsk, busy = false, name, children }: { messag
       <div className="chead"><Emm width={40} name={name} />Codemm</div>
       <div className="cbody" role="log" aria-busy={busy}>
         {messages.map((m, i) => <Entry key={i} m={m} />)}
+        {busy && (
+          <div className="note thinking a-up">
+            <span role="status">Codemm is thinking…</span>
+            {answering && <JobBar job={answering} label="Codemm's answer" />}
+          </div>
+        )}
       </div>
       <div className="cfoot">
         {children}

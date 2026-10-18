@@ -358,7 +358,16 @@ Every long step shows its live progress, so the learner always knows where it is
   - Every job starts on its first stage and moves to the second at the agent's first event.
   - The save tool (`save_roadmap`, `save_lesson`, `save_exercise`) reaches the last stage. A failed save goes back to the second stage and counts as a retry.
   - Setup stays on "Proposing the setup" while its agent runs. A tutor turn has one stage.
+- **Setup.** The setup job proposes; a proposal after one failed its gates starts as "Trying again (2 of 3)". Once the learner consents, Codemm's own install reports on the same channel: "Building", then "Checking the setup". While Codemm works, the agent isn't thinking.
 - **Safe.** The tracker keeps nothing from a tool's arguments or results, a file or Codemm's records. The reply filter (§2.2) drops a step that shows hidden material, as it does for tutor replies.
+- **The bar** (`renderer/ui/JobBar.tsx`). Each stage is a bar segment with its name beneath, filled once reached, the current one marked for screen readers (`aria-current="step"`). Beside it: the latest step or the retry, and the time so far. Where no real fraction exists, it shows the stage and the step, never a percentage. After 90 seconds with no event while the agent thinks, a quiet line says "Still working: the agent is thinking."
+- **Where it shows.**
+  - Research: the bar above the live list of searches and pages.
+  - The course editor, while "Ask Codemm for changes" or Go deeper runs.
+  - The topic page and the outline: a lesson or activity being written shows its job's stages (compact in the outline). A job still waiting its turn keeps the quiet shimmer.
+  - The topic page, during setup: proposing, then building and checking.
+  - The tutor rail: "Codemm is thinking…" and the turn's latest step.
+- **Mock.** `CODEMM_MOCK=slow-jobs` holds each stage over a few reads, so every state can be seen; `quiet-jobs` also shows the quiet line.
 
 ## 5. Failure states
 

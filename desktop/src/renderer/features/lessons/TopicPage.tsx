@@ -5,12 +5,15 @@ import { settled } from '../../app/course';
 import { problemOf } from '../../app/errors';
 import { useRouter } from '../../app/router';
 import { Failed, Stalled } from '../../app/Shell';
+import { useJob } from '../../app/useJob';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
+import { JobBar } from '../../ui/JobBar';
 import { stagger } from '../../ui/motion';
 import { SetupConsent } from './SetupConsent';
+import { Writing } from './Writing';
 
 const BUSY = { proposing: 'Preparing setup for', installing: 'Setting up' } as const;
 
@@ -21,6 +24,8 @@ export function TopicPage({ topicId }: { topicId: string }) {
   const { data: course, error, reload } = useLoad(() => api.course(), [topicId], settled, undefined, true);
   const [consentClosed, setConsentClosed] = useState(false);
   const [consentError, setConsentError] = useState<string>();
+  // Setup's progress: the agent proposing, then Codemm building and checking (§4.11).
+  const setupJob = useJob((p) => p.kind === 'setup', []);
   if (error) return <Failed error={error} retry={reload} />;
   const topic = course?.topics.find((t) => t.id === topicId);
   if (!course || !topic) return null;
@@ -44,9 +49,12 @@ export function TopicPage({ topicId }: { topicId: string }) {
       <div className="topic-page">
         <h1 className="h1 a-up">{topic.title}</h1>
         <Items topic={topic} />
-        {(course.setup === 'proposing' || course.setup === 'installing') && (
-          <div className="busy a-up" style={stagger(3, 300)}><Status kind="run" size={18} />{BUSY[course.setup]} {course.track}</div>
-        )}
+        {(course.setup === 'proposing' || course.setup === 'installing') &&
+          (setupJob ? (
+            <div className="a-up" style={stagger(3, 300)}><JobBar job={setupJob} label={`Setting up ${course.track}`} /></div>
+          ) : (
+            <div className="busy a-up" style={stagger(3, 300)}><Status kind="run" size={18} />{BUSY[course.setup]} {course.track}</div>
+          ))}
         {proposal && consentClosed && (
           <div className="a-up"><Button onClick={() => setConsentClosed(false)}>Set up {course.track}</Button></div>
         )}
@@ -70,7 +78,7 @@ function Items({ topic }: { topic: TopicView }) {
           {l.state === 'writing' ? (
             <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
               <span>{l.title}</span>
-              <span className="shim" style={{ width: '60%' }} role="img" aria-label="Writing" />
+              <Writing kind="lesson" concept={topic.id} label="Writing the lesson" />
             </span>
           ) : (
             <>
@@ -87,7 +95,9 @@ function Items({ topic }: { topic: TopicView }) {
         {open ? (
           <Button onClick={() => go({ to: 'practice', concept: topic.id })}>{topic.activity === 'passed' ? 'Again' : 'Start'}</Button>
         ) : topic.activity === 'writing' ? (
-          <span className="shim" style={{ width: 96 }} role="img" aria-label={topic.review ? 'Writing the review' : 'Writing the activity'} />
+          <span style={{ flex: 2, display: 'flex', justifyContent: 'flex-end' }}>
+            <Writing kind="author" concept={topic.id} label={topic.review ? 'Writing the review' : 'Writing the activity'} width={96} />
+          </span>
         ) : (
           <span role="img" aria-label="Opens after the lessons"><Icon name="lock" color="#5B6A84" size={16} /></span>
         )}

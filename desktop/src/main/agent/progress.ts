@@ -17,18 +17,22 @@ export interface TrackerOptions {
   now?: () => number;
   /** False for text that must not be shown: the reply filter's backstop (§2.2). */
   shows?: (text: string) => boolean;
+  /** The job is itself a retry: another setup proposal after one failed its gates. */
+  retry?: JobProgress['retry'];
 }
 
 export type JobTracker = ReturnType<typeof jobTracker>;
 
-export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Date.now, shows = () => true }: TrackerOptions = {}) {
+export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Date.now, shows = () => true, retry: first }: TrackerOptions = {}) {
   const started = now();
   const last = JOB_STAGES[kind].length - 1;
   let stage = 0;
   let lastEvent = started;
   let steps: JobStep[] = [];
   let count = 0;
-  let retry: JobProgress['retry'];
+  let retry: JobProgress['retry'] = first;
+  /** Codemm itself is working (a setup's build), not the agent. */
+  let codemm = false;
   let failedSaves = 0;
   const open = new Set<string>();
   const saves = new Set<string>();
@@ -69,6 +73,12 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
         }
       }
     },
+    /** Codemm's own work reached a stage: a setup's build, then its checks. */
+    reach(n: number) {
+      lastEvent = now();
+      codemm = true;
+      stage = Math.min(n, last);
+    },
     /** The job's agent runs again after a failure (§3.2): it starts over. */
     relaunch() {
       lastEvent = now();
@@ -89,7 +99,7 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
         steps,
         count,
         ...(retry ? { retry } : {}),
-        thinking: open.size === 0,
+        thinking: open.size === 0 && !codemm,
         elapsedMs: t - started,
         idleMs: t - lastEvent,
       };

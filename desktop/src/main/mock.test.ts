@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CHANGED, NO_AGENT, PLAN_LIMIT, SIGNED_OUT, type CodemmApi, type CourseView } from '../shared/api';
+import { CHANGED, NO_AGENT, PLAN_LIMIT, SIGNED_OUT, type CodemmApi, type CourseView, type JobProgress } from '../shared/api';
 import { isSafeLink } from './links';
 import { createMock, scenario, SCENARIOS, type MockOptions } from './mock';
 
@@ -242,9 +242,47 @@ describe('mock: environment', () => {
   });
 
   it('names every scenario, and rejects unknown ones', () => {
-    expect(Object.keys(SCENARIOS)).toHaveLength(15);
+    expect(Object.keys(SCENARIOS)).toHaveLength(17);
     expect(scenario(undefined)).toEqual({});
     expect(() => scenario('nope')).toThrow('Unknown mock scenario');
+  });
+});
+
+describe('mock: job progress (§4.11)', () => {
+  it('reports each job kind through its stages, then its end; without slow, jobs finish at once', async () => {
+    const api = createMock();
+    const heard: JobProgress[] = [];
+    api.onJobProgress((p) => heard.push(p));
+    await api.connect('claude');
+    let r = await api.research({ topic: 'React', known: '', depth: 'standard' });
+    while (r.state === 'running') r = await api.research({ topic: 'React', known: '', depth: 'standard' });
+    await api.approve(r.roadmap!.concepts);
+    await api.course();
+    expect(new Set(heard.map((p) => p.kind))).toEqual(new Set(['research', 'setup', 'lesson']));
+    const lesson = heard.filter((p) => p.kind === 'lesson');
+    expect(lesson.map((p) => [p.stage, p.ended ?? false])).toEqual([[0, false], [1, false], [2, false], [2, true]]);
+    expect(await api.jobProgress()).toEqual([]);
+  });
+
+  it('slow: a job holds each stage over several reads, and jobProgress lists it meanwhile', async () => {
+    const api = createMock({ slow: 2 });
+    await api.connect('claude');
+    let r = await api.research({ topic: 'React', known: '', depth: 'standard' });
+    while (r.state === 'running') r = await api.research({ topic: 'React', known: '', depth: 'standard' });
+    await api.approve(r.roadmap!.concepts);
+    await api.course();
+    expect((await api.jobProgress()).map((p) => [p.kind, p.stage])).toEqual([['setup', 0], ['lesson', 0]]);
+    for (let i = 0; i < 6; i++) await api.course();
+    expect((await api.course())!.setup).toBe('consent');
+  });
+
+  it('quiet: every job has been quiet for over 90 seconds', async () => {
+    const api = createMock({ quiet: true });
+    const heard: JobProgress[] = [];
+    api.onJobProgress((p) => heard.push(p));
+    await api.connect('claude');
+    await api.research({ topic: 'React', known: '', depth: 'standard' });
+    expect(heard[0]!.idleMs).toBeGreaterThan(90_000);
   });
 });
 
