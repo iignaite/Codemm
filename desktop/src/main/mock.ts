@@ -313,6 +313,23 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     for (let done = 0; done <= total; done++) progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
   };
 
+  /**
+   * An io activity's visible tests, each reported as it finishes, like core: the program greets by name once the
+   * learner replaced the placeholder, and prints a bare "Hello, !" before.
+   */
+  function ioTests(run: string | undefined, activity: Activity): TestView[] {
+    const done = !activity.files[0].text.includes(PLACEHOLDER);
+    const total = activity.visibleTests.length;
+    progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase: 'visible', done: 0, total }));
+    return activity.visibleTests.map((t, i) => {
+      const actual = done ? (t.expected ?? '') : 'Hello, !\n';
+      const status = done ? ('pass' as const) : ('fail' as const);
+      const test = { name: `visible/${t.name}`, status, ...(done ? {} : { message: 'Output differs from the expected output.' }), actual };
+      progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase: 'visible', done: i + 1, total, test }));
+      return { hidden: false, name: test.name, status, ...(done ? {} : { message: test.message, actual }) };
+    });
+  }
+
   return {
     async agents() {
       return agents.map((a) => ({
@@ -517,6 +534,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async tryIt(activityId, run) {
       const { activity } = find(activities, activityId);
       if (docker() !== 'ready') return notCounted();
+      if (activity.run) {
+        const tests = ioTests(run, activity);
+        return { kind: 'ran', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests };
+      }
       progress(run, 'visible', activity.visibleTests.length);
       const done = !activity.files[0].text.includes(PLACEHOLDER);
       const tests: TestView[] = activity.visibleTests.map((t, i) => ({
@@ -532,8 +553,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       const record = find(activities, activityId);
       if (docker() !== 'ready') return notCounted();
       if (++checks === 1) happen('check');
-      progress(run, 'visible', 2);
-      progress(run, 'hidden', 0);
+      if (!record.activity.run) progress(run, 'visible', 2);
       deferred.delete(record.activity.concept);
       const text = record.activity.files[0].text;
       const done = !text.includes(PLACEHOLDER);
@@ -545,7 +565,9 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         advance();
       }
       topic.stuck = !done && record.fails >= 3;
-      const tests: TestView[] = [
+      const visible = record.activity.run ? ioTests(run, record.activity) : [];
+      progress(run, 'hidden', 0);
+      const tests: TestView[] = record.activity.run ? [...visible, { hidden: true, index: 1, status: 'pass' }, { hidden: true, index: 2, status: done ? 'pass' : 'fail' }] : [
         { hidden: false, name: 'Shows Count: 0', status: 'pass' },
         { hidden: false, name: 'Adds one per click', status: done ? 'pass' : 'fail', ...(done ? {} : { actual: 'Count: 0' }) },
         { hidden: true, index: 1, status: 'pass' },

@@ -268,6 +268,19 @@ describe('mock: Run', () => {
     expect(await stopped).toMatchObject({ kind: 'ran', stopped: true });
   });
 
+  it('streams each visible io test\'s result in Try it and Check, and nothing about hidden ones', async () => {
+    const { api, activity } = await practising({ style: 'io' });
+    const heard: unknown[] = [];
+    api.onCheckProgress((p) => heard.push(p));
+    await api.check(activity.id, 'run-1');
+    expect(heard).toEqual([
+      { run: 'run-1', phase: 'visible', done: 0, total: 2 },
+      { run: 'run-1', phase: 'visible', done: 1, total: 2, test: { name: 'visible/01', status: 'fail', message: 'Output differs from the expected output.', actual: 'Hello, !\n' } },
+      { run: 'run-1', phase: 'visible', done: 2, total: 2, test: { name: 'visible/02', status: 'fail', message: 'Output differs from the expected output.', actual: 'Hello, !\n' } },
+      { run: 'run-1', phase: 'hidden', done: 0, total: 0 },
+    ]);
+  });
+
   it('has no Run for a unit activity', async () => {
     const { activity } = await practising();
     expect(activity.run).toBeUndefined();

@@ -11,6 +11,7 @@ import { Rail } from '../../ui/Rail';
 import { Terminal, type TerminalHandle } from '../../ui/Terminal';
 import { Editor } from './Editor';
 import { Results, type Shown } from './Results';
+import { printCheck, printTest, printTry } from './paneReport';
 import { useLearnerFiles } from './useLearnerFiles';
 import { useRun } from './useRun';
 
@@ -38,7 +39,7 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
   const topic = course.topics.find((t) => t.id === activity.concept);
   const terminal = useRef<TerminalHandle>(null);
   const program = useRun((run) => api.runProgram(activity.id, run), activity.run, terminal, save, fail);
-  // The pane appears with the first Run and stays.
+  // The pane appears with the first Run, Try it or Check, and stays.
   const [ran, setRan] = useState(false);
   const busy = shown.kind === 'busy' || program.running;
   // Codemm reads the saved files, so pending edits are saved before each question.
@@ -53,11 +54,28 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
     const run = crypto.randomUUID();
     setShown({ kind: 'busy', label });
     listening.current?.();
-    const stop = api.onCheckProgress((progress) => progress.run === run && setShown((s) => (s.kind === 'busy' ? { ...s, progress } : s)));
+    // An io activity also prints each visible test into the terminal as it finishes, then the summary.
+    const command = activity.run;
+    const streamed = new Set<string>();
+    if (command) setRan(true);
+    const stop = api.onCheckProgress((progress) => {
+      if (progress.run !== run) return;
+      setShown((s) => (s.kind === 'busy' ? { ...s, progress } : s));
+      if (command && progress.test && terminal.current) {
+        streamed.add(progress.test.name);
+        printTest(terminal.current, command, progress.test, activity.visibleTests);
+      }
+    });
     listening.current = stop;
     try {
       await save();
-      setShown(await work(run));
+      terminal.current?.clear();
+      const result = await work(run);
+      if (command && terminal.current) {
+        if (result.kind === 'try') printTry(terminal.current, command, result.result, streamed, activity.visibleTests);
+        if (result.kind === 'check') printCheck(terminal.current, command, result.result, streamed, activity.visibleTests);
+      }
+      setShown(result);
     } catch (e) {
       setShown(before);
       fail(e);

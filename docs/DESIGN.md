@@ -128,7 +128,8 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
 - **Known limitation: results can be forged from inside.** The driver (PID 1) holds the container's output stream on a saved descriptor while a case runs. A program running as the same user could write forged frames to it through `/proc/1/fd`. This doesn't weaken host isolation, but it does mean grading is honor-system, consistent with §1 and §2. Tamper-proof grading would need a separate trusted grader and is out of scope for 1.0.
 - **Progress.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }`:
   - `phase` is `building`, `visible` or `hidden`;
-  - io reports the build, then each visible test as it finishes, counted from the frame headers as they stream (bodies are skipped, never decoded);
+  - io reports the build, then each visible test as it finishes, counted from the frame headers as they stream;
+  - each visible io test also arrives with its result (`test`: name, status, message and output, graded as Results grades it), so the app can print it as it finishes. Only visible bodies are kept; hidden bodies are skipped, never decoded. The final grade still decides: an output flood or a memory kill afterwards makes every test an error;
   - hidden tests, and unit tests (whose runner reports at the end), report their phase once with `total` 0, so nothing per hidden test, not even timing, leaves;
   - a listener that throws is dropped, and the check goes on.
   Code in the container could print extra frames, but that can only move progress, never a grade.
