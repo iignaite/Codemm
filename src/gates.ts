@@ -6,7 +6,7 @@ import { CodemmError } from "./errors.js";
 import { type FileMap, subMap, validateFileMap, writeFileMap } from "./files.js";
 import type { TestResult, TestSet } from "./grading.js";
 import { gradeIoRun, gradeUnitRun, type IoRun, type JudgeTrack, runIo, runUnit, type UnitRun } from "./judge.js";
-import { buildImage, inspectImage } from "./sandbox.js";
+import { buildImage, type BuildStep, inspectImage } from "./sandbox.js";
 import {
   type CourseRecord, type ExerciseRecord, type ExerciseSpec, parseExerciseYaml, parseTrackYaml, type Style, type TrackRecord, type TrackSpec,
 } from "./schemas.js";
@@ -125,7 +125,10 @@ export function checkTrackFiles(files: FileMap) {
   return { spec, probes: spec.styles.map((style) => ({ style, ...probe(files, spec, style) })) };
 }
 
-export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec: TrackSpec; image: string; imageId: string; warning?: string }> {
+/** A track install's progress: each build step as counts, then the probes (DESIGN §4.4). Never the build's output. */
+export type TrackProgress = ({ phase: "building" } & BuildStep) | { phase: "checking" };
+
+export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p: TrackProgress) => void): Promise<{ spec: TrackSpec; image: string; imageId: string; warning?: string }> {
   const { spec, probes } = checkTrackFiles(files);
 
   const image = tag ?? trackImageTag(spec.id, spec.version);
@@ -133,7 +136,7 @@ export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec:
   let builtId = "";
   try {
     writeFileMap(context, files);
-    const built = await buildImage(context, image);
+    const built = await buildImage(context, image, undefined, onProgress && ((step) => onProgress({ phase: "building", ...step })));
     builtId = built.imageId ?? "";
     // Offline, out of disk or no runtime isn't the track's fault, so it's no gate failure.
     if (built.problem) throw new CodemmError(built.problem);
@@ -148,6 +151,7 @@ export async function verifyTrack(files: FileMap, tag?: string): Promise<{ spec:
 
   // Run by immutable ID so a retagged image can't change what was verified.
   const track: JudgeTrack = { ...spec, image: info.id };
+  onProgress?.({ phase: "checking" });
   for (const p of probes) {
     const exp = { expected: p.expected };
     const pass1 = grade(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
@@ -213,9 +217,15 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
   return { spec, style, starter, solution, mutants, sets };
 }
 
+/** The exercise gate running, by name only: the reference passes, the starter fails, the tests catch each mutant. */
+export type ExerciseGate = "reference" | "starter" | "mutants";
+
 /** Runs exercise gates 1-6 (DESIGN §6). Returns the record to store, with io expected outputs or the unit inventory. */
-export async function verifyExercise(trackRecord: TrackRecord, course: CourseRecord, files: FileMap, taken: Set<string>): Promise<ExerciseRecord> {
+export async function verifyExercise(
+  trackRecord: TrackRecord, course: CourseRecord, files: FileMap, taken: Set<string>, onGate?: (gate: ExerciseGate) => void,
+): Promise<ExerciseRecord> {
   const { spec, style, starter, solution, mutants, sets } = validate(trackRecord, course, files, taken);
+  onGate?.("reference");
   const track = { ...trackRecord, image: trackRecord.imageId };
   const fast = Math.max(100, Math.floor(track.limits.time_ms / 3));
 
@@ -265,10 +275,12 @@ export async function verifyExercise(trackRecord: TrackRecord, course: CourseRec
   }
 
   // Gate 4: the starter isn't already a solution.
+  onGate?.("starter");
   const starterTests = grade(style, await runSets(track, style, starter, sets), exp);
   if (allPass(starterTests)) throw new GateError("starter unsolved", "the unedited starter passes every test. Leave the work to the learner.");
 
   // Gates 5 + 6: every mutant is caught by a hidden test, and some mutant gets past the visible ones.
+  onGate?.("mutants");
   let anyPassesVisible = false;
   for (const m of mutants) {
     const tests = grade(style, await runSets(track, style, m.src, sets), exp);

@@ -29,7 +29,7 @@ function results() {
 
 describe('Results with real core result shapes', () => {
   it('shows expected next to found for a failed visible io test after Check', () => {
-    render(<Results shown={{ kind: 'check', result: checkView(core, { stuck: false, mastered: false }), keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    render(<Results shown={{ kind: 'check', result: checkView(core, { stuck: false, mastered: false, later: true }), keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
     expect(results()).toHaveTextContent('expected Count: 1');
     expect(results()).toHaveTextContent('found Count: 0');
   });
@@ -43,5 +43,25 @@ describe('Results with real core result shapes', () => {
     render(<Results shown={{ kind: 'try', result: tryView(core) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
     expect(results()).not.toHaveTextContent('visible/');
     expect(results()).toHaveTextContent('02');
+  });
+});
+
+describe('stuck', () => {
+  const stuck = (later: boolean) => ({ kind: 'check' as const, result: { ...checkView(core, { stuck: true, mastered: false, later }) }, keepTrying: false });
+
+  it('offers Come back later only when another topic can come next', () => {
+    const view = render(<Results shown={stuck(false)} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(screen.getByRole('button', { name: 'Reread the lesson' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Come back later' })).not.toBeInTheDocument();
+    view.unmount();
+    render(<Results shown={stuck(true)} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(screen.getByRole('button', { name: 'Come back later' })).toBeInTheDocument();
+  });
+
+  it('keeps the failed results under the ways forward', () => {
+    render(<Results shown={stuck(true)} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(results()).toHaveTextContent('1 of 3 passed');
+    expect(results()).toHaveTextContent('expected Count: 1');
+    expect(screen.getByRole('img', { name: 'Hidden test 1 not yet' })).toBeInTheDocument();
   });
 });

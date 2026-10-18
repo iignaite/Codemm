@@ -13,10 +13,11 @@ export interface Lookup {
   version(id: AgentId, exe: Executable): Promise<string | null>;
 }
 
-const INFO: Record<AgentId, { name: string; installUrl: string; experimental: boolean }> = {
-  claude: { name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', experimental: false },
-  codex: { name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', experimental: false },
-  cursor: { name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', experimental: true },
+// signIn: each CLI's own sign-in command, from its --help.
+const INFO: Record<AgentId, { name: string; installUrl: string; signIn: string; experimental: boolean }> = {
+  claude: { name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', signIn: 'claude auth login', experimental: false },
+  codex: { name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', signIn: 'codex login', experimental: false },
+  cursor: { name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', signIn: 'cursor-agent login', experimental: true },
 };
 const IDS: AgentId[] = ['claude', 'codex', 'cursor'];
 
@@ -24,6 +25,8 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
   /** The last sign-in answer per agent this session. */
   const signedIn = new Map<AgentId, boolean>();
   const versions = new Map<AgentId, string | null>();
+  /** The agent the learner last tried to connect: once it's signed in, it connects. */
+  let tried: AgentId | undefined;
 
   async function view(id: AgentId): Promise<Agent> {
     const exe = lookup.find(AGENT_CLIS[id].bin);
@@ -33,8 +36,13 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
       const chosen = state.read().agent === id;
       // The agent chosen before: check its sign-in once this launch, so a relaunch doesn't ask to connect again.
       if (chosen && !signedIn.has(id)) signedIn.set(id, await lookup.signedIn(id, exe));
+      // Signed out: check again on every look, so signing in from a terminal shows when the learner comes back.
+      if (signedIn.get(id) === false && (await lookup.signedIn(id, exe))) {
+        signedIn.set(id, true);
+        if (tried === id) state.update((s) => ({ ...s, agent: id }));
+      }
       const known = signedIn.get(id);
-      agentState = known === false ? 'signed-out' : chosen && known ? 'connected' : 'not-connected';
+      agentState = known === false ? 'signed-out' : state.read().agent === id && known ? 'connected' : 'not-connected';
     }
     const version = versions.get(id);
     const model = modelFor(id, state.read().models?.[id]);
@@ -45,6 +53,7 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
     agents: () => Promise.all(IDS.map(view)),
 
     async connect(id: AgentId): Promise<Agent> {
+      tried = id;
       const exe = lookup.find(AGENT_CLIS[id].bin);
       if (exe) {
         const ok = await lookup.signedIn(id, exe);

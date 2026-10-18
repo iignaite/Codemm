@@ -83,9 +83,9 @@ const DOCKER_DOWN: Record<Exclude<Docker, 'ready'>, string> = {
 };
 
 const AGENTS: Omit<Agent, 'state' | 'untested'>[] = [
-  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', models: modelChoices('claude'), model: modelFor('claude'), experimental: false },
-  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', models: modelChoices('codex'), model: modelFor('codex'), experimental: false },
-  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', models: modelChoices('cursor'), model: modelFor('cursor'), experimental: true },
+  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', signIn: 'claude auth login', models: modelChoices('claude'), model: modelFor('claude'), experimental: false },
+  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', signIn: 'codex login', models: modelChoices('codex'), model: modelFor('codex'), experimental: false },
+  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', signIn: 'cursor-agent login', models: modelChoices('cursor'), model: modelFor('cursor'), experimental: true },
 ];
 
 const TOPICS: [string, string[]][] = [
@@ -334,8 +334,16 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     });
   }
 
+  /** The agent the learner last tried to connect: once it's signed in, it connects. */
+  let tried: AgentId | undefined;
+
   return {
     async agents() {
+      // A signed-out agent is checked again on every look, as main does.
+      for (const a of agents.filter((x) => x.state === 'signed-out' && options.agents?.[x.id] !== 'signed-out')) {
+        a.state = tried === a.id ? 'connected' : 'not-connected';
+        if (a.state === 'connected') agents.filter((x) => x !== a && x.state === 'connected').forEach((x) => (x.state = 'not-connected'));
+      }
       return agents.map((a) => ({
         ...a,
         state: a.state === 'connected' && options.agentProblem === 'signed-out' ? 'signed-out' : a.state,
@@ -390,6 +398,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     // Connecting runs the agent's sign-in check. Passing it also ends a
     // mid-session sign-out: the learner has signed in again.
     async connect(id) {
+      tried = id;
       const agent = agents.find((a) => a.id === id)!;
       if (agent.state !== 'missing') {
         agent.state = options.agents?.[id] === 'signed-out' ? 'signed-out' : 'connected';
@@ -589,7 +598,9 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         { hidden: true, index: 1, status: 'pass' },
         { hidden: true, index: 2, status: done ? 'pass' : 'fail' },
       ];
-      return { kind: 'graded', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests, recorded: !unedited, stuck: topic.stuck, mastered: topic.state === 'mastered' };
+      const requires = (id: string) => roadmap!.concepts.find((x) => x.id === id)?.requires ?? [];
+      const later = course!.topics.some((t) => t !== topic && t.state !== 'mastered' && requires(t.id).every((r) => topicOf(r).state === 'mastered'));
+      return { kind: 'graded', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests, recorded: !unedited, stuck: topic.stuck, mastered: topic.state === 'mastered', later };
     },
 
     async ask(place, text) {

@@ -133,6 +133,9 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .outline { gap: 6px; }
 .outline .h3 { padding: 0 14px 8px; }
 .outline .item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: none; border-radius: 10px; background: transparent; color: var(--faint); text-align: left; }
+/* Why a locked activity is locked, in words (the lock alone says nothing). */
+.locked { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.outline .locked { margin-top: -8px; padding: 0 14px 0 44px; }
 .outline .link { color: var(--ink); cursor: pointer; }
 .outline .link:hover { background: var(--soft); }
 .outline .link[aria-current="page"] { background: var(--green-soft); font-weight: 600; }
@@ -183,6 +186,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .rhead .h3 { color: var(--orange-ink); }
 .tline { display: flex; gap: 12px; align-items: center; font-size: 15px; font-weight: 600; }
 .cmp { display: inline-flex; gap: 8px; margin-left: 6px; font: 500 13px var(--mono); }
+.cmd { padding: 1px 6px; border-radius: 6px; background: var(--soft); color: var(--ink); font: 500 13px var(--mono); user-select: all; }
 .cmp span { padding: 4px 10px; border-radius: 6px; }
 .cmp .e { background: var(--green-soft); color: var(--green-ink); }
 .cmp .f { background: var(--orange-soft); color: var(--orange-ink); }

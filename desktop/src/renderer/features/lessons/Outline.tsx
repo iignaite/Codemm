@@ -26,11 +26,14 @@ export function Outline({ topic, current }: { topic: TopicView; current: string 
           Activity
         </button>
       ) : (
-        <span className="item">
-          <Icon name="code" color="#5B6A84" size={18} />
-          <span style={{ flex: 1 }}>Activity</span>
-          {topic.activity === 'writing' && <span className="shim" style={{ width: 48 }} role="img" aria-label="Writing the activity" />}
-        </span>
+        <>
+          <span className="item">
+            <Icon name="code" color="#5B6A84" size={18} />
+            <span style={{ flex: 1 }}>Activity</span>
+            {topic.activity === 'writing' && <span className="shim" style={{ width: 48 }} role="img" aria-label="Writing the activity" />}
+          </span>
+          {topic.activity === 'locked' && <span className="locked">Opens after you finish the lessons</span>}
+        </>
       )}
     </nav>
   );
