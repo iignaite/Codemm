@@ -23,14 +23,18 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
   const [asking, setAsking] = useState(false);
   const dragFrom = useRef<string>(undefined);
 
-  /** Applies an edit, or says why it was refused. */
+  /** Applies an edit and saves it, so the draft survives leaving or closing Codemm; or says why it was refused. */
   function edit(change: (cs: Concept[]) => Concept[]) {
+    let next: Concept[];
     try {
-      setConcepts(change(concepts));
-      setNotice('');
+      next = change(concepts);
     } catch (e) {
       setNotice((e as Error).message);
+      return;
     }
+    setConcepts(next);
+    setNotice('');
+    api.saveDraft(next).catch((err: unknown) => fail(err, { to: 'course', roadmap: { ...roadmap, concepts: next, sources } }));
   }
 
   function rename(id: string, title: string) {

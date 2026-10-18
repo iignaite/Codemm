@@ -137,6 +137,18 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await button(page, 'Learn').click();
   await expect(heading(page, 'React complete')).toBeVisible();
   await audit(page, 'course complete');
+  // A new goal's roadmap is a draft: the course stays, and the goal screen offers the draft again.
+  await button(page, 'Learn something new').click();
+  await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('Vue');
+  await button(page, 'Start').click();
+  await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });
+  await button(page, 'Learn').click();
+  await expect(heading(page, 'React complete')).toBeVisible();
+  await button(page, 'Learn something new').click();
+  await expect(button(page, 'Resume roadmap')).toBeVisible();
+  await audit(page, 'goal, with a roadmap to resume');
+  await button(page, 'Resume roadmap').click();
+  await expect(heading(page, 'Vue')).toBeVisible();
   await app.close();
 });
 

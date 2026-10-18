@@ -101,6 +101,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .goal-box input { flex: 1; min-width: 0; height: 100%; border: none; background: transparent; font-size: 22px; outline: none; }
 .goal-box:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
 .info { padding: 14px 18px; display: flex; align-items: center; gap: 14px; font-size: 15px; }
+.info.resume { justify-content: space-between; }
 .research { max-width: 720px; padding: 8px 22px; }
 .research .h3 { padding: 12px 0 4px; }
 .row .pill { margin-left: auto; }
