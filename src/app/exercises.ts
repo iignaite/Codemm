@@ -78,7 +78,7 @@ export async function saveExercise(ws: string, files: FileMap, bound?: string, o
       // Earlier exercises on this track have the same learner files, so their solutions can run against the new tests.
       const earlier = existing
         .filter((e) => e.track === course.track)
-        .map((e) => ({ slug: e.slug, style: e.style, solution: subMap(store.readExercise(courseId, e.slug).files, "solution") }));
+        .map((e) => ({ slug: e.slug, style: e.style, concepts: e.concepts, createdAt: e.createdAt, solution: subMap(store.readExercise(courseId, e.slug).files, "solution") }));
       const verified = await verifyExercise(track, course, files, taken, onGate && ((gate) => onGate({ gate })), earlier);
       store.commitFolder(store.exerciseDir(courseId, verified.slug), files, { "exercise.json": verified });
       return { record: verified, track };

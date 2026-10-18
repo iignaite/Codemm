@@ -256,7 +256,17 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
 export type ExerciseGate = "reference" | "starter" | "mutants";
 
 /** An exercise the course already has: its solution, to check that a new exercise is a new task. */
-export type EarlierSolution = { slug: string; style: Style; solution: FileMap };
+export type EarlierSolution = { slug: string; style: Style; concepts: string[]; createdAt: string; solution: FileMap };
+
+/**
+ * Which earlier exercises gate 7 runs, to bound the wait: at most 3 on a concept the new one shares, then the 3 most
+ * recent others, newest first. Each costs one run of the visible tests.
+ */
+export function comparedEarlier(earlier: EarlierSolution[], style: Style, concepts: string[]): EarlierSolution[] {
+  const pool = earlier.filter((e) => e.style === style).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const shared = pool.filter((e) => e.concepts.some((c) => concepts.includes(c))).slice(0, 3);
+  return [...shared, ...pool.filter((e) => !shared.includes(e)).slice(0, 3)];
+}
 
 /** Runs exercise gates 1-7 (DESIGN §6). Returns the record to store, with io expected outputs or the unit inventory. */
 export async function verifyExercise(
@@ -343,12 +353,11 @@ export async function verifyExercise(
     throw new GateError("hidden tests matter", "every mutant already fails a visible test, so the hidden tests add nothing. Include a mutant that passes the visible tests but fails a hidden one.");
   }
 
-  // Gate 7: it's a new task. An earlier exercise's solution that passes every test here means the same task again,
-  // whatever its title. The visible tests run first, and most earlier solutions fail them.
-  for (const e of earlier.filter((x) => x.style === style)) {
-    if (!allPass(gradeRuns(style, await runSets(track, style, e.solution, { visible: sets.visible }), exp))) continue;
-    if (allPass(gradeRuns(style, await runSets(track, style, e.solution, sets), exp))) {
-      throw new GateError("new task", `the solution to "${e.slug}" already passes every test of this exercise, so it's the same task again. Write a different problem, not a renamed one.`);
+  // Gate 7: it's a new task. An earlier exercise's solution that passes every visible test here means the same task
+  // again, whatever its title.
+  for (const e of comparedEarlier(earlier, style, spec.concepts)) {
+    if (allPass(gradeRuns(style, await runSets(track, style, e.solution, { visible: sets.visible }), exp))) {
+      throw new GateError("new task", `the solution to "${e.slug}" already passes every visible test of this exercise, so it's the same task again. Write a different problem, not a renamed one.`);
     }
   }
 

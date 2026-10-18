@@ -1,9 +1,22 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readFileMap } from "../src/files.js";
-import { checkTrackFiles, unpinnedBases } from "../src/gates.js";
+import { checkTrackFiles, comparedEarlier, unpinnedBases } from "../src/gates.js";
 
 const PINNED = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc";
+
+describe("comparedEarlier", () => {
+  const e = (slug: string, concepts: string[], day: number, style: "io" | "unit" = "io") =>
+    ({ slug, style, concepts, createdAt: new Date(Date.UTC(2026, 0, day)).toISOString(), solution: {} });
+
+  it("compares at most 3 earlier exercises on a shared concept and the 3 most recent others, newest first, same style only", () => {
+    const pool = [
+      e("a1", ["a"], 1), e("a2", ["a"], 2), e("a3", ["a", "b"], 3), e("a4", ["a"], 4),
+      e("b1", ["b"], 5), e("c1", ["c"], 6), e("c2", ["c"], 7), e("c3", ["c"], 8), e("u1", ["a"], 9, "unit"),
+    ];
+    expect(comparedEarlier(pool, "io", ["a"]).map((x) => x.slug)).toEqual(["a4", "a3", "a2", "c3", "c2", "c1"]);
+  });
+});
 
 describe("unpinnedBases", () => {
   it("accepts base images pinned by digest", () => {

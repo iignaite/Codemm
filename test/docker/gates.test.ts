@@ -59,11 +59,12 @@ describe.runIf(dockerUp)("gates (Docker)", () => {
 
     it("rejects an exercise that an earlier exercise's solution already passes, and accepts one it fails", async () => {
       const files = { ...exercise("io-max"), "exercise.yaml": exercise("io-max")["exercise.yaml"]!.replace("max-of-line", "max-again") };
-      const same = [{ slug: "max-of-line", style: "io" as const, solution: subMap(exercise("io-max"), "solution") }];
+      const earlier = (slug: string, solution: FileMap) => [{ slug, style: "io" as const, concepts: ["sh.loops"], createdAt: new Date().toISOString(), solution }];
+      const same = earlier("max-of-line", subMap(exercise("io-max"), "solution"));
       await expect(verifyExercise(ioTrack, course("shell-io"), files, new Set(), undefined, same)).rejects.toThrow(
-        /Gate "new task" failed: the solution to "max-of-line" already passes every test of this exercise/,
+        /Gate "new task" failed: the solution to "max-of-line" already passes every visible test of this exercise/,
       );
-      const different = [{ slug: "zero-start", style: "io" as const, solution: subMap(exercise("io-max"), "mutants/zero-start") }];
+      const different = earlier("print-zero", { "main.sh": "read line\necho 0\n" });
       await expect(verifyExercise(ioTrack, course("shell-io"), files, new Set(), undefined, different)).resolves.toMatchObject({ slug: "max-again" });
     });
 
