@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import type { CodemmApi } from '../shared/api';
 import { errorFields } from './errors';
 import { handler } from './ipc';
-import { isSafeLink } from './links';
+import { openOutside } from './links';
 import { createLog } from './log';
 import { CSP, fileFor, fromAppWindow, ORIGIN } from './origin';
 import { liveApi } from './wire';
@@ -36,9 +36,12 @@ function devMock(): CodemmApi {
   return createMock(scenario(process.env.CODEMM_MOCK || undefined));
 }
 
-// Check progress is the one event main sends, and only to the app's windows (§2.1).
+// The events main sends, only to the app's windows (§2.1): check progress and research progress.
 codemm.onCheckProgress((progress) => {
   for (const contents of appWindows) contents.send('codemm:check-progress', progress);
+});
+codemm.onResearchProgress((progress) => {
+  for (const contents of appWindows) contents.send('codemm:research-progress', progress);
 });
 
 // Only an app window's top frame, on app://codemm, may call Codemm (§2.1).
@@ -73,10 +76,7 @@ function createWindow() {
 app.on('web-contents-created', (_event, contents) => {
   contents.on('will-navigate', (event) => event.preventDefault());
   contents.on('will-attach-webview', (event) => event.preventDefault());
-  contents.setWindowOpenHandler(({ url }) => {
-    if (isSafeLink(url)) void shell.openExternal(url);
-    return { action: 'deny' };
-  });
+  contents.setWindowOpenHandler(openOutside((url) => shell.openExternal(url)));
 });
 
 /** Serves the built renderer on app://codemm, under the spec's CSP, and nothing else. */

@@ -246,7 +246,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 
 ### 4.3 Lessons
 
-- **Saving.** `save_lesson { id, concept, title, markdown }`. The id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. Lessons are static text: nothing in them runs.
+- **Saving.** `save_lesson { id, concept, title, markdown, examples? }`. The id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. Optional runnable examples are checked by running them in the sandbox (core §5).
 - **Storage.** `courses/<course>/lessons/<id>/` holds:
   - `lesson.json` (`format_version`, id, concept, title, created);
   - `lesson.md`, the agent's text, never changed after saving;
@@ -263,7 +263,8 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - an id: the earliest unread lesson.
   - absent: every lesson for the concept has been read.
   The activity stays locked, and the tutor teaches first, until the field is absent. The author job can still run in the background, because the step names the activity. Lessons never change mastery.
-- **Not verified.** Lessons are checked for structure only; only activities are "checked before you see it".
+- **Not verified.** Lesson text is checked for structure only, and examples only for a clean run. Only activities are "checked before you see it".
+- **Run.** Each example block shows its files and a Run button. Run calls core's `runExample` through IPC, so the example runs in the sandbox, never on the host. It shows the output and errors (capped) and records nothing. A Docker problem shows "This didn't run." with Check this computer.
 
 ### 4.4 Honest skip
 
@@ -315,6 +316,14 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
   - Main sends each event to the app's windows only, on the one-way channel `codemm:check-progress`.
   - The preload exposes it as `onCheckProgress(listener)`, which returns a function that stops listening. It isn't an IPC call: `invoke('onCheckProgress')` is refused.
 - **Renderer.** While Try it or Check runs, the results panel shows a quiet bar with the phase and "3 of 8". With no count, it shows the phase alone. It hears only its own run's events, and stops listening when the learner leaves.
+
+### 4.9 Research sources and progress
+
+- **Progress.** One stream parser in `agent/agents.ts` reads both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. Main sends the research job's steps to the app window only, on the one-way `codemm:research-progress` event, and the preload exposes it as `onResearchProgress`. The research screen lists them quietly, the latest first and fading as they age, with a step count.
+- **Reads become sources.** When research has saved the roadmap, the https pages it read join the agent's own `sources` (at most 10), saved through core's roadmap rules.
+
+- **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
+- **Showing.** The roadmap and course-edit screens show a quiet "Sources" list. Each link opens only after a click, in the system browser, through main's `shell.openExternal`, and main accepts only https links. Nothing loads inside the app window.
 
 ## 5. Failure states
 
@@ -469,11 +478,10 @@ Work test-first. For each behavior, write a failing test, make it pass simply, t
 
 Cut from 1.0 by the owner's scope ledger:
 
-- **Lessons:** running code examples in the sandbox (the lesson gate), predict questions, and learner edits of lesson text. Notes stay.
+- **Lessons:** predict questions, and learner edits of lesson text. Notes stay. (Runnable examples are in 1.0: §4.3.)
 - **Usage:** recording agent usage and showing cost per topic. Lesson caching stays (§4.3).
 - **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
 - The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
-- **Research sources:** storing and showing the agent's sources with the roadmap. The agent may still research before writing it.
 - **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.8).
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.
 - **Platforms:** Linux installers, Windows and Linux arm64, Colima, and Podman.

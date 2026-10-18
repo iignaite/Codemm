@@ -1,10 +1,13 @@
 import { execFile } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { gradeIoRun, gradeUnitRun, type JudgeTrack, runIo, runUnit } from "../../src/judge.js";
-import { ownedContainers } from "../../src/sandbox.js";
+import { gradeIoRun, gradeUnitRun, type JudgeTrack, runIo, runProgram, runUnit } from "../../src/judge.js";
+import { buildImage, ownedContainers } from "../../src/sandbox.js";
 import { buildFixture, dockerUp, expectedFrom, fixtureTrack, inputsOnly, subMap } from "./helpers.js";
 
 const io = fixtureTrack("shell-io");
@@ -18,6 +21,59 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
   beforeAll(async () => {
     ioTrack = { ...io.spec, image: await buildFixture("shell-io") };
     unitTrack = { ...unit.spec, image: await buildFixture("shell-unit") };
+  });
+
+  it("Run: sends typed input to the learner's program and streams its output, in the sandbox", async () => {
+    let out = "";
+    const run = runProgram(ioTrack, { "main.sh": 'printf "name? "; read -r n; echo "hello $n"\n' }, (text) => (out += text));
+    run.write("Ada\n");
+    expect(await run.done).toEqual({ exit: 0, stage: "run", timedOut: false, flooded: false });
+    expect(out).toBe("name? hello Ada\n"); // the driver's stderr markers never reach the learner
+  });
+
+  it("Run: reports a program's own exit code and stderr as its own", async () => {
+    let err = "";
+    const run = runProgram(ioTrack, { "main.sh": 'echo "error waiting for container" >&2; exit 125\n' }, (text, stream) => stream === "stderr" && (err += text));
+    expect(await run.done).toMatchObject({ exit: 125, stage: "run", timedOut: false });
+    expect(err).toBe("error waiting for container\n");
+  });
+
+  it("Run: an exit code of 138 or 124 from the program is not a timeout", async () => {
+    for (const code of [124, 137, 138]) {
+      const run = runProgram(ioTrack, { "main.sh": `exit ${code}\n` }, () => undefined);
+      expect(await run.done).toMatchObject({ exit: code, stage: "run", timedOut: false });
+    }
+  });
+
+  it("Run: the time limit stops a program that ignores signals, and its children, in the build or the run", async () => {
+    const stubborn = "trap '' TERM USR1 INT; sleep 30 & while :; do sleep 1; done\n";
+    const run = runProgram(ioTrack, { "main.sh": stubborn }, () => undefined, { limitMs: 1_000 });
+    expect(await run.done).toMatchObject({ stage: "run", timedOut: true });
+    const build = runProgram({ ...ioTrack, build: "sleep 30" }, { "main.sh": "echo hi\n" }, () => undefined, { buildLimitMs: 1_000 });
+    expect(await build.done).toMatchObject({ stage: "build", timedOut: true });
+    await expect.poll(() => ownedContainers(), { timeout: 10_000 }).toEqual([]);
+  });
+
+  it("an image without sleep: Run isn't cut short as a timeout, and grading names the missing tool", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "codemm-nosleep-"));
+    writeFileSync(join(dir, "Dockerfile"), `${io.files["Dockerfile"]!.trim()}\nRUN rm /bin/sleep\n`);
+    const built = await buildImage(dir, "codemm-test-nosleep:1");
+    expect(built.ok).toBe(true);
+    const track = { ...ioTrack, image: "codemm-test-nosleep:1" };
+    let out = "";
+    const run = runProgram(track, { "main.sh": 'read -r n\necho "got $n"\n' }, (text) => (out += text), { limitMs: 5_000 });
+    await new Promise((r) => setTimeout(r, 500));
+    run.write("Ada\n");
+    expect(await run.done).toEqual({ exit: 0, stage: "run", timedOut: false, flooded: false });
+    expect(out).toBe("got Ada\n");
+    await expect(runIo(track, "visible", { "main.sh": "echo hi\n" }, { "01.in": "" })).rejects.toThrow(/missing a tool/);
+  });
+
+  it("Run: stops a program at its time limit and leaves no container", async () => {
+    const run = runProgram(ioTrack, { "main.sh": "read -r n\n" }, () => undefined, { limitMs: 1_000 });
+    expect(await run.done).toMatchObject({ stage: "run", timedOut: true });
+    // --rm finishes removing it just after the exit.
+    await expect.poll(() => ownedContainers(), { timeout: 10_000 }).toEqual([]);
   });
 
   describe("io", () => {
@@ -104,6 +160,11 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
         ["visible/01", "error"],
         ["visible/02", "ok"],
       ]);
+    });
+
+    it("keeps each case's stderr with that case", async () => {
+      const r = await run("read x\necho \"warn $x\" >&2\nexit 3\n", { "01.in": "a\n", "02.in": "b\n" });
+      expect(r.cases.map((c) => [c.name, c.exit, c.stderr])).toEqual([["visible/01", 3, "warn a\n"], ["visible/02", 3, "warn b\n"]]);
     });
 
     it("kills a program that exceeds its memory limit and grades it as an error, never as a runtime failure", async () => {

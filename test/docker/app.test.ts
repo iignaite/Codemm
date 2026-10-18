@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import * as app from "../../src/app.js";
 import { readFileMap } from "../../src/files.js";
 import { cli } from "../../src/sandbox.js";
-import { readEvents } from "../../src/store.js";
+import { readEvents, trackImageTag } from "../../src/store.js";
 import { dockerUp, FIXTURES, fixtureTrack } from "./helpers.js";
 
 const roadmap = (name: string) => readFileSync(join(FIXTURES, "roadmaps", `${name}.yaml`), "utf8");
@@ -35,16 +35,17 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
 
   it("installs a track whose base image isn't pinned by digest, with a warning", async () => {
     const t = appTrack();
+    const base = trackImageTag("shell-io", 1);
     const unpinned = {
       ...t,
       "track.yaml": t["track.yaml"]!.replace("id: shell-io", "id: shell-unpinned"),
-      Dockerfile: t.Dockerfile!.replace(/^FROM \S+/, "FROM codemm-track-shell-io:1"),
+      Dockerfile: t.Dockerfile!.replace(/^FROM \S+/, `FROM ${base}`),
     };
     const r = await app.saveTrack(unpinned);
     expect(r).toMatchObject({ installed: "shell-unpinned@1" });
-    expect(r.warning).toMatch(/digest: codemm-track-shell-io:1\./);
+    expect(r.warning).toContain(`digest: ${base}.`);
     // A child image would keep a later test from removing shell-io@1's image.
-    await cli(["image", "rm", "-f", "codemm-track-shell-unpinned:1"]);
+    await cli(["image", "rm", "-f", trackImageTag("shell-unpinned", 1)]);
   });
 
   it("enforces roadmap rules", async () => {
@@ -198,7 +199,7 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(await app.installProposal("shell-consent@1", digest)).toEqual({ installed: "shell-consent@1" });
     expect(app.listTracks().map((x) => x.track)).toContain("shell-consent@1");
     expect(app.listProposals()).toEqual([]);
-    await cli(["image", "rm", "-f", "codemm-track-shell-consent:1"]);
+    await cli(["image", "rm", "-f", trackImageTag("shell-consent", 1)]);
   });
 
   it("saves a bound author job's exercise to its own course, even if the learner switches mid-save", async () => {
@@ -210,5 +211,18 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(app.listExercises(ws)).toEqual([]);
     expect(existsSync(join(ws, "exercises", "shell", "bound-save", "main.sh"))).toBe(true);
     expect(JSON.parse(readFileSync(join(ws, "codemm.json"), "utf8")).course).toBe("shell-other");
+  });
+
+  it("runs a lesson's examples in the sandbox before saving it, and runs one again on request without recording", async () => {
+    const lesson = (id: string, files: Record<string, string>) => ({ id, concept: "sh.basics", title: "Echo", markdown: "Run this:\n\n```example\n1\n```\n", examples: [files] });
+    await expect(app.saveLesson(ws, lesson("broken", { "main.sh": "echo oops >&2\nexit 3\n" }), "shell")).rejects.toThrow(/Example 1 didn't run cleanly \(exit 3\)[\s\S]*oops/);
+    expect(await app.saveLesson(ws, lesson("echo", { "main.sh": "echo hello\n" }), "shell")).toEqual({ lesson: "echo" });
+    expect(app.getLesson(ws, "echo", "shell").examples).toEqual([{ "main.sh": "echo hello\n" }]);
+    const before = readEvents("shell").length;
+    expect(await app.runExample(ws, "echo", 1, "shell")).toEqual({ exit: 0, output: "hello\n", errors: "" });
+    await expect(app.runExample(ws, "echo", 2, "shell")).rejects.toThrow(/no example 2/);
+    // The example runs as it was checked: with that track and style, even if the roadmap's style changes later.
+    expect(JSON.parse(readFileSync(join(process.env.CODEMM_HOME!, "courses", "shell", "lessons", "echo", "lesson.json"), "utf8"))).toMatchObject({ examples: 1, track: "shell-io@1", style: "io" });
+    expect(readEvents("shell")).toHaveLength(before);
   });
 });

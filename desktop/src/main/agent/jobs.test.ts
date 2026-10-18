@@ -59,6 +59,16 @@ describe('jobs (§3.2)', () => {
     expect(await runJob(job(agent.exe))).toEqual({ ok: true, session: 's1', text: ['Look at line 3.'] });
   });
 
+  it('counts a fetched page as a source only once its fetch succeeds', async () => {
+    const fetch = (id: string, url: string) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'WebFetch', input: { url } }] } });
+    const agent = fakeAgent([init, fetch('f1', 'https://good.example/a'), result('f1', false), fetch('f2', 'https://bad.example/b'), result('f2', true), success]);
+    const sources: unknown[] = [];
+    const steps: unknown[] = [];
+    await runJob(job(agent.exe, { kind: 'research', done: () => true, onProgress: (s) => steps.push(s), onSource: (s) => sources.push(s) }));
+    expect(steps).toHaveLength(2);
+    expect(sources).toEqual([{ title: 'good.example/a', url: 'https://good.example/a' }]);
+  });
+
   it('launches with only the job tools on the server and in the allowed list', async () => {
     const agent = fakeAgent([init, success]);
     let server: string[] = [];

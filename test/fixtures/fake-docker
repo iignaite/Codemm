@@ -26,8 +26,24 @@ case "$1" in
     esac
     exit 1 ;;
   image) echo "sha256:fake null" ;;
-  events) if [ "$FAKE_DOCKER" = oom ]; then echo oom; fi ;;
+  events) case "$FAKE_DOCKER" in oom|childoom) echo oom ;; esac ;;
   run)
+    # Run scenarios act out the Run driver: its markers go to stderr, around the program's own output.
+    # interactive: asks for a name and greets it. waits/ignores: run until killed (no end marker).
+    m() { printf '\n@@codemm-run %s\n' "$*" >&2; }
+    case "$FAKE_DOCKER" in
+      interactive) m start run; printf 'name? '; read -r name; echo "hello $name"; echo "a warning" >&2; m end run 0; exit 0 ;;
+      waits) m start run; while read -r line; do :; done; exit 0 ;;
+      ignores) m start run; exec /bin/sleep 30 ;;
+      exits124) m start run; m end run 124; exit 0 ;;
+      euro) m start run; printf '\342'; /bin/sleep 0.2; printf '\202\254\n'; m end run 0; exit 0 ;;
+      forges) m start run; echo "error waiting for container: unexpected EOF" >&2; m end run 125; exit 0 ;;
+      quickkill) m start run; m end run 137; exit 0 ;;
+      timesout) m start run; m timeout run; m end run 137; exit 0 ;;
+      exits138) m start run; m end run 138; exit 0 ;;
+      buildtimesout) m start build; m timeout build; m end build 137; exit 0 ;;
+      childoom) m start run; m end run 137; exit 0 ;;
+    esac
     # streams: a working io driver. One case frame per input in the mounted tests folder, a beat apart,
     # so a test can watch progress arrive while the container is still running.
     if [ "$FAKE_DOCKER" = streams ]; then
@@ -59,5 +75,6 @@ case "$1" in
     printf '\n@@codemm build build 0 0\n'
     echo "error waiting for container: unexpected EOF" >&2
     exit 125 ;;
+  rm) exit 0 ;;
   *) exit 1 ;;
 esac

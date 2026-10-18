@@ -2,11 +2,48 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { AGENT_CLIS, isTested } from './agents';
+import { AGENT_CLIS, isTested, readOf } from './agents';
 
 const fixture = (name: string) => readFileSync(join(__dirname, 'fixtures', name), 'utf8').split('\n');
 const parseAll = (agent: 'claude' | 'codex' | 'cursor', lines: string[]) => lines.flatMap((line) => AGENT_CLIS[agent].parse!(line));
 const server = { command: '/abs/Codemm', args: ['/abs/core/cli.js', 'mcp', '--workspace', '/ws'], env: { CODEMM_HOME: '/home', ELECTRON_RUN_AS_NODE: '1' } };
+
+describe('research progress from the stream (one parser for both CLIs)', () => {
+  const steps = (agent: 'claude' | 'codex', name: string) => parseAll(agent, fixture(name)).flatMap((e) => (e.type === 'progress' ? [e.step] : []));
+
+  it('claude: web searches, https reads as host and path, and Codemm steps; never a file or plain-http link', () => {
+    expect(steps('claude', 'claude-research.jsonl')).toEqual([
+      { kind: 'step', label: 'Checking the installed tracks' },
+      { kind: 'search', query: 'react roadmap 2026' },
+      { kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react?ref=x' },
+      { kind: 'step', label: 'Saving the roadmap' },
+    ]);
+  });
+
+  it('codex: its web search items (recorded), page reads, and Codemm steps', () => {
+    expect(steps('codex', 'codex-research.jsonl')).toEqual([
+      { kind: 'step', label: 'Checking the installed tracks' },
+      { kind: 'search', query: 'site:react.dev/learn React Learn official tutorial thinking in React state effects refs context reducers' },
+      { kind: 'search', query: 'Full Stack Open React curriculum official parts React state hooks routing testing' },
+      { kind: 'step', label: 'Saving the roadmap' },
+      { kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react?utm=x' },
+    ]);
+  });
+
+  it('marks a Claude read with its tool call, so a source counts only after the fetch succeeds', () => {
+    const events = parseAll('claude', fixture('claude-research.jsonl'));
+    expect(events).toContainEqual({ type: 'progress', id: 't3', step: { kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react?ref=x' } });
+  });
+
+  it('caps a search at 120 characters, and keeps the full https url for sources', () => {
+    const [step] = AGENT_CLIS.claude.parse!(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'x', name: 'WebSearch', input: { query: 'q'.repeat(300) } }] } })).flatMap((e) => (e.type === 'progress' ? [e.step] : []));
+    expect(step).toEqual({ kind: 'search', query: 'q'.repeat(120) });
+    // Sources keep the query (it can name the document); only the fragment goes. Overlong links are dropped.
+    expect(readOf('https://docs.example.com/view?id=123#top')).toEqual({ kind: 'read', url: 'docs.example.com/view', href: 'https://docs.example.com/view?id=123' });
+    expect(readOf(`https://example.com/${'a'.repeat(2100)}`)).toBeUndefined();
+    expect(readOf('ftp://x/y')).toBeUndefined();
+  });
+});
 
 describe('agent stream contracts (recorded fixtures, §3.3)', () => {
   it('claude: a recorded run becomes session, tool, text and done events', () => {
@@ -15,6 +52,7 @@ describe('agent stream contracts (recorded fixtures, §3.3)', () => {
       { type: 'tool_call', id: 'toolu_01MvSVPGD77trQgd9hUqhwG3', name: 'ToolSearch' },
       { type: 'tool_result', id: 'toolu_01MvSVPGD77trQgd9hUqhwG3', error: false },
       { type: 'tool_call', id: 'toolu_01NfoeX7ahYrG2GZ1kmsnnnP', name: 'codemm.list_tracks' },
+      { type: 'progress', step: { kind: 'step', label: 'Checking the installed tracks' } },
       { type: 'tool_result', id: 'toolu_01NfoeX7ahYrG2GZ1kmsnnnP', error: false },
       { type: 'text', text: '0' },
       { type: 'done', ok: true },
@@ -46,6 +84,7 @@ describe('agent stream contracts (recorded fixtures, §3.3)', () => {
       { type: 'session', id: '01a14a25-cfba-7b41-a5d4-d7f42843ba87' },
       { type: 'text', text: 'I’ll locate the available Codemm tool and call `list_tracks` exactly once.' },
       { type: 'tool_call', id: 'item_1', name: 'codemm.list_tracks' },
+      { type: 'progress', step: { kind: 'step', label: 'Checking the installed tracks' } },
       { type: 'tool_result', id: 'item_1', error: false },
       { type: 'text', text: '0' },
       { type: 'done', ok: true },
@@ -64,6 +103,7 @@ describe('agent stream contracts (recorded fixtures, §3.3)', () => {
       { type: 'session', id: '58a468a6-05de-4564-b518-475343f68a24' },
       { type: 'text', text: "I'll inspect the `codemm` `list_tracks` schema, call it once, then reply with only the track count." },
       { type: 'tool_call', id, name: 'codemm.list_tracks' },
+      { type: 'progress', step: { kind: 'step', label: 'Checking the installed tracks' } },
       { type: 'tool_result', id, error: false },
       { type: 'text', text: '0' },
       { type: 'done', ok: true },
@@ -90,9 +130,22 @@ describe('agent stream contracts (recorded fixtures, §3.3)', () => {
     expect(AGENT_CLIS.cursor.parse!(call({ toolNotFound: {} }))).toEqual([{ type: 'tool_result', id: 'c1', error: true, text: '' }]);
   });
 
+  it('cursor: web searches and https reads are research progress (shapes recorded with --force)', () => {
+    const started = (call_id: string, tool_call: object) => JSON.stringify({ type: 'tool_call', subtype: 'started', call_id, tool_call });
+    expect(AGENT_CLIS.cursor.parse!(started('s1', { webSearchToolCall: { args: { searchTerm: 'python list comprehension', toolCallId: 's1' } } }))).toEqual([
+      { type: 'tool_call', id: 's1', name: 'webSearch' },
+      { type: 'progress', step: { kind: 'search', query: 'python list comprehension' } },
+    ]);
+    expect(AGENT_CLIS.cursor.parse!(started('f1', { webFetchToolCall: { args: { url: 'https://example.com/a?b=1', toolCallId: 'f1' } } }))).toEqual([
+      { type: 'tool_call', id: 'f1', name: 'webFetch' },
+      { type: 'progress', id: 'f1', step: { kind: 'read', url: 'example.com/a', href: 'https://example.com/a?b=1' } },
+    ]);
+    expect(AGENT_CLIS.cursor.parse!(started('f2', { webFetchToolCall: { args: { url: 'file:///etc/passwd' } } }))).toEqual([{ type: 'tool_call', id: 'f2', name: 'webFetch' }]);
+  });
+
   it("cursor: a built-in tool is named by its kind, and a result that isn't a success is done with ok false", () => {
     const started = JSON.stringify({ type: 'tool_call', subtype: 'started', call_id: 'w1', tool_call: { webSearchToolCall: { args: { searchTerm: 'react' } } } });
-    expect(AGENT_CLIS.cursor.parse!(started)).toEqual([{ type: 'tool_call', id: 'w1', name: 'webSearch' }]);
+    expect(AGENT_CLIS.cursor.parse!(started)).toEqual([{ type: 'tool_call', id: 'w1', name: 'webSearch' }, { type: 'progress', step: { kind: 'search', query: 'react' } }]);
     expect(AGENT_CLIS.cursor.parse!(JSON.stringify({ type: 'result', subtype: 'error', is_error: true, result: 'boom' }))).toEqual([{ type: 'done', ok: false, error: 'boom' }]);
   });
 

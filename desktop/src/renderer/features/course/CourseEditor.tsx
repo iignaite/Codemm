@@ -15,6 +15,7 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
   const api = useApi();
   const { go, fail } = useRouter();
   const [concepts, setConcepts] = useState(roadmap.concepts);
+  const [sources, setSources] = useState(roadmap.sources);
   const [editing, setEditing] = useState<string>();
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState('');
@@ -57,11 +58,12 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
     try {
       const result = await api.reviseRoadmap(concepts, text);
       setConcepts(result.roadmap.concepts);
+      setSources(result.roadmap.sources);
       setNotice(result.changed ? '' : result.text || 'No change.');
       setRequest('');
     } catch (err) {
       // Come back to the edited roadmap, not the one this screen opened with.
-      fail(err, { to: 'course', roadmap: { ...roadmap, concepts } });
+      fail(err, { to: 'course', roadmap: { ...roadmap, concepts, sources } });
     } finally {
       setAsking(false);
     }
@@ -111,6 +113,16 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
           <Field aria-label="Ask Codemm for changes" placeholder="Ask Codemm for changes" value={request} disabled={asking} onChange={(e) => setRequest(e.target.value)} />
           <Button size="lg" disabled={concepts.length === 0 || editing !== undefined || adding || asking} onClick={approve}>Approve</Button>
         </form>
+        {sources.length > 0 && (
+          <section className="sources a-up" style={stagger(2, 100)} aria-labelledby="sources-t">
+            <h2 className="h3" id="sources-t">Sources</h2>
+            <ul>
+              {sources.map((s) => (
+                <li key={s.url}><a href={s.url} target="_blank" rel="noreferrer">{s.title}</a></li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </main>
   );

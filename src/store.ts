@@ -13,6 +13,16 @@ import { CourseRecord, ExerciseRecord, LearnerEventSchema, LessonRecord, Proposa
 /** Persistence for everything under $CODEMM_HOME and the workspace's codemm.json. */
 
 export const codemmHome = () => process.env.CODEMM_HOME ?? join(homedir(), ".codemm");
+
+/**
+ * The image tag for a track, named after this Codemm home (8 hex characters of the SHA-256 of its real path), so two
+ * homes on one Docker that install the same id@version never overwrite each other's tag.
+ */
+export function trackImageTag(id: string, version: number): string {
+  mkdirSync(codemmHome(), { recursive: true });
+  const home = createHash("sha256").update(realpathSync.native(codemmHome())).digest("hex").slice(0, 8);
+  return `codemm-track-${home}-${id}:${version}`;
+}
 const tracksDir = () => join(codemmHome(), "tracks");
 const courseDir = (course: string) => {
   assertId("course", course);
@@ -337,18 +347,26 @@ export function listLessons(course: string): LessonRecord[] {
 }
 
 /** The agent's text never changes after saving; the learner's notes sit beside it. */
-export function readLesson(course: string, id: string): { record: LessonRecord; markdown: string; notes: string } {
+export function readLesson(course: string, id: string): { record: LessonRecord; markdown: string; notes: string; examples: FileMap[] } {
   const dir = lessonDir(course, id);
   if (!existsSync(join(dir, "lesson.json"))) throw new CodemmError(`No lesson "${id}" in course "${course}".`);
+  const record = parseRecord(LessonRecord, join(dir, "lesson.json"));
   return {
-    record: parseRecord(LessonRecord, join(dir, "lesson.json")),
+    record,
     markdown: readFileSync(join(dir, "lesson.md"), "utf8"),
     notes: readFileSync(join(dir, "notes.md"), "utf8"),
+    examples: Array.from({ length: record.examples ?? 0 }, (_, i) => readFileMap(join(dir, "examples", String(i + 1)))),
   };
 }
 
-export const writeLesson = (course: string, record: LessonRecord, markdown: string) =>
-  commitFolder(lessonDir(course, record.id), { "lesson.md": markdown, "notes.md": "" }, { "lesson.json": record });
+/** The lesson's text, empty notes and its examples under examples/<n>/, in one atomic folder. */
+export function writeLesson(course: string, record: LessonRecord, markdown: string, examples: FileMap[] = []): void {
+  const files: FileMap = { "lesson.md": markdown, "notes.md": "" };
+  examples.forEach((example, i) => {
+    for (const [path, text] of Object.entries(example)) files[`examples/${i + 1}/${path}`] = text;
+  });
+  commitFolder(lessonDir(course, record.id), files, { "lesson.json": record });
+}
 
 export const writeNotes = (course: string, id: string, text: string) => writeTextAtomic(join(lessonDir(course, id), "notes.md"), text);
 
