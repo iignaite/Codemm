@@ -354,7 +354,7 @@ Every long step shows its live progress, so the learner always knows where it is
 - **What a report holds** (`JobProgress` in `shared/api.ts`). It is a whole snapshot, so a later one replaces an earlier one.
   - An opaque id for this run of the job, its kind, and the topic for a lesson or author job.
   - The stage reached, an index into `JOB_STAGES` (`shared/progress.ts`).
-  - The latest 8 steps, newest first, and a count of all of them. Steps come from the stream parser (§4.9): searches, pages as host and path, and a fixed label per Codemm tool.
+  - The latest 8 steps, newest first, and a count of all of them. Steps come from the stream parser (§4.9): searches, pages as host and path, and a fixed label per Codemm tool. Searches and pages are shown for research only: another job's agent may still search (Codex has no switch for it), and what it looks up could carry an exercise still being written, which the reply filter doesn't know yet.
   - A retry: "Trying again (2 of 3)" after a failed save, within the bound in §3.2, or 2 of 2 when a failed job is relaunched.
   - Whether the agent is thinking, which is false while one of Codemm's own tools runs, and the time since the job started and since its last event.
   - The final report says the job ended.
