@@ -348,6 +348,9 @@ a.inline:hover { color: var(--ink); }
 .job.compact { gap: 8px; width: 100%; font-size: 12.5px; }
 .job.compact .job-time { font-size: 12px; }
 .job.compact .job-step { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* An install's words say what to do (accept Docker's terms in its window), so they wrap rather than cut. */
+.job.compact.install-fill { align-items: center; font-size: 14px; }
+.job.compact.install-fill .job-step { white-space: normal; overflow: visible; }
 /* A lesson or activity being written: its icon and label on one line, its progress beneath, at the label's start. */
 .outline .item.writing { position: relative; flex-direction: column; align-items: stretch; gap: 8px; }
 /* In the outline, the time sits on the label's line, right-aligned, so the step has the whole second line. */

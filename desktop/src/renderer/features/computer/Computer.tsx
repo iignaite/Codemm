@@ -8,6 +8,7 @@ import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { CHECK_NAMES, DETAILS, FIXES, INSTALL, NOT_YET } from './fixes';
+import { DockerProgress } from './DockerProgress';
 
 const STATE_TEXT = { ok: 'Ready', problem: 'Needs a step', waiting: 'Waiting' } as const;
 
@@ -156,19 +157,9 @@ function CheckItem({ check, computer, index, onInstall, onOpen }: ItemProps) {
 /** Codemm installs Docker Desktop from Docker, checked, with Docker's own window for its terms (§6.1). */
 function InstallDocker({ install, platform, manualUrl, onInstall }: { install?: DockerInstall; platform: Platform; manualUrl?: string; onInstall: () => void }) {
   if (install && install.phase !== 'failed') {
-    const text = install.phase === 'installing' ? INSTALL.phase.installing[platform] : INSTALL.phase[install.phase];
     return (
       <div className="fix install">
-        {install.phase === 'downloading' ? (
-          <div className="stack" style={{ gap: 8 }}>
-            <span>{text} {Math.round((install.progress ?? 0) * 100)}%</span>
-            <div className="bar" role="progressbar" aria-label={text} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((install.progress ?? 0) * 100)}>
-              <i style={{ width: `${Math.round((install.progress ?? 0) * 100)}%` }} />
-            </div>
-          </div>
-        ) : (
-          <div className="busy"><Status kind="run" size={18} />{text}</div>
-        )}
+        <DockerProgress install={{ ...install, phase: install.phase }} platform={platform} />
       </div>
     );
   }
