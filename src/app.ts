@@ -19,9 +19,9 @@ const learnerDir = (course: string, slug: string) => `exercises/${course}/${slug
 
 function activeCourse(ws: string, bound?: string): CourseRecord {
   const course = bound ?? store.readWorkspace(ws).course;
-  if (!course) throw new CodemmError("No course in this workspace yet. Ask your agent to plan a roadmap (save_roadmap).");
+  if (!course) throw new CodemmError("No course in this workspace yet. Ask your agent to plan a roadmap (save_roadmap).", "no-course");
   const record = store.readCourse(course);
-  if (!record) throw new CodemmError(`Course "${course}" is missing from ${store.codemmHome()}.`);
+  if (!record) throw new CodemmError(`Course "${course}" is missing from ${store.codemmHome()}.`, "no-course");
   return record;
 }
 
@@ -36,7 +36,7 @@ async function ensureImage(track: TrackRecord): Promise<void> {
   await assertRuntime();
   const info = await inspectImage(track.imageId);
   if (!info) {
-    throw new CodemmError(`The image for ${track.id}@${track.version} is missing or changed. Run \`codemm track rebuild ${track.id}@${track.version}\`, then retry.`);
+    throw new CodemmError(`The image for ${track.id}@${track.version} is missing or changed. Run \`codemm track rebuild ${track.id}@${track.version}\`, then retry.`, "image-missing");
   }
 }
 

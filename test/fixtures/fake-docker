@@ -28,7 +28,8 @@ case "$1" in
       disk-full) echo "ERROR: failed to solve: failed to copy files: write /var/lib/docker/tmp/layer: no space left on device" >&2 ;;
     esac
     exit 1 ;;
-  image) echo "sha256:fake null" ;;
+  # no-image: the verified image is gone (pruned), so inspecting it fails.
+  image) [ "$FAKE_DOCKER" = no-image ] && exit 1; echo "sha256:fake null" ;;
   events) case "$FAKE_DOCKER" in oom|childoom) echo oom ;; esac ;;
   run)
     # Run scenarios act out the Run driver: its markers go to stderr, around the program's own output.

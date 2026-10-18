@@ -81,25 +81,25 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       deadlineMs,
       ...(onStdout ? { onStdout } : {}),
     });
-    if (result.cleanupFailed) throw new CodemmError("A check container couldn't be removed, so nothing was recorded. Run `codemm doctor --fix`, then retry.");
-    if (result.timedOut) throw new CodemmError("The check didn't finish in time, so nothing was recorded. Check that the container runtime is healthy and retry.");
+    if (result.cleanupFailed) throw new CodemmError("A check container couldn't be removed, so nothing was recorded. Run `codemm doctor --fix`, then retry.", "docker");
+    if (result.timedOut) throw new CodemmError("The check didn't finish in time, so nothing was recorded. Check that the container runtime is healthy and retry.", "docker");
     // A flood is the program's doing and is graded; the host kill makes the exit code meaningless.
     if (result.flooded) return { frames: [], flooded: true };
     // The driver always ends with exit 0. Anything else means it was killed or the runtime failed, whatever was
     // printed so far. Only a memory-limit kill is the program's doing; everything else records nothing.
     if (result.exit !== 0) {
-      if (await runtimeDown()) throw new CodemmError(`The container runtime stopped during the run, so it wasn't counted. ${startHelp()}`);
+      if (await runtimeDown()) throw new CodemmError(`The container runtime stopped during the run, so it wasn't counted. ${startHelp()}`, "docker");
       if (result.oomKilled) return { frames: [], flooded: false, outOfMemory: true };
       // Exit 125 is the runtime's own failure. With no output, no code ran, so its stderr is the runtime's own too.
-      if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`);
-      if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.");
-      throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.");
+      if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`, "docker");
+      if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.", "docker");
+      throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.", "docker");
     }
     const frames = parseFrames(result.stdout);
     // A working driver always reports at least one frame. None, or a runtime connection error, means the
     // runtime failed, not the learner's code, so nothing may be graded or recorded.
     if (frames.length === 0 || /cannot connect to the docker daemon|error during connect|connection refused/i.test(result.stderr)) {
-      throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.");
+      throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.", "docker");
     }
     // Never echo a fatal frame's body: code in the container could forge one (DESIGN §4.2).
     if (frames.some((f) => f.kind === "fatal")) throw new CodemmError(`The track image is missing a tool Codemm needs: sh, ${DRIVER_TOOLS.join(", ")}.`);
@@ -199,7 +199,7 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       say("stdout", decoders.stdout.end());
       markers.write(decoders.stderr.end());
       markers.end();
-      if (r.cleanupFailed) throw new CodemmError("A run container couldn't be removed. Run `codemm doctor --fix`, then retry.");
+      if (r.cleanupFailed) throw new CodemmError("A run container couldn't be removed. Run `codemm doctor --fix`, then retry.", "docker");
       // What Codemm stopped first: the learner, the host deadline or the output cap.
       if (stopped || r.timedOut || r.flooded) return { exit: r.exit, timedOut: r.timedOut, flooded: r.flooded, ...(stopped ? { stopped } : {}) };
       if (ended) {
@@ -210,7 +210,7 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       }
       // No end marker: the driver itself was killed. Only a memory-limit kill is the program's doing.
       if (r.oomKilled) return { exit: 137, timedOut: false, flooded: false, outOfMemory: true };
-      throw new CodemmError(`The container runtime failed during the run. ${startHelp()}`);
+      throw new CodemmError(`The container runtime failed during the run. ${startHelp()}`, "docker");
     })
     .finally(() => rmSync(dir, { recursive: true, force: true }));
   return {

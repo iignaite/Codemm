@@ -97,12 +97,15 @@ describe("buildProblem", () => {
     ["a dropped route", "dial tcp 104.18.1.1:443: connect: network is unreachable"],
   ])("blames the network, not the track, for %s offline output", (_, line) => {
     const problem = buildProblem(`#5 [2/3] RUN install\n${line}\n#5 ERROR: process did not complete successfully`);
-    expect(problem).toMatch(/couldn't reach the network.*not a problem with the track files/s);
-    expect(problem).toContain(line.trim());
+    expect(problem?.kind).toBe("offline");
+    expect(problem?.message).toMatch(/couldn't reach the network.*not a problem with the track files/s);
+    expect(problem?.message).toContain(line.trim());
   });
 
   it("blames the disk, not the track, when Docker runs out of space", () => {
-    expect(buildProblem("ERROR: failed to solve: write /var/lib/docker/tmp/x: no space left on device")).toMatch(/ran out of disk space.*not a problem with the track files/s);
+    expect(buildProblem("ERROR: failed to solve: write /var/lib/docker/tmp/x: no space left on device")).toEqual({
+      kind: "disk", message: expect.stringMatching(/ran out of disk space.*not a problem with the track files/s),
+    });
   });
 
   it.each([

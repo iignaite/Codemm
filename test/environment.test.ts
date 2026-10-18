@@ -71,19 +71,21 @@ describe.runIf(posix)("building a track image", () => {
   it("blames the runtime, not the track, when a build reports no image ID", async () => {
     fakeDocker("no-iid");
     const built = await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1");
-    expect(built).toMatchObject({ ok: false, problem: expect.stringMatching(/didn't report the image ID.*not a problem with the track files/s) });
+    expect(built).toMatchObject({ ok: false, problem: { kind: "docker", message: expect.stringMatching(/didn't report the image ID.*not a problem with the track files/s) } });
   });
 });
 
 describe.runIf(posix)("installing a track", () => {
   it.each([
-    ["down", /isn't running/],
-    ["offline", /couldn't reach the network.*no such host.*not a problem with the track files/s],
-    ["disk-full", /ran out of disk space.*not a problem with the track files/s],
-  ] as const)("is an infrastructure failure when Docker is %s, and installs nothing", async (scenario, message) => {
+    ["down", /isn't running/, "docker"],
+    ["offline", /couldn't reach the network.*no such host.*not a problem with the track files/s, "offline"],
+    ["disk-full", /ran out of disk space.*not a problem with the track files/s, "disk"],
+  ] as const)("is an infrastructure failure when Docker is %s, and installs nothing", async (scenario, message, kind) => {
     fakeDocker(scenario);
     const failure = app.saveTrack(track());
     await expect(failure).rejects.toThrow(message);
+    // The desktop tells these apart by kind, not by reading the English.
+    await expect(failure).rejects.toMatchObject({ name: "CodemmError", kind });
     await expect(failure).rejects.not.toThrow(/Gate/);
     expect(app.listTracks()).toEqual([]);
   });
