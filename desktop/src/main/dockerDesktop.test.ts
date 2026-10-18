@@ -4,6 +4,8 @@ import { dockerDesktop, OfflineError, type DesktopDeps } from './dockerDesktop';
 
 const GiB = 1024 ** 3;
 const DOCKER_TEAM = 'TeamIdentifier=9BNSXJN65R';
+const WIN_TMP = 'C:\\Temp\\codemm-docker';
+const WIN_EXE = 'C:\\Temp\\codemm-docker\\DockerDesktopInstaller.exe';
 
 type Call = { file: string; args: string[]; env?: Record<string, string> };
 
@@ -144,18 +146,18 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
   });
 
   it('on Windows: downloads the installer, checks Docker signed it, runs it with its own window, then starts Docker', async () => {
-    const f = fake('win32', { arch: 'x64' });
+    const f = fake('win32', { arch: 'x64', tempDir: () => WIN_TMP });
     f.desktop.install();
     await f.desktop.done();
-    expect(f.downloads).toEqual([{ url: 'https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe', file: '/tmp/codemm-docker/DockerDesktopInstaller.exe' }]);
+    expect(f.downloads).toEqual([{ url: 'https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe', file: WIN_EXE }]);
     const verify = f.calls[0];
     expect(verify.file).toMatch(/powershell\.exe$/);
     // The path reaches PowerShell as an environment variable, never inside the command text.
-    expect(verify.env).toEqual({ CODEMM_FILE: '/tmp/codemm-docker/DockerDesktopInstaller.exe' });
-    expect(verify.args.join(' ')).not.toContain('/tmp/codemm-docker');
-    expect(commands(f.calls.slice(1))).toEqual(['/tmp/codemm-docker/DockerDesktopInstaller.exe install']);
+    expect(verify.env).toEqual({ CODEMM_FILE: WIN_EXE });
+    expect(verify.args.join(' ')).not.toContain(WIN_TMP);
+    expect(commands(f.calls.slice(1))).toEqual([`${WIN_EXE} install`]);
     expect(f.launched).toEqual([{ file: 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe', args: [] }]);
-    expect(f.removed).toEqual(['/tmp/codemm-docker']);
+    expect(f.removed).toEqual([WIN_TMP]);
     expect(f.desktop.status()).toEqual({ phase: 'starting' });
   });
 
@@ -170,13 +172,13 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
   });
 
   it('on Windows: says when Windows needs a restart, and when the installer did not finish', async () => {
-    const restart = fake('win32', { answers: { '/tmp/codemm-docker/DockerDesktopInstaller.exe': { code: 3010, output: '' } } });
+    const restart = fake('win32', { tempDir: () => WIN_TMP, answers: { [WIN_EXE]: { code: 3010, output: '' } } });
     restart.desktop.install();
     await restart.desktop.done();
     expect(restart.desktop.status()).toEqual({ phase: 'failed', problem: 'restart' });
     expect(restart.launched).toEqual([]);
 
-    const cancelled = fake('win32', { answers: { '/tmp/codemm-docker/DockerDesktopInstaller.exe': { code: 1602, output: '' } } });
+    const cancelled = fake('win32', { tempDir: () => WIN_TMP, answers: { [WIN_EXE]: { code: 1602, output: '' } } });
     cancelled.desktop.install();
     await cancelled.desktop.done();
     expect(cancelled.desktop.status()).toEqual({ phase: 'failed', problem: 'failed' });

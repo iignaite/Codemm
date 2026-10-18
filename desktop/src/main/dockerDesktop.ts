@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createWriteStream, existsSync, mkdtempSync, rmSync, statfsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { DockerInstall } from '../shared/api';
@@ -58,6 +58,8 @@ class Stop extends Error {
 
 export function dockerDesktop(d: DesktopDeps) {
   const canInstall = d.platform === 'darwin' || d.platform === 'win32';
+  // The target's own paths, whichever computer runs this (tests run both on every host).
+  const path = d.platform === 'win32' ? win32 : posix;
   const chip = d.arch === 'arm64' ? 'arm64' : 'amd64';
   let status: DockerInstall | undefined;
   let running: Promise<void> = Promise.resolve();
@@ -87,18 +89,18 @@ export function dockerDesktop(d: DesktopDeps) {
   async function placeApp(app: string) {
     const staging = `/Applications/.codemm-docker-${randomBytes(4).toString('hex')}`;
     try {
-      if (!ok(await d.run('ditto', [app, join(staging, 'Docker.app')]))) throw new Stop('manual');
+      if (!ok(await d.run('ditto', [app, path.join(staging, 'Docker.app')]))) throw new Stop('manual');
       // Someone else installed Docker meanwhile: keep theirs.
-      if (!d.exists(MAC_APP) && !ok(await d.run('mv', [join(staging, 'Docker.app'), MAC_APP]))) throw new Stop('manual');
+      if (!d.exists(MAC_APP) && !ok(await d.run('mv', [path.join(staging, 'Docker.app'), MAC_APP]))) throw new Stop('manual');
     } finally {
       quietly(staging);
     }
   }
 
   async function mac(dir: string) {
-    const dmg = join(dir, 'Docker.dmg');
-    const mnt = join(dir, 'mnt');
-    const app = join(mnt, 'Docker.app');
+    const dmg = path.join(dir, 'Docker.dmg');
+    const mnt = path.join(dir, 'mnt');
+    const app = path.join(mnt, 'Docker.app');
     await fetchTo(`https://desktop.docker.com/mac/main/${chip}/Docker.dmg`, dmg, dir, 4 * GiB);
     status = { phase: 'checking' };
     if (!ok(await d.run('hdiutil', ['attach', '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mnt, dmg]))) throw new Stop('failed');
@@ -122,7 +124,7 @@ export function dockerDesktop(d: DesktopDeps) {
   }
 
   async function windows(dir: string) {
-    const exe = join(dir, 'DockerDesktopInstaller.exe');
+    const exe = path.join(dir, 'DockerDesktopInstaller.exe');
     await fetchTo(`https://desktop.docker.com/win/main/${chip}/Docker%20Desktop%20Installer.exe`, exe, dir, 8 * GiB);
     status = { phase: 'checking' };
     const signature = await d.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', SIGNATURE], { env: { CODEMM_FILE: exe } });
