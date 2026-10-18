@@ -425,7 +425,9 @@ test(`journey: ${label}`, async () => {
     // No agent anywhere (a fresh HOME: the app installs into it), Docker hidden (simulated), downloads in the run.
     env.PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
     env.HOME = join(dir!, 'empty-home');
-    env.CODEMM_TEST_SEARCH_DIRS = '';
+    // Only the fresh HOME's agent folders, where the app's installs land: Docker's (/usr/local/bin, /Applications)
+    // stay hidden. An empty list would hide the installed agents too.
+    env.CODEMM_TEST_SEARCH_DIRS = [join(env.HOME, '.local', 'bin'), join(env.HOME, '.claude', 'local')].join(':');
     env.TMPDIR = join(dir!, 'tmp');
     for (const d of [env.HOME, env.TMPDIR]) mkdirSync(d, { recursive: true });
   }
