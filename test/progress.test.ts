@@ -76,8 +76,8 @@ describe.runIf(posix)("check progress", () => {
     const seen: CheckProgress[] = [];
     const view = await app.checkExercise(ws, undefined, undefined, (p) => seen.push(p));
     const hidden = view.tests.filter((t) => t.name.startsWith("hidden"));
-    expect(hidden.map((t) => Object.keys(t).sort())).toEqual([["name", "status"], ["name", "status"], ["name", "status"]]);
-    expect(hidden.map((t) => t.name)).toEqual(["hidden #1", "hidden #2", "hidden #3"]);
+    expect(hidden.map((t) => Object.keys(t).sort())).toEqual([["index", "name", "status"], ["index", "name", "status"], ["index", "name", "status"]]);
+    expect(hidden.map((t) => [t.name, t.index])).toEqual([["hidden #1", 1], ["hidden #2", 2], ["hidden #3", 3]]);
     // Nothing from the hidden files: their names, inputs or expected outputs.
     const out = JSON.stringify({ view, seen });
     for (const secret of ["hidden/01", "hidden/02", "hidden/03", "-1\\n", "7\\n"]) expect(out).not.toContain(secret);
@@ -92,7 +92,7 @@ describe.runIf(posix)("check progress", () => {
     const view = await app.checkExercise(ws, undefined, undefined, (p) => seen.push(p));
     // The visible test shows what the program printed and its errors (the fake echoes the input on both).
     expect(view.tests[0]).toEqual({ name: "visible/01", status: "error", message: expect.stringContaining("3 1 2"), actual: "3 1 2" });
-    expect(view.tests.slice(1)).toEqual([1, 2, 3].map((n) => ({ name: `hidden #${n}`, status: "error" })));
+    expect(view.tests.slice(1)).toEqual([1, 2, 3].map((n) => ({ name: `hidden #${n}`, index: n, status: "error" })));
     expect(JSON.stringify({ view, seen })).not.toContain("CANARY");
   });
 
@@ -121,7 +121,7 @@ describe.runIf(posix)("check progress for unit exercises", () => {
     const ws = await unitExercise(["secret-edge-case"]);
     fakeDocker("streams");
     const view = await app.checkExercise(ws);
-    expect(view.tests.filter((t) => t.name.startsWith("hidden"))).toEqual([{ name: "hidden #1", status: "error" }]);
+    expect(view.tests.filter((t) => t.name.startsWith("hidden"))).toEqual([{ name: "hidden #1", index: 1, status: "error" }]);
     expect(JSON.stringify(view)).not.toContain("secret");
   });
 
@@ -135,7 +135,7 @@ describe.runIf(posix)("check progress for unit exercises", () => {
     const view = await app.checkExercise(ws, undefined, undefined, (p) => seen.push(p));
     expect(view.tests).toEqual([
       { name: "visible/t", status: "fail", message: expect.stringContaining("VISIBLE text") },
-      { name: "hidden #1", status: "fail" },
+      { name: "hidden #1", index: 1, status: "fail" },
     ]);
     expect(JSON.stringify({ view, seen })).not.toContain("CANARY");
   });

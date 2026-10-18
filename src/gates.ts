@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { type FileMap, subMap, validateFileMap, writeFileMap } from "./files.js";
-import { gradeRuns, type IoRun, type TestResult } from "./grading.js";
+import { gradeRuns, type IoRun, redact, type TestResult } from "./grading.js";
 import { type JudgeTrack, runSets } from "./judge.js";
 import { buildImage, type BuildStep, inspectImage } from "./sandbox.js";
 import {
@@ -24,11 +24,10 @@ type Sets = { visible: FileMap; hidden: FileMap };
 
 /** One line per test. Hidden tests show only an index and a status. */
 function summarize(tests: TestResult[]): string {
-  let hidden = 0;
-  return tests
+  return redact(tests)
     .map((t) => {
-      if (t.set === "hidden") return `  hidden #${(hidden += 1)}: ${t.status}`;
-      const detail = [t.message, t.actual !== undefined && t.status !== "pass" ? `printed: ${JSON.stringify(t.actual.slice(0, 300))}` : ""].filter(Boolean).join("; ");
+      if (t.index !== undefined) return `  ${t.name}: ${t.status}`;
+      const detail = [t.message, t.actual !== undefined ? `printed: ${JSON.stringify(t.actual.slice(0, 300))}` : ""].filter(Boolean).join("; ");
       return `  ${t.name}: ${t.status}${detail ? ` (${detail})` : ""}`;
     })
     .join("\n");

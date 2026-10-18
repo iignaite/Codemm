@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./files.js";
 import { checkTrackFiles, type ExerciseGate, type TrackProgress, verifyExercise, verifyTrack } from "./gates.js";
-import { type CaseFrames, gradeIo, type Status, type TestResult, type TestSet } from "./grading.js";
+import { type CaseFrames, gradeIo, redact, type ShownResult, type Status, type TestResult, type TestSet } from "./grading.js";
 import { judgeSets, type ProgramOptions, type ProgramRun, runIo, runProgram, runUnit } from "./judge.js";
 import { type LearnerEvent, MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
 import { assertRuntime, cli as sandboxCli, inspectImage } from "./sandbox.js";
@@ -548,24 +548,21 @@ export type CheckView = {
   exercise: string;
   passed: number;
   total: number;
-  tests: (Pick<TestResult, "name" | "status"> & Partial<Pick<TestResult, "message" | "actual">>)[];
+  /** Visible tests in full; hidden ones as `hidden #N`, with `index` N, and a status only. */
+  tests: ShownResult[];
   recorded: boolean;
   note?: string;
 };
 
 /** Visible results in full; hidden results reduced to an index and a status (DESIGN §4.2). */
 function present(slug: string, tests: TestResult[], recorded: boolean, note?: string): CheckView {
-  let hidden = 0;
   return {
     exercise: slug,
     passed: tests.filter((t) => t.status === "pass").length,
     total: tests.length,
     recorded,
     ...(note ? { note } : {}),
-    tests: tests.map((t) => {
-      if (t.set === "hidden") return { name: `hidden #${(hidden += 1)}`, status: t.status };
-      return { name: t.name, status: t.status, ...(t.message ? { message: t.message } : {}), ...(t.actual !== undefined && t.status !== "pass" ? { actual: t.actual } : {}) };
-    }),
+    tests: redact(tests),
   };
 }
 
