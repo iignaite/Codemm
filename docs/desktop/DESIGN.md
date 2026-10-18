@@ -491,7 +491,7 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 
 ### 7.1 Signing (decision)
 
-**Decision (O9).** Beta builds stay unsigned. The public 1.0 is signed (D21): the macOS build is signed and notarized, and the Windows installer is signed. Auto-update comes later, with signing (§12).
+**Decision (O9).** Beta builds stay unsigned. The public 1.0 is signed (D21): the macOS build is signed and notarized, and the Windows installer is signed. Auto-update installs updates only in signed builds (§7.2).
 
 **Owner accounts and rough costs** (check at purchase):
 
@@ -507,6 +507,19 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 3. Pick the Windows option you're eligible for and set up its signing account.
 4. Add the GitHub Actions secrets: `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`, plus the Windows provider's credentials.
 5. Publish the first signed draft release.
+
+### 7.2 Auto-update
+
+- **Where:** electron-updater 6.8.10 (MIT) on GitHub Releases. `packaging.cjs` sets `publish` to this repository, so each build carries an `app-update.yml`; the build itself never publishes (`--publish never`).
+- **When:** at start and every 6 hours, in an installed app only. A prerelease build sees prereleases; a stable build sees stable releases only (`allowPrerelease` follows the running version). Prereleases ship only as `alpha` or `beta` (`releaseTag` refuses others): electron-updater moves those channels on to the next stable release, but not a custom one such as `rc`.
+- **Notice:** one `role="status"` region at the foot of the sidebar, so a screen reader hears the news without a focus move. The renderer reads the status on each screen and every 30 seconds until there is something to show.
+- **Signed builds** download a new version in the background. It's ready only once the platform has checked it: on macOS, when Squirrel.Mac has fetched it and checked its signature (Electron's own `update-downloaded`, not electron-updater's earlier one). A failed check goes back to quiet. Then the sidebar offers **Restart to update**. It first stops Codemm's agent jobs and removes its containers, the same shutdown quitting waits for, and only then starts the installer, which may end the app at once.
+- **Unsigned builds** can't install one (macOS refuses an unsigned update), so they never download. The sidebar says "A new version is available." with a link to that release's page, which opens in the browser. A version goes into the link only if it looks like a release tag.
+- **Signed or not** is decided at build time: `packaging.cjs` records `codemm.signed` in the packaged `package.json`, from that platform's own signing settings. A build that says it's signed must be: `forceCodeSigning` makes it fail rather than ship unsigned when no signing identity is found.
+- **Installing only what's signed.** On macOS, Squirrel.Mac checks the downloaded app's signature against the running app's designated requirement before it installs. On Windows, Codemm replaces electron-updater's signature check, which lets an update through when PowerShell can't run, with one that fails closed. It needs a valid Authenticode signature from the publisher the build names, and refuses the update on any error. The signer's name is read only when it's plain: one with characters outside printable ASCII, quotes, backslashes or multi-valued parts is refused rather than matched on a guess at Windows' quoting (Codemm's own certificate has a plain name; anyone else's update would be installed by hand). Windows PowerShell runs by its full path (`main/windows.ts`), never by name, and the file reaches it through the environment, never inside the command.
+- **Release workflow:** it attaches the `latest*.yml` feeds (and any channel feeds, such as `beta-mac.yml`), the Mac zips that Squirrel.Mac updates from, and the blockmaps, beside the installers. The release stays a draft until the owner publishes it, so no app sees it before then.
+- **Failures** (offline, no release yet, a bad feed) are logged as `update-error` and change nothing on screen.
+- **Tests:** `updates.ts` has its decisions covered with a fake updater. An e2e test points the development app at a local feed (`CODEMM_UPDATE_FEED`, honored only when not packaged) and checks that electron-updater finds the newer version and an unsigned build only links to it.
 
 ## 8. Cross-model robustness
 
@@ -582,7 +595,6 @@ Cut from 1.0 by the owner's scope ledger:
 
 - **Lessons:** predict questions, and learner edits of lesson text. Notes stay. (Runnable examples are in 1.0: §4.3.)
 - **Usage:** cost per topic. Totals per course and job kind are in 1.0 (§4.12); lesson caching stays (§4.3).
-- **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
 - The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
 - **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.8).
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.

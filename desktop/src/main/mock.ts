@@ -2,7 +2,7 @@
 // development (CODEMM_MOCK). Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner replaced the starter's
 // placeholder, and reports hidden results as statuses only.
-import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type RunOutput, type RunResult,
+import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type RunOutput, type UpdateStatus, type RunResult,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
@@ -27,6 +27,7 @@ import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type 
   type DockerInstall,
 } from '../shared/api';
 import { modelChoices, modelFor } from '../shared/models';
+import { AGENT_INFO } from './connect';
 import { addTopic } from '../shared/roadmap';
 
 type Docker = 'missing' | 'stopped' | 'starting' | 'windows-containers' | 'no-sandbox' | 'ready';
@@ -53,6 +54,8 @@ export interface MockOptions {
   style?: 'io';
   /** Run's time limit; 120 s by default. */
   runLimitMs?: number;
+  /** What the update check says, to see the update notice. */
+  update?: UpdateStatus;
   /**
    * Agent jobs take this many course reads per stage (and research per step), and calls such as a roadmap change
    * take this many half seconds, so each staged progress state can be seen (§4.11). Without it, jobs finish at once.
@@ -87,6 +90,8 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'io-track': { style: 'io' },
   'image-missing': { imageMissing: true },
   'run-time-up': { style: 'io', runLimitMs: 3000 },
+  'update-available': { update: { kind: 'available', version: '1.0.1', url: 'https://github.com/iignaite/Codemm/releases/tag/v1.0.1' } },
+  'update-ready': { update: { kind: 'ready', version: '1.0.1' } },
   'slow-jobs': { slow: 4 },
   'quiet-jobs': { slow: 4, quiet: true },
 };
@@ -128,11 +133,10 @@ const DOCKER_DOWN: Record<Exclude<Docker, 'ready'>, string> = {
   'no-sandbox': "Codemm couldn't confirm the sandbox.",
 };
 
-const AGENTS: Omit<Agent, 'state' | 'untested'>[] = [
-  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', signIn: 'claude auth login', canInstall: true, models: modelChoices('claude'), model: modelFor('claude'), experimental: false },
-  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', signIn: 'codex login', canInstall: true, models: modelChoices('codex'), model: modelFor('codex'), experimental: false },
-  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', signIn: 'cursor-agent login', canInstall: false, models: modelChoices('cursor'), model: modelFor('cursor'), experimental: true },
-];
+/** The connect screen's agents, as the connector describes them; Codemm installs Claude Code and Codex. */
+const AGENTS: Omit<Agent, 'state' | 'untested'>[] = (Object.keys(AGENT_INFO) as AgentId[]).map((id) => ({
+  id, ...AGENT_INFO[id], canInstall: id !== 'cursor', models: modelChoices(id), model: modelFor(id),
+}));
 
 const TOPICS: [string, string[]][] = [
   ['JavaScript basics', []],
@@ -791,6 +795,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async usage() {
       if (!course) return null;
       return { kinds: {}, total: { input: 182_400, output: 12_300, cachedInput: 90_000, costUsd: 0.42, runs: 6 } };
+    },
+
+    update: async () => options.update ?? { kind: 'none' },
+    async restartToUpdate() {
+      if (options.update?.kind !== 'ready') throw new Error('No update is ready.');
     },
   };
 }

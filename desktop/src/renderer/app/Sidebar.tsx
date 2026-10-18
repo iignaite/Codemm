@@ -1,6 +1,7 @@
 // The main navigation (§1): Learn, Practice and Tracks, wide with the course or slim beside a workspace.
 import type { ReactNode } from 'react';
 import type { CourseView } from '../../shared/api';
+import { Button } from '../ui/Button';
 import { hueColor } from '../ui/Emm';
 import { Icon, type IconName } from '../ui/Icon';
 import { Logo, Mark } from '../ui/Mark';
@@ -61,6 +62,7 @@ export function Sidebar({ slim = false }: { slim?: boolean }) {
       <div className="logo"><Logo height={22} onNavy /></div>
       {nav}
       <div className="foot">
+        <UpdateNotice />
         {course ? (
           <div className="pick">
             <span className="badge" style={{ background: hueColor(course.track) }} aria-hidden="true">{course.goal[0]}</span>
@@ -77,4 +79,32 @@ export function Sidebar({ slim = false }: { slim?: boolean }) {
 /** A screen with the wide sidebar. */
 export function WithSide({ children }: { children: ReactNode }) {
   return <><Sidebar />{children}</>;
+}
+
+/**
+ * A new version (§7.2). An unsigned build links to the release, which opens in the browser; a signed one has
+ * downloaded it and offers Restart to update. Read on each screen, and every 30 s until there is something to show.
+ */
+function UpdateNotice() {
+  const api = useApi();
+  const { route, fail } = useRouter();
+  // Read until there is something to say: main checks at start and every 6 hours, so news can come at any time.
+  const { data: update } = useLoad(() => api.update(), [route], (u) => u.kind === 'available' || u.kind === 'ready', 30_000);
+  // One status region stays in place, so a screen reader hears the news when it arrives, without a focus move.
+  return (
+    <div role="status" aria-label="Codemm updates" className={update?.kind === 'available' || update?.kind === 'ready' ? 'update' : undefined}>
+      {update?.kind === 'available' && (
+        <>
+          <span>A new version is available.</span>
+          <a href={update.url} target="_blank" rel="noreferrer">Get Codemm {update.version}</a>
+        </>
+      )}
+      {update?.kind === 'ready' && (
+        <>
+          <span>Codemm {update.version} is ready.</span>
+          <Button onClick={() => void api.restartToUpdate().catch(fail)}>Restart to update</Button>
+        </>
+      )}
+    </div>
+  );
 }

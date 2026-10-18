@@ -81,6 +81,8 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress'
   easier: [id],
   rebuild: [trackRef],
   usage: [],
+  update: [],
+  restartToUpdate: [],
 };
 
 /** Validates a renderer call and passes it to Codemm. Throws on anything unexpected. */

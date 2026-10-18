@@ -804,6 +804,9 @@ export function createLive(d: LiveDeps): Live {
       const course = approved();
       return course && d.usage ? d.usage.course(course) : null;
     },
+    // Updates are main's (updates.ts), which answers these in place of live.
+    update: async () => ({ kind: 'none' }),
+    restartToUpdate: async () => undefined,
 
     async stop() {
       stopping = true;

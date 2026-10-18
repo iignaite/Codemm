@@ -319,6 +319,16 @@ export interface CourseUsage {
 /** The course on screen's usage. */
 export type Usage = CourseUsage;
 
+/**
+ * A new version (DESIGN §7.2). `available`: an unsigned build, with the release's page. `downloading`, then
+ * `ready`: a signed build, which offers Restart to update.
+ */
+export type UpdateStatus =
+  | { kind: 'none' }
+  | { kind: 'available'; version: string; url: string }
+  | { kind: 'downloading'; version: string }
+  | { kind: 'ready'; version: string };
+
 export type Place = { lessonId: string } | { activityId: string };
 
 export interface Message {
@@ -411,6 +421,10 @@ export interface CodemmApi {
 
   /** What the agent CLIs reported using for the current course (§4.12); null without a course. */
   usage(): Promise<Usage | null>;
+  /** Whether a new version is out (§7.2). */
+  update(): Promise<UpdateStatus>;
+  /** Quits and installs a downloaded update: a signed build whose update is `ready`. */
+  restartToUpdate(): Promise<void>;
 }
 
 /** One thing a job did: a web search, an https page (host and path) or one of Codemm's steps (§4.11). */
