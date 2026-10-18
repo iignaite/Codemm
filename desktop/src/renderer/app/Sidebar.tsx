@@ -89,7 +89,7 @@ function UpdateNotice() {
   const api = useApi();
   const { route, fail } = useRouter();
   // Read until there is something to say: main checks at start and every 6 hours, so news can come at any time.
-  const { data: update } = useLoad(() => api.update(), [route], (u) => u.kind === 'available' || u.kind === 'ready', 30_000);
+  const { data: update } = useLoad(() => api.update(), [route], { settled: (u) => u.kind === 'available' || u.kind === 'ready', every: 30_000 });
   // One status region stays in place, so a screen reader hears the news when it arrives, without a focus move.
   return (
     <div role="status" aria-label="Codemm updates" className={update?.kind === 'available' || update?.kind === 'ready' ? 'update' : undefined}>

@@ -27,7 +27,10 @@ describe('a course read that fails after one worked', () => {
     expect(await screen.findByRole('button', { name: 'Continue' })).toBeInTheDocument();
     failing = true;
     window.dispatchEvent(new Event('focus'));
-    expect(await screen.findByRole('status')).toHaveTextContent("Codemm couldn't refresh this. You're offline.");
+    // A status (the sidebar keeps its own, for updates): this one says what happened.
+    const notice = await screen.findByText(/Codemm couldn't refresh this/);
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveTextContent("Codemm couldn't refresh this. You're offline.");
     expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
     failing = false;
     await user.click(screen.getByRole('button', { name: 'Try again' }));
