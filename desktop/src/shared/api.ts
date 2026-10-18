@@ -94,8 +94,8 @@ export interface ComputerCheck {
   id: CheckId;
   /** `waiting`: an earlier check has to pass first. */
   state: 'ok' | 'problem' | 'waiting';
-  /** For a running problem: Docker is still starting, or set to Windows containers. */
-  detail?: 'starting' | 'windows-containers';
+  /** For a running problem: Docker is still starting or set to Windows containers; or, just after Docker came up, the sandbox is still being checked. */
+  detail?: 'starting' | 'windows-containers' | 'checking';
 }
 
 /**

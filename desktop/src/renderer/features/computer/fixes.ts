@@ -1,4 +1,4 @@
-import type { CheckId, DockerInstall, Platform } from '../../../shared/api';
+import type { CheckId, ComputerCheck, DockerInstall, Platform } from '../../../shared/api';
 
 export interface Fix {
   steps: string[];
@@ -45,7 +45,7 @@ export const INSTALL = {
 };
 
 /** A running problem with a known cause replaces the usual fix (§6.1). */
-export const DETAILS: Record<'starting' | 'windows-containers', { fix: Fix; notYet: string }> = {
+export const DETAILS: Record<NonNullable<ComputerCheck['detail']>, { fix: Fix; notYet: string }> = {
   starting: {
     fix: { steps: ['Docker is starting. This can take a few minutes.'] },
     notYet: 'Docker is starting.',
@@ -53,6 +53,10 @@ export const DETAILS: Record<'starting' | 'windows-containers', { fix: Fix; notY
   'windows-containers': {
     fix: { steps: ['Switch Docker Desktop to Linux containers: right-click the Docker icon, then choose Switch to Linux containers.'] },
     notYet: 'Docker Desktop is set to Windows containers.',
+  },
+  checking: {
+    fix: { steps: ['Still checking. This can take a minute after Docker starts.'] },
+    notYet: 'Docker just started.',
   },
 };
 

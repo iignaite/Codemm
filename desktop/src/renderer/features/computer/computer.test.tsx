@@ -129,6 +129,14 @@ describe('check this computer', () => {
     expect(await screen.findByRole('listitem', { name: 'Docker is running' })).toHaveTextContent('Switch Docker Desktop to Linux containers');
   });
 
+  it('is still checking the sandbox just after Docker starts, not asking for a restart', async () => {
+    open(scenario('sandbox-checking'));
+    const sandbox = await screen.findByRole('listitem', { name: 'The sandbox works' });
+    expect(sandbox).toHaveTextContent('Still checking. This can take a minute after Docker starts.');
+    expect(sandbox).not.toHaveTextContent('Restart Docker');
+    expect(screen.getByRole('status')).toHaveTextContent('Docker just started. Checking again every few seconds.');
+  });
+
   it('gives Linux the start and docker group steps', async () => {
     open({ docker: 'stopped', platform: 'linux' });
     const running = await screen.findByRole('listitem', { name: 'Docker is running' });
