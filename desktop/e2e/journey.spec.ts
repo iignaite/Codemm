@@ -271,13 +271,16 @@ async function runWithInput(): Promise<string> {
 
 async function ask(how: 'Hint' | 'Show me' | string): Promise<string> {
   const log = page.getByRole('log');
+  const idle = async () => (await log.getAttribute('aria-busy').catch(() => null)) !== 'true' && !/Codemm is thinking/.test(await log.locator(':scope > *').last().innerText().catch(() => ''));
+  // One question at a time: while Codemm answers, Send is off and Enter does nothing.
+  await until('the tutor to be free', idle, 8 * MIN);
   const before = await log.locator(':scope > *').count();
   if (how === 'Hint' || how === 'Show me') await button(how).click();
   else {
     await page.getByRole('textbox', { name: 'Ask Codemm' }).fill(how);
-    await page.getByRole('textbox', { name: 'Ask Codemm' }).press('Enter');
+    await button('Send').click();
   }
-  await until('a tutor answer', async () => (await log.locator(':scope > *').count()) >= before + 2, 8 * MIN);
+  await until('a tutor answer', async () => (await log.locator(':scope > *').count()) >= before + 2 && (await idle()), 8 * MIN);
   return (await log.locator(':scope > *').last().innerText()).replace(/\s+/g, ' ').slice(0, 300);
 }
 
