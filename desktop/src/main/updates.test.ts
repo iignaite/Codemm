@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { isPrerelease, updates, type Updater } from './updates';
+import { EventEmitter } from 'node:events';
+import { downloaded, isPrerelease, updates, type Updater } from './updates';
 
 /** An updater whose next check finds `next` (or nothing), recording downloads and installs. */
 function fake(next: string | null = '1.2.0') {
@@ -109,5 +110,22 @@ describe('updates', () => {
   it('knows a prerelease version: those builds see prereleases, stable builds stable ones only', () => {
     expect(isPrerelease('1.0.0-beta.1')).toBe(true);
     expect(isPrerelease('1.0.0')).toBe(false);
+  });
+
+  it("a download is done only when the updater says so, after the platform's own checks; an error after the transfer fails it", async () => {
+    const ok = new EventEmitter();
+    let settled = '';
+    const first = downloaded(ok, async () => undefined).then(() => (settled = 'done'), () => (settled = 'failed'));
+    await tick();
+    expect(settled).toBe(''); // the transfer finished, the checks haven't
+    ok.emit('update-downloaded');
+    await first;
+    expect(settled).toBe('done');
+
+    const bad = new EventEmitter();
+    const second = downloaded(bad, async () => undefined);
+    bad.emit('error', new Error('Code signature did not pass validation'));
+    await expect(second).rejects.toThrow('Code signature');
+    expect(bad.listenerCount('update-downloaded') + bad.listenerCount('error')).toBe(0);
   });
 });
