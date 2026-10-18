@@ -163,7 +163,7 @@ describe("lessons", () => {
 
   it("saves a lesson before the track is installed, and reads it with notes", async () => {
     expect(await app.saveLesson(ws, lesson("intro"))).toEqual({ lesson: "intro" });
-    expect(app.getLesson(ws, "intro")).toEqual({ id: "intro", concept: "sh.basics", title: "About intro", markdown: "# intro\n\nText.", notes: "" });
+    expect(app.getLesson(ws, "intro")).toEqual({ id: "intro", concept: "sh.basics", title: "About intro", markdown: "# intro\n\nText.", notes: "", examples: [] });
     await app.saveNotes(ws, "intro", "remember $1");
     expect(app.getLesson(ws, "intro").notes).toBe("remember $1");
     const record = JSON.parse(readFileSync(join(process.env.CODEMM_HOME!, "courses", "shell", "lessons", "intro", "lesson.json"), "utf8"));
@@ -178,6 +178,16 @@ describe("lessons", () => {
   ])("refuses %s", async (_label, input, error) => {
     await app.saveLesson(ws, lesson("intro"));
     await expect(app.saveLesson(ws, input())).rejects.toThrow(error);
+  });
+
+  it("refuses examples before the track is set up, and examples that don't follow its contract, without running anything", async () => {
+    fakeDocker("missing");
+    const withExample = (files: Record<string, string>) => ({ ...lesson("ex"), markdown: "Try it:\n\n```example\n1\n```\n", examples: [files] });
+    await expect(app.saveLesson(ws, withExample({ "main.sh": "echo 1\n" }))).rejects.toThrow(/isn't set up yet/);
+    installFake();
+    await expect(app.saveLesson(ws, withExample({ "other.sh": "echo 1\n" }))).rejects.toThrow(/Example 1 must hold exactly the track's learner files \(main\.sh\)/);
+    await expect(app.saveLesson(ws, withExample({ "main.sh": "echo 1\n", "tests/a.sh": "x" }))).rejects.toThrow(/exactly the track's learner files/);
+    expect(app.listLessons(ws)).toEqual([]);
   });
 
   it("refuses notes over 64 KB and notes on a missing lesson", async () => {

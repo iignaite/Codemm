@@ -174,7 +174,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   }
 
   function addConcept(concept: Concept) {
-    const own: Lesson[] = [
+    const own: Omit<Lesson, 'examples'>[] = [
       { id: `${concept.id}-1`, concept: concept.id, title: `What ${concept.title.toLowerCase()} is`, markdown: `# ${concept.title}\n\n${concept.title} in one idea, before any code.`, notes: '' },
       {
         id: `${concept.id}-2`,
@@ -184,7 +184,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         notes: '',
       },
     ];
-    own.forEach((l) => lessons.set(l.id, l));
+    own.forEach((l) => lessons.set(l.id, { ...l, examples: [] }));
     const activity: Activity = {
       id: `${concept.id}-easy-1`,
       concept: concept.id,
@@ -392,6 +392,13 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       file.text = text;
       file.digest = digestOf(text);
       return file.digest;
+    },
+
+    async runExample(lessonId, index) {
+      if (docker() !== 'ready') return { kind: 'not-run', reason: DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] };
+      const example = find(lessons, lessonId).examples[index - 1];
+      if (!example) throw new Error('No such example.');
+      return { kind: 'ran', exit: 0, output: `${example.files.map((f) => f.path).join('\n')}\n`, errors: '' };
     },
 
     async tryIt(activityId, run) {

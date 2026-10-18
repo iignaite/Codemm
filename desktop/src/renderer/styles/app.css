@@ -282,3 +282,9 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
   .mid { min-height: 560px; }
   .coach { min-height: 420px; border-left: none; border-top: 1px solid var(--line); }
 }
+
+.example { margin: 14px 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.example .file { font-size: 13px; color: var(--muted); }
+.example pre { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--soft); font-family: var(--mono); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+.example .run { display: flex; justify-content: flex-end; }
+.example pre.err { color: var(--orange-ink); }
