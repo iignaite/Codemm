@@ -351,7 +351,6 @@ a.inline:hover { color: var(--ink); }
 .usage dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0; font-size: 14px; }
 .usage dt { color: var(--muted); }
 .usage dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
-.usage p { margin: 0; font-size: 13px; }
 /* A new version, at the foot of the sidebar (§7.2). */
 .side .update { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; padding: 12px; border: 1px solid var(--navy-line); border-radius: 10px; color: var(--navy-text); font-size: 13px; }
 .side .update a { color: #9AF0B8; font-weight: 600; }
