@@ -109,6 +109,8 @@ async function shot(name: string) {
   await banner(true);
 }
 
+let lateConsents = 0;
+
 /** Copies the proposals the learner is about to approve, so a gate failure can be diagnosed after the app drops them. */
 function keepProposals(n: number) {
   const from = join(dir!, 'home', 'proposals');
@@ -137,6 +139,7 @@ async function waitingStates() {
   if (await visible(consent)) {
     await shot('consent-late');
     note('consent-late', (await consent.getByRole('heading').first().innerText()).trim());
+    keepProposals(++lateConsents + 100);
     await tap(consent.getByRole('button', { name: 'Set up', exact: true }));
   }
 }
@@ -199,14 +202,14 @@ async function openExercise(): Promise<string> {
     const ex = join(courses, c, 'exercises');
     return existsSync(ex) ? readdirSync(ex).map((s) => join(ex, s)) : [];
   });
-  // Titles can repeat across a course: the newest exercise with this title is the open one.
+  // Titles can repeat across a course (a review reuses an old exercise): prefer the one whose statement is on the
+  // page, then the newest with this title.
+  const shown = (await page.locator('body').innerText()).replace(/\s+/g, ' ');
+  const statement = (d: string) => readFileSync(join(d, 'README.md'), 'utf8').split('\n').slice(1).join(' ').replace(/[#*`_>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
   const titled = all
-    .filter((d) => {
-      const readme = join(d, 'README.md');
-      return existsSync(readme) && readFileSync(readme, 'utf8').split('\n')[0].replace(/^#\s*/, '').trim() === title;
-    })
-    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
-  return titled ?? newestExercise();
+    .filter((d) => existsSync(join(d, 'README.md')) && readFileSync(join(d, 'README.md'), 'utf8').split('\n')[0].replace(/^#\s*/, '').trim() === title)
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+  return titled.find((d) => { const st = statement(d); return st.length > 20 && shown.includes(st.slice(0, 40)); }) ?? titled[0] ?? newestExercise();
 }
 
 async function rightAnswer() {
