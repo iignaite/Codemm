@@ -91,6 +91,7 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'plan-limit': { later: { after: 'approve', set: { agentProblem: 'plan-limit' } } },
   'untested-version': { untested: true },
   'io-track': { style: 'io' },
+  'io-docker-stopped': { style: 'io', docker: 'stopped' },
   'image-missing': { imageMissing: true },
   'run-time-up': { style: 'io', runLimitMs: 3000 },
   'update-available': { update: { kind: 'available', version: '1.0.1', url: 'https://github.com/iignaite/Codemm/releases/tag/v1.0.1' } },
