@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
@@ -120,6 +120,23 @@ describe("roadmap draft", () => {
     // Saving again adds no prerequisite, so there is no second retry.
     await app.saveRoadmap(ws, "shell", roadmap(withPrereq));
     expect(store.readEvents("shell").filter((e) => e.kind === "retry")).toHaveLength(1);
+  });
+
+  // A read-only file stands in for a full disk only on POSIX and for a non-root user.
+  it.runIf(posix && process.getuid?.() !== 0)("still gives the fresh start when the same roadmap is saved again after the retry couldn't be recorded", async () => {
+    await app.saveRoadmap(ws, "shell", roadmap());
+    for (let i = 0; i < 2; i++) store.appendEvent("shell", event({ kind: "check", exercise: "e1", concepts: ["sh.loops"], difficulty: 1, passed: 0, total: 1, assisted: false }));
+    const withPrereq = "  - { id: sh.basics, title: Basics, requires: [] }\n  - { id: sh.vars, title: Variables, requires: [] }\n  - { id: sh.loops, title: Loops, requires: [sh.basics, sh.vars] }\n";
+    const events = join(process.env.CODEMM_HOME!, "courses", "shell", "events.jsonl");
+    chmodSync(events, 0o444);
+    try {
+      await expect(app.saveRoadmap(ws, "shell", roadmap(withPrereq))).rejects.toThrow();
+    } finally {
+      chmodSync(events, 0o644);
+    }
+    await app.saveRoadmap(ws, "shell", roadmap(withPrereq));
+    expect(store.readEvents("shell").filter((e) => e.kind === "retry")).toEqual([expect.objectContaining({ concept: "sh.loops" })]);
+    expect(app.progress(ws).concepts.find((c) => c.id === "sh.loops")).toMatchObject({ stuck: false });
   });
 });
 
