@@ -5,7 +5,21 @@ import { createClient } from '@libsql/client';
 
 export function openDb(env) {
   if (!env.TURSO_DATABASE_URL) throw new Error('TURSO_DATABASE_URL is not set');
-  return createClient({ url: env.TURSO_DATABASE_URL, authToken: env.TURSO_AUTH_TOKEN });
+  return withRetry(createClient({ url: env.TURSO_DATABASE_URL, authToken: env.TURSO_AUTH_TOKEN }));
+}
+
+/** Retries a call once when Turso answers with a transient server error (HTTP 5xx). */
+export function withRetry(db, delayMs = 200) {
+  const once = (fn) => async (...args) => {
+    try {
+      return await fn(...args);
+    } catch (e) {
+      if (e?.code !== 'SERVER_ERROR') throw e;
+      await new Promise((r) => setTimeout(r, delayMs));
+      return fn(...args);
+    }
+  };
+  return { execute: once(db.execute.bind(db)), batch: once(db.batch.bind(db)), close: () => db.close() };
 }
 
 const MIGRATIONS = new URL('../migrations/', import.meta.url);

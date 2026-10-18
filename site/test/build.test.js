@@ -23,8 +23,16 @@ test('the build fills in every absolute URL', () => {
     assert.match(html, /<form class="gate" id="get" method="post" action="\/api\/subscribe"/);
     assert.match(html, /id="gate-submit" type="submit" disabled>/);
     for (const page of ['index.html', 'downloads.html', 'unsubscribe.html']) {
-      assert.doesNotMatch(readFileSync(join(out, page), 'utf8'), /<script(?![^>]*\bsrc=)|\son[a-z]+=|style="/, page);
+      assert.doesNotMatch(readFileSync(join(out, page), 'utf8'), /<script(?![^>]*\b(src=|type="application\/ld\+json"))|\son[a-z]+=|style="/, page);
     }
+    // The unsubscribe page keeps its token in the address, so it loads no analytics.
+    assert.doesNotMatch(readFileSync(join(out, 'unsubscribe.html'), 'utf8'), /_vercel\/insights/);
+    // On the downloads page, analytics loads after the script that strips the token from the address.
+    const dl = readFileSync(join(out, 'downloads.html'), 'utf8');
+    assert.ok(dl.indexOf('/downloads.js') < dl.indexOf('/_vercel/insights/script.js'));
+    assert.match(readFileSync(join(out, 'sitemap.xml'), 'utf8'), /<loc>https:\/\/codemm\.example\.org\/<\/loc>/);
+    assert.match(readFileSync(join(out, 'robots.txt'), 'utf8'), /Sitemap: https:\/\/codemm\.example\.org\/sitemap\.xml/);
+    assert.match(html, /"@type":"SoftwareApplication".*"url":"https:\/\/codemm\.example\.org\/"/);
   } finally {
     rmSync(join(out, '..'), { recursive: true, force: true });
   }
