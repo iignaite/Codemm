@@ -224,7 +224,9 @@ async function check(): Promise<string> {
     }
     return visible(verdict);
   }, 10 * MIN);
-  return verdict.innerText();
+  // Stuck shows "Try another way" above the count.
+  if (await visible(results().getByRole('heading', { name: 'Try another way' }))) return 'Try another way';
+  return verdict.first().innerText();
 }
 
 /** A lesson's runnable example: Run it, and read what it printed (or why it didn't run). */
@@ -258,9 +260,12 @@ async function runWithInput(): Promise<string> {
   const input = page.getByRole('textbox', { name: `Terminal for ${title} input` });
   const log = page.getByRole('log', { name: `Terminal for ${title}, as text` });
   await until('the program to start', async () => (await visible(log)) && ((await input.isEnabled().catch(() => false)) || /Exited|failed|stopped|Time's up/i.test(await log.innerText())), 5 * MIN);
-  if (await input.isEnabled().catch(() => false)) {
-    await input.pressSequentially('3');
+  // A program may read several lines: send a few numbers, one per line, while it still takes input.
+  for (const line of ['3', '4', '5']) {
+    if (!(await input.isEnabled().catch(() => false)) || /Exited|failed|stopped|Time's up/i.test(await log.innerText())) break;
+    await input.pressSequentially(line);
     await input.press('Enter');
+    await page.waitForTimeout(1500);
   }
   await until('the program to end', async () => /Exited with code|build failed|stopped|Time's up|ran out of memory|wasn't taken/i.test(await log.innerText()), 3 * MIN).catch(async () => {
     await run.click(); // Stop
