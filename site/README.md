@@ -12,8 +12,8 @@ test/     node:test suites
 
 - **The installers stay on GitHub Releases.** `public/main.js` reads the release list from the GitHub API in the visitor's browser, cached for 10 minutes in the tab, and links each installer straight to GitHub. Nothing is hosted on Vercel.
 - **Which release:** the newest published stable release, or the newest beta until there is one. Drafts are never shown.
-- **Which button:** the visitor's computer picks the main one (Apple Silicon Mac, Intel Mac, or Windows), with the others listed below it. Phones and Linux get every installer listed. A Mac whose chip the browser doesn't report (Safari and Firefox never do) gets Apple Silicon and Intel as two equal buttons, with a line on how to tell them apart.
-- **Betas:** a beta release (a GitHub prerelease) shows a Beta label and the one-time steps to open an unsigned build.
+- **Two buttons, Mac and Windows.** The visitor's own system comes first and is highlighted; phones and Linux get both, neither highlighted. The Mac button is the build for the visitor's chip. When the browser doesn't report it (Safari and Firefox never do), it's Apple Silicon, with a "Using an Intel Mac?" link under the buttons.
+- **Unsigned builds:** a GitHub prerelease shows the one-time steps to open an unsigned build ("Opening Codemm the first time"). The page shows no Beta label.
 - **No published release** shows "Coming soon" with a link to the GitHub repository.
 - **GitHub unreachable:** the button links to the Releases page.
 

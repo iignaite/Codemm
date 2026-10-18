@@ -47,25 +47,11 @@ function content(d) {
       el('span', { className: 'soon-pill' }, 'Coming soon to Mac and Windows'),
       el('a', { href: REPO }, 'Source on GitHub'))];
   }
-  const parts = [];
-  if (d.primaries.length) {
-    parts.push(el('div', { className: 'primaries' }, ...d.primaries.map((i) =>
-      el('a', { className: 'btn primary big', href: safe(i.url) },
-        el('span', { className: 'btn-label' }, i.label),
-        el('span', { className: 'btn-detail' }, i.detail)))));
-    // Both Mac builds: the browser didn't say which chip this Mac has.
-    if (d.primaries.length > 1) parts.push(el('p', { className: 'chip-hint' }, 'About This Mac shows Chip on Apple Silicon and Processor on Intel.'));
-  } else {
-    parts.push(el('p', { className: 'desktop-only' }, 'Codemm is a desktop app for a Mac or a Windows PC.'));
-  }
-  // One quiet line under the buttons: the beta label and the other installers.
-  const line = el('p', { className: 'others' });
-  if (d.beta) line.append(el('span', { className: 'pill' }, 'Beta'));
-  if (d.others.length) {
-    line.append(el('span', {}, d.primaries.length ? 'Also for' : 'Download for'));
-    for (const o of d.others) line.append(el('a', { href: safe(o.url) }, o.name));
-  }
-  if (line.childNodes.length) parts.push(line);
+  // Two buttons, Mac and Windows, the visitor's own first and highlighted.
+  const parts = [el('div', { className: 'primaries' }, ...d.buttons.map((b) =>
+    el('a', { className: `btn big ${b.primary ? 'primary' : 'secondary'}`, href: safe(b.url) },
+      el('span', { className: 'btn-label' }, b.label))))];
+  if (d.intel) parts.push(el('p', { className: 'others' }, 'Using an Intel Mac? ', el('a', { href: safe(d.intel) }, 'Download for Intel')));
   return parts;
 }
 
@@ -74,5 +60,5 @@ const [releases, p] = await Promise.all([loadReleases(), platform()]);
 if (releases) {
   const d = downloads(pickRelease(releases), p);
   for (const box of document.querySelectorAll('[data-download]')) box.replaceChildren(...content(d));
-  for (const note of document.querySelectorAll('[data-beta]')) note.hidden = !d.beta;
+  for (const note of document.querySelectorAll('[data-unsigned]')) note.hidden = !d.unsigned;
 }
