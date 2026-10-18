@@ -43,9 +43,10 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
         return old && states.get(c.id)?.stuck && c.requires.some((r) => !old.includes(r));
       }).map((c) => c.id);
     }
-    // The retries go first, so a failed save always converges when it's saved again. If appending fails, nothing was
-    // written and the re-save still sees the new prerequisite. If writing the roadmap then fails, the concept has its
-    // fresh start (so it's no longer stuck and gets no second retry) and the re-save writes the roadmap.
+    // The retries go first, so a failed save converges when it's saved again. If an append fails, the roadmap remains
+    // unchanged, so the re-save still sees the new prerequisite for every concept still stuck. If writing the roadmap
+    // then fails, those concepts have their fresh start (no longer stuck, so no second retry unless they fail again)
+    // and the re-save writes the roadmap. Until then, a concept can be offered before its new prerequisite exists.
     for (const concept of retries) store.appendEvent(course, { format_version: 1, kind: "retry", at: new Date().toISOString(), concept });
     store.writeCourse(record);
   }));
