@@ -35,6 +35,8 @@ case "$1" in
     # Run scenarios act out the Run driver: its markers go to stderr, around the program's own output.
     # interactive: asks for a name and greets it. waits/ignores: run until killed (no end marker).
     m() { printf '\n@@codemm-run %s\n' "$*" >&2; }
+    # nospace: the container can't even start, because Docker's disk is full (a Run or a check alike).
+    [ "$FAKE_DOCKER" = nospace ] && { echo "docker: Error response from daemon: mkdir /var/lib/docker/overlay2/x: no space left on device." >&2; exit 125; }
     case "$FAKE_DOCKER" in
       interactive) m start run; printf 'name? '; read -r name; echo "hello $name"; echo "a warning" >&2; m end run 0; exit 0 ;;
       waits) m start run; while read -r line; do :; done; exit 0 ;;

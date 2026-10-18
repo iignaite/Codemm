@@ -160,8 +160,15 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
   let ended: { stage: "build" | "run"; code: number } | undefined;
   let timedOutIn: "build" | "run" | undefined;
   const begun = new Set<"build" | "run">();
+  // What the runtime printed before the driver started: with exit 125 and nothing on stdout, no code ran, so
+  // it's the runtime's own reason for not starting.
+  let beforeStart = "";
+  let printed = false;
   const markers = runMarkers(
-    (text) => say("stderr", text),
+    (text) => {
+      if (begun.size === 0 && beforeStart.length < 2000) beforeStart += text;
+      say("stderr", text);
+    },
     ([what, stage, code]) => {
       if (stage !== "build" && stage !== "run") return;
       if (what === "end" && code !== undefined && /^\d+$/.test(code)) ended = { stage, code: Number(code) };
@@ -188,7 +195,7 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
         deadlineMs: (track.build ? buildLimitMs : 0) + limitMs + 5_000,
         stdin: true,
       },
-      { stdout: (b) => say("stdout", decoders.stdout.write(b)), stderr: (b) => markers.write(decoders.stderr.write(b)) },
+      { stdout: (b) => ((printed ||= b.length > 0), say("stdout", decoders.stdout.write(b))), stderr: (b) => markers.write(decoders.stderr.write(b)) },
     );
   } catch (e) {
     rmSync(dir, { recursive: true, force: true });
@@ -210,6 +217,9 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       }
       // No end marker: the driver itself was killed. Only a memory-limit kill is the program's doing.
       if (r.oomKilled) return { exit: 137, timedOut: false, flooded: false, outOfMemory: true };
+      if (r.exit === 125 && !printed && begun.size === 0 && beforeStart.trim()) {
+        throw new CodemmError(`The container couldn't start: ${beforeStart.trim().slice(0, 500)}`, runtimeKind(beforeStart));
+      }
       throw new CodemmError(`The container runtime failed during the run. ${startHelp()}`, "docker");
     })
     .finally(() => rmSync(dir, { recursive: true, force: true }));
