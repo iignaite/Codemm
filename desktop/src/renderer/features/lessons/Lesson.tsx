@@ -9,9 +9,10 @@ import { Failed, Sidebar, Stalled } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
-import { Markdown } from '../../ui/Markdown';
+import { lessonParts } from '../../ui/Markdown';
 import { stagger } from '../../ui/motion';
 import { Rail } from '../../ui/Rail';
+import { Example } from './Example';
 import { NoteEditor } from './NoteEditor';
 import { Outline } from './Outline';
 
@@ -29,9 +30,6 @@ function neighbours(topic: TopicView, lessonId: string): { prev: Route; next: (c
     },
   };
 }
-
-/** The title is shown above the lesson, so a leading top-level heading would repeat it. */
-const withoutTitle = (markdown: string) => markdown.replace(/^#\s[^\n]*\n+/, '');
 
 interface View {
   lesson: LessonData;
@@ -113,7 +111,11 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
             </Button>
           )}
         </div>
-        <Markdown text={withoutTitle(lesson.markdown)} className="md a-up" />
+        <div className="a-up">
+          {lessonParts(lesson.markdown, true).map((part, i) =>
+            'example' in part ? <Example key={i} lesson={lesson} index={part.example} /> : <div key={i} className="md" dangerouslySetInnerHTML={{ __html: part.html }} />,
+          )}
+        </div>
         {editing ? (
           <NoteEditor note={notes} onSave={save} onCancel={() => setEditing(false)} />
         ) : (

@@ -20,7 +20,7 @@ export function fakeCore() {
     roadmap: null as null | { course: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[] },
     tracks: [] as string[],
     proposals: [] as { track: string; digest: string; created: string; files: Record<string, string> }[],
-    lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string }[],
+    lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string; examples?: Record<string, string>[] }[],
     reads: new Set<string>(),
     exercises: new Map<string, { concept: string; file: string; digest: string; created: string; difficulty?: number }>(),
     /** The difficulty next_step asks the author for, and the one the fake author writes. */
@@ -120,7 +120,13 @@ export function fakeCore() {
     listProposals: () => c.proposals,
     installProposal: (ref, digest) => c.install(ref, digest),
     dropProposal: async () => void (c.proposals = []),
-    getLesson: (_ws, id) => c.lessons.find((l) => l.id === id)!,
+    getLesson: (_ws, id) => ({ examples: [], ...c.lessons.find((l) => l.id === id)! }),
+    runExample: async (_ws, id, index) => {
+      if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
+      const files = c.lessons.find((l) => l.id === id)?.examples?.[index - 1];
+      if (!files) throw new Error(`Lesson "${id}" has no example ${index}.`);
+      return { exit: 0, output: `ran ${Object.keys(files).join(',')}\n`, errors: '' };
+    },
     listExercises: (_ws, bound) => (c.bound.push(bound), [...c.exercises.entries()].map(([exercise, e]) => ({ exercise, concepts: [e.concept], difficulty: e.difficulty ?? 1, created: e.created }))),
     listLessons: (_ws, bound) => {
       c.bound.push(bound);

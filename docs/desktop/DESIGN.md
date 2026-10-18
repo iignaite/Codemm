@@ -231,7 +231,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 
 ### 4.3 Lessons
 
-- **Saving.** `save_lesson { id, concept, title, markdown }`. The id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. Lessons are static text: nothing in them runs.
+- **Saving.** `save_lesson { id, concept, title, markdown, examples? }`. The id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. Optional runnable examples are checked by running them in the sandbox (core §5).
 - **Storage.** `courses/<course>/lessons/<id>/` holds:
   - `lesson.json` (`format_version`, id, concept, title, created);
   - `lesson.md`, the agent's text, never changed after saving;
@@ -248,7 +248,8 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - an id: the earliest unread lesson.
   - absent: every lesson for the concept has been read.
   The activity stays locked, and the tutor teaches first, until the field is absent. The author job can still run in the background, because the step names the activity. Lessons never change mastery.
-- **Not verified.** Lessons are checked for structure only; only activities are "checked before you see it".
+- **Not verified.** Lesson text is checked for structure only, and examples only for a clean run. Only activities are "checked before you see it".
+- **Run.** Each example block shows its files and a Run button. Run calls core's `runExample` through IPC, so the example runs in the sandbox, never on the host. It shows the output and errors (capped) and records nothing. A Docker problem shows "This didn't run." with Check this computer.
 
 ### 4.4 Honest skip
 
@@ -463,7 +464,7 @@ Work test-first. For each behavior, write a failing test, make it pass simply, t
 
 Cut from 1.0 by the owner's scope ledger:
 
-- **Lessons:** running code examples in the sandbox (the lesson gate), predict questions, and learner edits of lesson text. Notes stay.
+- **Lessons:** predict questions, and learner edits of lesson text. Notes stay. (Runnable examples are in 1.0: §4.3.)
 - **Usage:** recording agent usage and showing cost per topic. Lesson caching stays (§4.3).
 - **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
 - The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)

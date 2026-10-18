@@ -83,8 +83,10 @@ export function createServer(ws: string, version: string, { course, tools, deskt
     ({ course: c, roadmap }) => respond(() => app.saveRoadmap(ws, c, roadmap, course)),
   );
 
-  if (want("get_roadmap")) server.registerTool("get_roadmap", { description: "The course roadmap: goal, track, style and concepts with their prerequisites." }, () =>
-    respond(() => app.getRoadmap(ws, course)),
+  if (want("get_roadmap")) server.registerTool(
+    "get_roadmap",
+    { description: "The course roadmap: goal, track, style and concepts with their prerequisites, and the track's contract once it's set up." },
+    () => respond(() => app.getRoadmap(ws, course, true)),
   );
 
   if (want("next_step")) server.registerTool(
@@ -124,8 +126,14 @@ export function createServer(ws: string, version: string, { course, tools, deskt
   if (want("save_lesson")) server.registerTool(
     "save_lesson",
     {
-      description: "Save a lesson for one roadmap concept: static Markdown (at most 64 KB) the learner reads before the activity. Nothing in it runs. The id must be new in the course.",
-      inputSchema: { id: lessonId, concept: z.string().describe("Concept id from the roadmap"), title: z.string(), markdown: z.string() },
+      description:
+        "Save a lesson for one roadmap concept: Markdown (at most 64 KB) the learner reads before the activity, and up to 5 runnable examples. " +
+        "Each example is a file map with exactly the track's learner files (for unit, plus tests/ files); Codemm runs each in the sandbox and it must exit 0. " +
+        "Place example N in the Markdown as a fenced block with info string example whose only line is N. The id must be new in the course.",
+      inputSchema: {
+        id: lessonId, concept: z.string().describe("Concept id from the roadmap"), title: z.string(), markdown: z.string(),
+        examples: z.array(files).optional().describe("Runnable examples; they need the track set up"),
+      },
     },
     (lesson) => respond(() => app.saveLesson(ws, lesson, course)),
   );
