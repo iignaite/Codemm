@@ -1,5 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import * as app from "../../src/app.js";
@@ -7,6 +6,7 @@ import { readFileMap } from "../../src/files.js";
 import { cli } from "../../src/sandbox.js";
 import { readEvents, trackImageTag } from "../../src/store.js";
 import { dockerUp, FIXTURES, fixtureTrack } from "./helpers.js";
+import { tempDir } from "../temp.js";
 
 const roadmap = (name: string) => readFileSync(join(FIXTURES, "roadmaps", `${name}.yaml`), "utf8");
 const exercise = (name: string) => readFileMap(join(FIXTURES, "exercises", name));
@@ -21,8 +21,8 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   };
 
   beforeAll(() => {
-    process.env.CODEMM_HOME = mkdtempSync(join(tmpdir(), "codemm-home-"));
-    ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+    process.env.CODEMM_HOME = tempDir("codemm-home-");
+    ws = tempDir("codemm-ws-");
   });
 
   it("installs a track once and refuses a different track under the same version", async () => {

@@ -1,6 +1,26 @@
-import { screen, waitFor, within } from '@testing-library/react';
+// jsdom can't lay out xterm.js; this stand-in takes typing. The pane's text mirror shows what was written.
+const xterm = vi.hoisted(() => ({ type: (_data: string) => undefined as void }));
+vi.mock('@xterm/xterm', () => ({
+  Terminal: class {
+    options = {};
+    loadAddon() {}
+    open() {}
+    write() {}
+    reset() {}
+    onData(listener: (data: string) => void) {
+      xterm.type = listener;
+      return { dispose() {} };
+    }
+    dispose() {}
+    focus() {}
+    attachCustomKeyEventHandler() {}
+  },
+}));
+vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }));
+
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { scenario, type MockOptions } from '../../../main/mock';
 import { mockWithCourse, mockWithRoadmap, renderApp } from '../../test-utils';
 
@@ -48,6 +68,42 @@ describe('lesson examples', () => {
     expect(runs).toEqual([1]);
     expect(screen.getByText('Before')).toBeInTheDocument();
     expect(screen.getByText('After')).toBeInTheDocument();
+  });
+
+  it('runs an io example in the terminal pane with typed input, and stops it on leaving', async () => {
+    const user = userEvent.setup();
+    const { api, course } = await mockWithCourse({ read: true, style: 'io' });
+    const first = course.topics[0].lessons[0];
+    const stopped: string[] = [];
+    const stopRun = api.stopRun.bind(api);
+    api.stopRun = async (run) => (stopped.push(run), stopRun(run));
+    const view = renderApp({ to: 'lesson', lessonId: first.id }, api);
+    const example = await screen.findByRole('region', { name: 'Example 1' });
+    expect(within(example).queryByRole('region', { name: 'Terminal for Example 1' })).toBeNull();
+    await user.click(within(example).getByRole('button', { name: 'Run' }));
+    const mirror = () => within(example).getByRole('log', { name: 'Terminal for Example 1, as text' });
+    await waitFor(() => expect(mirror().textContent).toBe("What's your name? "));
+    expect(within(example).getByRole('region', { name: 'Terminal for Example 1' })).toHaveTextContent('2:00 left');
+    act(() => xterm.type('Ada\r'));
+    await waitFor(() => expect(mirror().textContent).toBe("What's your name? Ada\nHello, Ada!\nExited with code 0.\n"));
+    expect(within(example).getByRole('button', { name: 'Run' })).toBeEnabled();
+
+    await user.click(within(example).getByRole('button', { name: 'Run' }));
+    expect(await within(example).findByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    view.unmount();
+    expect(stopped).toHaveLength(1);
+  });
+
+  it('runs an io example under StrictMode, as the app does, where every effect replays once', async () => {
+    const user = userEvent.setup();
+    const { api, course } = await mockWithCourse({ read: true, style: 'io' });
+    renderApp({ to: 'lesson', lessonId: course.topics[0].lessons[0].id }, api, { strict: true });
+    const example = await screen.findByRole('region', { name: 'Example 1' });
+    await user.click(within(example).getByRole('button', { name: 'Run' }));
+    const mirror = () => within(example).getByRole('log', { name: 'Terminal for Example 1, as text' });
+    await waitFor(() => expect(mirror().textContent).toBe("What's your name? "));
+    act(() => xterm.type('Ada\r'));
+    await waitFor(() => expect(mirror().textContent).toBe("What's your name? Ada\nHello, Ada!\nExited with code 0.\n"));
   });
 });
 
@@ -106,6 +162,30 @@ describe('topic page and setup consent', () => {
       expect(await screen.findByRole('button', { name: 'Read useState' })).toBeInTheDocument();
       view.unmount();
     }
+  });
+
+  it('keeps the lesson list beside a failed setup', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved(scenario('offline-setup'));
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("You're offline.");
+    expect(screen.getByRole('heading', { name: 'JavaScript basics' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Read What javascript basics is' })).toBeInTheDocument();
+  });
+
+  it('offers setup from a lesson without blocking the reading', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved();
+    let course = (await api.course())!;
+    while (course.setup !== 'consent' || course.topics[0].lessons[0].state !== 'ready') course = (await api.course())!;
+    renderApp({ to: 'lesson', lessonId: course.topics[0].lessons[0].id }, api);
+    expect(await screen.findByRole('heading', { name: 'What javascript basics is' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Set up React' }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Set up React on this computer?' })).getByRole('button', { name: 'Set up' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Set up React' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('says when Docker stopped during setup, and offers Check this computer', async () => {

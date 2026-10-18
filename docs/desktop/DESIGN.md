@@ -222,6 +222,8 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 - **The consent dialog.**
   - Text: "Set up React on this computer?" and "Setup runs code your agent wrote, with internet access. Graded runs are offline.", with Not now or Set up.
   - Details shows the Dockerfile and track.yaml, the 10-minute build limit, and the fact that builds have no memory or CPU limit.
+  - The topic page opens it. A lesson offers it as a "Set up React" banner, so reading never waits for consent.
+  - A setup failure shows above the topic's lessons, which stay readable.
 - **Retries.**
   - **Build failure from the learner's machine.** If a build fails because the machine is offline or out of disk space (§6.1), nothing is recorded and no agent runs. Try again re-installs the same proposal, which needs no new consent because the digest is unchanged.
   - **Gate failure.** If the gates fail, a new setup job gets the gate diagnostics, which hold no learner secrets, and proposes again within the bound in §3.2. A new proposal has new contents, so it asks again: "Codemm has another way to set up React." with Stop or Set up.
@@ -235,6 +237,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - Re-saving may change `track` while the course has no exercises, so a failed setup can move to another track. Before that save, main cancels the old track's setup and author jobs and drops its proposals. Lessons stay, because they are static text.
   - `save_exercise`, `get_exercise` and `check` still need the installed track.
   - If the installed track doesn't offer the roadmap's style, `next_step` fails with "Edit the roadmap's style".
+- **A new roadmap is a draft.** Research saves a new course, which core makes the workspace's active one. The course the learner approved stays their course: main binds every learner read and call to it (core's `bound` course) until the learner approves another roadmap. The goal screen offers "Resume roadmap" for a draft, and the learner's edits to it are saved as they happen, so leaving or closing Codemm keeps them.
 - **Reading.** `get_roadmap` (tool) and `app.getRoadmap(ws)` return `{ course, goal, track, style, concepts: [{ id, title, requires }] }`.
 - **Editing in the app** builds a new roadmap and saves it through `app.saveRoadmap`, so core §5 rules apply:
   - Rename changes the title only; the id stays stable.
@@ -264,7 +267,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - absent: every lesson for the concept has been read.
   The activity stays locked, and the tutor teaches first, until the field is absent. The author job can still run in the background, because the step names the activity. Lessons never change mastery.
 - **Not verified.** Lesson text is checked for structure only, and examples only for a clean run. Only activities are "checked before you see it".
-- **Run.** Each example block shows its files and a Run button. Run calls core's `runExample` through IPC, so the example runs in the sandbox, never on the host. It shows the output and errors (capped) and records nothing. A Docker problem shows "This didn't run." with Check this computer.
+- **Run.** Each example block shows its files and a Run button, and the example runs in the sandbox, never on the host, recording nothing. An io example runs as an activity's Run does (§4.10): `runExampleLive` through IPC, in the terminal pane with typed input and a countdown, and Run turns into Stop. A unit example runs once as tests through `runExample`, showing the output and errors (capped). `lesson` names the examples' style. A Docker problem shows "This didn't run." with Check this computer.
 
 ### 4.4 Honest skip
 
@@ -331,9 +334,10 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 - **Core.** `runInteractive` runs the learner's program through `src/sandbox.ts` only (core §4.3 "Run"). It uses the full flag set plus `-i`, network none, only the learner's files, a 60 s build and a 120 s run. It reports when each stage starts, with that stage's limit, and records nothing. `get_exercise` names the run command for io.
 - **Desktop.**
   - `runProgram(activityId, run)` resolves when the program ends, with `ran` (exit, stage, timed out, stopped, flooded, out of memory) or `not-run` (a Docker problem, in Check's words).
-  - `sendRunInput(run, text)` and `stopRun(run)` act on it. One write is at most 64 KB, as core takes, and at most 4 programs run at once.
+  - `runExampleLive(lessonId, index, run)` is the same for a lesson's io example (core `runExampleLive`, which checks the example against the track it was saved with).
+  - `sendRunInput(run, text)` and `stopRun(run)` act on either. A run stopped while Docker is starting ends at once, frees its place and never starts. One write is at most 64 KB, as core takes, and at most 4 programs run at once.
   - Output travels on the one-way `codemm:run-output` event as `{ run, stream, text }`, or `{ run, started, limitMs }` when a stage starts. The preload exposes it as `onRunOutput`, and `invoke('onRunOutput')` is refused.
-  - **Window-bound** (`main/runs.ts`). A run belongs to the window that started it, from the call until it settles. Only that window hears its output; input or Stop from another window does nothing; closing the window stops it; quitting stops every run.
+  - **Window-bound** (`main/runs.ts`). A run belongs to the window that started it, from the call until it settles. The run id is the start call's last argument. Only that window hears its output; input or Stop from another window does nothing; closing the window stops it; quitting stops every run.
 - **The pane** (`renderer/ui/Terminal.tsx`, shared with lesson examples).
   - A dark, monospace xterm.js screen (MIT) headed "Terminal", with a status on the right: "Building", "1:52 left" or "Time's up". It shows the command after a `$` prompt, keeps ANSI colors, and shows stderr in the error color. Every palette color reaches AA on the pane's navy.
   - The program reads a pipe, not a terminal, so the pane is a line editor: it echoes typing, honors Backspace, and sends each line with its newline. Tab and Shift+Tab always move focus, so the pane never traps the keyboard.

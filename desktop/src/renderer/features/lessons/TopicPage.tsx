@@ -1,8 +1,6 @@
-import { useState } from 'react';
 import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { settled } from '../../app/course';
-import { problemOf } from '../../app/errors';
 import { useRouter } from '../../app/router';
 import { Failed, Stalled } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
@@ -10,50 +8,30 @@ import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
-import { SetupConsent } from './SetupConsent';
+import { SetupOffer } from './SetupConsent';
 
 const BUSY = { proposing: 'Preparing setup for', installing: 'Setting up' } as const;
 
 /** A topic's lessons, then its activity. Reading starts as soon as the first lesson exists; setup runs beside it. */
 export function TopicPage({ topicId }: { topicId: string }) {
   const api = useApi();
-  const { fail } = useRouter();
   const { data: course, error, reload } = useLoad(() => api.course(), [topicId], settled, undefined, true);
-  const [consentClosed, setConsentClosed] = useState(false);
-  const [consentError, setConsentError] = useState<string>();
   if (error) return <Failed error={error} retry={reload} />;
   const topic = course?.topics.find((t) => t.id === topicId);
   if (!course || !topic) return null;
-  if (course.setup === 'failed') return <SetupFailed course={course} topicId={topicId} onRetry={reload} />;
 
-  async function install(digest: string) {
-    try {
-      await api.install(digest);
-      setConsentError(undefined);
-    } catch (e) {
-      if (problemOf(e) === 'connect') return fail(e);
-      // The proposal changed since the learner saw it: show the new one, and say why.
-      setConsentError((e as Error).message);
-    }
-    reload();
-  }
-
-  const proposal = course.setup === 'consent' ? course.proposal : undefined;
   return (
     <main className="center">
       <div className="topic-page">
         <h1 className="h1 a-up">{topic.title}</h1>
+        {/* A failed setup says so above the lessons, which stay readable. */}
+        {course.setup === 'failed' && <SetupFailed course={course} topicId={topicId} onRetry={reload} />}
         <Items topic={topic} />
         {(course.setup === 'proposing' || course.setup === 'installing') && (
           <div className="busy a-up" style={stagger(3, 300)}><Status kind="run" size={18} />{BUSY[course.setup]} {course.track}</div>
         )}
-        {proposal && consentClosed && (
-          <div className="a-up"><Button onClick={() => setConsentClosed(false)}>Set up {course.track}</Button></div>
-        )}
+        <SetupOffer course={course} onChange={reload} />
       </div>
-      {proposal && !consentClosed && (
-        <SetupConsent track={course.track} proposal={proposal} error={consentError} onClose={() => setConsentClosed(true)} onSetUp={() => install(proposal.digest)} />
-      )}
       {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
     </main>
   );
@@ -119,17 +97,15 @@ function SetupFailed({ course, topicId, onRetry }: { course: CourseView; topicId
   }
 
   return (
-    <main className="center">
-      <div className="card panel a-pop" role="alert">
-        <Emm mood="think" width={150} name={course.track} perch />
-        <h1 className="h2">{say.title}</h1>
-        <p className="sub">{say.text}</p>
-        <div className="actions">
-          {problem === 'gates' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'goal' })}>Stop</Button>}
-          {problem === 'docker' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'computer', then: { to: 'topic', topicId } })}>Check this computer</Button>}
-          <Button size="lg" onClick={retry}>Try again</Button>
-        </div>
+    <div className="card panel a-pop" role="alert">
+      <Emm mood="think" width={150} name={course.track} perch />
+      <h2 className="h2">{say.title}</h2>
+      <p className="sub">{say.text}</p>
+      <div className="actions">
+        {problem === 'gates' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'goal' })}>Stop</Button>}
+        {problem === 'docker' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'computer', then: { to: 'topic', topicId } })}>Check this computer</Button>}
+        <Button size="lg" onClick={retry}>Try again</Button>
       </div>
-    </main>
+    </div>
   );
 }

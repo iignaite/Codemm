@@ -1,0 +1,11 @@
+{
+  "name": "codemm-site",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node scripts/dev.mjs",
+    "test": "node --test 'test/*.test.js'"
+  }
+}

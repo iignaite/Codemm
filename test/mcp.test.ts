@@ -1,5 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -10,14 +9,15 @@ import { parseTrackYaml } from "../src/schemas.js";
 import { createServer, parseToolList, type ServerOptions, TOOL_NAMES } from "../src/mcp.js";
 import * as store from "../src/store.js";
 import { fakeDocker, posix } from "./fake-docker.js";
+import { tempDir } from "./temp.js";
 
 /** The per-job server: `codemm mcp --tools`, `--course` and `--desktop`. */
 
 let ws: string;
 let client: Client | undefined;
 beforeEach(() => {
-  vi.stubEnv("CODEMM_HOME", mkdtempSync(join(tmpdir(), "codemm-home-")));
-  ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+  vi.stubEnv("CODEMM_HOME", tempDir("codemm-home-"));
+  ws = tempDir("codemm-ws-");
 });
 afterEach(async () => {
   await client?.close();
@@ -106,7 +106,7 @@ describe("--progress", () => {
       "track.json": { format_version: 1, ...parseTrackYaml(track["track.yaml"]!), image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
     });
     await app.saveRoadmap(ws, "shell", readFileSync(join(fixtures, "roadmaps", "shell-io.yaml"), "utf8"));
-    const progress = join(mkdtempSync(join(tmpdir(), "codemm-progress-")), "job.json");
+    const progress = join(tempDir("codemm-progress-"), "job.json");
     const { call } = await connect({ course: "shell", progress });
     fakeDocker("streams");
     // Every fake run prints the same output, so the starter passes too and its gate fails.

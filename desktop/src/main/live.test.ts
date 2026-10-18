@@ -80,8 +80,10 @@ describe('live CodemmApi', () => {
     const ran = t.api.runProgram(id, 'run-1');
     await t.api.stopRun('run-1');
     expect(await ran).toMatchObject({ kind: 'ran', stopped: true });
+    // Stopped before it started, so it never reached core.
+    expect(t.c.runs).toEqual([]);
     const again = t.api.runProgram(id, 'run-2');
-    await vi.waitFor(() => expect(t.c.runs).toHaveLength(2));
+    await vi.waitFor(() => expect(t.c.runs).toHaveLength(1));
     await t.api.stopRun('run-2');
     expect(await again).toMatchObject({ kind: 'ran', stopped: true });
   });
@@ -112,6 +114,51 @@ describe('live CodemmApi', () => {
     const { id } = await practising(t);
     t.c.down = true;
     expect(await t.api.runProgram(id, 'run-1')).toEqual({ kind: 'not-run', reason: expect.stringMatching(/Docker/) });
+  });
+
+  it('keeps the approved course while a new roadmap is a draft, and offers the draft to resume', async () => {
+    const t = live();
+    const { id } = await practising(t);
+    const approved = t.c.roadmap!.course;
+    let r = await t.api.research({ topic: 'Vue', known: '', depth: 'standard' });
+    for (let i = 0; i < 20 && r.state === 'running'; i++) {
+      await new Promise((res) => setTimeout(res, 5));
+      r = await t.api.research({ topic: 'Vue', known: '', depth: 'standard' });
+    }
+    const draft = t.c.roadmap!.course;
+    expect(draft).not.toBe(approved);
+    expect(await t.api.course()).toMatchObject({ topics: [{ id: 'values', state: 'now', activity: 'open' }, {}] });
+    expect(await t.api.draft()).toMatchObject({ goal: 'React', concepts: [{ id: 'values' }, { id: 'state' }] });
+    // Every learner call stays on the approved course.
+    t.c.bound.length = 0;
+    await t.api.activity('values');
+    await t.api.tryIt(id, 'run-1');
+    await t.api.check(id, 'run-2');
+    await t.api.saveNotes('values-1', 'mine');
+    await t.api.lesson('values-1');
+    await t.api.ask({ activityId: id }, 'Why?');
+    await t.api.easier('values');
+    await t.api.skip('values');
+    expect(t.c.bound.length).toBeGreaterThan(0);
+    expect(t.c.bound.every((b) => b === approved)).toBe(true);
+    expect(t.c.courses.get(approved)!.concepts.map((c) => c.id)).toContain('testing');
+    expect(t.c.courses.get(draft)!.concepts.map((c) => c.id)).toEqual(['values', 'state']);
+    // Edits to the draft are saved as they happen.
+    await t.api.saveDraft([{ id: 'state', title: 'State', requires: [] }, { id: 'values', title: 'Values', requires: [] }]);
+    expect((await t.api.draft())!.concepts.map((c) => c.id)).toEqual(['state', 'values']);
+    await t.api.approve((await t.api.draft())!.concepts);
+    expect(await t.api.draft()).toBeNull();
+    expect(t.c.bound.at(-1)).toBe(draft);
+  });
+
+  it('has no draft to resume once the roadmap is approved', async () => {
+    const t = live();
+    expect(await t.api.draft()).toBeNull();
+    const r = await researched(t);
+    expect(await t.api.draft()).toMatchObject({ goal: 'React' });
+    await t.api.approve(r.roadmap!.concepts);
+    expect(await t.api.draft()).toBeNull();
+    await expect(t.api.saveDraft(r.roadmap!.concepts)).rejects.toThrow('No roadmap to edit.');
   });
 
   it('saves edits, then asks for changes', async () => {
@@ -394,6 +441,38 @@ describe('live CodemmApi', () => {
     expect(await t.api.runExample('ex', 1)).toEqual({ kind: 'not-run', reason: "Docker isn't running." });
   });
 
+  it("runs a lesson's io example live with typed input, tagged with the run, and records nothing", async () => {
+    const t = live();
+    await practising(t);
+    t.c.lessons.push({ id: 'ex', concept: 'values', title: 'Run it', markdown: 'See:\n\n```example\n1\n```\n', notes: '', examples: [{ 'main.c': 'int main(){}' }], style: 'io' });
+    expect(await t.api.lesson('ex')).toMatchObject({ style: 'io' });
+    const heard: unknown[] = [];
+    t.api.onRunOutput((o) => heard.push(o));
+    const ran = t.api.runExampleLive('ex', 1, 'run-1');
+    await vi.waitFor(() => expect(heard).toHaveLength(2));
+    expect(await t.api.sendRunInput('run-1', 'Ada\n')).toBe(true);
+    expect(await ran).toEqual({ kind: 'ran', exit: 0, stage: 'run', timedOut: false, stopped: false, flooded: false, outOfMemory: false });
+    expect(heard).toEqual([
+      { run: 'run-1', started: 'run', limitMs: 120_000 },
+      { run: 'run-1', stream: 'stdout', text: 'name? ' },
+      { run: 'run-1', stream: 'stdout', text: 'hello Ada\n' },
+      { run: 'run-1', stream: 'stderr', text: 'a warning\n' },
+    ]);
+    expect(t.c.runs).toEqual(['ex#1']);
+    expect(t.c.checks).toEqual([]);
+  });
+
+  it("stops a lesson example's live Run when asked, and says why it couldn't run when Docker is down", async () => {
+    const t = live();
+    await practising(t);
+    t.c.lessons.push({ id: 'ex', concept: 'values', title: 'Run it', markdown: '', notes: '', examples: [{ 'main.c': 'int main(){}' }], style: 'io' });
+    const ran = t.api.runExampleLive('ex', 1, 'run-1');
+    await t.api.stopRun('run-1');
+    expect(await ran).toMatchObject({ kind: 'ran', stopped: true });
+    t.c.down = true;
+    expect(await t.api.runExampleLive('ex', 1, 'run-2')).toEqual({ kind: 'not-run', reason: expect.stringMatching(/Docker/) });
+  });
+
   it('keeps a stuck activity open beside the ways forward', async () => {
     const t = live();
     const activity = await practising(t);
@@ -541,6 +620,27 @@ describe('live CodemmApi', () => {
     open();
     await check;
     expect(t.c.checks).toEqual([activity.id]);
+  });
+
+  it('a Run stopped while Docker is starting ends at once, frees its place, and never starts', async () => {
+    let open: () => void = () => {};
+    const started = new Promise<void>((r) => (open = r));
+    let ready = async () => {};
+    const t = live({}, { dockerReady: () => ready() });
+    await practising(t);
+    t.c.lessons.push({ id: 'ex', concept: 'values', title: 'Run it', markdown: '', notes: '', examples: [{ 'main.c': 'int main(){}' }], style: 'io' });
+    ready = () => started;
+    const runs = ['run-1', 'run-2', 'run-3', 'run-4'].map((run) => t.api.runExampleLive('ex', 1, run));
+    for (const run of ['run-1', 'run-2', 'run-3', 'run-4']) await t.api.stopRun(run);
+    for (const run of runs) expect(await run).toMatchObject({ kind: 'ran', stopped: true });
+    // Their places are free again.
+    const fifth = t.api.runExampleLive('ex', 1, 'run-5');
+    open();
+    await vi.waitFor(() => expect(t.c.runs).toEqual(['ex#1']));
+    await t.api.stopRun('run-5');
+    expect(await fifth).toMatchObject({ kind: 'ran', stopped: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.c.runs).toEqual(['ex#1']);
   });
 
   it("says Codemm's records need a repair, with core's guidance, when a record is damaged", async () => {

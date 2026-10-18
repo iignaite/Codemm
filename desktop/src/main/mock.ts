@@ -2,7 +2,7 @@
 // development (CODEMM_MOCK). Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner replaced the starter's
 // placeholder, and reports hidden results as statuses only.
-import { type CheckProgress, type ResearchProgress, type RunOutput,
+import { type CheckProgress, type ResearchProgress, type RunOutput, type RunResult,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
@@ -150,7 +150,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   const lessons = new Map<string, Lesson>();
   const activities = new Map<string, { activity: Activity; fails: number }>();
   let research: { topic: string; calls: number } | null = null;
+  /** The roadmap research wrote or the learner edited; a draft until approved. */
   let roadmap: Roadmap | null = null;
+  let drafting = false;
+  /** The approved course's roadmap: it stays the course while a new roadmap is a draft (§4.2). */
+  let approved: Roadmap | null = null;
   let course: CourseView | null = null;
   let checks = 0;
   /** Concepts skipped since their last check (§4.4). */
@@ -198,6 +202,13 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       },
     ];
     own.forEach((l) => lessons.set(l.id, { ...l, examples: [] }));
+    // An io course's first lesson has an example Run takes typed input for.
+    if (options.style === 'io') {
+      const first = lessons.get(own[0].id)!;
+      first.markdown += '\n\nTry it: type a name.\n\n```example\n1\n```';
+      first.examples = [{ files: [{ path: 'main.py', text: 'name = input("What\'s your name? ")\nprint(f"Hello, {name}!")\n' }] }];
+      first.style = 'io';
+    }
     const activity: Activity = options.style === 'io' ? {
       id: `${concept.id}-easy-1`,
       concept: concept.id,
@@ -242,7 +253,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   /** The next topic: not mastered, every prerequisite mastered, and a deferred one only if nothing else is ready (§4.4). */
   function advance() {
     const c = course!;
-    const requires = (id: string) => roadmap!.concepts.find((x) => x.id === id)?.requires ?? [];
+    const requires = (id: string) => approved!.concepts.find((x) => x.id === id)?.requires ?? [];
     const ready = c.topics.filter((t) => t.state !== 'mastered' && requires(t.id).every((r) => topicOf(r).state === 'mastered'));
     c.topics.filter((t) => t.state === 'now').forEach((t) => (t.state = 'later'));
     c.done = c.topics.every((t) => t.state === 'mastered');
@@ -280,6 +291,28 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   const tell = (o: RunOutput) => runListeners.forEach((l) => l(o));
   /** Run's programs: each asks for a name and greets it. */
   const programs = new Map<string, { input(text: string): void; stop(): void }>();
+  /** One Run, an activity's or a lesson example's: asks for a name, greets it, then ends; or stops, or runs out of time. */
+  function greet(run: string): Promise<RunResult> {
+    if (docker() !== 'ready') return Promise.resolve({ kind: 'not-run', reason: DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] });
+    const limitMs = options.runLimitMs ?? 120_000;
+    tell({ run, started: 'run', limitMs });
+    tell({ run, stream: 'stdout', text: "What's your name? " });
+    return new Promise((resolve) => {
+      const end = (r: { exit: number; timedOut?: boolean; stopped?: boolean }) => {
+        clearTimeout(timer);
+        programs.delete(run);
+        resolve({ kind: 'ran', stage: 'run', flooded: false, outOfMemory: false, timedOut: false, stopped: false, ...r });
+      };
+      const timer = setTimeout(() => end({ exit: 137, timedOut: true }), limitMs);
+      programs.set(run, {
+        input: (text) => {
+          tell({ run, stream: 'stdout', text: `Hello, ${text.trim()}!\n` });
+          end({ exit: 0 });
+        },
+        stop: () => end({ exit: 137, stopped: true }),
+      });
+    });
+  }
   const progress = (run: string | undefined, phase: CheckProgress['phase'], total: number) => {
     for (let done = 0; done <= total; done++) progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
   };
@@ -323,25 +356,13 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async runProgram(activityId, run) {
       const { activity } = find(activities, activityId);
       if (!activity.run) throw new Error("This track has no run command, so Run isn't available.");
-      if (docker() !== 'ready') return { kind: 'not-run', reason: DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] };
-      const limitMs = options.runLimitMs ?? 120_000;
-      tell({ run, started: 'run', limitMs });
-      tell({ run, stream: 'stdout', text: "What's your name? " });
-      return new Promise((resolve) => {
-        const end = (r: { exit: number; timedOut?: boolean; stopped?: boolean }) => {
-          clearTimeout(timer);
-          programs.delete(run);
-          resolve({ kind: 'ran', stage: 'run', flooded: false, outOfMemory: false, timedOut: false, stopped: false, ...r });
-        };
-        const timer = setTimeout(() => end({ exit: 137, timedOut: true }), limitMs);
-        programs.set(run, {
-          input: (text) => {
-            tell({ run, stream: 'stdout', text: `Hello, ${text.trim()}!\n` });
-            end({ exit: 0 });
-          },
-          stop: () => end({ exit: 137, stopped: true }),
-        });
-      });
+      return greet(run);
+    },
+
+    async runExampleLive(lessonId, index, run) {
+      const lesson = find(lessons, lessonId);
+      if (!lesson.examples[index - 1] || lesson.style !== 'io') throw new Error(`Lesson "${lessonId}" has no example ${index}.`);
+      return greet(run);
     },
 
     async sendRunInput(run, text) {
@@ -430,6 +451,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         concepts: TOPICS.map(([title, requires]) => ({ id: slugOf(title), title, requires: [...requires] })),
         sources: [],
       };
+      drafting = true;
       return { state: 'done', roadmap: structuredClone(roadmap) };
     },
 
@@ -443,11 +465,22 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async approve(edited) {
       if (!roadmap) throw new Error('No roadmap');
       roadmap = { ...roadmap, concepts: structuredClone(edited) };
+      approved = structuredClone(roadmap);
+      drafting = false;
       lessons.clear();
       activities.clear();
       course = { goal: roadmap.goal, track: roadmap.track, setup: roadmap.installed ? 'ready' : 'proposing', done: false, topics: edited.map(addConcept) };
       advance();
       happen('approve');
+    },
+
+    async draft() {
+      return drafting && roadmap ? structuredClone(roadmap) : null;
+    },
+
+    async saveDraft(edited) {
+      if (!drafting || !roadmap) throw new Error('No roadmap to edit.');
+      roadmap = { ...roadmap, concepts: structuredClone(edited) };
     },
 
     async course() {
@@ -581,7 +614,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       const stuck = topicOf(concept);
       const added: Concept = { id: `${concept}-basics`, title: `${stuck.title}: first steps`, requires: [] };
       if (course!.topics.some((t) => t.id === added.id)) return;
-      const concepts = roadmap!.concepts;
+      const concepts = approved!.concepts;
       concepts.splice(concepts.findIndex((c) => c.id === concept), 0, added);
       concepts.find((c) => c.id === concept)!.requires.push(added.id);
       course!.topics.splice(course!.topics.indexOf(stuck), 0, addConcept(added));
