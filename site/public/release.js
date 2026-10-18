@@ -43,26 +43,32 @@ export function pickRelease(releases) {
 }
 
 /**
- * What the download area shows for a release and a visitor's platform.
+ * What the download area shows: two buttons, Mac and Windows, the visitor's own
+ * first and highlighted. The Mac button is the build for the visitor's chip; when
+ * the browser doesn't report it (Safari, Firefox), it's Apple Silicon, with a link
+ * to the Intel build so Intel Macs aren't handed one that won't run.
  * @param {any | null} release from pickRelease
  * @param {{ os: string, arch: string | null }} platform from detectPlatform
  */
 export function downloads(release, platform) {
   if (!release) return { status: 'soon' };
   const all = installersIn(release);
-  // A Mac whose chip the browser doesn't report (Safari, Firefox) gets both Mac
-  // builds as equal choices: guessing would hand Intel Macs the wrong one.
-  const want = platform.os === 'mac'
-    ? (platform.arch === 'x86' ? ['mac-x64'] : platform.arch === 'arm' ? ['mac-arm64'] : ['mac-arm64', 'mac-x64'])
-    : platform.os === 'windows' ? ['win-x64'] : [];
-  const primaries = all.filter((i) => want.includes(i.id));
-  const others = all.filter((i) => !primaries.includes(i)).sort((a, b) => (b.os === platform.os) - (a.os === platform.os));
+  const find = (id) => all.find((i) => i.id === id) ?? null;
+  const arm = find('mac-arm64');
+  const intel = find('mac-x64');
+  const mac = platform.arch === 'x86' ? intel ?? arm : arm ?? intel;
+  const win = find('win-x64');
+  const buttons = [
+    mac && { os: 'mac', label: 'Download for Mac', url: mac.url },
+    win && { os: 'windows', label: 'Download for Windows', url: win.url },
+  ].filter(Boolean);
+  if (platform.os === 'windows') buttons.reverse();
+  for (const b of buttons) b.primary = b.os === platform.os;
   return {
     status: 'ready',
-    version: release.tag_name.replace(/^v/, ''),
-    beta: Boolean(release.prerelease),
-    url: release.html_url,
-    primaries,
-    others,
+    // Prereleases are unsigned builds: the page shows the one-time first-launch step.
+    unsigned: Boolean(release.prerelease),
+    buttons,
+    intel: mac === arm && intel && platform.arch !== 'arm' ? intel.url : null,
   };
 }

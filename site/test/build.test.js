@@ -50,6 +50,8 @@ test('the site is static and collects no personal data', () => {
     }
     assert.match(page, /Codemm isn't affiliated with or endorsed by them\./);
     assert.match(page, /provided as is, without warranty/);
+    // Downloads are two buttons, Mac and Windows, with no Beta label (the owner's choice).
+    assert.doesNotMatch(page + readFileSync(join(out, 'main.js'), 'utf8'), /\bbeta\b/i);
     // Say only what Codemm checks: exercises against their tests, which must reject the
     // incorrect versions the agent wrote. Lessons aren't checked, and nothing is "proven".
     assert.doesNotMatch(page, /\bprove[ns]?\b|\bproof that\b|every broken|own plan|guarantee/i);
