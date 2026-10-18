@@ -49,7 +49,7 @@ The prototype's review card, streaks, predict questions, editable lessons and "L
 - No status dots, arrows or metadata (ids, versions, paths or timestamps).
 - Nothing should look like Claude's UI or copy Duolingo.
 - The tutor and every action are "Codemm". Agent names (Claude Code, Codex, Cursor) appear only on the connect screen.
-- The connect screen says "Codemm uses your agent and your plan." Every agent job starts from a learner action or the approved flow, and the bounds in §3.2 cap how much of the plan it uses.
+- The connect screen says "Codemm uses your agent and your account." It promises nothing about billing, since Codemm can't tell a plan from an API key. Every agent job starts from a learner action or the approved flow, and the bounds in §3.2 cap how much it uses.
 
 ## 2. Architecture
 
@@ -153,7 +153,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 
 - Codemm never opens an agent's credential files or keychain entries.
 - Sign-in uses the agent's own status command. Only a yes or no leaves the bridge.
-- Signing in uses the agent's own login, never Codemm. A signed-out row says "Sign in to Codex, then try again." with the CLI's own sign-in command (`claude auth login`, `codex login`, `cursor-agent login`), and a **Sign in** button that starts that login where the learner sees it (`signIn.ts`):
+- Signing in uses the agent's own login, never Codemm. A signed-out row says "Sign in to Codex, then try again." with a **Sign in** button that starts that login where the learner sees it (`signIn.ts`):
   - Claude Code: in a Terminal window on macOS (a one-line `.command` file holding the quoted path), or its own console window on Windows.
   - Codex and Cursor: their login opens the browser.
   - Codemm never reads, stores or types credentials.
@@ -176,7 +176,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 - **Codex.** OpenAI's install script is about 1,300 lines (release-asset SHA-256 checks, its package layout, PATH setup), so Codemm runs it rather than re-implement it: `/bin/sh <file>` on macOS, `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <file>` on Windows, with `CODEX_NON_INTERACTIVE=1`. The script itself verifies its download's SHA-256. Afterwards Codemm requires OpenAI's signature on the installed binary: Apple team `2DC432GLL2` (the same Apple-anchored requirement), or Authenticode `O="OpenAI OpCo, LLC"`. That check comes after the script ran, so it is defense in depth, not a gate. OpenAI publishes no checksum or signature for the script itself.
 - **Nothing unverified runs.** Once Codemm starts installing an agent, it runs nothing of it this session until an install is done. Any failed attempt keeps it blocked, since it may have left a binary nothing checked, and a later failure never clears an earlier rejection. Nothing starts: not `--version`, the sign-in check, Sign in, a job or its relaunch, each checked right before it starts. Claude Code's Sign in on a Mac runs in Terminal a moment later, so its script runs only the file Codemm allowed when the learner clicked, never one an install put there since. Try again installs again. An agent the learner installed themselves is theirs to trust, as in a terminal; so is a leftover found after a relaunch, since the install's state isn't kept.
 - **Verified against real releases.** The Windows signers were read from Anthropic's `claude.exe` and OpenAI's `codex.exe`. An opt-in test (`agentInstall.real.test.ts`) downloads both for real and checks them without installing.
-- **States.** Downloading (with progress), checking, installing, then done or a plain reason: offline, low disk (1 GB), unverified, or the installer didn't finish, each with Try again. An agent Codemm installed gets its sign-in check at once, and connects once signed in.
+- **States.** Downloading (with progress), checking, installing, then done or a plain reason: offline, low disk (1 GB), unverified ("Codemm couldn't verify the installation. Try again.", which claims nothing about what ran), or the installer didn't finish, each with Try again. An agent Codemm installed gets its sign-in check at once, and connects once signed in.
 - **Never automatic.** Large downloads and third-party terms wait for the learner's click.
 - A native executable runs directly.
 - A JavaScript entry point (a `#!/usr/bin/env node` launcher, like the npm-installed Codex) runs as `ELECTRON_RUN_AS_NODE=1 <app executable> <script>`, so no system Node is needed.

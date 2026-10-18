@@ -13,12 +13,11 @@ export interface Lookup {
   version(id: AgentId, exe: Executable): Promise<string | null>;
 }
 
-// signIn: each CLI's own sign-in command, from its --help.
 /** Each agent as the connect screen shows it; the mock uses the same (mock.ts). */
-export const AGENT_INFO: Record<AgentId, { name: string; installUrl: string; signIn: string; experimental: boolean }> = {
-  claude: { name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', signIn: 'claude auth login', experimental: false },
-  codex: { name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', signIn: 'codex login', experimental: false },
-  cursor: { name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', signIn: 'cursor-agent login', experimental: true },
+export const AGENT_INFO: Record<AgentId, { name: string; installUrl: string; experimental: boolean }> = {
+  claude: { name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', experimental: false },
+  codex: { name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', experimental: false },
+  cursor: { name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', experimental: true },
 };
 const IDS: AgentId[] = ['claude', 'codex', 'cursor'];
 

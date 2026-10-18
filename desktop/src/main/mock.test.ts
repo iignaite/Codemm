@@ -65,7 +65,7 @@ describe('mock: installing an agent', () => {
 describe('mock: agents', () => {
   it('describes each agent exactly as the connect screen\'s connector does', async () => {
     const agents = await createMock().agents();
-    expect(agents.map(({ id, name, installUrl, signIn, experimental }) => ({ id, name, installUrl, signIn, experimental }))).toEqual(
+    expect(agents.map(({ id, name, installUrl, experimental }) => ({ id, name, installUrl, experimental }))).toEqual(
       Object.entries(AGENT_INFO).map(([id, info]) => ({ id, ...info })),
     );
   });
