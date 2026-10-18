@@ -1,7 +1,7 @@
 // The hero orbit: Claude Code, Codex and Cursor circle Codemm on a tilted ring,
 // passing behind and in front of it. One dips in to charge Codemm every few
 // seconds, a click sends that agent in, and the scene tilts with the pointer.
-// It has a pause button, stops offscreen and in hidden tabs, and with reduced
+// Emm turns the color of the agent that charged Codemm. It has a pause button, stops offscreen and in hidden tabs, and with reduced
 // motion it holds still.
 const orbit = document.querySelector('.orbit');
 
@@ -18,6 +18,12 @@ if (orbit) {
   const STILL = [Math.PI, 0, Math.PI / 2]; // left, right, front: where they rest without motion
   const DIP_EVERY = 2600;
   const DIP_MS = 1100;
+  // Emm, a chameleon, takes the color of the agent that charges Codemm: body, dark, belly, stripes.
+  const COLORS = [
+    ['#E8875F', '#C1613A', '#F8D3C2', '#D97757'], // Claude Code
+    ['#7383F7', '#4A57DB', '#D6DBFD', '#5F6EF0'], // Codex
+    ['#636B7A', '#3B414D', '#CDD2DB', '#4F5664'], // Cursor
+  ];
 
   let paused = false;
   let visible = true;
@@ -32,14 +38,19 @@ if (orbit) {
   const moving = () => !reduce.matches && !paused && visible && !document.hidden;
   const ease = (t) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
 
-  function chargeCore() {
+  function chargeCore(i) {
+    const [b, d, be, st] = COLORS[i];
+    orbit.style.setProperty('--emm-b', b);
+    orbit.style.setProperty('--emm-d', d);
+    orbit.style.setProperty('--emm-be', be);
+    orbit.style.setProperty('--emm-s', st);
     core.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.1)' }, { transform: 'scale(1)' }], { duration: 450, easing: 'ease-out' });
     core.animate([{ boxShadow: getComputedStyle(core).boxShadow }, { boxShadow: '0 0 0 10px rgb(61 219 108 / .35), 0 30px 60px -18px rgb(8 26 60 / .65)' }, { boxShadow: getComputedStyle(core).boxShadow }], { duration: 700, easing: 'ease-out' });
     emm.animate([{ transform: 'translateY(0) rotate(0)' }, { transform: 'translateY(-16px) rotate(-4deg)' }, { transform: 'translateY(0) rotate(0)' }], { duration: 560, easing: 'cubic-bezier(.3,1.6,.5,1)' });
   }
 
   function dip(i, now = performance.now()) {
-    if (reduce.matches) return chargeCore();
+    if (reduce.matches) return chargeCore(i);
     if (!dips[i]) dips[i] = now;
   }
 
@@ -61,7 +72,7 @@ if (orbit) {
         else {
           const d = Math.sin(Math.PI * Math.min(1, t)); // in and back out
           k *= 1 - 0.78 * d;
-          if (t > 0.45 && !el.dataset.charged) { el.dataset.charged = '1'; chargeCore(); }
+          if (t > 0.45 && !el.dataset.charged) { el.dataset.charged = '1'; chargeCore(i); }
         }
       }
       if (!dips[i]) delete el.dataset.charged;
