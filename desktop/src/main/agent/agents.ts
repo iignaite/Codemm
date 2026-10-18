@@ -188,12 +188,15 @@ const cursor: AgentCli = {
   bin: 'cursor-agent',
   launch({ prompt, server, tools, model, resume, web }) {
     // Cursor reads MCP servers and permissions from the working directory (and the learner's ~/.cursor, which stays
-    // untouched): the job folder holds only the codemm server, and allows only the job's tools. No --force (§3.1).
+    // untouched): the job folder holds only the codemm server, and allows only the job's tools. Print mode approves
+    // web search and fetch only with --force, so research alone gets it; the deny rules still hold under it (§3.1).
     const permissions = {
       allow: [...tools.map((t) => `Mcp(codemm:${t})`), ...(web ? ['WebFetch(*)'] : [])],
       deny: ['Shell(*)', 'Read(**)', 'Read(/**)', 'Write(**)', 'Write(/**)', ...(web ? [] : ['WebFetch(*)'])],
     };
-    const args = ['-p', '--output-format', 'stream-json', '--approve-mcps'];
+    // --trust: the job folder is Codemm's own, and an untrusted folder stops print mode to ask.
+    const args = ['-p', '--output-format', 'stream-json', '--approve-mcps', '--trust'];
+    if (web) args.push('--force');
     if (model) args.push('--model', model);
     if (resume) args.push('--resume', resume);
     args.push(prompt);
@@ -213,7 +216,7 @@ const cursor: AgentCli = {
     }
     const call = obj(e.tool_call);
     if (e.type !== 'tool_call' || !str(e.call_id) || !call) return [];
-    const [kind] = Object.keys(call);
+    const kind = Object.keys(call).find((k) => k.endsWith('ToolCall'));
     if (!kind) return [];
     const mcp = obj(call.mcpToolCall);
     if (e.subtype === 'started') {
@@ -224,9 +227,11 @@ const cursor: AgentCli = {
     if (e.subtype !== 'completed') return [];
     const result = obj(obj(call[kind])?.result);
     if (!result) return [];
-    if (!mcp) return [{ type: 'tool_result', id: e.call_id, error: !('success' in result) }];
-    const failure = cursorFailure(result);
-    return [failure === null ? { type: 'tool_result', id: e.call_id, error: false } : { type: 'tool_result', id: e.call_id, error: true, text: failure }];
+    const failure = mcp ? cursorFailure(result) : 'success' in result ? null : (str(obj(result.error)?.error) ? (obj(result.error)!.error as string) : '');
+    const events: AgentEvent[] = [failure === null ? { type: 'tool_result', id: e.call_id, error: false } : { type: 'tool_result', id: e.call_id, error: true, ...(mcp ? { text: failure } : {}) }];
+    // Cursor never says a server failed to start: the tool lookup can't find its namespace, or a call its server (recorded).
+    if (failure && /namespace "codemm" not found|MCP server does not exist: codemm\b/i.test(failure)) events.push({ type: 'server', ok: false });
+    return events;
   },
   errors: (line) =>
     PLAN_LIMIT.test(line)

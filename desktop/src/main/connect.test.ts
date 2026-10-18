@@ -43,8 +43,9 @@ describe('connect (§3.1, §3.3)', () => {
       ['gpt-6-luna', false],
       ['gpt-6-astra', false],
     ]);
+    // The free plan runs only Auto, so Auto is the one bench-tested Cursor model.
     const cursor = agents.find((a) => a.id === 'cursor')!;
-    expect([cursor.models, cursor.model]).toEqual([[], null]);
+    expect([cursor.models, cursor.model]).toEqual([[{ id: 'auto', label: 'Auto', recommended: true }], 'auto']);
   });
 
   it('remembers a model choice per agent in desktop.json, and jobs run with it', async () => {
@@ -61,7 +62,7 @@ describe('connect (§3.1, §3.3)', () => {
   it('refuses a model that is not on the agent\'s tested list', async () => {
     const c = connector(lookup(), state());
     await expect(c.chooseModel('claude', 'gpt-6-luna')).rejects.toThrow();
-    await expect(c.chooseModel('cursor', 'sonnet')).rejects.toThrow();
+    await expect(c.chooseModel('cursor', 'composer-2.5')).rejects.toThrow();
   });
 
   it('falls back to the recommended model when a saved choice is no longer tested', async () => {

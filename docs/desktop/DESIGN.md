@@ -96,14 +96,14 @@ desktop/
 
 ### 3.1 Launch, isolate, stream, cancel, sign in
 
-Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor is built against cursor-agent 2026.01.23-916f423's stream writer and runs with a fake in the tests; a real signed-in run is still to be recorded.
+Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor was proved with cursor-agent 2026.01.23-916f423, signed in on the free plan: recorded fixtures and a canary run.
 
 | | Claude Code | Codex | Cursor (experimental) |
 |---|---|---|---|
-| Headless turn | `claude -p <brief> --output-format stream-json --verbose` | `codex exec --json --skip-git-repo-check <brief>` | `cursor-agent -p --output-format stream-json --approve-mcps [--model <m>] <brief>`, run in a job folder |
+| Headless turn | `claude -p <brief> --output-format stream-json --verbose` | `codex exec --json --skip-git-repo-check <brief>` | `cursor-agent -p --output-format stream-json --approve-mcps --trust [--model <m>] <brief>`, run in a job folder |
 | Codemm server | `--mcp-config <json> --strict-mcp-config` | `-c mcp_servers.codemm.{command,args,env}=…` | `.cursor/mcp.json` in the job folder, `<userData>/agents/cursor-<config hash>` (no flag exists, and the workspace and `~/.cursor` stay untouched) |
 | Codemm tools | `--allowedTools mcp__codemm__<tool>,…` | `-c mcp_servers.codemm.enabled_tools=[…]`, then `default_tools_approval_mode="approve"` | `.cursor/cli.json` in the job folder: `permissions.allow` `Mcp(codemm:<tool>)`, … |
-| Built-in tools | `--tools ""` (web search and fetch for the research job only) | `--ignore-user-config`, `--disable shell_tool --disable unified_exec --disable browser_use --disable computer_use --disable apps --disable multi_agent`, and `-c sandbox_mode="read-only"` | The same file denies `Shell(*)`, `Read` and `Write` of `**` and `/**`, and `WebFetch(*)` except for research; no `--force` |
+| Built-in tools | `--tools ""` (web search and fetch for the research job only) | `--ignore-user-config`, `--disable shell_tool --disable unified_exec --disable browser_use --disable computer_use --disable apps --disable multi_agent`, and `-c sandbox_mode="read-only"` | The same file denies `Shell(*)`, `Read` and `Write` of `**` and `/**`, and `WebFetch(*)` except for research. Research adds `--force`, since print mode approves web search and fetch only with it |
 | Follow-up turn | `--resume <session_id>` | `codex exec resume <thread_id>` | `--resume <chatId>` |
 | Sign-in check | `claude auth status --json`, field `loggedIn` | `codex login status`, exit 0 and "Logged in" | `cursor-agent status`, "Not logged in" |
 
@@ -116,13 +116,19 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor i
   - `enabled_tools` limits the Codemm tools, and `multi_agent` is off.
   - Code mode (`functions.exec`) remains, because Codex calls MCP tools through it. Whether it can read files is unproven. Hidden data is therefore protected by the reply filter and the honor system, under the reworded invariant (decision 10).
 - **Cursor.**
-  - It reads MCP servers and permissions from its working directory, and keeps chats per working directory. So each job runs in a Codemm-owned folder named by its config: the same config gets the same folder, and a tutor turn resumes its chat.
-  - The folder's `cli.json` allows only the job's Codemm tools and denies the shell, file reads and writes, and web fetches outside research. Deny rules win over the learner's own allow list.
+  - It reads MCP servers and permissions from its working directory, and keeps chats per working directory. So each job runs in a Codemm-owned folder named by its config: the same config gets the same folder, and a tutor turn resumes its chat. `--trust` stops an untrusted folder from halting print mode.
+  - The folder's `cli.json` allows only the job's Codemm tools. It denies the shell, file reads and writes, and web fetches outside research. Deny rules win over the learner's own allow list.
+  - **What the canary showed** (a signed-in run asked to break out, with and without `--force`):
+    - The shell, file reads and writes were denied, inside the job folder and outside it.
+    - Grep returned no matches and glob no file names, though glob reported a file count.
+    - Without `--force`, web search and fetch were rejected. With it, research could search and fetch, and the denials held.
   - Gaps, like Codex's (O8):
-    - The learner's own `~/.cursor/mcp.json` servers also load, and `--approve-mcps` approves them. Their tools run only where the learner's own allow list permits.
-    - Web search has no permission rule.
+    - The learner's own MCP servers and plugins load, and `--approve-mcps` approves them. Their tools run only where the learner's own allow list permits, or in research, under `--force`.
+    - Cursor's subagent tool (`task`) is not turned off. It runs under the same permissions.
     - Hidden data is protected by the reply filter and the honor system.
-  - Errors go to stderr, which is drained; only a plan limit or a lost connection is read from it, as a fixed message.
+  - **No startup signal.** Cursor never reports that a server failed to start. Its tool lookup can't find the `codemm` namespace, or a call fails with "MCP server does not exist", and either becomes the server event (recorded).
+  - **Errors.** They go to stderr, which is drained. Only a plan limit or a lost connection is read from it, as a fixed message.
+  - **Models.** The free plan runs only Auto ("Named models unavailable"), so Auto is the one tested model.
 - **The invariant.** Codemm never runs agent-written code on the host, and runs untrusted code only through `sandbox.ts`. What the agent's own tools do happens under the agent's own sandbox, exactly as in a terminal. Turning those tools off is defense in depth.
 
 **Running processes.**

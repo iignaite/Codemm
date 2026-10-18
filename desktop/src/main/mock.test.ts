@@ -129,7 +129,7 @@ describe('mock: agents', () => {
     const api = createMock();
     const agents = await api.agents();
     expect(agents.find((a) => a.id === 'codex')).toMatchObject({ state: 'not-connected', model: 'gpt-5.6-luna', experimental: false, untested: false });
-    expect(agents.find((a) => a.id === 'cursor')).toMatchObject({ experimental: true, models: [], model: null });
+    expect(agents.find((a) => a.id === 'cursor')).toMatchObject({ experimental: true, models: [{ id: 'auto', label: 'Auto', recommended: true }], model: 'auto' });
     expect(await api.chooseModel('claude', 'opus')).toMatchObject({ id: 'claude', model: 'opus' });
     await expect(api.chooseModel('claude', 'gpt-6-luna')).rejects.toThrow();
     expect((await createMock(scenario('untested-version')).agents())[0].untested).toBe(true);

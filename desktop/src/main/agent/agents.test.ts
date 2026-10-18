@@ -58,15 +58,22 @@ describe('agent stream contracts (recorded fixtures, §3.3)', () => {
     expect(events[1]).toMatchObject({ type: 'done', ok: false, error: expect.stringMatching(/not supported when using Codex with a ChatGPT account/) });
   });
 
-  it('cursor: a run becomes session, tool, text and done events (shape from the 2026.01.23 stream writer)', () => {
+  it('cursor: a recorded run becomes session, tool, text and done events; its own tool lookup is skipped', () => {
+    const id = 'call-ae295db3-0a12-4df1-8a5e-c6a6ed50d8eb-1\nfc_e6b3e488-3488-9c7d-b2b6-884faeddd958_0';
     expect(parseAll('cursor', fixture('cursor-list-tracks.jsonl'))).toEqual([
-      { type: 'session', id: '5b0c1f2e-7a51-4c8e-9a0d-3f6e2b9c1d47' },
-      { type: 'text', text: "I'll list the tracks." },
-      { type: 'tool_call', id: 'toolu_vrtx_01', name: 'codemm.list_tracks' },
-      { type: 'tool_result', id: 'toolu_vrtx_01', error: false },
+      { type: 'session', id: '58a468a6-05de-4564-b518-475343f68a24' },
+      { type: 'text', text: "I'll inspect the `codemm` `list_tracks` schema, call it once, then reply with only the track count." },
+      { type: 'tool_call', id, name: 'codemm.list_tracks' },
+      { type: 'tool_result', id, error: false },
       { type: 'text', text: '0' },
       { type: 'done', ok: true },
     ]);
+  });
+
+  it('cursor: a Codemm server that failed to start is a server event (recorded: its namespace and server are missing)', () => {
+    const events = parseAll('cursor', fixture('cursor-mcp-failed.jsonl'));
+    expect(events.filter((e) => e.type === 'server')).not.toHaveLength(0);
+    expect(events[0]).toEqual({ type: 'session', id: 'c84e6140-5911-4338-87a9-873afb53dce8' });
   });
 
   it('cursor: a failed, rejected or denied Codemm call is a failed result that keeps its text', () => {
@@ -159,8 +166,9 @@ describe('launch arguments (§3.1)', () => {
   });
 
   it('cursor: print mode with stream-json and its MCP servers approved; the prompt goes last', () => {
-    const { args } = AGENT_CLIS.cursor.launch!({ prompt: 'hi', server, tools: ['list_tracks'], model: 'sonnet-4.5' });
-    expect(args).toEqual(['-p', '--output-format', 'stream-json', '--approve-mcps', '--model', 'sonnet-4.5', 'hi']);
+    const { args } = AGENT_CLIS.cursor.launch!({ prompt: 'hi', server, tools: ['list_tracks'], model: 'auto' });
+    // --trust: the job folder is Codemm's own; without it Cursor may stop to ask.
+    expect(args).toEqual(['-p', '--output-format', 'stream-json', '--approve-mcps', '--trust', '--model', 'auto', 'hi']);
     expect(args).not.toContain('--force');
     const again = AGENT_CLIS.cursor.launch!({ prompt: 'again', server, tools: [], resume: 'chat-1' }).args;
     expect(again.slice(-3)).toEqual(['--resume', 'chat-1', 'again']);
@@ -178,8 +186,9 @@ describe('launch arguments (§3.1)', () => {
     });
   });
 
-  it('cursor: research may fetch the web', () => {
-    const { files } = AGENT_CLIS.cursor.launch!({ prompt: 'r', server, tools: ['save_roadmap'], web: true });
+  it('cursor: research may search and fetch the web, which print mode approves only with --force; the deny rules still hold', () => {
+    const { args, files } = AGENT_CLIS.cursor.launch!({ prompt: 'r', server, tools: ['save_roadmap'], web: true });
+    expect(args).toContain('--force');
     const { allow, deny } = JSON.parse(files!['.cursor/cli.json']).permissions;
     expect(allow).toContain('WebFetch(*)');
     expect(deny).not.toContain('WebFetch(*)');
