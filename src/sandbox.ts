@@ -412,7 +412,7 @@ export async function inspectImage(tag: string): Promise<{ id: string; hasVolume
   if (r.exit !== 0) {
     if (/no such (image|object)|image not known/i.test(r.output)) return undefined;
     const down = await runtimeDown();
-    throw new CodemmError(down ?? `Docker couldn't inspect the track image: ${r.output.trim().slice(0, 300)}`, down ? "docker" : runtimeKind(r.output));
+    throw new CodemmError(down ?? `The container runtime couldn't inspect the track image: ${r.output.trim().slice(0, 300)}`, down ? "docker" : runtimeKind(r.output));
   }
   const [id, volumes] = r.output.trim().split(" ", 2);
   return { id: id!, hasVolumes: !!volumes && volumes !== "null" && volumes !== "{}" };

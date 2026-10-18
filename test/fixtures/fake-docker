@@ -31,7 +31,7 @@ case "$1" in
   # no-image: the verified image is gone (pruned), so inspecting it says so. inspect-fails: Docker fails mid-inspect.
   image)
     [ "$FAKE_DOCKER" = no-image ] && { echo "Error response from daemon: No such image: sha256:fake" >&2; exit 1; }
-    [ "$FAKE_DOCKER" = inspect-fails ] && { echo "error during connect: Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2; exit 1; }
+    [ "$FAKE_DOCKER" = inspect-fails ] && { echo "error during connect: unexpected EOF" >&2; exit 1; }
     echo "sha256:fake null" ;;
   events) case "$FAKE_DOCKER" in oom|childoom) echo oom ;; esac ;;
   run)
