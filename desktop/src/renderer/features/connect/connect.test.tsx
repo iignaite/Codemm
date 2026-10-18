@@ -13,6 +13,8 @@ describe('connect journey', () => {
 
     expect(await screen.findByRole('heading', { name: 'Connect an agent' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    // No promise about billing: Codemm can't tell a plan from an API key.
+    expect(screen.getByText('Codemm uses your agent and your account.')).toBeInTheDocument();
     const claude = screen.getByRole('listitem', { name: 'Claude Code' });
     await user.click(within(claude).getByRole('button', { name: 'Connect' }));
     expect(await within(claude).findByText('Connected')).toBeInTheDocument();
@@ -83,13 +85,14 @@ describe('connect journey', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
   });
 
-  it('shows the command that signs in, and connects once the learner signed in and came back', async () => {
+  it('offers Sign in, not a terminal command, and connects once the learner signed in and came back', async () => {
     const user = userEvent.setup();
     const options = scenario('signed-out');
     renderApp({ to: 'connect' }, createMock(options));
     const codex = await screen.findByRole('listitem', { name: 'Codex' });
     await user.click(within(codex).getByRole('button', { name: 'Connect' }));
-    expect(await within(codex).findByText('codex login')).toBeInTheDocument();
+    expect(await within(codex).findByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(codex).not.toHaveTextContent(/terminal|codex login/);
     // Signed in from a terminal; coming back to Codemm checks again.
     options.agents = {};
     window.dispatchEvent(new Event('focus'));
@@ -148,6 +151,18 @@ describe('installing an agent', () => {
     expect(await within(codex).findByText("You're offline. Connect to the internet, then try again.", {}, { timeout: 4000 })).toBeInTheDocument();
     expect(within(codex).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     expect(within(codex).getByRole('link', { name: 'Get it myself' })).toBeInTheDocument();
+  });
+});
+
+describe('an install Codemm could not verify', () => {
+  it('says so and offers Try again, claiming nothing about what ran', async () => {
+    const user = userEvent.setup();
+    renderApp({ to: 'connect' }, createMock({ ...scenario('agent-install-offline'), agentInstallProblem: 'unverified', platform: 'mac' }));
+    const codex = await screen.findByRole('listitem', { name: 'Codex' });
+    await user.click(within(codex).getByRole('button', { name: 'Install' }));
+    expect(await within(codex).findByText("Codemm couldn't verify the installation. Try again.", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(codex).not.toHaveTextContent(/signature|didn't use/);
+    expect(within(codex).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });
 

@@ -7,7 +7,7 @@ import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
-import { INSTALL } from '../computer/fixes';
+import { FIXES, INSTALL } from '../computer/fixes';
 import { InstallProgress, running } from '../connect/Connect';
 import { DockerProgress } from '../computer/DockerProgress';
 import { ExternalLink } from '../../ui/ExternalLink';
@@ -70,6 +70,7 @@ export function Setup() {
   }
 
   const install = data.computer.install;
+  const dockerInstalled = data.computer.checks.find((c) => c.id === 'docker-installed')?.state === 'ok';
   return (
     <main className="center">
       <div className="stack wide setup-page">
@@ -81,6 +82,7 @@ export function Setup() {
               <div className="check-head">
                 {data.computer.ready && <Status kind="ok" size={24} />}
                 <b>Docker Desktop</b>
+                {!wanted && <span className="check-state problem">Not installed</span>}
               </div>
               {!wanted ? (
                 <p className="quiet-text">{INSTALL.terms} <ExternalLink className="inline" href={INSTALL.termsUrl}>Read them</ExternalLink></p>
@@ -90,6 +92,15 @@ export function Setup() {
                 <div className="fix">
                   <p className="alert" role="alert">{INSTALL.problem[install.problem ?? 'failed']}</p>
                   {INSTALL.retry.has(install.problem) && <div className="actions"><Button onClick={() => act(() => api.installDocker())}>Try again</Button></div>}
+                </div>
+              ) : !install && dockerInstalled ? (
+                // Docker's start window ended and it still isn't running: Check this computer's own step.
+                <div className="fix">
+                  <p>{FIXES[data.computer.platform]['docker-running'].steps.join(' ')}</p>
+                  <div className="actions">
+                    <Button onClick={() => act(() => api.openDocker())}>Open Docker Desktop</Button>
+                    <Button variant="ghost" onClick={reload}>Check now</Button>
+                  </div>
                 </div>
               ) : (
                 // Until Docker's first state arrives, its download is just starting: never "Opening Docker" yet.

@@ -49,7 +49,7 @@ The prototype's review card, streaks, predict questions, editable lessons and "L
 - No status dots, arrows or metadata (ids, versions, paths or timestamps).
 - Nothing should look like Claude's UI or copy Duolingo.
 - The tutor and every action are "Codemm". Agent names (Claude Code, Codex, Cursor) appear only on the connect screen.
-- The connect screen says "Codemm uses your agent and your plan." Every agent job starts from a learner action or the approved flow, and the bounds in §3.2 cap how much of the plan it uses.
+- The connect screen says "Codemm uses your agent and your account." It promises nothing about billing, since Codemm can't tell a plan from an API key. Every agent job starts from a learner action or the approved flow, and the bounds in §3.2 cap how much it uses.
 
 ## 2. Architecture
 
@@ -153,7 +153,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 
 - Codemm never opens an agent's credential files or keychain entries.
 - Sign-in uses the agent's own status command. Only a yes or no leaves the bridge.
-- Signing in uses the agent's own login, never Codemm. A signed-out row says "Sign in to Codex, then try again." with the CLI's own sign-in command (`claude auth login`, `codex login`, `cursor-agent login`), and a **Sign in** button that starts that login where the learner sees it (`signIn.ts`):
+- Signing in uses the agent's own login, never Codemm. A signed-out row says "Sign in to Codex, then try again." with a **Sign in** button that starts that login where the learner sees it (`signIn.ts`):
   - Claude Code: in a Terminal window on macOS (a one-line `.command` file holding the quoted path), or its own console window on Windows.
   - Codex and Cursor: their login opens the browser.
   - Codemm never reads, stores or types credentials.
@@ -176,7 +176,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 - **Codex.** OpenAI's install script is about 1,300 lines (release-asset SHA-256 checks, its package layout, PATH setup), so Codemm runs it rather than re-implement it: `/bin/sh <file>` on macOS, `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <file>` on Windows, with `CODEX_NON_INTERACTIVE=1`. The script itself verifies its download's SHA-256. Afterwards Codemm requires OpenAI's signature on the installed binary: Apple team `2DC432GLL2` (the same Apple-anchored requirement), or Authenticode `O="OpenAI OpCo, LLC"`. That check comes after the script ran, so it is defense in depth, not a gate. OpenAI publishes no checksum or signature for the script itself.
 - **Nothing unverified runs.** Once Codemm starts installing an agent, it runs nothing of it this session until an install is done. Any failed attempt keeps it blocked, since it may have left a binary nothing checked, and a later failure never clears an earlier rejection. Nothing starts: not `--version`, the sign-in check, Sign in, a job or its relaunch, each checked right before it starts. Claude Code's Sign in on a Mac runs in Terminal a moment later, so its script runs only the file Codemm allowed when the learner clicked, never one an install put there since. Try again installs again. An agent the learner installed themselves is theirs to trust, as in a terminal; so is a leftover found after a relaunch, since the install's state isn't kept.
 - **Verified against real releases.** The Windows signers were read from Anthropic's `claude.exe` and OpenAI's `codex.exe`. An opt-in test (`agentInstall.real.test.ts`) downloads both for real and checks them without installing.
-- **States.** Downloading (with progress), checking, installing, then done or a plain reason: offline, low disk (1 GB), unverified, or the installer didn't finish, each with Try again. An agent Codemm installed gets its sign-in check at once, and connects once signed in.
+- **States.** Downloading (with progress), checking, installing, then done or a plain reason: offline, low disk (1 GB), unverified ("Codemm couldn't verify the installation. Try again.", which claims nothing about what ran), or the installer didn't finish, each with Try again. An agent Codemm installed gets its sign-in check at once, and connects once signed in.
 - **Never automatic.** Large downloads and third-party terms wait for the learner's click.
 - A native executable runs directly.
 - A JavaScript entry point (a `#!/usr/bin/env node` launcher, like the npm-installed Codex) runs as `ELECTRON_RUN_AS_NODE=1 <app executable> <script>`, so no system Node is needed.
@@ -267,6 +267,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - Move changes order only. It is refused, with "Needs ‹title› first", when it would put a topic above one it requires. Move works without dragging.
   - Remove is refused when another topic requires it ("‹title› needs this topic"). Core also rejects removing a concept that an exercise, event or lesson uses; the lesson part is new. Prerequisites are never rewritten silently.
   - Prerequisite changes go through "Ask Codemm for changes".
+  - While "Ask Codemm for changes" or Go deeper runs, the learner's own edits wait: rename, remove, move, drag and add are off, and an open rename closes unsaved. Codemm changes the roadmap as it stood, so its result never overwrites an edit made meanwhile.
 - **A fresh start after a new prerequisite.** When a re-save adds a prerequisite to a concept that is stuck, `save_roadmap` appends `{ kind: "retry", at, concept }`. Replaying a `retry` resets that concept's fail streak and leaves mastery unchanged. Without it, the concept would be stuck again as soon as the new prerequisite was mastered.
 
 ### 4.3 Lessons
@@ -457,8 +458,8 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 - **Docker stopping mid-session.** A check or setup that loses Docker fails as an infrastructure failure, records nothing, and opens this screen.
 - **Docker's slow first start.** Setup and checks started while Docker is starting (in the 3 minutes after Codemm opened or installed it) wait for the daemon before failing, and record nothing. With a stopped Docker they fail at once as not counted.
 - **Install what's missing** (`features/setup/Setup.tsx`). On a first run with Docker not installed, or no agent installed, Welcome's one primary action is **Install what's missing**.
-  - Its screen lists what will be installed, with each maker's terms and the agent to install (Claude Code by default, or Codex). Nothing downloads until the learner clicks Install what's missing.
-  - It then runs the Docker install and the agent install side by side, each showing its progress and result.
+  - Its screen lists what will be installed (Docker Desktop says "Not installed"), with each maker's terms and the agent to install (Claude Code by default, or Codex). The terms line names no price. Nothing downloads until the learner clicks Install what's missing.
+  - It then runs the Docker install and the agent install side by side, each showing its progress and result. If Docker's 3 minutes to start end with Docker still stopped, Docker's card shows Check this computer's step instead, with Open Docker Desktop and Check now.
   - The learner then sees Docker's terms window, then the agent's sign-in (enabled once Docker's install has handed over to Docker), in that order.
   - Once Docker is ready and the agent is connected, Codemm moves on to the goal.
   - Install Docker (below), each agent's Install and Get it myself, and "Do it myself" stay for doing it one at a time.
@@ -542,7 +543,7 @@ Each item is verified by an automated test unless marked *journey* or *release*.
 |---|---|
 | D1 | **Distribution.** On a version tag, the release workflow builds the macOS dmg (Apple Silicon and Intel) and the Windows installer and attaches them to a draft GitHub Release. On a macOS runner and a Windows runner, each with no Node or npm on `PATH`, the packaged app: launches to the welcome screen; starts the bundled `codemm mcp` through `ELECTRON_RUN_AS_NODE`, which a test client calls `list_tracks` on; and launches a fake JavaScript agent the same way, on Windows through an npm `.cmd` shim. |
 | D2 | **Renderer security.** The window has `contextIsolation`, `sandbox`, no `nodeIntegration` and the §2.1 CSP. In the renderer, `require` and `process` are undefined, a remote image in a lesson makes no request, and navigation and new windows are denied. IPC from any frame other than the main window's top frame is rejected. |
-| D3 | **IPC contract.** Every IPC channel is declared in `shared/api.ts`. Each handler validates its input and calls one function. Unknown channels and bad input are rejected. |
+| D3 | **IPC contract.** Every IPC channel is declared in `shared/api.ts`. Each handler validates its input and calls one function. Unknown channels and bad input are rejected. Text fields take no more than main accepts (`shared/limits.ts`: goal 200, what you know 500, topic name 200, a request or question 2,000, a note 20,000 characters) and say "Up to N characters." once full, so ordinary typing never reaches "Bad input". |
 | D4 | **Learner-safe boundary.** An exercise whose solution, mutants, hidden tests and expected outputs hold canary strings is authored through a recorded author stream. Every IPC handler is driven, and no renderer-bound payload or app log holds a canary. A tutor reply that quotes a canary line is held back. |
 | D5 | **Agent bridge.** For Claude Code and Codex: launch arguments match §3.1, and recorded streams parse to the expected events, while malformed lines produce none. A cancelled job resolves only after its whole process group is gone, including a child that ignores SIGTERM, and a job cancelled before it starts never spawns. Overlong lines are dropped. Status commands stop at their deadline and cap. There is no stdin and no shell. No desktop code reads credential files or variables, and sign-in output (for example, an email address) never reaches IPC or logs. |
 | D6 | **Versions and the minimum model.** Each tested version's `--version` output parses to its full token. An untested version, including a prerelease, shows the warning and doesn't block. A connected agent offers only its bench-tested models, with the recommended one preselected. The choice is saved in `desktop.json`, and every job for that agent launches with it (`--model` or `-m`). A model that isn't on the list is refused. |
