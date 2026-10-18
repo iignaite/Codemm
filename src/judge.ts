@@ -25,8 +25,8 @@ const SLACK_MS = 30_000;
 export const DRIVER_TOOLS = ["timeout", "sleep", "head", "wc", "cat", "basename"];
 /** `timeout` and `sleep` take seconds; busybox and coreutils both accept decimals. */
 export const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
-/** The time limit, and when the watchdog marks a case as having reached it: a little before \`timeout\` kills it. */
-const timeEnv = (ms: number) => ({ CODEMM_TIME_S: seconds(ms), CODEMM_MARK_S: (Math.max(0.1, ms / 1000) * 0.9).toFixed(3) });
+/** The time limit, which the watchdog enforces, and \`timeout\`'s backstop a second later. */
+const timeEnv = (ms: number) => ({ CODEMM_TIME_S: seconds(ms), CODEMM_BACKSTOP_S: seconds(ms + 1000) });
 
 // The driver is PID 1. Program output only leaves the container inside a length-framed
 // record, and `kill -9 -1` clears leftover processes between cases. Every command the track or learner
@@ -34,12 +34,13 @@ const timeEnv = (ms: number) => ({ CODEMM_TIME_S: seconds(ms), CODEMM_MARK_S: (M
 // oom_score_adj needs no privilege), so a program that runs out of memory usually dies instead of the
 // driver. It's best effort: the program could lower its score back to 0. If the write fails, nothing changes.
 // Shell functions share variables, so emit() keeps its own (size) apart from the loop's case name (n).
-// watch() marks a time-out itself, since both kinds of \`timeout\` exit 137 on one, as a memory kill does: a watchdog
-// writes /tmp/t just before the limit (CODEMM_MARK_S), and \`kill -9 -1\` stops it after each case. If it can't start
-// (a fork bomb), \`timeout\` still stops the case; it's only not marked.
+// watch() makes a time-out the driver's own statement, as Run's driver does (program.ts): both kinds of \`timeout\`
+// exit 137 on one, as a memory kill does. At the limit a watchdog writes /tmp/t, then \`kill -9 -1\` stops everything
+// but the driver (PID 1). \`timeout\` only backs it up, a second later. The watchdog starts before the program, so the
+// program's own forks can't stop it; \`kill -9 -1\` after each case stops it if the case ends first.
 const EMIT = `OOM='{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || :; '
 emit() { size=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$size"; cat "$4"; }
-watch() { : > /tmp/t; ( sleep "$CODEMM_MARK_S" 2>/dev/null && echo t > /tmp/t ) & }
+watch() { : > /tmp/t; ( sleep "$CODEMM_TIME_S" 2>/dev/null && { echo t > /tmp/t; kill -9 -1 2>/dev/null; } ) & }
 for u in ${DRIVER_TOOLS.join(" ")}; do command -v "$u" >/dev/null 2>&1 || { echo "the image has no '$u'" > /tmp/m; emit fatal tools 1 /tmp/m; exit 0; }; done`;
 
 const IO_DRIVER = `${EMIT}
@@ -52,22 +53,22 @@ for f in /work/tests/*.in; do
   [ -e "$f" ] || continue
   n=$(basename "$f" .in)
   watch
-  timeout -s KILL "$CODEMM_TIME_S" sh -c "$OOM$CODEMM_RUN" < "$f" > /tmp/o 2> /tmp/e; c=$?
+  timeout -s KILL "$CODEMM_BACKSTOP_S" sh -c "$OOM$CODEMM_RUN" < "$f" > /tmp/o 2> /tmp/e; c=$?
   kill -9 -1 2>/dev/null
   head -c 4096 /tmp/e > /tmp/ec
   if [ $(($(wc -c < /tmp/o))) -gt 65536 ]; then : > /tmp/oc; emit big "$n" "$c" /tmp/oc; else emit case "$n" "$c" /tmp/o; fi
   emit stderr "$n" "$c" /tmp/ec
-  [ -s /tmp/t ] && emit timeout "$n" "$c" /tmp/t
+  [ -s /tmp/t ] && emit timeout "$n" "$c" /dev/null
 done
 exit 0`;
 
 const UNIT_DRIVER = `${EMIT}
 watch
-TESTS=/work/tests OUT=/tmp/report.json timeout -s KILL "$CODEMM_TIME_S" sh -c "$OOM$CODEMM_TEST" > /tmp/o 2>&1; c=$?
+TESTS=/work/tests OUT=/tmp/report.json timeout -s KILL "$CODEMM_BACKSTOP_S" sh -c "$OOM$CODEMM_TEST" > /tmp/o 2>&1; c=$?
 kill -9 -1 2>/dev/null
 if [ -f /tmp/report.json ] && [ $(($(wc -c < /tmp/report.json))) -le 1048576 ]; then emit report report "$c" /tmp/report.json; else : > /tmp/r; emit report report "$c" /tmp/r; fi
 head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc
-[ -s /tmp/t ] && emit timeout report "$c" /tmp/t
+[ -s /tmp/t ] && emit timeout report "$c" /dev/null
 exit 0`;
 
 async function runDriver(track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number, onStdout?: (chunk: Buffer) => void): Promise<{ frames: Frame[]; flooded: boolean; outOfMemory?: boolean; memoryKill?: boolean }> {

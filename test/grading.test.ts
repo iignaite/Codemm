@@ -134,6 +134,7 @@ describe("grading whole runs", () => {
       gradeUnitRun("visible", { report: { exit: 137, body: "", log: "Killed", ...report }, flooded: false, limits, ...(memoryKill ? { memoryKill } : {}) }, ["t"])[0]!.message;
     expect(unit({}, true)).toMatch(/^The test runner ran out of memory \(memory_mb 128\)\.\nKilled/);
     expect(unit({ timedOut: true })).toMatch(/^The test runner took longer than 2000 ms\./);
+    expect(unit({})).toMatch(/^The test runner was killed\./);
   });
 
   it("grades each set of runs against its own expected outputs, visible first", () => {

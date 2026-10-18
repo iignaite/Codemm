@@ -178,7 +178,7 @@ export function normalizeOutput(text: string): string {
 const setOf = (name: string): TestSet => (name.startsWith("hidden/") ? "hidden" : "visible");
 
 /**
- * Why a program killed with 137 stopped: a time-out the driver's watchdog marked, else a memory-limit kill the
+ * Why a program killed with 137 stopped: a time-out the driver's watchdog stated, else a memory-limit kill the
  * runtime recorded. Neither is guessed from the exit code: both kinds of \`timeout\` exit 137 too.
  */
 function killReason(exit: number, timedOut: boolean | undefined, stops: Stops): string | undefined {
@@ -218,7 +218,10 @@ const Report = z.object({
 });
 
 function parseReport(raw: RawReport, stops?: Stops): z.infer<typeof Report>["tests"] | string {
-  if (raw.exit !== 0) return `The test runner ${(stops && killReason(raw.exit, raw.timedOut, stops)) ?? `exited with code ${raw.exit}`}.${raw.log ? `\n${raw.log}` : ""}`;
+  if (raw.exit !== 0) {
+    const why = stops?.limits ? (killReason(raw.exit, raw.timedOut, stops) ?? (raw.exit === 137 ? "was killed" : undefined)) : undefined;
+    return `The test runner ${why ?? `exited with code ${raw.exit}`}.${raw.log ? `\n${raw.log}` : ""}`;
+  }
   let json: unknown;
   try {
     json = JSON.parse(raw.body);

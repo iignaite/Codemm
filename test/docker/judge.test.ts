@@ -172,10 +172,14 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
     it("kills a program that exceeds its memory limit and grades it as an error, never as a runtime failure", async () => {
       for (let i = 0; i < 3; i++) {
         const r = await run("read x\ny=$(head -c 300000000 /dev/zero | tr '\\0' a)\necho survived\n");
-        const [graded] = gradeIoRun(r, { "visible/01": "survived\n" });
-        // Memory, or killed if the runtime missed the event: never a time-out it didn't have.
-        expect(graded).toMatchObject({ status: "error", message: expect.not.stringMatching(/took longer/) });
+        expect(statuses(gradeIoRun(r, { "visible/01": "survived\n" }))).toEqual(["error"]);
       }
+    });
+
+    it("says a program ran out of memory when the runtime recorded it, though the driver went on", async () => {
+      // One allocation past the limit, as the program's last command: killed for memory well within the time limit.
+      const r = await run("read x\ndd if=/dev/zero of=/dev/null bs=300M count=1 2>/dev/null\n");
+      expect(gradeIoRun(r, { "visible/01": "survived\n" })[0]).toMatchObject({ status: "error", message: expect.stringMatching(/^It ran out of memory \(memory_mb 128\)/) });
     });
 
     it("caps the container's output stream and errors the set", async () => {

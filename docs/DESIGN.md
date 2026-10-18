@@ -157,13 +157,13 @@ Other ceilings:
 
 | What happened | Result | Recorded as an attempt |
 |---|---|---|
-| A case times out (the driver's `timeout`, marked by its watchdog), crashes, exits non-zero or prints more than 64 KB | that test is `error` | yes |
+| A case times out (the driver's watchdog, with `timeout` as a backstop), crashes, exits non-zero or prints more than 64 KB | that test is `error` | yes |
 | Learner code fails to build | every test is `error` | yes |
 | The 4 MB stream cap is hit | every test in that set is `error` ("output limit exceeded") | yes |
 | The memory limit kills the driver instead of the program: the container exits 137 and the runtime recorded an `oom` event for it | every test in that set is `error` ("memory limit exceeded") | yes |
 | The host deadline for the whole set passes, the runtime is missing or stops during the run, the container is killed from outside (any other non-zero exit), or the image is missing or changed | the command fails with an infrastructure error | no |
 - **Memory:** every track or learner command first raises its own `oom_score_adj`, so the kernel kills the program rather than the driver, and that case is an `error`. If the driver dies anyway, the runtime's `oom` event tells a memory kill from an outside one. The runtime can miss that event when a container exits quickly, and then the check counts as an infrastructure failure: nothing is recorded, never a wrong attempt.
-- **Why a case was killed:** both kinds of `timeout` exit 137 on a time-out, as a memory kill does, so the exit code can't say which. A watchdog beside each case (and the unit runner) marks a time-out just before `timeout` acts, and the result says "took longer than N ms". A 137 without that mark says "ran out of memory (memory_mb N)" when the runtime recorded an `oom` event for the container, else "was killed". If the watchdog can't start (a fork bomb), `timeout` still stops the case; only the mark is missing. The wording never changes the grade.
+- **Why a case was killed:** both kinds of `timeout` exit 137 on a time-out, as a memory kill does, so the exit code can't say which. So a watchdog beside each case (and the unit runner) enforces the limit, as Run's does: it marks the time-out, then `kill -9 -1` stops everything but the driver, and the result says "took longer than N ms". `timeout` backs it up a second later. A 137 without that mark says "ran out of memory (memory_mb N)" when the runtime recorded an `oom` event for the container, else "was killed". The wording never changes the grade.
 - **Volumes:** images that declare `VOLUME` are rejected at install.
 
 **Run (interactive).** `runInteractive` runs the learner's io program once, for the app's Run button. It is never graded or recorded.
