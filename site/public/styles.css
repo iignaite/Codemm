@@ -93,7 +93,6 @@ figure { margin: 0; }
 .hero-text { display: flex; flex-direction: column; align-items: flex-start; }
 h1 { max-width: 11em; font-size: clamp(42px, 5.8vw, 74px); line-height: 1.02; letter-spacing: -.03em; }
 .lead { max-width: 28em; margin-top: 22px; font-size: clamp(18px, 1.9vw, 21px); line-height: 1.5; color: var(--muted); }
-.source { margin-top: 18px; color: var(--muted); font-size: 15px; }
 
 /* Buttons */
 .btn { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-height: 48px; padding: 10px 24px; border-radius: 999px; border: 2px solid transparent; font: 700 16px/1.2 var(--sans); text-decoration: none; cursor: pointer; transition: background-color .2s, transform .2s var(--ease); }
@@ -154,8 +153,8 @@ h1 { max-width: 11em; font-size: clamp(42px, 5.8vw, 74px); line-height: 1.02; le
 .agent { position: absolute; left: 0; top: 0; width: 16%; aspect-ratio: 1; display: grid; place-items: center; padding: 0; border: 0; border-radius: 26%; background: #fff; opacity: 0; cursor: pointer; box-shadow: 0 1px 0 rgb(255 255 255 / .9) inset, 0 14px 30px -10px rgb(8 26 60 / .45), 0 0 0 1px rgb(14 39 84 / .08); will-change: transform; }
 .agent img { width: 56%; height: auto; pointer-events: none; }
 .agent:focus-visible { outline: 3px solid var(--focus); outline-offset: 4px; }
-.motion { position: absolute; right: 0; bottom: 2%; z-index: 4; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
-.motion:hover { border-color: var(--muted); }
+.motion { position: absolute; right: 8%; bottom: 14%; z-index: 4; width: 34px; height: 34px; opacity: .7; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
+.motion:hover, .motion:focus-visible { opacity: 1; border-color: var(--muted); }
 .motion:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .motion svg { width: 16px; height: 16px; fill: none; stroke: var(--ink); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .motion .i-play { display: none; fill: var(--ink); }
@@ -296,9 +295,8 @@ h1 { max-width: 11em; font-size: clamp(42px, 5.8vw, 74px); line-height: 1.02; le
   .hero-text { display: contents; }
   .hero h1 { order: 1; }
   .hero .lead { order: 2; }
-  .orbit { order: 3; width: 100%; max-width: 440px; margin: 8px auto 0; }
-  .hero .gate { order: 4; }
-  .hero .source { order: 5; }
+  .orbit { order: 4; width: 100%; max-width: 440px; margin: 16px auto 0; }
+  .hero .gate { order: 3; }
   .row, .row.flip { grid-template-columns: minmax(0, 1fr); }
   .row.flip .row-text { order: 0; }
   .proof-list, .needs { grid-template-columns: minmax(0, 1fr); }

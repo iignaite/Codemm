@@ -18,7 +18,9 @@ async function loadForm() {
     state = { token: data.token, issued: Date.now(), available: data.available };
     if (data.available === false) {
       // Before the first release the form is only a notify list, so asking for release emails is the point of it.
-      document.getElementById('gate-note').textContent = 'The beta is on its way. We\'ll email you when it\'s out; unsubscribe anytime.';
+      const note = document.getElementById('gate-note');
+      note.textContent = 'The beta is on its way. We\'ll email you when it\'s out.';
+      note.hidden = false;
       document.getElementById('updates-row').hidden = true;
       button.textContent = 'Notify me';
     }
