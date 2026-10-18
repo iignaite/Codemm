@@ -38,6 +38,12 @@ describe.runIf(dockerUp)("gates (Docker)", () => {
       ["a declared volume", (f: FileMap) => ({ ...f, Dockerfile: `${f.Dockerfile}VOLUME /data\n` }), /volume/i],
       ["a fail probe that passes", (f: FileMap) => ({ ...f, "probe/io/fail/main.sh": f["probe/io/pass/main.sh"]! }), /probe fail/],
       ["a pass probe that fails", (f: FileMap) => ({ ...f, "probe/io/pass/main.sh": "read a b\necho 0\n" }), /probe pass/],
+      // time_ms is 2000: the probe passes within it, but not within a third of it, as every reference must.
+      [
+        "a pass probe too slow for a third of the time limit",
+        (f: FileMap) => ({ ...f, "probe/io/pass/main.sh": `sleep 1\n${f["probe/io/pass/main.sh"]!}` }),
+        /probe fast[\s\S]*Raise limits\.time_ms or limits\.memory_mb[\s\S]*took longer than 666 ms/,
+      ],
       ["a missing probe", (f: FileMap) => Object.fromEntries(Object.entries(f).filter(([p]) => !p.startsWith("probe/io/fail"))), /probe/],
     ])("rejects %s", async (_label, mutate, error) => {
       // Its own tag: moving the shared tag would let the runtime garbage-collect the verified image.

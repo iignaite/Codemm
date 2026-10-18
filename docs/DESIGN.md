@@ -162,7 +162,7 @@ Other ceilings:
 | The 4 MB stream cap is hit | every test in that set is `error` ("output limit exceeded") | yes |
 | The memory limit kills the driver instead of the program: the container exits 137 and the runtime recorded an `oom` event for it | every test in that set is `error` ("memory limit exceeded") | yes |
 | The host deadline for the whole set passes, the runtime is missing or stops during the run, the container is killed from outside (any other non-zero exit), or the image is missing or changed | the command fails with an infrastructure error | no |
-- **Memory:** every track or learner command first raises its own `oom_score_adj`, so the kernel kills the program rather than the driver, and that case is an `error`. If the driver dies anyway, the runtime's `oom` event tells a memory kill from an outside one. The runtime can miss that event when a container exits quickly, and then the check counts as an infrastructure failure: nothing is recorded, never a wrong attempt.
+- **Memory:** every track or learner command first raises its own `oom_score_adj`, so the kernel kills the program rather than the driver, and that case is an `error`. If the driver dies anyway, the runtime's `oom` event tells a memory kill from an outside one. The runtime can miss that event when a container exits quickly, and then the check counts as an infrastructure failure: nothing is recorded, never a wrong attempt. A case or unit runner that exits 124 or 137 while the driver goes on says why: "ran out of memory (memory_mb N)" when the runtime recorded an `oom` event for the container, else "took longer than N ms". Only the wording depends on that event, never the grade.
 - **Volumes:** images that declare `VOLUME` are rejected at install.
 
 **Run (interactive).** `runInteractive` runs the learner's io program once, for the app's Run button. It is never graded or recorded.
@@ -250,7 +250,7 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
 2. The image builds and declares no volumes.
 3. For each style, the pass probe passes everything.
 4. For each style, the fail probe gets at least one `fail` and no `error`.
-5. The pass probe gives identical results twice.
+5. The pass probe passes again with a third of the time limit, as every exercise's reference must (gate 3 below), and gives identical results. A track that fails here is told to raise `limits.time_ms` or `limits.memory_mb`.
 
 **Roadmap gate:** the schema and §5 rules hold, there are no unknown prerequisites, and there are no cycles (Kahn's algorithm).
 

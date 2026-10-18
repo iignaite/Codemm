@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
-import { type CaseFrames, type Expectation, frameProgress, gradeRuns, type IoRun, parseFrames, type RawCase, type Runs, type TestResult, type TestSet, type UnitRun } from "./grading.js";
-import { runSandboxed, runtimeDown, runtimeKind, startHelp } from "./sandbox.js";
+import { type CaseFrames, type Expectation, type Frame, frameProgress, gradeRuns, type IoRun, parseFrames, type RawCase, type Runs, type TestResult, type TestSet, type UnitRun } from "./grading.js";
+import { runtimeDown, runtimeKind, startHelp, startSandboxed } from "./sandbox.js";
 
 /** What the judge needs from an installed track. */
 export type JudgeTrack = {
@@ -60,12 +60,12 @@ if [ -f /tmp/report.json ] && [ $(($(wc -c < /tmp/report.json))) -le 1048576 ]; 
 head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc
 exit 0`;
 
-async function runDriver(track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number, onStdout?: (chunk: Buffer) => void) {
+async function runDriver(track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number, onStdout?: (chunk: Buffer) => void): Promise<{ frames: Frame[]; flooded: boolean; outOfMemory?: boolean; memoryKill?: boolean }> {
   const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
   try {
     writeFileMap(join(dir, "src"), src);
     writeFileMap(join(dir, "tests"), tests);
-    const result = await runSandboxed({
+    const started = startSandboxed({
       image: track.image,
       script,
       env,
@@ -75,8 +75,8 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       ],
       memoryMb: track.limits.memory_mb,
       deadlineMs,
-      ...(onStdout ? { onStdout } : {}),
-    });
+    }, onStdout ? { stdout: onStdout } : {});
+    const result = await started.done;
     if (result.cleanupFailed) throw new CodemmError("A check container couldn't be removed, so nothing was recorded. Run `codemm doctor --fix`, then retry.", "docker");
     if (result.timedOut) throw new CodemmError("The check didn't finish in time, so nothing was recorded. Check that the container runtime is healthy and retry.", "docker");
     // A flood is the program's doing and is graded; the host kill makes the exit code meaningless.
@@ -102,7 +102,10 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
     }
     // Never echo a fatal frame's body: code in the container could forge one (DESIGN §4.2).
     if (frames.some((f) => f.kind === "fatal")) throw new CodemmError(`The track image is missing a tool Codemm needs: sh, ${DRIVER_TOOLS.join(", ")}.`);
-    return { frames, flooded: result.flooded };
+    // A case or runner killed with 137 while the driver went on hit its time limit or the memory limit: only the
+    // runtime's record tells which (DESIGN §4.3).
+    const memoryKill = frames.some((f) => f.exit === 137 && ["case", "big", "report"].includes(f.kind)) && (await started.hadOomKill());
+    return { frames, flooded: result.flooded, ...(memoryKill ? { memoryKill } : {}) };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -116,14 +119,15 @@ export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, input
   const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * (timeMs + 1000) + SLACK_MS;
   const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_TIME_S: seconds(timeMs) };
   if (track.build) env.CODEMM_BUILD = track.build;
-  const { frames, flooded, outOfMemory } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, (opts.onProgress || opts.onCase) && frameProgress(opts.onProgress ?? (() => undefined), opts.onCase));
+  const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, (opts.onProgress || opts.onCase) && frameProgress(opts.onProgress ?? (() => undefined), opts.onCase));
 
   const buildFrame = frames.find((f) => f.kind === "build");
   const stderrOf = new Map(frames.filter((f) => f.kind === "stderr").map((f) => [f.name, f.body]));
   const cases = frames
     .filter((f) => f.kind === "case" || f.kind === "big")
     .map((f): RawCase => ({ name: `${set}/${f.name}`, exit: f.exit, stdout: f.body, stderr: stderrOf.get(f.name) ?? "", big: f.kind === "big" }));
-  return { ...(buildFrame ? { build: { exit: buildFrame.exit, output: buildFrame.body } } : {}), cases, flooded, ...(outOfMemory ? { outOfMemory } : {}) };
+  const limits = { time_ms: timeMs, memory_mb: track.limits.memory_mb };
+  return { ...(buildFrame ? { build: { exit: buildFrame.exit, output: buildFrame.body } } : {}), cases, flooded, limits, ...(outOfMemory ? { outOfMemory } : {}), ...(memoryKill ? { memoryKill } : {}) };
 }
 
 /** Runs one unit test set: the track's `test` command against `tests`. */
@@ -132,10 +136,11 @@ export async function runUnit(track: JudgeTrack, src: FileMap, tests: FileMap, o
   const timeMs = opts.timeMs ?? track.limits.time_ms;
   const deadline = opts.deadlineMs ?? timeMs + SLACK_MS;
   const env = { CODEMM_TEST: track.test, CODEMM_TIME_S: seconds(timeMs) };
-  const { frames, flooded, outOfMemory } = await runDriver(track, UNIT_DRIVER, env, src, tests, deadline);
+  const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, UNIT_DRIVER, env, src, tests, deadline);
   const report = frames.find((f) => f.kind === "report");
   const log = frames.find((f) => f.kind === "log");
-  return { report: { exit: report?.exit ?? -1, body: report?.body ?? "", log: log?.body ?? "" }, flooded, ...(outOfMemory ? { outOfMemory } : {}) };
+  const limits = { time_ms: timeMs, memory_mb: track.limits.memory_mb };
+  return { report: { exit: report?.exit ?? -1, body: report?.body ?? "", log: log?.body ?? "" }, flooded, limits, ...(outOfMemory ? { outOfMemory } : {}), ...(memoryKill ? { memoryKill } : {}) };
 }
 
 /** Runs each given test set, visible first, each in its own container. `onSet` is told as a set starts and may return its options (progress). */

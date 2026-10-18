@@ -35,6 +35,9 @@ function summarize(tests: TestResult[]): string {
     .join("\n");
 }
 
+/** A reference, and a track's pass probe, must still pass within a third of the time limit (DESIGN §4.4, §4.5). */
+const fastMs = (limits: { time_ms: number }) => Math.max(100, Math.floor(limits.time_ms / 3));
+
 const allPass = (tests: TestResult[]) => tests.length > 0 && tests.every((t) => t.status === "pass");
 
 // ---------- tracks ----------
@@ -136,7 +139,17 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
     if (!failed.some((t) => t.status === "fail") || failed.some((t) => t.status === "error")) {
       throw new GateError("probe fail", `the ${p.style} fail probe should fail at least one test without errors:\n${summarize(failed)}`);
     }
-    const pass2 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
+    // The second run gets a third of the time limit, as every exercise's reference will: a track whose own solution
+    // can't pass there would fail every exercise.
+    const fast = fastMs(spec.limits);
+    const pass2 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }, { timeMs: fast }), exp);
+    if (!allPass(pass2)) {
+      throw new GateError(
+        "probe fast",
+        `the ${p.style} pass probe must also pass with a third of the time limit (${fast} ms), as every exercise's reference must. ` +
+          `Raise limits.time_ms or limits.memory_mb in track.yaml:\n${summarize(pass2)}`,
+      );
+    }
     if (JSON.stringify(pass1) !== JSON.stringify(pass2)) throw new GateError("deterministic", `the ${p.style} pass probe gave different results on a second run.`);
   }
   const unpinned = unpinnedBases(files.Dockerfile);
@@ -203,7 +216,7 @@ export async function verifyExercise(
   const { spec, style, starter, solution, mutants, sets } = validate(trackRecord, course, files, taken);
   onGate?.("reference");
   const track = { ...trackRecord, image: trackRecord.imageId };
-  const fast = Math.max(100, Math.floor(track.limits.time_ms / 3));
+  const fast = fastMs(track.limits);
 
   // Gate 2 + 3: the reference passes, twice, the second time with a third of the time limit.
   const first = await runSets(track, style, solution, sets);

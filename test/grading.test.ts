@@ -115,6 +115,18 @@ describe("grading whole runs", () => {
     ]);
   });
 
+  it("says whether a killed program took too long or ran out of memory, by the limits it ran with", () => {
+    const limits = { time_ms: 2000, memory_mb: 128 };
+    const killed = (exit: number, memoryKill = false) =>
+      gradeIoRun({ cases: [{ name: "visible/01", exit, stdout: "", stderr: "Killed\n" }], flooded: false, limits, ...(memoryKill ? { memoryKill } : {}) }, { "visible/01": "1\n" })[0]!.message;
+    expect(killed(124)).toMatch(/^It took longer than 2000 ms:\nKilled/);
+    expect(killed(137)).toMatch(/^It took longer than 2000 ms/);
+    expect(killed(137, true)).toMatch(/^It ran out of memory \(memory_mb 128\)/);
+    expect(killed(3)).toMatch(/^Exited with code 3/);
+    const unit = gradeUnitRun("visible", { report: { exit: 137, body: "", log: "Killed" }, flooded: false, limits, memoryKill: true }, ["t"]);
+    expect(unit[0]!.message).toMatch(/^The test runner ran out of memory \(memory_mb 128\)\.\nKilled/);
+  });
+
   it("grades each set of runs against its own expected outputs, visible first", () => {
     const runs = { visible: { cases: [ok("visible/01", "1\n")], flooded: false }, hidden: { cases: [ok("hidden/01", "9\n")], flooded: false } };
     const tests = gradeRuns("io", runs, { expected: { "visible/01": "1\n", "hidden/01": "2\n" } });
