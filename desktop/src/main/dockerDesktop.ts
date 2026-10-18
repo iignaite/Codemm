@@ -35,6 +35,9 @@ const GiB = 1024 ** 3;
 /** After Codemm opens or installs Docker, how long a silent Docker counts as starting (computer.ts uses the same). */
 export const STARTING_MS = 3 * 60_000;
 const MAC_APP = '/Applications/Docker.app';
+/** Apple's checks by absolute path: a codesign or spctl earlier on PATH can't answer for them. */
+const CODESIGN = '/usr/bin/codesign';
+const SPCTL = '/usr/sbin/spctl';
 /** Docker, Inc's Apple Developer team. */
 const DOCKER_TEAM = /^TeamIdentifier=9BNSXJN65R$/m;
 const WIN_DESKTOP = 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe';
@@ -110,9 +113,9 @@ export function dockerDesktop(d: DesktopDeps) {
     let manual = false;
     try {
       const signed =
-        ok(await d.run('codesign', ['--verify', '--deep', '--strict', app])) &&
-        DOCKER_TEAM.test((await d.run('codesign', ['-dv', '--verbose=2', app])).output) &&
-        ok(await d.run('spctl', ['--assess', '--type', 'execute', app]));
+        ok(await d.run(CODESIGN, ['--verify', '--deep', '--strict', app])) &&
+        DOCKER_TEAM.test((await d.run(CODESIGN, ['-dv', '--verbose=2', app])).output) &&
+        ok(await d.run(SPCTL, ['--assess', '--type', 'execute', app]));
       if (!signed) throw new Stop('unverified');
       status = { phase: 'installing' };
       await placeApp(app);
