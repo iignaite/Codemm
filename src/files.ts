@@ -15,8 +15,11 @@ export function assertId(kind: string, value: string): void {
   }
 }
 
-/** How a path may appear in messages: anything under tests/hidden/ is never echoed. */
-export const describePath = (path: string) => (/^tests\/hidden(\/|$)/i.test(path) ? "a file under tests/hidden/" : `"${path}"`);
+/** How a path may appear in messages: anything under tests/hidden/ or mutants/ (hidden material) is never echoed. */
+export const describePath = (path: string) => {
+  const hidden = /^(tests\/hidden|mutants)(\/|$)/i.exec(path);
+  return hidden ? `a file under ${hidden[1]!.toLowerCase()}/` : `"${path}"`;
+};
 
 export function assertRelativePath(path: string): void {
   const parts = path.split("/");
