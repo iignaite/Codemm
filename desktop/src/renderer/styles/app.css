@@ -363,3 +363,5 @@ a.inline:hover { color: var(--ink); }
 .topic-page .card.setup-progress { padding: 18px 22px 20px; display: flex; flex-direction: column; gap: 14px; }
 .thinking { flex-direction: column; gap: 8px; color: var(--muted); }
 .looking .job { max-width: 720px; }
+/* A new screen's heading takes focus for screen readers (useRouteFocus); it isn't a control, so it shows no ring. */
+h1[tabindex="-1"]:focus { outline: none; }
