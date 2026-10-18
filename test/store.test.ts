@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { appendEvent, assertFreeSpace, materialize, readEvents, trackImageTag, withLock, withWorkspaceLock } from "../src/store.js";
+import { appendEvent, assertFreeSpace, digestText, materialize, readEvents, replaceLearnerFile, trackImageTag, withLock, withWorkspaceLock, writeTextAtomic } from "../src/store.js";
 
 let home: string;
 beforeEach(() => {
@@ -111,6 +111,24 @@ describe("materialize", () => {
     symlinkSync(outside, join(ws, "exercises"));
     expect(() => materialize(ws, "exercises/demo/sum", { "main.sh": "x" })).toThrow(/symlink/i);
     expect(readdirSync(outside)).toEqual([]);
+  });
+});
+
+describe.runIf(process.platform !== "win32")("file modes", () => {
+  it("keeps the umask's modes for Codemm's own files, and 0644 for learner files", () => {
+    const old = process.umask(0o002);
+    try {
+      const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+      const mode = (path: string) => statSync(join(ws, path)).mode & 0o777;
+      writeTextAtomic(join(ws, "own.json"), "{}");
+      expect(mode("own.json")).toBe(0o664);
+      materialize(ws, "ex", { "main.sh": "a" });
+      expect(mode("ex/main.sh")).toBe(0o644);
+      replaceLearnerFile(ws, "ex", "main.sh", "b", digestText("a"));
+      expect(mode("ex/main.sh")).toBe(0o644);
+    } finally {
+      process.umask(old);
+    }
   });
 });
 

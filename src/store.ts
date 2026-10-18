@@ -161,10 +161,13 @@ function parseRecord<T>(schema: { parse: (v: unknown) => T }, file: string): T {
 
 // ---------- atomic writes ----------
 
-/** Writes `text` to a new temp file beside `path` and returns its path. Never opens an existing file or a symlink. */
-function writeTempBeside(path: string, text: string): string {
+/**
+ * Writes `text` to a new temp file beside `path` and returns its path. Never opens an existing file or a symlink.
+ * `mode` is before the umask: 0o666 as writeFileSync makes Codemm's own files, 0o644 for learner files.
+ */
+function writeTempBeside(path: string, text: string, mode: number): string {
   const tmp = join(dirname(path), `.codemm-${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
-  const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+  const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode);
   try {
     writeFileSync(fd, text);
   } finally {
@@ -174,9 +177,9 @@ function writeTempBeside(path: string, text: string): string {
 }
 
 /** Replaces `path` with `text` whole: a temp file, then a rename. */
-export function writeTextAtomic(path: string, text: string): void {
+export function writeTextAtomic(path: string, text: string, mode = 0o666): void {
   mkdirSync(dirname(path), { recursive: true });
-  const tmp = writeTempBeside(path, text);
+  const tmp = writeTempBeside(path, text, mode);
   try {
     renameSync(tmp, path);
   } catch (e) {
@@ -486,7 +489,7 @@ export function materialize(ws: string, rel: string, files: FileMap): void {
     assertInside(ws, dirname(current));
     // Write a complete temp file, then hard-link it into place: the file appears whole or not at all,
     // and linking fails rather than replacing anything that appeared in the meantime.
-    const tmp = writeTempBeside(current, contents);
+    const tmp = writeTempBeside(current, contents, 0o644);
     try {
       linkSync(tmp, current);
     } catch (e) {
@@ -508,7 +511,7 @@ export function replaceLearnerFile(ws: string, rel: string, name: string, text: 
   const path = refuseSymlinks(ws, `${rel}/${name}`);
   const current = existsSync(path) ? readLearnerFiles(ws, rel, [name])[name] : undefined;
   if (current === undefined || digestText(current) !== digest) throw new CodemmError(`Changed outside Codemm. Reload ${name}.`);
-  writeTextAtomic(path, text);
+  writeTextAtomic(path, text, 0o644);
   return digestText(text);
 }
 
