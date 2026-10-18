@@ -75,7 +75,14 @@ let app: ElectronApplication;
 let page: Page;
 const seen = new Set<string>();
 
+/** JOURNEY_SKIP=<comma list>: steps left out of this run, recorded as skipped. */
+const skipSteps = new Set((process.env.JOURNEY_SKIP ?? '').split(',').filter(Boolean));
+
 async function step(name: string, run: () => Promise<string | void>) {
+  if (skipSteps.has(name)) {
+    appendFileSync(join(dir!, 'results.jsonl'), `${JSON.stringify({ label, step: name, ok: true, s: 0, note: 'skipped (JOURNEY_SKIP)' })}\n`);
+    return;
+  }
   const began = Date.now();
   let ok = false;
   let note = '';
@@ -208,7 +215,8 @@ async function waitingStates() {
   await waiting('stalled', page.getByRole('alert'));
   // A setup proposal can arrive late, for example after a relaunch mid-setup.
   const consent = page.getByRole('dialog', { name: /^Set up .* on this computer\?$|^Codemm has another way/ });
-  if (await visible(consent)) {
+  // The setup-failure parts approve their own proposal at the right moment.
+  if (!['low-disk', 'docker-setup', 'offline-setup'].includes(part) && (await visible(consent))) {
     await shot('consent-late');
     note('consent-late', (await consent.getByRole('heading').first().innerText()).trim());
     keepProposals(++lateConsents + 100);
