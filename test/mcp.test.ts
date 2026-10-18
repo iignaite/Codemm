@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -6,9 +6,10 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
+import { parseTrackYaml } from "../src/schemas.js";
 import { createServer, parseToolList, type ServerOptions, TOOL_NAMES } from "../src/mcp.js";
 import * as store from "../src/store.js";
-import { fakeDocker } from "./fake-docker.js";
+import { fakeDocker, posix } from "./fake-docker.js";
 
 /** The per-job server: `codemm mcp --tools`, `--course` and `--desktop`. */
 
@@ -135,5 +136,34 @@ describe("lesson tools", () => {
     expect(app.listLessons(ws)[0]!.read).toBe(false);
     await call("mark_lesson_read", { id: "intro" });
     expect(app.listLessons(ws)[0]!.read).toBe(true);
+  });
+});
+
+describe.runIf(posix)("hidden data through the tools", () => {
+  it("no tool's output carries a hidden input, expected output, solution or mutant", async () => {
+    const fixtures = join(import.meta.dirname, "fixtures");
+    const track = readFileMap(join(fixtures, "tracks", "shell-io"));
+    store.commitFolder(store.trackDir("shell-io@1"), track, {
+      "track.json": { format_version: 1, ...parseTrackYaml(track["track.yaml"]!), image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
+    });
+    await app.saveRoadmap(ws, "shell", readFileSync(join(fixtures, "roadmaps", "shell-io.yaml"), "utf8"));
+    // Every hidden part of the exercise carries a canary.
+    const files = readFileMap(join(fixtures, "exercises", "io-max"));
+    for (const path of Object.keys(files)) if (/^(tests\/hidden|solution|mutants)\//.test(path)) files[path] = `CANARY ${path}\n`;
+    store.commitFolder(store.exerciseDir("shell", "max-of-line"), files, {
+      "exercise.json": {
+        format_version: 1, slug: "max-of-line", style: "io", concepts: ["sh.loops"], difficulty: 1, track: "shell-io@1",
+        createdAt: new Date().toISOString(), expected: { "visible/01": "3\n", "hidden/01": "CANARY one\n", "hidden/02": "CANARY two\n", "hidden/03": "CANARY three\n" },
+      },
+    });
+    const { call } = await connect();
+    const outputs = [await call("get_exercise", { slug: "max-of-line" })];
+    writeFileSync(join(outputs[0].path, "main.sh"), "echo 3\n");
+    fakeDocker("streams");
+    outputs.push(await call("check", { slug: "max-of-line" }), await call("progress"), await call("next_step"), await call("get_roadmap"), await call("list_tracks"));
+    expect(outputs[1].tests.length).toBe(4);
+    const text = JSON.stringify(outputs);
+    expect(text).not.toContain("CANARY");
+    expect(text).not.toMatch(/hidden\/0/);
   });
 });
