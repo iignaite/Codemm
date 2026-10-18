@@ -103,6 +103,8 @@ async function shot(name: string) {
       }, [on, LABEL] as const)
       .catch(() => undefined);
   await banner(false);
+  // Screens fade in: wait for running animations so the shot shows the settled screen.
+  await page.evaluate(() => Promise.race([Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))), new Promise((r) => setTimeout(r, 3000))])).catch(() => undefined);
   await page.screenshot({ path: join(dir!, 'shots', `${label}-${name}.jpg`), type: 'jpeg', quality: 60 });
   await banner(true);
 }
@@ -510,7 +512,9 @@ test(`journey: ${label}`, async () => {
       // (already signed in) goes on PATH, so Continue opens, still with Docker hidden.
       if (!(await button('Continue').isEnabled().catch(() => false))) {
         await app.close();
+        // The owner's Claude Code reads its sign-in from the real HOME; Codemm's own data stays in the run's folders.
         env.PATH = `${join(dir!, 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin`;
+        env.HOME = homedir();
         await launch(env);
         await until('the connect screen', async () => {
           if (await visible(button('Connect an agent'))) await tap(button('Connect an agent'));
