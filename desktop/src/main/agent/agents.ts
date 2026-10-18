@@ -81,6 +81,25 @@ export interface AgentCli {
 
 /** The CLI versions the recorded fixtures come from (§3.3). */
 export const TESTED: Record<AgentId, string[]> = { claude: ['2.1.283'], codex: ['0.156.1'], cursor: ['2026.10.16-e3cb207'] };
-export const isTested = (agent: AgentId, version: string) => TESTED[agent].includes(version);
+/** A version's leading numbers: 2.1.283 is [2, 1, 283], 2026.10.16-e3cb207 is [2026, 10, 16]. */
+const numbers = (version: string) => version.match(/^\d+(?:\.\d+)*/)?.[0].split('.').map(Number);
+const PRERELEASE = /-(alpha|beta|rc|pre|preview|next|nightly|canary|dev)\b/i;
+const compare = (a: number[], b: number[]) => {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) - (b[i] ?? 0);
+  return 0;
+};
+
+/**
+ * Tested: a listed version, or a later release of a listed major. Agents update themselves and Codemm installs the
+ * maker's latest, so pinning exact versions would call nearly every learner's agent untested. Another major, one
+ * older than the oldest tested, or a prerelease is untested.
+ */
+export function isTested(agent: AgentId, version: string): boolean {
+  if (TESTED[agent].includes(version)) return true;
+  const v = numbers(version);
+  if (!v || PRERELEASE.test(version)) return false;
+  const tested = TESTED[agent].map(numbers).filter((t) => t !== undefined);
+  return tested.some((t) => t[0] === v[0]) && tested.some((t) => compare(v, t) >= 0);
+}
 
 export const AGENT_CLIS: Record<AgentId, AgentCli> = { claude, codex, cursor };

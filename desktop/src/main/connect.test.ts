@@ -10,7 +10,7 @@ function lookup(over: Partial<Lookup> = {}): Lookup {
   return {
     find: (bin) => (bin === 'cursor-agent' ? null : { path: `/bin/${bin}`, js: false }),
     signedIn: async () => true,
-    version: async (id) => ({ claude: '2.1.283', codex: '0.157.0', cursor: null })[id],
+    version: async (id) => ({ claude: '2.1.283', codex: '1.0.0', cursor: null })[id],
     ...over,
   };
 }
