@@ -164,6 +164,8 @@ test('a relaunch with a connected agent opens on Welcome, connected, which passe
 });
 
 test('failure and environment screens pass WCAG AA checks', async () => {
+  // Nine launches, each with a scan: on CI runners that's well past the default minute.
+  test.setTimeout(240_000);
   for (const scenario of ['no-agent', 'untested-version']) {
     const { app, page } = await launch(scenario);
     await button(page, 'Connect an agent').click();
