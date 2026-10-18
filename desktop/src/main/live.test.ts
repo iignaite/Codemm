@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { CHANGED, OFFLINE, PLAN_LIMIT, REPAIR, UNSTOPPABLE } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
+import { tempDir } from './testing/temp';
+import { usageStore } from './usage';
 import { HELD_BACK } from './views';
 
 describe('live CodemmApi', () => {
@@ -168,6 +170,25 @@ describe('live CodemmApi', () => {
     await t.api.approve(r.roadmap!.concepts);
     expect(await t.api.draft()).toBeNull();
     await expect(t.api.saveDraft(r.roadmap!.concepts)).rejects.toThrow('No roadmap to edit.');
+  });
+
+  it("records what each job's agent reported, under its course and kind, and shows it with the plan", async () => {
+    const usage = usageStore(tempDir('codemm-usage-'));
+    const t = live(
+      {
+        tutor: (job) => {
+          job.onUsage?.({ input: 100, output: 10, cachedInput: 50, costUsd: 0.2, session: 's9', plan: true });
+          return { ok: true, text: ['Look at line 3.'], session: 's9' };
+        },
+      },
+      { usage },
+    );
+    expect(await t.api.usage()).toBeNull();
+    const { id } = await practising(t);
+    await t.api.ask({ activityId: id }, 'Why?');
+    const shown = await t.api.usage();
+    expect(shown).toMatchObject({ plan: true, kinds: { tutor: { input: 100, output: 10, cachedInput: 50, costUsd: 0.2, runs: 1 } } });
+    expect(shown!.total.runs).toBe(1);
   });
 
   it('saves edits, then asks for changes', async () => {

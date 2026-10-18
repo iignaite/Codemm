@@ -1,11 +1,11 @@
 // @vitest-environment node
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { tempDir } from './testing/temp';
 import { usageStore } from './usage';
 
-const dir = () => mkdtempSync(join(tmpdir(), 'codemm-usage-'));
+const dir = () => tempDir('codemm-usage-');
 
 describe('usage store', () => {
   it('adds up what the agents reported, per course and job kind', () => {

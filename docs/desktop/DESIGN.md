@@ -348,6 +348,16 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 - **Renderer.** The pane appears with the first Run, between the editor and the results, and focus moves into it. Run turns into Stop on the same button, so focus stays put. Codemm's last line says how the program ended, for example "Exited with code 0." or "Time's up. The program was stopped after 2 minutes." Leaving the screen stops the program.
 - **Try it and Check in the pane.** For an io activity, each visible test prints as it finishes: `$ <run command>  (test 01)`, what the program printed, then ✓, or ✗ with expected and found (or the error). Then Try it prints "✓ 2 of 2 visible tests passed" (✗ when any failed). Check prints each hidden test as "hidden #2 ✗", an index and a status only, then "✓ 4 of 4 passed". Visible tests that never streamed (the build failed) print from the final result. The structured Results view stays. Unit activities keep Results only: their runner reports at the end.
 
+### 4.11 Usage and cost
+
+- **Source:** only what the agent CLIs already print. Codemm never calls a model and never reads a credential.
+  - Claude Code's `result` line: tokens (input, cache writes, cache reads, output) and `total_cost_usd`, its own estimate. Its `init` line's `apiKeySource` says whether the run counts toward a subscription plan (`none`) or an API key.
+  - Codex's `turn.completed` usage: tokens, no cost.
+  - Cursor's `result` usage, when present: tokens, no cost.
+- **Parser:** the stream parsers in `agent/agents.ts` emit `{ type: 'usage', input, output, cachedInput?, costUsd? }`, where `input` counts every input token and `cachedInput` the ones read from cache. The session event gains an optional `plan`. Jobs pass each report to `Job.onUsage` with its session and plan.
+- **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs) and the last plan answer. It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs. Claude's cost on a resumed session covers the whole session so far, so the store keeps the last cost per session (at most 100) and adds only what's new.
+- **Screen:** the course map's side column shows a small Usage card once an agent has run for the course: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. When the last Claude run counted toward a plan, it says: "On your Claude plan, this counts toward the plan's usage. It isn't a charge."
+
 ## 5. Failure states
 
 Infrastructure failures record nothing. Learner-caused outcomes are graded as `error` and recorded (core §4.3, §7).
@@ -513,7 +523,7 @@ Work test-first. For each behavior, write a failing test, make it pass simply, t
 Cut from 1.0 by the owner's scope ledger:
 
 - **Lessons:** predict questions, and learner edits of lesson text. Notes stay. (Runnable examples are in 1.0: §4.3.)
-- **Usage:** recording agent usage and showing cost per topic. Lesson caching stays (§4.3).
+- **Usage:** cost per topic. Totals per course and job kind are in 1.0 (§4.11); lesson caching stays (§4.3).
 - **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
 - The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
 - **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.8).

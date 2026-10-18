@@ -228,6 +228,7 @@ export function createLive(d: LiveDeps): Live {
         signedIn: () => d.connect.recheck(id, exe),
         onProgress,
         onSource,
+        onUsage: (u) => recordUsage(course, kind, id, u),
       });
       if (outcome.problem === 'unstoppable') unstoppable = true;
       log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
@@ -365,6 +366,17 @@ export function createLive(d: LiveDeps): Live {
   const finished = ({ name, status, message, actual }: NonNullable<CheckProgress['test']>) => ({ name, status, ...(message !== undefined ? { message } : {}), ...(actual !== undefined ? { actual } : {}) });
   const progressOf = (run?: string) => ({ phase, done, total, test }: CheckProgress) =>
     progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total, ...(phase === 'visible' && test ? { test: finished(test) } : {}) }));
+
+  /** What a job's agent reported using, under its course and kind (§4.11). Never stops the job. */
+  function recordUsage(course: string | undefined, kind: Job['kind'], agent: string, u: Parameters<NonNullable<Job['onUsage']>>[0]) {
+    if (!d.usage || !course) return;
+    try {
+      d.usage.record(course, kind, u, u.session);
+      if (agent === 'claude' && u.plan !== undefined) d.usage.notePlan(u.plan);
+    } catch (e) {
+      log('usage-error', errorFields(e));
+    }
+  }
 
   // Run's programs, by run id (§4.10). What they print goes to whoever listens; main sends it to the window that started each.
   const programs = new Map<string, { program?: CoreProgramRun; stopped: boolean; cancel?: () => void }>();
