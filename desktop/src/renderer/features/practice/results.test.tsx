@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { REBUILD } from '../../../shared/api';
 import type { CoreCheckView } from '../../../main/core/types';
 import { checkView, tryView } from '../../../main/views';
 import { Results, type Ways } from './Results';
@@ -21,7 +22,7 @@ const visibleTests = [
   { name: '01', input: '', expected: 'Count: 0' },
   { name: '02', input: 'click', expected: 'Count: 1' },
 ];
-const ways: Ways = { retry() {}, keepTrying() {}, reread() {}, easier() {}, later() {}, computer() {}, next() {} };
+const ways: Ways = { retry() {}, keepTrying() {}, reread() {}, easier() {}, later() {}, computer() {}, tracks() {}, next() {} };
 
 function results() {
   return screen.getByRole('region', { name: 'Results' });
@@ -29,7 +30,7 @@ function results() {
 
 describe('Results with real core result shapes', () => {
   it('shows expected next to found for a failed visible io test after Check', () => {
-    render(<Results shown={{ kind: 'check', result: checkView(core, { stuck: false, mastered: false }), keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    render(<Results shown={{ kind: 'check', result: checkView(core, { stuck: false, mastered: false, later: true }), keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
     expect(results()).toHaveTextContent('expected Count: 1');
     expect(results()).toHaveTextContent('found Count: 0');
   });
@@ -43,5 +44,36 @@ describe('Results with real core result shapes', () => {
     render(<Results shown={{ kind: 'try', result: tryView(core) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
     expect(results()).not.toHaveTextContent('visible/');
     expect(results()).toHaveTextContent('02');
+  });
+});
+
+describe('not counted', () => {
+  it('sends a rebuild to Tracks, and anything else to Check this computer', () => {
+    const view = render(<Results shown={{ kind: 'check', result: { kind: 'not-counted', reason: REBUILD }, keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(screen.getByRole('button', { name: 'Go to Tracks' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check this computer' })).not.toBeInTheDocument();
+    view.unmount();
+    render(<Results shown={{ kind: 'check', result: { kind: 'not-counted', reason: "Docker isn't running." }, keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(screen.getByRole('button', { name: 'Check this computer' })).toBeInTheDocument();
+  });
+});
+
+describe('stuck', () => {
+  const stuck = (later: boolean) => ({ kind: 'check' as const, result: { ...checkView(core, { stuck: true, mastered: false, later }) }, keepTrying: false });
+
+  it('offers Come back later only when another topic can come next', () => {
+    const view = render(<Results shown={stuck(false)} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(screen.getByRole('button', { name: 'Reread the lesson' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Come back later' })).not.toBeInTheDocument();
+    view.unmount();
+    render(<Results shown={stuck(true)} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(screen.getByRole('button', { name: 'Come back later' })).toBeInTheDocument();
+  });
+
+  it('keeps the failed results under the ways forward', () => {
+    render(<Results shown={stuck(true)} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(results()).toHaveTextContent('1 of 3 passed');
+    expect(results()).toHaveTextContent('expected Count: 1');
+    expect(screen.getByRole('img', { name: 'Hidden test 1 not yet' })).toBeInTheDocument();
   });
 });

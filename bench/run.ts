@@ -15,7 +15,7 @@ import { emptyRun } from "./lib/agent.ts";
 import { accessFindings, codeBlocks, isLeak, leaks, learnerView, workspaceDiff } from "./lib/checks.ts";
 import { claude } from "./lib/claude.ts";
 import { codex } from "./lib/codex.ts";
-import { cleanupImages, snapshot, tagForTrackYaml } from "./lib/docker.ts";
+import { cleanupImages, recordingCli, snapshot } from "./lib/docker.ts";
 import { type Evidence, type FileMap, readEvidence, type StoredExercise } from "./lib/evidence.ts";
 import { authorPrompt, SUBJECTS, TUTOR_PROMPT } from "./lib/journeys.ts";
 import { type JourneyResult, journeyResult, saveStats, type Violations } from "./lib/metrics.ts";
@@ -47,6 +47,9 @@ mkdirSync(logs, { recursive: true });
 const root = mkdtempSync(join(tmpdir(), "codemm-bench-"));
 const ws = join(root, "ws");
 const home = join(root, "home");
+// Codemm builds through a wrapper that records each image ID, so cleanup removes only what this run built.
+const containerCli = recordingCli(root);
+const codemmEnv = () => cleanEnv({ CODEMM_HOME: home, CODEMM_CONTAINER_CLI: containerCli });
 mkdirSync(ws);
 mkdirSync(home);
 const say = (s: string) => process.stderr.write(`[${cell}] ${s}\n`);
@@ -60,12 +63,12 @@ function initLauncher(): { command: string; args: string[] } {
 async function journey(name: string, prompt: string, timeoutMs: number): Promise<{ run: AgentRun; calls: TapCall[]; wallMs: number; timedOut: boolean }> {
   const launcher = initLauncher();
   const tapLog = join(logs, `tap-${name}.jsonl`);
-  const mcp: HostRun = { command: process.execPath, args: [TAP, "--log", tapLog, "--home", home, "--", launcher.command, ...launcher.args] };
+  const mcp: HostRun = { command: process.execPath, args: [TAP, "--log", tapLog, "--home", home, "--cli", containerCli, "--", launcher.command, ...launcher.args] };
   const host = adapter!.command({ model: opts.model!, prompt, ws, mcp, scratch: logs });
   for (const [path, content] of Object.entries(host.files ?? {})) writeFileSync(path, content);
   const stdoutPath = join(logs, `${name}.jsonl`);
   say(`${name}: starting`);
-  const r = await run(host.command, host.args, { cwd: ws, env: cleanEnv({ CODEMM_HOME: home }), timeoutMs, stdoutPath, stderrPath: join(logs, `${name}.stderr`) });
+  const r = await run(host.command, host.args, { cwd: ws, env: codemmEnv(), timeoutMs, stdoutPath, stderrPath: join(logs, `${name}.stderr`) });
   const out = readFileSync(stdoutPath, "utf8");
   const parsed = out.trim() ? adapter!.parse(out) : emptyRun(`no output (exit ${r.code})`);
   const calls = existsSync(tapLog) ? parseTapLog(readFileSync(tapLog, "utf8")) : [];
@@ -86,13 +89,6 @@ function violations(run: AgentRun, exercises: StoredExercise[], changes: { chang
   };
 }
 
-const attemptedTags = (calls: TapCall[]) =>
-  calls.filter((c) => c.name === "save_track").flatMap((c) => {
-    const yaml = (c.args as { files?: FileMap }).files?.["track.yaml"];
-    const tag = yaml ? tagForTrackYaml(yaml) : undefined;
-    return tag ? [tag] : [];
-  });
-
 const baseline = snapshot();
 const result: Record<string, unknown> = {
   cell,
@@ -103,17 +99,15 @@ const result: Record<string, unknown> = {
   date: new Date().toISOString(),
   hostVersion: capture(opts.host!, ["--version"]).out.trim(),
 };
-let tags: string[] = [];
 let ev: Evidence = { tracks: [], exercises: [], workspace: {} };
 try {
-  const init = capture(process.execPath, [CLI, "init"], { cwd: ws, env: cleanEnv({ CODEMM_HOME: home }) });
+  const init = capture(process.execPath, [CLI, "init"], { cwd: ws, env: codemmEnv() });
   if (init.code !== 0) throw new Error(`codemm init failed: ${init.out}`);
 
   let materialized: StoredExercise[] = [];
   if (opts.journey === "both") {
     // Author journey.
     const a = await journey("author", authorPrompt(subject), AUTHOR_TIMEOUT);
-    tags.push(...attemptedTags(a.calls));
     ev = readEvidence(home, ws);
     const authored = ev.exercises.filter((ex) => ex.course === ev.course);
     materialized = authored.filter((ex) => Object.keys(learnerView(ex, trackFilesOf(ev, ex))).every((p) => p in ev.workspace));
@@ -140,16 +134,13 @@ try {
     const fixture = opts.journey === "tutor" ? subjectFixture(opts.subject!) : shellFixture();
     source = opts.journey === "tutor" ? "fixture" : "seeded";
     say(`tutor: seeding ${fixture.course}/${fixture.slug}`);
-    const tag = tagForTrackYaml(readFileSync(join(fixture.track, "track.yaml"), "utf8"));
-    if (tag) tags.push(tag);
-    await seedExercise(CLI, ws, home, fixture);
+    await seedExercise(CLI, ws, home, containerCli, fixture);
     ev = readEvidence(home, ws);
     ex = ev.exercises.find((e) => e.course === fixture.course && e.slug === fixture.slug)!;
   }
   const before = readEvidence(home, ws).workspace;
   const t = await journey("tutor", TUTOR_PROMPT, TUTOR_TIMEOUT);
   result.models ??= t.run.models;
-  tags.push(...attemptedTags(t.calls));
   ev = readEvidence(home, ws);
   const tutorChanges = workspaceDiff(before, ev.workspace);
   const v = violations(t.run, [ex], tutorChanges);
@@ -172,7 +163,7 @@ try {
 } finally {
   ev = readEvidence(home, ws);
   try {
-    result.cleanup = cleanupImages(tags, ev.tracks.map((t) => t.imageId), baseline);
+    result.cleanup = cleanupImages(root, baseline, home);
   } catch (e) {
     // Without a full picture of Docker's images nothing is removed; say so and clean up the rest.
     result.cleanup = [`skipped: ${(e as Error).message}`];

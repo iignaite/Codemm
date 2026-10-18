@@ -28,6 +28,11 @@ describe.runIf(dockerUp)("gates (Docker)", () => {
       expect(unitTrack.styles).toEqual(["unit"]);
     });
 
+    it("passes a track with an unfamiliar learner file and its own unit runner", async () => {
+      const custom = await verifyTrack(fixtureTrack("custom-unit").files, "codemm-test-custom-unit:1");
+      expect(custom.spec.files).toEqual(["src/calc.funcs"]);
+    });
+
     it.each([
       ["a failing build", (f: FileMap) => ({ ...f, Dockerfile: `${f.Dockerfile}RUN exit 3\n` }), /build/],
       ["a declared volume", (f: FileMap) => ({ ...f, Dockerfile: `${f.Dockerfile}VOLUME /data\n` }), /volume/i],

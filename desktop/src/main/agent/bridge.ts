@@ -95,6 +95,8 @@ export interface RunOptions<E> {
   maxLine?: number;
   killAfterMs?: number;
   runtime?: string;
+  /** Reads stderr lines for known failures; without it stderr is only drained. */
+  errors?: (line: string) => E[];
 }
 
 /**
@@ -103,7 +105,7 @@ export interface RunOptions<E> {
  * (a pipe still open means a descendant escaped). After it resolves, no callback runs.
  */
 export function run<E>(exe: Executable, args: string[], parse: (line: string) => E[], options: RunOptions<E> = {}): Promise<RunResult> {
-  const { onEvent, signal, cwd, maxLine = 1 << 20, killAfterMs = 3000, runtime } = options;
+  const { onEvent, signal, cwd, maxLine = 1 << 20, killAfterMs = 3000, runtime, errors } = options;
   if (signal?.aborted) return Promise.resolve({ code: null, cancelled: true });
   const target = spawnable(exe, args, runtime);
   return new Promise((resolve, reject) => {
@@ -138,10 +140,10 @@ export function run<E>(exe: Executable, args: string[], parse: (line: string) =>
       stopping = killTree(child, killAfterMs, exited).then(async (killed) => killed && (await pipesClose()));
       void stopping.then((stopped) => settle({ code: null, cancelled: true, stopped }));
     };
-    const emit = (line: string) => {
+    const emit = (line: string, read = parse) => {
       if (settled) return;
       try {
-        for (const event of parse(line)) onEvent?.(event);
+        for (const event of read(line)) onEvent?.(event);
       } catch {
         // a line the parser can't read is skipped
       }
@@ -161,7 +163,17 @@ export function run<E>(exe: Executable, args: string[], parse: (line: string) =>
         skipping = true;
       }
     });
-    child.stderr!.resume(); // drained, never shown or logged: it can carry account details
+    // Drained, never shown or logged: it can carry account details. Only `errors` reads it, for known failures.
+    if (errors) {
+      let pending = '';
+      child.stderr!.setEncoding('utf8');
+      child.stderr!.on('data', (chunk: string) => {
+        const lines = (pending + chunk).split('\n');
+        pending = lines.pop()!.slice(-maxLine);
+        for (const line of lines) emit(line.slice(0, maxLine), errors);
+      });
+      child.stderr!.on('end', () => pending && emit(pending, errors));
+    } else child.stderr!.resume();
     child.on('error', reject);
     child.on('exit', () => (exited = true));
     child.on('close', (code) => {

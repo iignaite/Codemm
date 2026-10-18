@@ -31,22 +31,35 @@ const part: Valid = (p) =>
   typeof p === 'string' && p !== '' && p !== '.' && p !== '..' && !/[<>:"|?*\\\u0000-\u001f]/.test(p) && !DEVICE.test(p) && !/[. ]$/.test(p);
 const path: Valid = (v) => typeof v === 'string' && v.length <= 512 && v.split('/').every(part);
 
+/** The renderer's id for one Try it, Check or Run, echoed in its events. */
+const runId: Valid = (v) => typeof v === 'string' && /^[a-z0-9-]{1,64}$/.test(v);
 const digest: Valid = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
-const goal = shape({ topic: text(200, 1), known: text(500) });
+const goal = shape({ topic: text(200, 1), known: text(500), depth: oneOf('overview', 'standard', 'in-depth') });
 const concept = shape({ id, title: text(200, 1), requires: list(id, 200) });
 const concepts = list(concept, 200, 1);
 const place: Valid = (v) => shape({ lessonId: id })(v) || shape({ activityId: id })(v);
 const words = text(2000, 1);
+/** A lesson example's number: core keeps at most 5. */
+const exampleNumber: Valid = (v) => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5;
 const fileText: Valid = (v) => typeof v === 'string' && new TextEncoder().encode(v).length <= MAX_FILE_BYTES;
 
-const ARGS: { [K in keyof CodemmApi]: Valid[] } = {
+// onCheckProgress, onJobProgress and onRunOutput are events main sends, never something the renderer may call.
+const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' | 'onRunOutput'>]: Valid[] } = {
   agents: [],
+  jobProgress: [],
   connect: [oneOf('claude', 'codex', 'cursor')],
+  chooseModel: [oneOf('claude', 'codex', 'cursor'), text(64, 1)],
+  installAgent: [oneOf('claude', 'codex', 'cursor')],
+  signIn: [oneOf('claude', 'codex', 'cursor')],
   computer: [],
+  installDocker: [],
+  openDocker: [],
   tracks: [],
   research: [goal],
   reviseRoadmap: [concepts, words],
   approve: [concepts],
+  draft: [],
+  saveDraft: [concepts],
   course: [],
   install: [digest],
   retrySetup: [],
@@ -56,20 +69,27 @@ const ARGS: { [K in keyof CodemmApi]: Valid[] } = {
   markRead: [id],
   activity: [id],
   saveFile: [id, path, fileText, digest],
-  tryIt: [id],
-  check: [id],
+  tryIt: [id, runId],
+  runExample: [id, exampleNumber],
+  runExampleLive: [id, exampleNumber, runId],
+  check: [id, runId],
+  runProgram: [id, runId],
+  sendRunInput: [runId, text(64 * 1024, 1)],
+  stopRun: [runId],
   ask: [place, words],
   skip: [id],
   easier: [id],
   rebuild: [trackRef],
+  update: [],
+  restartToUpdate: [],
 };
 
 /** Validates a renderer call and passes it to Codemm. Throws on anything unexpected. */
 export function dispatch(codemm: CodemmApi, method: unknown, args: unknown): Promise<unknown> {
   if (typeof method !== 'string' || !Object.hasOwn(ARGS, method)) throw new SafeError('Unknown call');
-  const valid = ARGS[method as keyof CodemmApi];
+  const valid = ARGS[method as keyof typeof ARGS];
   if (!Array.isArray(args) || args.length !== valid.length || !valid.every((check, i) => check(args[i]))) throw new SafeError('Bad input');
-  const call = codemm[method as keyof CodemmApi] as (...a: unknown[]) => Promise<unknown>;
+  const call = codemm[method as keyof typeof ARGS] as (...a: unknown[]) => Promise<unknown>;
   return call.apply(codemm, args);
 }
 

@@ -2,12 +2,35 @@ import { describe, expect, it } from 'vitest';
 import { packaging, releaseTag } from './packaging.cjs';
 
 describe('packaging', () => {
-  it('signs ad hoc, with no auto-update, when no signing settings are given', () => {
-    const config = packaging({});
+  it('signs ad hoc when no signing settings are given, and says the build is unsigned', () => {
+    const config = packaging({}, 'darwin');
     // Ad hoc, not none: an unsealed arm64 app is "damaged" to Gatekeeper, with no Open Anyway.
     expect(config.mac.identity).toBe('-');
     expect(config.win.azureSignOptions).toBeUndefined();
-    expect(config.publish).toBeNull();
+    expect(config.extraMetadata).toEqual({ codemm: { signed: false } });
+  });
+
+  it('points auto-update at GitHub Releases, which the release workflow fills as a draft', () => {
+    expect(packaging({}).publish).toEqual({ provider: 'github', owner: 'iignaite', repo: 'Codemm' });
+    // Squirrel.Mac updates from a zip; the dmg is for first installs.
+    expect(packaging({}).mac.target).toEqual([
+      { target: 'dmg', arch: ['arm64', 'x64'] },
+      { target: 'zip', arch: ['arm64', 'x64'] },
+    ]);
+  });
+
+  it('fails a build that should be signed but could not be, instead of shipping it unsigned', () => {
+    // electron-builder otherwise only warns when it finds no signing identity.
+    expect(packaging({}, 'darwin').forceCodeSigning).toBe(false);
+    expect(packaging({ CSC_LINK: 'base64-p12' }, 'darwin').forceCodeSigning).toBe(true);
+  });
+
+  it('marks a build signed only by its own platform\'s signing settings', () => {
+    const azure = { AZURE_SIGNING_ENDPOINT: 'https://e/', AZURE_SIGNING_ACCOUNT: 'a', AZURE_SIGNING_PROFILE: 'p', AZURE_SIGNING_PUBLISHER: 'Codemm' };
+    expect(packaging({ CSC_LINK: 'base64-p12' }, 'darwin').extraMetadata).toEqual({ codemm: { signed: true } });
+    expect(packaging(azure, 'darwin').extraMetadata).toEqual({ codemm: { signed: false } });
+    expect(packaging(azure, 'win32').extraMetadata).toEqual({ codemm: { signed: true } });
+    expect(packaging({ CSC_LINK: 'base64-p12' }, 'win32').extraMetadata).toEqual({ codemm: { signed: false } });
   });
 
   it('signs on macOS only from a certificate in the environment', () => {
@@ -19,6 +42,10 @@ describe('packaging', () => {
     // Ad hoc signing plus the hardened runtime fails library validation at launch.
     expect(packaging({}).mac.hardenedRuntime).toBe(false);
     expect(packaging({ CSC_LINK: 'base64-p12' }).mac.hardenedRuntime).toBe(true);
+  });
+
+  it('leaves the development mock and its demo curriculum out of the installer', () => {
+    expect(packaging({}).files).toContain('!out/main/mock.js');
   });
 
   it('builds only macOS and Windows installers', () => {
@@ -57,6 +84,11 @@ describe('releaseTag', () => {
   it('refuses a tag when either package carries another version', () => {
     expect(() => releaseTag('v1.0.0-beta.1', both('1.0.0'))).toThrow('The core package is 1.0.0, but the tag is v1.0.0-beta.1.');
     expect(() => releaseTag('v1.0.0', { core: '1.0.0', desktop: '0.9.0' })).toThrow('The desktop package is 0.9.0, but the tag is v1.0.0.');
+  });
+
+  it('takes only alpha and beta prereleases, the channels auto-update moves on to a stable release from', () => {
+    expect(releaseTag('v1.0.0-alpha.2', both('1.0.0-alpha.2'))).toEqual({ version: '1.0.0-alpha.2', prerelease: true });
+    for (const tag of ['v1.0.0-rc.1', 'v1.0.0-preview', 'v1.0.0-next.1']) expect(() => releaseTag(tag, both(tag.slice(1)))).toThrow(/alpha or beta/);
   });
 
   it('refuses anything that is not a version tag', () => {

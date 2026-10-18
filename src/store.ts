@@ -13,6 +13,16 @@ import { CourseRecord, ExerciseRecord, LearnerEventSchema, LessonRecord, Proposa
 /** Persistence for everything under $CODEMM_HOME and the workspace's codemm.json. */
 
 export const codemmHome = () => process.env.CODEMM_HOME ?? join(homedir(), ".codemm");
+
+/**
+ * The image tag for a track, named after this Codemm home (8 hex characters of the SHA-256 of its real path), so two
+ * homes on one Docker that install the same id@version never overwrite each other's tag.
+ */
+export function trackImageTag(id: string, version: number): string {
+  mkdirSync(codemmHome(), { recursive: true });
+  const home = createHash("sha256").update(realpathSync.native(codemmHome())).digest("hex").slice(0, 8);
+  return `codemm-track-${home}-${id}:${version}`;
+}
 const tracksDir = () => join(codemmHome(), "tracks");
 const courseDir = (course: string) => {
   assertId("course", course);
@@ -49,7 +59,8 @@ const readOwner = (path: string): { pid: number; token: string } | undefined => 
     return undefined;
   }
 };
-function alive(pid: number): boolean {
+/** Whether process `pid` is running (EPERM: it is, as another user). */
+export function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -87,7 +98,7 @@ function reclaimIfStale(path: string, seen: string): void {
         return undefined;
       }
     })();
-    if (owner && !alive(owner.pid)) {
+    if (owner && !processAlive(owner.pid)) {
       try {
         if (readFileSync(mutex, "utf8") === held) unlinkSync(mutex);
       } catch {
@@ -123,7 +134,7 @@ export async function withLock<T>(path: string, work: () => Promise<T>, waitMs =
       continue;
     }
     const owner = readOwner(path);
-    if (!owner || !alive(owner.pid)) {
+    if (!owner || !processAlive(owner.pid)) {
       reclaimIfStale(path, seen);
       continue;
     }
@@ -144,20 +155,45 @@ function parseRecord<T>(schema: { parse: (v: unknown) => T }, file: string): T {
   try {
     return schema.parse(JSON.parse(readFileSync(file, "utf8")));
   } catch {
-    throw new CodemmError(`Codemm's record ${file} is damaged. Restore it from a backup, or remove that track, course or exercise.`);
+    throw new CodemmError(`Codemm's record ${file} is damaged. Restore it from a backup, or remove that track, course or exercise.`, "damaged");
   }
 }
 
 // ---------- atomic writes ----------
 
-function writeTextAtomic(path: string, text: string): void {
+/**
+ * Writes `text` to a new temp file beside `path` and returns its path. Never opens an existing file or a symlink.
+ * `mode` is before the umask: 0o666 as writeFileSync makes Codemm's own files, 0o644 for learner files.
+ */
+function writeTempBeside(path: string, text: string, mode: number): string {
+  const tmp = join(dirname(path), `.codemm-${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
+  const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode);
+  try {
+    writeFileSync(fd, text);
+  } finally {
+    closeSync(fd);
+  }
+  return tmp;
+}
+
+/** Replaces `path` with `text` whole: a temp file, then a rename. */
+export function writeTextAtomic(path: string, text: string, mode = 0o666): void {
   mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp-${process.pid}`;
-  writeFileSync(tmp, text);
-  renameSync(tmp, path);
+  const tmp = writeTempBeside(path, text, mode);
+  try {
+    renameSync(tmp, path);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
 }
 
 const writeJsonAtomic = (path: string, value: unknown) => writeTextAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
+
+/** A job's progress file (`codemm mcp --progress`): the exercise gate running, by name only. Replaced whole each time. */
+export function writeJobProgress(path: string, gate: string): void {
+  writeJsonAtomic(path, { format_version: 1, gate });
+}
 
 /** Writes `files` (and optional JSON records) into a fresh folder, then renames it to `target`. */
 export function commitFolder(target: string, files: FileMap, records: Record<string, unknown> = {}): void {
@@ -275,7 +311,7 @@ export function assertFreeSpace(dir: string, min = MIN_FREE_BYTES): void {
   mkdirSync(dir, { recursive: true });
   const { bavail, bsize } = statfsSync(dir);
   if (bavail * bsize < min) {
-    throw new CodemmError(`Not enough disk space. Setup needs ${Math.round(min / 1024 ** 3)} GB free where Codemm keeps its data (${dir}). Free some space, then try again.`);
+    throw new CodemmError(`Not enough disk space. Setup needs ${Math.round(min / 1024 ** 3)} GB free where Codemm keeps its data (${dir}). Free some space, then try again.`, "disk");
   }
 }
 
@@ -316,9 +352,6 @@ export function readExercise(course: string, slug: string): { record: ExerciseRe
   return { record, files: readFileMap(dir, ["exercise.json"]) };
 }
 
-export const writeExerciseRecord = (course: string, record: ExerciseRecord) =>
-  writeJsonAtomic(join(exerciseDir(course, record.slug), "exercise.json"), record);
-
 // ---------- lessons ----------
 
 export const lessonDir = (course: string, id: string) => {
@@ -337,18 +370,26 @@ export function listLessons(course: string): LessonRecord[] {
 }
 
 /** The agent's text never changes after saving; the learner's notes sit beside it. */
-export function readLesson(course: string, id: string): { record: LessonRecord; markdown: string; notes: string } {
+export function readLesson(course: string, id: string): { record: LessonRecord; markdown: string; notes: string; examples: FileMap[] } {
   const dir = lessonDir(course, id);
   if (!existsSync(join(dir, "lesson.json"))) throw new CodemmError(`No lesson "${id}" in course "${course}".`);
+  const record = parseRecord(LessonRecord, join(dir, "lesson.json"));
   return {
-    record: parseRecord(LessonRecord, join(dir, "lesson.json")),
+    record,
     markdown: readFileSync(join(dir, "lesson.md"), "utf8"),
     notes: readFileSync(join(dir, "notes.md"), "utf8"),
+    examples: Array.from({ length: record.examples ?? 0 }, (_, i) => readFileMap(join(dir, "examples", String(i + 1)))),
   };
 }
 
-export const writeLesson = (course: string, record: LessonRecord, markdown: string) =>
-  commitFolder(lessonDir(course, record.id), { "lesson.md": markdown, "notes.md": "" }, { "lesson.json": record });
+/** The lesson's text, empty notes and its examples under examples/<n>/, in one atomic folder. */
+export function writeLesson(course: string, record: LessonRecord, markdown: string, examples: FileMap[] = []): void {
+  const files: FileMap = { "lesson.md": markdown, "notes.md": "" };
+  examples.forEach((example, i) => {
+    for (const [path, text] of Object.entries(example)) files[`examples/${i + 1}/${path}`] = text;
+  });
+  commitFolder(lessonDir(course, record.id), files, { "lesson.json": record });
+}
 
 export const writeNotes = (course: string, id: string, text: string) => writeTextAtomic(join(lessonDir(course, id), "notes.md"), text);
 
@@ -367,9 +408,9 @@ export function readEvents(course: string): LearnerEvent[] {
   lines.forEach((line, i) => {
     if (line === "" || (torn && i === lines.length - 1)) return;
     try {
-      events.push(LearnerEventSchema.parse(JSON.parse(line)) as LearnerEvent);
+      events.push(LearnerEventSchema.parse(JSON.parse(line)));
     } catch {
-      throw new CodemmError(`The learning log ${file} has an invalid entry on line ${i + 1}. Fix or remove that line, then retry.`);
+      throw new CodemmError(`The learning log ${file} has an invalid entry on line ${i + 1}. Fix or remove that line, then retry.`, "damaged");
     }
   });
   return events;
@@ -428,12 +469,12 @@ function assertInside(root: string, path: string): void {
 }
 
 /** The absolute path of `ws/rel`, refusing it if any existing component is a symlink. */
-function refuseSymlinks(ws: string, rel: string): string {
+export function refuseSymlinks(ws: string, rel: string): string {
   let current = ws;
   for (const part of rel.split("/")) {
     current = join(current, part);
     if (existsSync(current) && lstatSync(current).isSymbolicLink()) {
-      throw new CodemmError(`Refusing to write through the symlink at ${current}. Remove it and retry.`);
+      throw new CodemmError(`Refusing to write through the symlink at ${current}. Replace it with a real folder or file, then retry.`);
     }
   }
   return current;
@@ -453,13 +494,7 @@ export function materialize(ws: string, rel: string, files: FileMap): void {
     assertInside(ws, dirname(current));
     // Write a complete temp file, then hard-link it into place: the file appears whole or not at all,
     // and linking fails rather than replacing anything that appeared in the meantime.
-    const tmp = join(dirname(current), `.codemm-${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
-    const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
-    try {
-      writeFileSync(fd, contents);
-    } finally {
-      closeSync(fd);
-    }
+    const tmp = writeTempBeside(current, contents, 0o644);
     try {
       linkSync(tmp, current);
     } catch (e) {
@@ -480,20 +515,8 @@ export function replaceLearnerFile(ws: string, rel: string, name: string, text: 
   assertRelativePath(name);
   const path = refuseSymlinks(ws, `${rel}/${name}`);
   const current = existsSync(path) ? readLearnerFiles(ws, rel, [name])[name] : undefined;
-  if (current === undefined || digestText(current) !== digest) throw new CodemmError(`Changed outside Codemm. Reload ${name}.`);
-  const tmp = join(dirname(path), `.codemm-${process.pid}-${randomBytes(4).toString("hex")}.tmp`);
-  const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
-  try {
-    writeFileSync(fd, text);
-  } finally {
-    closeSync(fd);
-  }
-  try {
-    renameSync(tmp, path);
-  } catch (e) {
-    rmSync(tmp, { force: true });
-    throw e;
-  }
+  if (current === undefined || digestText(current) !== digest) throw new CodemmError(`Changed outside Codemm. Reload ${name}.`, "changed");
+  writeTextAtomic(path, text, 0o644);
   return digestText(text);
 }
 

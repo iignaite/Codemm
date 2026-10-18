@@ -3,16 +3,19 @@
 // bundled core run with this app as Node (§2, §7).
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { join } from 'node:path';
 import { AGENT_CLIS } from './agent/agents';
 import { ask } from './agent/bridge';
-import { dockerFolders, find } from './agent/find';
+import { find, withDockerFolders } from './agent/find';
 import { computerCheck, waitWhileStarting } from './computer';
+import { agentInstaller, nodeAgentDeps } from './agentInstall';
 import { connector } from './connect';
+import { dockerDesktop, nodeDesktopDeps } from './dockerDesktop';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
 import type { Log } from './log';
 import { codemmServer } from './server';
+import { agentSignIn, nodeSignInDeps } from './signIn';
 import { desktopState, workspaceOf } from './state';
 
 const RUNTIME_INFO = ['info', '--format', '{{.ServerVersion}}|{{.OSType}}'];
@@ -32,6 +35,8 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
   mkdirSync(ws, { recursive: true });
   const runtime = process.execPath;
 
+  // Claude Code and Codex, installed the vendor's own way into the learner's folders, then their own sign-in.
+  const installer = agentInstaller(nodeAgentDeps((bin) => find(bin)));
   const connect = connector(
     {
       find: (bin) => find(bin),
@@ -39,18 +44,24 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
       version: (id, exe) => ask(exe, AGENT_CLIS[id].version.args, AGENT_CLIS[id].version.read),
     },
     state,
+    { ...installer, signIn: agentSignIn(nodeSignInDeps(runtime)) },
   );
 
+  // GUI apps don't load shell profiles: give core's own docker calls Docker's folders, helpers included (§3.1).
+  // At start, not only on Check this computer: a relaunched app goes straight back to the course.
+  const findDocker = () => {
+    const docker = find('docker');
+    if (docker) process.env.PATH = withDockerFolders(process.env.PATH ?? '', docker.path);
+    return docker;
+  };
+  findDocker();
+
+  const desktop = dockerDesktop(nodeDesktopDeps());
   const computer = computerCheck({
-    find: () => {
-      const docker = find('docker');
-      // GUI apps don't load shell profiles: give core's own docker calls Docker's folders, helpers included (§3.1).
-      if (docker) {
-        const path = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
-        process.env.PATH = [...path, ...dockerFolders(docker.path).filter((f) => !path.includes(f))].join(delimiter);
-      }
-      return docker;
-    },
+    find: findDocker,
+    startedAt: desktop.startedAt,
+    canInstall: desktop.canInstall,
+    install: desktop.status,
     info: async (docker) => (await ask(docker, RUNTIME_INFO, ({ code, output }) => ({ exit: code ?? -1, output }), { timeoutMs: 20_000 })) ?? { exit: -1, output: '' },
     sandbox: async () => (await core.doctor(false)).some((c) => c.name === 'network isolation' && c.ok),
     now: () => Date.now(),
@@ -63,8 +74,11 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     state,
     ws,
     runtime,
+    agentDir: join(userData, 'agents'),
+    progressDir: join(userData, 'progress'),
     log,
     dockerReady: () => waitWhileStarting(computer, () => new Promise((r) => setTimeout(r, 3000))),
+    docker: desktop,
     server: codemmServer({ runtime, coreDir, ws, env: process.env }),
   });
 }

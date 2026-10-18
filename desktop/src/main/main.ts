@@ -1,12 +1,15 @@
 import { app, BrowserWindow, ipcMain, net, protocol, shell, type IpcMainInvokeEvent, type WebContents } from 'electron';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CodemmApi } from '../shared/api';
 import { errorFields } from './errors';
 import { handler } from './ipc';
-import { isSafeLink } from './links';
+import { openOutside } from './links';
 import { createLog } from './log';
 import { CSP, fileFor, fromAppWindow, ORIGIN } from './origin';
+import { bindRuns } from './runs';
+import { electronUpdater, updates } from './updates';
 import { liveApi } from './wire';
 
 const renderer = join(__dirname, '../renderer');
@@ -19,6 +22,8 @@ const appWindows = new Set<WebContents>();
 // The real core and the learner's agent. In development only, CODEMM_MOCK=<scenario>
 // runs the in-memory mock instead, to click through environment states (mock.ts).
 // ~/Library/Logs/Codemm on macOS, %APPDATA%\Codemm\logs on Windows (HANDOFF.md).
+// A separate profile (--user-data-dir) keeps its own log, so runs with one never write to the learner's.
+if (app.commandLine.hasSwitch('user-data-dir')) app.setAppLogsPath(join(app.getPath('userData'), 'logs'));
 const log = createLog(app.getPath('logs'));
 log('start', { version: app.getVersion(), platform: process.platform, arch: process.arch, packaged: app.isPackaged });
 process.on('uncaughtExceptionMonitor', (e) => log('error', { where: 'main', ...errorFields(e) }));
@@ -27,15 +32,48 @@ process.on('unhandledRejection', (e) => log('error', { where: 'main', ...errorFi
 const mock = !app.isPackaged && process.env.CODEMM_MOCK !== undefined;
 const live = mock ? null : liveApi({ coreDir: app.isPackaged ? join(process.resourcesPath, 'core') : join(__dirname, '../core'), userData: app.getPath('userData'), log });
 // The mock loads only in mock mode, so installers can leave it out.
-const codemm: CodemmApi = live ?? devMock();
+// Auto-update (§7.2): in an installed app, on GitHub Releases. In development only, CODEMM_UPDATE_FEED points the
+// check at a local feed instead, for tests; an installed app ignores it.
+const feed = app.isPackaged ? undefined : process.env.CODEMM_UPDATE_FEED;
+const updater = app.isPackaged || feed ? updates({ signed: signedBuild(), updater: electronUpdater(app.getVersion(), signedBuild(), feed), log, cleanup: () => shutdown() }) : undefined;
+const codemm: CodemmApi = withUpdates(live ?? devMock());
+
+/** Whether this build was signed: packaging.cjs records it in the packaged package.json. */
+function signedBuild(): boolean {
+  try {
+    return (JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) as { codemm?: { signed?: unknown } }).codemm?.signed === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Main answers the update calls when it checks for updates. */
+function withUpdates(api: CodemmApi): CodemmApi {
+  if (!updater) return api;
+  return { ...api, update: async () => updater.status(), restartToUpdate: async () => updater.restart() };
+}
 
 function devMock(): CodemmApi {
   const { createMock, scenario } = require('./mock') as typeof import('./mock');
   return createMock(scenario(process.env.CODEMM_MOCK || undefined));
 }
 
-// Only an app window's top frame, on app://codemm, may call Codemm (§2.1).
-const handle = handler(codemm, log, (event: IpcMainInvokeEvent) => fromAppWindow(event, appWindows));
+// The events main sends, only to the app's windows (§2.1): check progress and every agent job's progress.
+codemm.onCheckProgress((progress) => {
+  for (const contents of appWindows) contents.send('codemm:check-progress', progress);
+});
+codemm.onJobProgress((progress) => {
+  for (const contents of appWindows) contents.send('codemm:job-progress', progress);
+});
+
+// Only an app window's top frame, on app://codemm, may call Codemm (§2.1). A Run belongs to the window that
+// started it: only that window hears it, types into it or stops it, and closing the window stops it (runs.ts).
+const runs = bindRuns<WebContents>();
+const handle = runs.wrap(handler(codemm, log, (event: IpcMainInvokeEvent) => fromAppWindow(event, appWindows)));
+codemm.onRunOutput((output) => {
+  const owner = runs.ownerOf(output.run);
+  if (owner && !owner.isDestroyed()) owner.send('codemm:run-output', output);
+});
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -57,7 +95,10 @@ function createWindow() {
   });
   const contents = win.webContents;
   appWindows.add(contents);
-  win.on('closed', () => appWindows.delete(contents));
+  win.on('closed', () => {
+    appWindows.delete(contents);
+    for (const run of runs.runsOf(contents)) void codemm.stopRun(run).catch(() => undefined);
+  });
   void win.loadURL(`${ORIGIN}/index.html`);
 }
 
@@ -66,10 +107,7 @@ function createWindow() {
 app.on('web-contents-created', (_event, contents) => {
   contents.on('will-navigate', (event) => event.preventDefault());
   contents.on('will-attach-webview', (event) => event.preventDefault());
-  contents.setWindowOpenHandler(({ url }) => {
-    if (isSafeLink(url)) void shell.openExternal(url);
-    return { action: 'deny' };
-  });
+  contents.setWindowOpenHandler(openOutside((url) => shell.openExternal(url)));
 });
 
 /** Serves the built renderer on app://codemm, under the spec's CSP, and nothing else. */
@@ -86,25 +124,27 @@ void app.whenReady().then(() => {
   protocol.handle('app', serve);
   ipcMain.handle('codemm', handle);
   createWindow();
+  updater?.start();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 // Quitting first stops running agent jobs with their whole process groups and removes leftover containers (§5).
-// Every quit waits for that, however often the learner asks.
+// Every quit waits for that, however often the learner asks. Restart to update waits for it too, before the
+// installer starts (updates.ts).
 let stopping: Promise<void> | undefined;
 let stopped = false;
+function shutdown(): Promise<void> {
+  stopping ??= (live ? live.stop() : Promise.resolve()).catch(() => undefined).finally(() => {
+    stopped = true;
+  });
+  return stopping;
+}
 app.on('before-quit', (event) => {
   if (!live || stopped) return;
   event.preventDefault();
-  stopping ??= live
-    .stop()
-    .catch(() => undefined)
-    .finally(() => {
-      stopped = true;
-      app.quit();
-    });
+  void shutdown().then(() => app.quit());
 });
 
 app.on('window-all-closed', () => {

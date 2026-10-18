@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import type { Agent, AgentId } from '../../../shared/api';
+import { useEffect, useRef, useState } from 'react';
+import type { Agent, AgentId, AgentInstall } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
 import { Failed } from '../../app/Shell';
@@ -9,21 +9,57 @@ import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 
 /** The only screen that names agents. Each one that can't run yet shows its next step. */
-export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
+export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
   const api = useApi();
   const { go, fail } = useRouter();
-  const { data, error, reload } = useLoad(() => api.agents(), []);
+  // Coming back to the window looks again: an agent installed or signed in meanwhile shows up. An install is
+  // followed until it ends.
+  const { data, error, reload } = useLoad(() => api.agents(), [], (as) => !as.some((a) => running(a.install)), undefined, true);
   const [agents, setAgents] = useState<Agent[]>();
+  useEffect(() => setAgents(undefined), [data]);
   const [busy, setBusy] = useState<string>();
+  // The agent the learner is installing or signing in: once it's connected, Codemm moves on by itself.
+  const [following, setFollowing] = useState<AgentId>();
   const list = agents ?? data;
+  // The only supported agent installed is the learner's choice already: its sign-in check runs at once, once.
+  const picked = useRef(false);
+  useEffect(() => {
+    if (!data || picked.current) return;
+    picked.current = true;
+    const installed = data.filter((a) => a.state !== 'missing' && !a.experimental);
+    if (installed.length === 1 && installed[0].state === 'not-connected' && !data.some((a) => a.state === 'connected')) void connect(installed[0].id);
+  }, [data]);
+  const next: Route = { to: 'computer', then, fromConnect: true };
+  useEffect(() => {
+    if (following && list?.find((a) => a.id === following)?.state === 'connected') go(next);
+  }, [following, list]);
   if (error) return <Failed error={error} retry={reload} />;
   if (!list) return null;
+
+  const replace = (agent: Agent) => setAgents((current) => (current ?? data)?.map((a) => (a.id === agent.id ? agent : a)));
+
+  async function choose(id: AgentId, model: string) {
+    try {
+      replace(await api.chooseModel(id, model));
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  async function act(id: AgentId, call: () => Promise<void>) {
+    setFollowing(id);
+    try {
+      await call();
+      reload();
+    } catch (e) {
+      fail(e);
+    }
+  }
 
   async function connect(id: AgentId) {
     setBusy(id);
     try {
-      const agent = await api.connect(id);
-      setAgents((current) => (current ?? data)?.map((a) => (a.id === id ? agent : a)));
+      replace(await api.connect(id));
     } catch (e) {
       fail(e);
     } finally {
@@ -36,34 +72,90 @@ export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
       <div className="stack" style={{ width: 580, gap: 22 }}>
         <h1 className="h1 a-up">Connect an agent</h1>
         <ul className="stack" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-          {list.map((a, i) => (
+          {list.map((a, i) => {
+            const recommended = a.models.find((m) => m.recommended);
+            return (
             <li key={a.id} aria-label={a.name} className={`card agent a-up${a.state === 'connected' ? ' on' : ''}`} style={stagger(i + 1)}>
               <div>
                 <b>{a.name}</b>
                 {a.experimental && <div className="quiet-text">Experimental</div>}
-                {a.recommended && <div className="quiet-text">Recommended: {a.recommended}</div>}
+                {a.state !== 'connected' && recommended && <div className="quiet-text">Recommended: {recommended.label}</div>}
+                {a.state === 'connected' && a.models.length > 0 && (
+                  <label className="model">
+                    Model
+                    <select className="field" value={a.model ?? ''} onChange={(e) => choose(a.id, e.target.value)}>
+                      {a.models.map((m) => <option key={m.id} value={m.id}>{m.recommended ? `${m.label} (recommended)` : m.label}</option>)}
+                    </select>
+                  </label>
+                )}
                 {a.untested && <div className="quiet-text">Untested version. It may still work.</div>}
-                {a.state === 'missing' && <div className="alert">Not installed</div>}
-                {a.state === 'signed-out' && <div className="alert">Sign in to {a.name}, then try again.</div>}
+                {a.state === 'missing' && !running(a.install) && !a.install?.problem && <div className="alert">Not installed</div>}
+                {a.state === 'signed-out' && (
+                  <>
+                    <div className="alert">Sign in to {a.name}, then try again.</div>
+                    <div className="quiet-text">In a terminal: <code className="cmd">{a.signIn}</code></div>
+                  </>
+                )}
+                {a.state === 'missing' && a.canInstall && <InstallProgress agent={a} />}
               </div>
               {a.state === 'connected' ? (
                 <span className="state"><Status kind="ok" size={24} />Connected</span>
+              ) : a.state === 'missing' ? (
+                !running(a.install) && (
+                  <div className="actions">
+                    {a.canInstall && <Button variant="ghost" onClick={() => act(a.id, () => api.installAgent(a.id))}>{a.install?.problem ? 'Try again' : 'Install'}</Button>}
+                    <a className="btn ghost" href={a.installUrl} target="_blank" rel="noreferrer">{a.canInstall ? 'Get it myself' : `Get ${a.name}`}</a>
+                  </div>
+                )
               ) : (
                 <div className="actions">
-                  {a.state === 'missing' && <a className="btn ghost" href={a.installUrl} target="_blank" rel="noreferrer">Get {a.name}</a>}
+                  {/* The agent's own login, where the learner sees it; Codemm never handles credentials. */}
+                  {a.state === 'signed-out' && <Button variant="ghost" onClick={() => act(a.id, () => api.signIn(a.id))}>Sign in</Button>}
                   <Button variant="ghost" disabled={busy !== undefined} onClick={() => connect(a.id)}>
                     {a.state === 'not-connected' ? 'Connect' : 'Try again'}
                   </Button>
                 </div>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
         <div className="a-up" style={{ ...stagger(4), display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <span className="quiet-text">Codemm uses your agent and your plan.</span>
-          <Button size="lg" disabled={!list.some((a) => a.state === 'connected')} onClick={() => go({ to: 'computer', then })}>Continue</Button>
+          <Button size="lg" disabled={!list.some((a) => a.state === 'connected')} onClick={() => go(next)}>Continue</Button>
         </div>
       </div>
     </main>
   );
+}
+
+export const running = (install?: AgentInstall) => install !== undefined && install.phase !== 'done' && install.phase !== 'failed';
+
+const VENDOR: Record<AgentId, string> = { claude: 'Anthropic', codex: 'OpenAI', cursor: 'Cursor' };
+
+const PROBLEM: Record<NonNullable<AgentInstall['problem']>, (a: Agent) => string> = {
+  offline: () => "You're offline. Connect to the internet, then try again.",
+  disk: () => 'Not enough disk space. Free up 1 GB, then try again.',
+  unverified: (a) => `The download didn't match ${VENDOR[a.id]}'s signature, so Codemm didn't use it.`,
+  failed: (a) => `${a.name}'s installer didn't finish.`,
+};
+
+/** Codemm installing the agent, the vendor's own way: the download, the check, then its installer. */
+export function InstallProgress({ agent }: { agent: Agent }) {
+  const install = agent.install;
+  if (!install || install.phase === 'done') return null;
+  if (install.phase === 'failed') return <p className="alert" role="alert">{PROBLEM[install.problem ?? 'failed'](agent)}</p>;
+  if (install.phase === 'downloading') {
+    const label = `Downloading ${agent.name}`;
+    const percent = Math.round((install.progress ?? 0) * 100);
+    return (
+      <div className="stack install" style={{ gap: 8 }}>
+        <span>{label} {percent}%</span>
+        <div className="bar" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+          <i style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+    );
+  }
+  return <div className="busy"><Status kind="run" size={18} />{install.phase === 'checking' ? `Checking it's from ${VENDOR[agent.id]}…` : `Installing ${agent.name}…`}</div>;
 }

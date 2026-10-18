@@ -1,12 +1,15 @@
 // Agent jobs (DESIGN §3.2): each runs with a short brief, a Codemm server that
 // exposes only its tools, a deadline and a bound on failed saves, and is done
 // only when its check against core records passes, never on the agent's word.
-import type { AgentId } from '../../shared/api';
-import { AGENT_CLIS, type AgentEvent, type McpServer } from './agents';
-import { spendsNoRetry } from '../core/failures';
+import { createHash } from 'node:crypto';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import type { AgentId, JobKind } from '../../shared/api';
+import { AGENT_CLIS, PLAN_LIMIT, type AgentEvent, type Invocation, type McpServer } from './agents';
+import { infra as infraOf, spendsNoRetry } from '../core/failures';
 import { run, type Executable } from './bridge';
 
-export type JobKind = 'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor';
+export type { JobKind };
 
 interface JobSpec {
   tools: string[];
@@ -29,11 +32,11 @@ export const JOBS: Record<JobKind, JobSpec> = {
 /** Failed saves that end a job (§3.2). */
 export const SAVE_BOUND = 3;
 
-/** Known plan-limit markers in an agent's `done` error (§6.1). Unverified until each is recorded as a fixture. */
-const PLAN_LIMIT = /usage limit|rate limit|\b429\b/i;
+/** Network errors in an agent's `done` error: it couldn't reach its own service (§6.1). PLAN_LIMIT lives with the agents. */
+const OFFLINE = /connection error|ENOTFOUND|EAI_AGAIN|network is unreachable|could not resolve host|error sending request|connection lost/i;
 
 /** `infra`: Docker, disk, network or the Codemm server failed: nothing is recorded and no attempt is spent (§6.1). `unstoppable`: a cancel the agent survived. */
-export type JobProblem = 'plan-limit' | 'signed-out' | 'failed' | 'infra' | 'unstoppable';
+export type JobProblem = 'plan-limit' | 'signed-out' | 'offline' | 'failed' | 'infra' | 'unstoppable';
 
 export interface JobOutcome {
   ok: boolean;
@@ -53,6 +56,8 @@ export interface Job {
   /** Builds the job's server for its tools. */
   server: (tools: string[]) => McpServer;
   cwd: string;
+  /** A Codemm-owned folder for agents that read their config from the working directory (Cursor). */
+  agentDir?: string;
   model?: string;
   resume?: string;
   signal?: AbortSignal;
@@ -63,6 +68,12 @@ export interface Job {
   /** Asked when a job fails for an unknown reason. */
   signedIn: () => Promise<boolean>;
   deadlineMs?: number;
+  /** Hears each of the agent's events, for the job's progress (§4.11). */
+  onEvent?: (event: AgentEvent) => void;
+  /** Hears that a failed job's agent is about to run again. */
+  onRelaunch?: () => void;
+  /** Hears each https page the agent read successfully, for the roadmap's sources. */
+  onSource?: (source: { title: string; url: string }) => void;
 }
 
 interface Attempt {
@@ -72,8 +83,24 @@ interface Attempt {
   text: string[];
   /** A cancel the agent's process group survived (§3.1). */
   unstoppable: boolean;
-  /** `server`: the Codemm server didn't start. `tool`: a Codemm tool hit Docker, disk or network. `unstarted`: the agent exited before it started. */
-  infra?: 'server' | 'tool' | 'unstarted';
+  /** `server`: the Codemm server didn't start. `tool`: a Codemm tool hit Docker or disk; `offline`: the network. `unstarted`: the agent exited before it started. */
+  infra?: 'server' | 'tool' | 'offline' | 'unstarted';
+}
+
+/**
+ * The folder an agent with config files runs in: named by its config, so the same job config gets the same folder
+ * (Cursor keeps chats per working directory, so a tutor turn resumes). Each file is written whole, then renamed.
+ */
+function jobFolder(agentDir: string, agent: AgentId, files: NonNullable<Invocation['files']>): string {
+  const folder = join(agentDir, `${agent}-${createHash('sha256').update(JSON.stringify(files)).digest('hex').slice(0, 16)}`);
+  for (const [path, text] of Object.entries(files)) {
+    const file = join(folder, path);
+    mkdirSync(dirname(file), { recursive: true });
+    const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(temp, text);
+    renameSync(temp, file);
+  }
+  return folder;
 }
 
 async function once(job: Job): Promise<Attempt> {
@@ -92,25 +119,42 @@ async function once(job: Job): Promise<Attempt> {
   let started = false;
   let infra: Attempt['infra'];
   const text: string[] = [];
+  const reads = new Map<string, { title: string; url: string }>();
   const onEvent = (e: AgentEvent) => {
     started = true;
     if (e.type === 'session') session = e.id;
     if (e.type === 'text') text.push(e.text);
     if (e.type === 'done') done = e;
+    job.onEvent?.(e);
+    if (e.type === 'progress') {
+      // A Claude fetch counts once its call succeeds; a Codex page read arrives already done.
+      if (e.step.kind === 'read' && e.step.href) {
+        const source = { title: e.step.url, url: e.step.href };
+        if (e.id) reads.set(e.id, source);
+        else job.onSource?.(source);
+      }
+    }
+    if (e.type === 'tool_result' && reads.has(e.id)) {
+      if (!e.error) job.onSource?.(reads.get(e.id)!);
+      reads.delete(e.id);
+    }
     if (e.type === 'server') {
       infra = 'server';
       stop.abort();
     }
     if (e.type === 'tool_call' && spec.save && e.name === `codemm.${spec.save}`) saves.add(e.id);
     if (e.type === 'tool_result' && e.error && e.text && spendsNoRetry(e.text)) {
-      infra = 'tool';
+      infra = infraOf(e.text) === 'offline' ? 'offline' : 'tool';
       stop.abort();
     }
     if (e.type === 'tool_result' && e.error && saves.has(e.id) && ++failedSaves >= SAVE_BOUND) stop.abort();
   };
   const turn = { prompt: job.brief, server: job.server(spec.tools), tools: spec.tools, model: job.model, resume: job.resume, web: spec.web, toolTimeoutSec: Math.ceil(deadlineMs / 1000) };
   try {
-    const result = await run(job.exe, cli.launch(turn).args, cli.parse, { onEvent, signal: stop.signal, cwd: job.cwd, runtime: job.runtime });
+    const { args, files } = cli.launch(turn);
+    if (files && !job.agentDir) throw new Error(`${job.agent} needs a folder for its config`);
+    const cwd = files ? jobFolder(job.agentDir!, job.agent, files) : job.cwd;
+    const result = await run(job.exe, args, cli.parse, { onEvent, signal: stop.signal, cwd, runtime: job.runtime, errors: cli.errors });
     if (!started && !result.cancelled && result.code !== 0) infra ??= 'unstarted';
     // A conversational success needs the agent's done event and a clean exit.
     const ok = !result.cancelled && result.code === 0 && done?.ok === true;
@@ -132,11 +176,13 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     if (job.signal?.aborted) break;
     // Checked before every launch, the relaunch included.
     if (job.blocked?.()) return { ok: false, problem: 'unstoppable', text: last?.text ?? [] };
+    if (attempt > 0) job.onRelaunch?.();
     last = await once(job);
     if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };
     if (job.signal?.aborted) break;
     if (last.error && PLAN_LIMIT.test(last.error)) return { ok: false, problem: 'plan-limit', text: last.text };
+    if (last.infra === 'offline' || (last.error && OFFLINE.test(last.error))) return { ok: false, problem: 'offline', text: last.text };
     if (last.infra === 'server' || last.infra === 'tool') return { ok: false, problem: 'infra', text: last.text };
     if (!(await job.signedIn())) return { ok: false, problem: 'signed-out', text: last.text };
     if (last.infra === 'unstarted') return { ok: false, problem: 'infra', text: last.text };

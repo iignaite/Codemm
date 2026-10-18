@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { CodemmApi } from '../../../shared/api';
+import { timing } from '../../app/useLoad';
 import { mockWithCourse, renderApp } from '../../test-utils';
 
 async function master(api: CodemmApi, topics: number) {
@@ -33,6 +34,69 @@ describe('course map', () => {
     expect(await screen.findByRole('heading', { name: 'Components' })).toBeInTheDocument();
   });
 
+  it('offers a due review on a mastered topic, and says when the next review is due', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    await master(api, 2);
+    const real = await api.course();
+    api.course = async () => ({
+      ...real!,
+      topics: real!.topics.map((t, i) => (i === 0 ? { ...t, review: 'due' as const, activity: 'open' as const } : i === 1 ? { ...t, reviewIn: 3 } : t)),
+    });
+    renderApp({ to: 'learn' }, api);
+    const map = await screen.findByRole('list', { name: 'Topics' });
+    const first = within(map).getAllByRole('listitem')[0]!;
+    expect(within(first).getByRole('button', { name: 'Review' })).toBeInTheDocument();
+    expect(screen.getByText('Review in 3 days')).toBeInTheDocument();
+    await user.click(within(first).getByRole('button', { name: 'Review' }));
+    expect(await screen.findByText('Review', { selector: '.pill' })).toBeInTheDocument();
+  });
+
+  it('reads the course again when the window regains focus, so a review that came due shows up', async () => {
+    const { api } = await mockWithCourse();
+    const real = (await api.course())!;
+    let reads = 0;
+    let due = false;
+    api.course = async () => {
+      reads++;
+      return due ? { ...real, topics: real.topics.map((t, i) => (i === 0 ? { ...t, state: 'mastered' as const, review: 'due' as const, activity: 'open' as const } : t)) } : real;
+    };
+    renderApp({ to: 'learn' }, api);
+    await screen.findByRole('list', { name: 'Topics' });
+    const before = reads;
+    due = true;
+    window.dispatchEvent(new Event('focus'));
+    expect(await screen.findByRole('button', { name: 'Review' })).toBeInTheDocument();
+    expect(reads).toBeGreaterThan(before);
+  });
+
+  it('re-reads a settled course now and then, so a review that comes due while the screen stays open shows up', async () => {
+    const idle = timing.idleMs;
+    timing.idleMs = 30;
+    try {
+      const { api } = await mockWithCourse();
+      const real = (await api.course())!;
+      let due = false;
+      api.course = async () => (due ? { ...real, topics: real.topics.map((t, i) => (i === 0 ? { ...t, state: 'mastered' as const, review: 'due' as const, activity: 'open' as const } : t)) } : real);
+      renderApp({ to: 'learn' }, api);
+      await screen.findByRole('list', { name: 'Topics' });
+      due = true;
+      expect(await screen.findByRole('button', { name: 'Review' })).toBeInTheDocument();
+    } finally {
+      timing.idleMs = idle;
+    }
+  });
+
+  it('keeps the review schedule on a finished course', async () => {
+    const { api, course } = await mockWithCourse();
+    await master(api, course.topics.length);
+    const real = (await api.course())!;
+    api.course = async () => ({ ...real, topics: real.topics.map((t, i) => (i === 0 ? { ...t, reviewIn: 1 } : t)) });
+    renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('heading', { name: 'React complete' })).toBeInTheDocument();
+    expect(within(screen.getByRole('list', { name: 'Reviews' })).getByText(/Review tomorrow/)).toBeInTheDocument();
+  });
+
   it('celebrates a finished course, then offers something new', async () => {
     const user = userEvent.setup();
     const { api, course } = await mockWithCourse();
@@ -41,6 +105,17 @@ describe('course map', () => {
     expect(await screen.findByRole('heading', { name: 'React complete' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Learn something new' }));
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
+  });
+
+  it('opens a finished course, and a mastered topic, again', async () => {
+    const user = userEvent.setup();
+    const { api, course } = await mockWithCourse();
+    await master(api, course.topics.length);
+    renderApp({ to: 'learn' }, api);
+    await user.click(await screen.findByRole('button', { name: 'View course' }));
+    const map = await screen.findByRole('list', { name: 'Topics' });
+    await user.click(within(map).getByRole('button', { name: 'JSX' }));
+    expect(await screen.findByRole('heading', { name: 'JSX', level: 1 })).toBeInTheDocument();
   });
 
   it("says Codemm's records need a repair, and how", async () => {

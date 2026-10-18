@@ -4,15 +4,16 @@ import { createMock, type MockOptions } from '../main/mock';
 import { App } from './app/App';
 import type { Route } from './app/router';
 
-export function renderApp(start: Route = { to: 'welcome' }, api: CodemmApi = createMock()) {
-  return { api, ...render(<App api={api} start={start} />) };
+/** `strict` renders under StrictMode, as the app's root does, which replays every effect once. */
+export function renderApp(start: Route = { to: 'welcome' }, api: CodemmApi = createMock(), { strict = false } = {}) {
+  return { api, ...render(<App api={api} start={start} />, { reactStrictMode: strict }) };
 }
 
 /** A connected mock with a researched roadmap. */
 export async function mockWithRoadmap(options?: MockOptions): Promise<{ api: CodemmApi; roadmap: Roadmap }> {
   const api = createMock(options);
   await api.connect('claude');
-  const goal = { topic: 'React', known: '' };
+  const goal = { topic: 'React', known: '', depth: 'standard' as const };
   let r = await api.research(goal);
   while (r.state === 'running') r = await api.research(goal);
   return { api, roadmap: r.roadmap! };

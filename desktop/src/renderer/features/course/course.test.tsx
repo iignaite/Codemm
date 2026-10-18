@@ -1,21 +1,43 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import type { CodemmApi, Roadmap } from '../../../shared/api';
+import { SIGNED_OUT, type CodemmApi, type JobProgress, type Roadmap, type RoadmapChange } from '../../../shared/api';
 import type { MockOptions } from '../../../main/mock';
 import { mockWithRoadmap, renderApp } from '../../test-utils';
 
 const names = () => within(screen.getByRole('list')).getAllByRole('listitem').map((li) => li.getAttribute('aria-label'));
 
-async function open(options?: MockOptions): Promise<{ api: CodemmApi; roadmap: Roadmap; user: ReturnType<typeof userEvent.setup> }> {
+async function open(options?: MockOptions, before?: (api: CodemmApi) => void): Promise<{ api: CodemmApi; roadmap: Roadmap; user: ReturnType<typeof userEvent.setup> }> {
   const { api, roadmap } = await mockWithRoadmap(options);
+  before?.(api);
   const small = { ...roadmap, concepts: roadmap.concepts.filter((c) => ['javascript-basics', 'jsx', 'lists-and-keys', 'forms'].includes(c.id)) };
   renderApp({ to: 'course', roadmap: small }, api);
   await screen.findByRole('heading', { name: 'React' });
   return { api, roadmap: small, user: userEvent.setup() };
 }
 
+describe('roadmap sources', () => {
+  it('lists the sources as links that open outside the app, and shows nothing when there are none', async () => {
+    const { api, roadmap } = await mockWithRoadmap();
+    const view = renderApp({ to: 'course', roadmap: { ...roadmap, sources: [{ title: 'React docs', url: 'https://react.dev/learn' }] } }, api);
+    const sources = await screen.findByRole('region', { name: 'Sources' });
+    const link = within(sources).getByRole('link', { name: 'React docs' });
+    expect(link).toHaveAttribute('href', 'https://react.dev/learn');
+    expect(link).toHaveAttribute('target', '_blank');
+    view.unmount();
+    renderApp({ to: 'course', roadmap: { ...roadmap, sources: [] } }, api);
+    await screen.findByRole('heading', { name: 'React' });
+    expect(screen.queryByRole('region', { name: 'Sources' })).not.toBeInTheDocument();
+  });
+});
+
 describe('course editor', () => {
+  it('saves each edit as it happens, so leaving keeps the draft', async () => {
+    const { api, user } = await open();
+    await user.click(screen.getByRole('button', { name: 'Remove Lists and keys' }));
+    await waitFor(async () => expect((await api.draft())!.concepts.map((c) => c.title)).toEqual(['JavaScript basics', 'JSX', 'Forms']));
+  });
+
   it('renames, removes, adds and reorders topics without dragging', async () => {
     const { user } = await open();
     await user.click(screen.getByRole('button', { name: 'Rename Forms' }));
@@ -47,11 +69,11 @@ describe('course editor', () => {
     const { user } = await open();
     await user.click(screen.getByRole('button', { name: 'Move JSX' }));
     await user.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Move up' }));
-    expect(screen.getByRole('status')).toHaveTextContent('Needs JavaScript basics first');
+    expect(within(screen.getByRole('main')).getByRole('status')).toHaveTextContent('Needs JavaScript basics first');
     expect(names()).toEqual(['JavaScript basics', 'JSX', 'Lists and keys', 'Forms']);
 
     await user.click(screen.getByRole('button', { name: 'Remove JavaScript basics' }));
-    expect(screen.getByRole('status')).toHaveTextContent('JSX needs this topic');
+    expect(within(screen.getByRole('main')).getByRole('status')).toHaveTextContent('JSX needs this topic');
   });
 
   it('cannot approve while a topic is being renamed', async () => {
@@ -62,10 +84,50 @@ describe('course editor', () => {
     expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
   });
 
+  it('goes deeper on one topic: Codemm splits it into its smaller skills', async () => {
+    const asked: string[] = [];
+    const { api, user } = await open();
+    const revise = api.reviseRoadmap;
+    api.reviseRoadmap = (concepts, request) => (asked.push(request), revise(concepts, request));
+    await user.click(screen.getByRole('button', { name: 'Go deeper on JSX' }));
+    await waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0]).toContain('Go deeper on "JSX"');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled());
+  });
+
+  it('shows the change job\'s stages and latest step while Codemm changes the roadmap', async () => {
+    let hear: (p: JobProgress) => void = () => undefined;
+    const { api, roadmap, user } = await open(undefined, (a) => (a.onJobProgress = (listener) => ((hear = listener), () => undefined)));
+    let finish: (c: RoadmapChange) => void = () => undefined;
+    api.reviseRoadmap = () => new Promise((r) => (finish = r));
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Testing{Enter}');
+    act(() => hear({ job: 'j1', kind: 'roadmap', stage: 1, steps: [{ kind: 'step', label: 'Reading the roadmap' }], count: 1, thinking: true, elapsedMs: 3000, idleMs: 0 }));
+    const bar = await screen.findByRole('group', { name: 'Changing the roadmap' });
+    expect(within(bar).getByText('Reading the roadmap')).toBeInTheDocument();
+    expect(within(bar).getByRole('listitem', { current: 'step' })).toHaveTextContent('Changing the roadmap');
+    await act(async () => finish({ roadmap, changed: false, text: 'No change.' }));
+    expect(screen.queryByRole('group', { name: 'Changing the roadmap' })).not.toBeInTheDocument();
+  });
+
   it('asks Codemm for changes', async () => {
     const { user } = await open();
     await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Testing{Enter}');
     expect(await screen.findByRole('listitem', { name: 'Testing' })).toBeInTheDocument();
+  });
+
+  it('applies a typed request with Apply, and Approve waits until it is applied', async () => {
+    const { api, user } = await open();
+    const revise = api.reviseRoadmap;
+    let finish!: () => void;
+    api.reviseRoadmap = (concepts, request) => new Promise((resolve) => (finish = () => resolve(revise(concepts, request))));
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Testing');
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(await screen.findByText('Updating the roadmap…')).toBeInTheDocument();
+    finish();
+    expect(await screen.findByRole('listitem', { name: 'Testing' })).toBeInTheDocument();
+    expect(screen.queryByText('Updating the roadmap…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
   });
 
   it("keeps the learner's edits when sign-in expires during a request", async () => {
@@ -76,10 +138,31 @@ describe('course editor', () => {
     await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Testing{Enter}');
     const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
     await user.click(within(claude).getByRole('button', { name: 'Try again' }));
-    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    // A ready computer passes by itself.
     await user.click(await screen.findByRole('button', { name: 'Continue' }));
     await screen.findByRole('heading', { name: 'React' });
     expect(names()).toEqual(['JavaScript basics', 'JSX', 'Lists and keys']);
+  });
+
+  it('keeps sources a change brought when sign-in expires on the next request', async () => {
+    const options: MockOptions = {};
+    const { api, roadmap, user } = await open(options);
+    let calls = 0;
+    api.reviseRoadmap = async () => {
+      calls++;
+      if (calls > 1) throw new Error(SIGNED_OUT);
+      return { roadmap: { ...roadmap, sources: [{ title: 'New source', url: 'https://example.com/new' }] }, changed: true, text: '' };
+    };
+    const ask = async (text: string) => user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), `${text}{Enter}`);
+    await ask('Add sources');
+    await screen.findByRole('link', { name: 'New source' });
+    options.agentProblem = 'signed-out';
+    await ask('More');
+    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+    await user.click(within(claude).getByRole('button', { name: 'Try again' }));
+    // A ready computer passes by itself.
+    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('link', { name: 'New source' })).toBeInTheDocument();
   });
 
   it('approves, then opens the first topic while setup is prepared', async () => {

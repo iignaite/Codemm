@@ -1,9 +1,9 @@
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./files.js";
-import { checkTrackFiles, verifyExercise, verifyTrack } from "./gates.js";
-import type { TestResult, TestSet } from "./grading.js";
-import { gradeIoRun, gradeUnitRun, type IoRun, runIo, runUnit, type UnitRun } from "./judge.js";
+import { checkTrackFiles, type ExerciseGate, type TrackProgress, verifyExercise, verifyTrack } from "./gates.js";
+import { type CaseFrames, gradeIo, redact, type ShownResult, type Status, type TestResult, type TestSet } from "./grading.js";
+import { judgeSets, type ProgramOptions, type ProgramRun, runIo, runProgram, runUnit } from "./judge.js";
 import { type LearnerEvent, MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
 import { assertRuntime, cli as sandboxCli, inspectImage } from "./sandbox.js";
 import { assertNotes, type CourseRecord, type ExerciseRecord, parseLesson, parseRoadmapYaml, type TrackRecord } from "./schemas.js";
@@ -19,9 +19,9 @@ const learnerDir = (course: string, slug: string) => `exercises/${course}/${slug
 
 function activeCourse(ws: string, bound?: string): CourseRecord {
   const course = bound ?? store.readWorkspace(ws).course;
-  if (!course) throw new CodemmError("No course in this workspace yet. Ask your agent to plan a roadmap (save_roadmap).");
+  if (!course) throw new CodemmError("No course in this workspace yet. Ask your agent to plan a roadmap (save_roadmap).", "no-course");
   const record = store.readCourse(course);
-  if (!record) throw new CodemmError(`Course "${course}" is missing from ${store.codemmHome()}.`);
+  if (!record) throw new CodemmError(`Course "${course}" is missing from ${store.codemmHome()}.`, "no-course");
   return record;
 }
 
@@ -36,8 +36,20 @@ async function ensureImage(track: TrackRecord): Promise<void> {
   await assertRuntime();
   const info = await inspectImage(track.imageId);
   if (!info) {
-    throw new CodemmError(`The image for ${track.id}@${track.version} is missing or changed. Run \`codemm track rebuild ${track.id}@${track.version}\`, then retry.`);
+    throw new CodemmError(`The image for ${track.id}@${track.version} is missing or changed. Run \`codemm track rebuild ${track.id}@${track.version}\`, then retry.`, "image-missing");
   }
+}
+
+/** A progress listener that throws is dropped; the work goes on. */
+function quietly<T>(listener?: (p: T) => void): ((p: T) => void) | undefined {
+  let heard = listener;
+  return heard && ((p: T) => {
+    try {
+      heard?.(p);
+    } catch {
+      heard = undefined;
+    }
+  });
 }
 
 // ---------- tracks ----------
@@ -61,13 +73,30 @@ function alreadyInstalled(ref: string, version: number, files: FileMap): boolean
 }
 
 /** Gates 2 to 5, then an atomic install. Call while holding the track lock. */
-async function install(ref: string, files: FileMap): Promise<{ installed: string; warning?: string }> {
-  const verified = await verifyTrack(files);
+async function install(ref: string, files: FileMap, onProgress?: (p: TrackProgress) => void): Promise<{ installed: string; warning?: string }> {
+  // Before building, and again before committing. Roadmap saves check styles under this same track lock,
+  // so no course can change style in between.
+  assertCoursesFit(ref, readTrackSpec(files).spec.styles);
+  const verified = await verifyTrack(files, undefined, onProgress);
+  assertCoursesFit(ref, verified.spec.styles);
   const record: TrackRecord = {
     format_version: 1, ...verified.spec, image: verified.image, imageId: verified.imageId, installedAt: new Date().toISOString(),
   };
   store.commitFolder(store.trackDir(ref), files, { "track.json": record });
   return { installed: ref, ...(verified.warning ? { warning: verified.warning } : {}) };
+}
+
+/**
+ * Every course pinned to `ref` must find its style in the track, or it could never continue. A course's roadmap
+ * may name a track before it's installed (DESIGN §5), so this is checked at install, and early when proposing.
+ */
+function assertCoursesFit(ref: string, styles: string[]): void {
+  for (const id of store.listCourses()) {
+    const course = store.readCourse(id);
+    if (course?.track === ref && !styles.includes(course.style)) {
+      throw new CodemmError(`Course "${id}" needs style "${course.style}", but ${ref} offers ${styles.join(", ")}. Add ${course.style} to the track's styles, with its probes.`);
+    }
+  }
 }
 
 export async function saveTrack(files: FileMap): Promise<{ installed: string; unchanged?: true; warning?: string }> {
@@ -87,6 +116,7 @@ const sorted = (map: FileMap) => Object.fromEntries(Object.entries(map).sort(([a
 
 export async function proposeTrack(files: FileMap): Promise<{ installed: string; unchanged: true } | { proposed: string; note: string }> {
   const { spec, ref } = readTrackSpec(files);
+  assertCoursesFit(ref, spec.styles);
   return store.withLock(store.trackLockPath(spec.id), async () => {
     if (alreadyInstalled(ref, spec.version, files)) return { installed: ref, unchanged: true as const };
     store.writeProposal(ref, files);
@@ -98,8 +128,11 @@ export function listProposals() {
   return store.listProposals().map(({ record, files }) => ({ track: record.track, digest: record.digest, created: record.created, files }));
 }
 
-/** Installs a proposal only if its files still have the digest the learner consented to. */
-export async function installProposal(ref: string, digest: string): Promise<{ installed: string; unchanged?: true; warning?: string }> {
+/**
+ * Installs a proposal only if its files still have the digest the learner consented to. `onProgress` hears each
+ * build step as counts, then the probes; never the build's output.
+ */
+export async function installProposal(ref: string, digest: string, onProgress?: (p: TrackProgress) => void): Promise<{ installed: string; unchanged?: true; warning?: string }> {
   const { id, version } = store.parseTrackRef(ref);
   return store.withLock(store.trackLockPath(id), async () => {
     const files = store.readProposal(ref, digest);
@@ -111,7 +144,7 @@ export async function installProposal(ref: string, digest: string): Promise<{ in
       return { installed: ref, unchanged: true as const };
     }
     store.assertFreeSpace(store.codemmHome());
-    const result = await install(ref, files);
+    const result = await install(ref, files, quietly(onProgress));
     store.dropProposals(ref);
     return result;
   });
@@ -143,6 +176,11 @@ export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exer
             changed.push(`${courseId}/${ex.slug}: results changed`);
           }
         } catch (e) {
+          // This computer's Docker, disk or network failing isn't the image behaving differently.
+          if (e instanceof CodemmError && (e.kind === "docker" || e.kind === "disk" || e.kind === "offline")) {
+            await sandboxCli(["image", "rm", candidate]);
+            throw e;
+          }
           changed.push(`${courseId}/${ex.slug}: ${(e as Error).message.split("\n")[0]}`);
         }
       }
@@ -171,10 +209,11 @@ const eventConcepts = (e: LearnerEvent): string[] => (e.kind === "check" ? e.con
 export async function saveRoadmap(ws: string, course: string, yaml: string, bound?: string): Promise<{ course: string; concepts: number }> {
   if (bound && course !== bound) throw new CodemmError(`This job saves only course "${bound}".`);
   const roadmap = parseRoadmapYaml(yaml);
-  const track = store.readTrack(roadmap.track);
-  if (track && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
   const record: CourseRecord = { format_version: 1, course, ...roadmap };
-  await store.withLock(store.courseLockPath(course), async () => {
+  // Course lock, then the track's lock (as saveExercise does), so an install can't land between this check and the save.
+  await store.withLock(store.courseLockPath(course), () => store.withLock(store.trackLockPath(store.parseTrackRef(roadmap.track).id), async () => {
+    const track = store.readTrack(roadmap.track);
+    if (track && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
     let retries: string[] = [];
     const existing = store.readCourse(course);
     if (existing) {
@@ -201,36 +240,126 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
     // The roadmap goes first: if appending fails, the concept stays stuck rather than restarting without its prerequisite.
     store.writeCourse(record);
     for (const concept of retries) store.appendEvent(course, { format_version: 1, kind: "retry", at: new Date().toISOString(), concept });
-  });
+  }));
   await store.updateWorkspace(ws, (config) => ({ ...config, course, current: config.course === course ? config.current : undefined }));
   return { course, concepts: roadmap.concepts.length };
 }
 
-export function getRoadmap(ws: string, bound?: string) {
-  const { course, goal, track, style, concepts } = activeCourse(ws, bound);
-  return { course, goal, track, style, concepts };
+/** With `withContract`, an installed track's contract too (as next_step's author step has it), for lesson examples. */
+export function getRoadmap(ws: string, bound?: string, withContract = false) {
+  const { course, goal, track, style, concepts, sources } = activeCourse(ws, bound);
+  const installed = withContract ? store.readTrack(track) : undefined;
+  return { course, goal, track, style, concepts, ...(sources ? { sources } : {}), ...(installed ? { contract: trackContract(installed, style) } : {}) };
 }
 
 // ---------- lessons ----------
 
-/** Saves static Markdown for one roadmap concept. Nothing in a lesson runs, and its text never changes. */
+/** An example holds exactly the track's learner files, plus tests/ files for unit. Checked before anything runs. */
+function assertExampleFits(n: number, files: FileMap, track: TrackRecord, style: string): void {
+  assertPortablePaths(validateFileMap(files));
+  const learner = Object.keys(files).filter((p) => !(style === "unit" && p.startsWith("tests/")));
+  const fits = learner.length === track.files.length && track.files.every((f) => f in files);
+  if (!fits || (style === "unit" && learner.length === Object.keys(files).length)) {
+    const tests = style === "unit" ? ", and its tests under tests/" : "";
+    throw new CodemmError(`Example ${n} must hold exactly the track's learner files (${track.files.join(", ")})${tests}.`);
+  }
+}
+
+export type ExampleRun = { exit: number; output: string; errors: string };
+const cap = (text: string, bytes: number) => (Buffer.byteLength(text) > bytes ? `${Buffer.from(text).subarray(0, bytes).toString("utf8")}\n…` : text);
+
+/**
+ * Runs one example in the track's image, exactly as a check runs code (the same sandbox and limits): io runs the
+ * run command once with empty input, unit runs the test command on the example's tests/. `clean` is a zero exit.
+ */
+async function runOne(track: TrackRecord, style: string, files: FileMap): Promise<ExampleRun & { clean: boolean }> {
+  const t = { ...track, image: track.imageId };
+  const learner = Object.fromEntries(track.files.map((f) => [f, files[f]!]));
+  if (style === "io") {
+    const run = await runIo(t, "visible", learner, { "01.in": "" });
+    if (run.flooded) return { exit: -1, output: "", errors: "Printed more than 4 MB.", clean: false };
+    if (run.outOfMemory) return { exit: -1, output: "", errors: "Ran out of memory.", clean: false };
+    if (run.build && run.build.exit !== 0) return { exit: run.build.exit, output: "", errors: run.build.output, clean: false };
+    const c = run.cases[0];
+    if (!c) return { exit: -1, output: "", errors: "It didn't run.", clean: false };
+    if (c.big) return { exit: c.exit, output: "", errors: "Printed more than 64 KB.", clean: false };
+    return { exit: c.exit, output: c.stdout, errors: c.stderr, clean: c.exit === 0 };
+  }
+  const run = await runUnit(t, learner, subMap(files, "tests"));
+  if (run.flooded) return { exit: -1, output: "", errors: "Printed more than 4 MB.", clean: false };
+  if (run.outOfMemory) return { exit: -1, output: "", errors: "Ran out of memory.", clean: false };
+  return { exit: run.report.exit, output: run.report.body, errors: run.report.log, clean: run.report.exit === 0 };
+}
+
+/**
+ * Saves a lesson for one roadmap concept: static Markdown, and optional examples that must run cleanly in the
+ * track's sandbox first. The text never changes. A lesson without examples doesn't need the track.
+ */
 export async function saveLesson(ws: string, input: unknown, bound?: string): Promise<{ lesson: string }> {
   const lesson = parseLesson(input);
+  const examples = lesson.examples ?? [];
   const courseId = activeCourse(ws, bound).course;
-  await store.withLock(store.courseLockPath(courseId), async () => {
+  const save = async () => {
     const course = store.readCourse(courseId)!;
     if (!course.concepts.some((c) => c.id === lesson.concept)) throw new CodemmError(`"${lesson.concept}" is not in the roadmap for ${courseId}.`);
     if (store.listLessons(courseId).some((l) => l.id === lesson.id)) throw new CodemmError(`Lesson id "${lesson.id}" is already used in ${courseId}. Pick a new id.`);
-    const { markdown, ...meta } = lesson;
-    store.writeLesson(courseId, { format_version: 1, ...meta, created: new Date().toISOString() }, markdown);
+    if (examples.length > 0) {
+      const track = store.readTrack(course.track);
+      if (!track) throw new CodemmError(`Examples run in ${course.track}, which isn't set up yet. Save the lesson without examples.`);
+      examples.forEach((files, i) => assertExampleFits(i + 1, files, track, course.style));
+      await ensureImage(track);
+      for (const [i, files] of examples.entries()) {
+        const run = await runOne(track, course.style, files);
+        if (!run.clean) throw new CodemmError(`Example ${i + 1} didn't run cleanly (exit ${run.exit}):\n${cap(run.errors || run.output, 2000)}`);
+      }
+    }
+    const { markdown, examples: _, ...meta } = lesson;
+    const checked = examples.length ? { examples: examples.length, track: course.track, style: course.style } : {};
+    store.writeLesson(courseId, { format_version: 1, ...meta, created: new Date().toISOString(), ...checked }, markdown, examples);
+  };
+  // Examples run on the track's image, so hold its lock too (course, then track, as saveExercise does).
+  await store.withLock(store.courseLockPath(courseId), async () => {
+    const track = store.readCourse(courseId)!.track;
+    return examples.length > 0 ? store.withLock(store.trackLockPath(store.parseTrackRef(track).id), save) : save();
   });
   return { lesson: lesson.id };
 }
 
+/**
+ * Runs a saved io example live in the sandbox, with the learner's typed input and the track it was checked with:
+ * the same interactive run as Run on an activity. Never recorded. A unit example runs as tests (runExample).
+ */
+export async function runExampleLive(
+  ws: string, lessonId: string, index: number, bound: string | undefined, output: (text: string, stream: "stdout" | "stderr") => void, options: ProgramOptions = {},
+): Promise<ProgramRun> {
+  const { record, examples } = store.readLesson(activeCourse(ws, bound).course, lessonId);
+  const files = Number.isInteger(index) ? examples[index - 1] : undefined;
+  if (!files || !record.track || !record.style) throw new CodemmError(`Lesson "${lessonId}" has no example ${index}.`);
+  if (record.style !== "io") throw new CodemmError(`Example ${index} runs as tests, so it has no live run.`);
+  const track = installedTrack(record.track);
+  assertExampleFits(index, files, track, record.style);
+  await ensureImage(track);
+  const learner = Object.fromEntries(track.files.map((f) => [f, files[f]!]));
+  return runProgram({ ...track, image: track.imageId }, learner, output, options);
+}
+
+/** Runs a saved example in the sandbox, with the track and style it was checked with, for the learner to see. Never recorded. */
+export async function runExample(ws: string, lessonId: string, index: number, bound?: string): Promise<ExampleRun> {
+  const { record, examples } = store.readLesson(activeCourse(ws, bound).course, lessonId);
+  const files = Number.isInteger(index) ? examples[index - 1] : undefined;
+  if (!files || !record.track || !record.style) throw new CodemmError(`Lesson "${lessonId}" has no example ${index}.`);
+  const track = installedTrack(record.track);
+  assertExampleFits(index, files, track, record.style);
+  await ensureImage(track);
+  const { exit, output, errors } = await runOne(track, record.style, files);
+  return { exit, output: cap(output, 16_384), errors: cap(errors, 4096) };
+}
+
 /** The lesson and the learner's notes. Reading records nothing: only markLessonRead does. */
 export function getLesson(ws: string, id: string, bound?: string) {
-  const { record, markdown, notes } = store.readLesson(activeCourse(ws, bound).course, id);
-  return { id: record.id, concept: record.concept, title: record.title, markdown, notes };
+  const { record, markdown, notes, examples } = store.readLesson(activeCourse(ws, bound).course, id);
+  // The style says how its examples run: io ones take typed input (runExampleLive), unit ones run as tests.
+  return { id: record.id, concept: record.concept, title: record.title, markdown, notes, examples, ...(record.style ? { style: record.style } : {}) };
 }
 
 export function listLessons(ws: string, bound?: string) {
@@ -260,10 +389,37 @@ export async function markLessonRead(ws: string, id: string, bound?: string): Pr
 
 // ---------- exercises ----------
 
-export type NextStep = Step | { kind: "setup"; track: string } | (Extract<Step, { kind: "author" }> & { style: string; track: string });
+/**
+ * What a fresh author needs from the installed track, and nothing hidden: the learner files, the commands that
+ * build, run or test them for this style, the limits, and the track's own probe as a worked example.
+ */
+export type TrackContract = {
+  files: string[];
+  build?: string;
+  run?: string;
+  test?: string;
+  limits: { time_ms: number; memory_mb: number };
+  examples: { solution: FileMap; tests: FileMap };
+};
+
+export type NextStep =
+  | Step
+  | { kind: "setup"; track: string }
+  | (Extract<Step, { kind: "author" }> & { title: string; style: string; track: string; contract: TrackContract });
+
+function trackContract(track: TrackRecord, style: string): TrackContract {
+  const files = store.readTrackFiles(`${track.id}@${track.version}`);
+  const commands = style === "io" ? { ...(track.build ? { build: track.build } : {}), run: track.run } : { test: track.test };
+  return {
+    files: track.files,
+    ...commands,
+    limits: track.limits,
+    examples: { solution: subMap(files, `probe/${style}/pass`), tests: subMap(files, `probe/${style}/tests`) },
+  };
+}
 
 const pickFor = (course: CourseRecord) =>
-  pickNext(course, store.listExercises(course.course), store.readEvents(course.course), store.listLessons(course.course));
+  pickNext(course, store.listExercises(course.course), store.readEvents(course.course), store.listLessons(course.course), new Date().toISOString());
 
 export function nextStep(ws: string, bound?: string): NextStep {
   const course = activeCourse(ws, bound);
@@ -273,10 +429,17 @@ export function nextStep(ws: string, bound?: string): NextStep {
     throw new CodemmError(`Track ${course.track} offers ${track.styles.join(", ")}, not style "${course.style}". Edit the roadmap's style.`);
   }
   const step = pickFor(course);
-  return step.kind === "author" ? { ...step, style: course.style, track: course.track } : step;
+  if (step.kind !== "author") return step;
+  const title = course.concepts.find((c) => c.id === step.concept)?.title ?? step.concept;
+  return { ...step, title, style: course.style, track: course.track, contract: trackContract(track, course.style) };
 }
 
-export async function saveExercise(ws: string, files: FileMap, bound?: string): Promise<{ exercise: string; warning?: string }> {
+/** Writes each exercise gate as it starts to a job's progress file (`codemm mcp --progress`), by name only. */
+export const gateProgressTo = (path: string) => ({ gate }: { gate: ExerciseGate }) => store.writeJobProgress(path, gate);
+
+/** `onProgress` hears which gate runs, by name only (DESIGN §6). */
+export async function saveExercise(ws: string, files: FileMap, bound?: string, onProgress?: (p: { gate: ExerciseGate }) => void): Promise<{ exercise: string; warning?: string }> {
+  const onGate = quietly(onProgress);
   assertPortablePaths(validateFileMap(files));
   const courseId = activeCourse(ws, bound).course;
   const { record, track } = await store.withLock(store.courseLockPath(courseId), () => {
@@ -286,7 +449,7 @@ export async function saveExercise(ws: string, files: FileMap, bound?: string): 
       const track = installedTrack(course.track);
       await ensureImage(track);
       const taken = new Set(store.listExercises(courseId).map((e) => e.slug));
-      const verified = await verifyExercise(track, course, files, taken);
+      const verified = await verifyExercise(track, course, files, taken, onGate && ((gate) => onGate({ gate })));
       store.commitFolder(store.exerciseDir(courseId, verified.slug), files, { "exercise.json": verified });
       return { record: verified, track };
     });
@@ -352,6 +515,7 @@ export async function getExercise(ws: string, slug?: string, bound?: string) {
     concepts: record.concepts,
     difficulty: record.difficulty,
     files: track.files,
+    ...(record.style === "io" && track.run ? { run: track.run } : {}),
     statement: files["README.md"] ?? "",
     ...(record.hint ? { hint: record.hint } : {}),
     visibleTests:
@@ -384,53 +548,94 @@ export type CheckView = {
   exercise: string;
   passed: number;
   total: number;
-  tests: (Pick<TestResult, "name" | "status"> & Partial<Pick<TestResult, "message" | "actual">>)[];
+  /** Visible tests in full; hidden ones as `hidden #N`, with `index` N, and a status only. */
+  tests: ShownResult[];
   recorded: boolean;
   note?: string;
 };
 
 /** Visible results in full; hidden results reduced to an index and a status (DESIGN §4.2). */
 function present(slug: string, tests: TestResult[], recorded: boolean, note?: string): CheckView {
-  let hidden = 0;
   return {
     exercise: slug,
     passed: tests.filter((t) => t.status === "pass").length,
     total: tests.length,
     recorded,
     ...(note ? { note } : {}),
-    tests: tests.map((t) => {
-      if (t.set === "hidden") return { name: `hidden #${(hidden += 1)}`, status: t.status };
-      return { name: t.name, status: t.status, ...(t.message ? { message: t.message } : {}), ...(t.actual !== undefined && t.status !== "pass" ? { actual: t.actual } : {}) };
-    }),
+    tests: redact(tests),
   };
 }
 
-async function judge(ws: string, slug: string | undefined, includeHidden: boolean, bound?: string) {
+/**
+ * Progress through a check. io reports each visible test as it finishes, with its result; hidden tests, and unit
+ * tests (whose runner reports at the end), report their phase once with `total` 0. Nothing about a hidden test
+ * leaves (DESIGN §4.2).
+ */
+/** A visible test's result as it finishes: what Results shows for it. Hidden tests never have one. */
+export type VisibleTestResult = { name: string; status: Status; message?: string; actual?: string };
+export type CheckProgress = { phase: "building" | "visible" | "hidden"; done: number; total: number; test?: VisibleTestResult };
+
+async function judge(ws: string, slug: string | undefined, includeHidden: boolean, bound?: string, listener?: (p: CheckProgress) => void) {
+  // A listener that throws is dropped; the check goes on.
+  let heard = listener;
+  const onProgress = heard && ((p: CheckProgress) => {
+    try {
+      heard?.(p);
+    } catch {
+      heard = undefined;
+    }
+  });
   const ctx = loadExercise(ws, slug, bound);
   const { record, files, rel } = ctx;
   await ensureImage(ctx.track);
   const track = { ...ctx.track, image: ctx.track.imageId };
   store.materialize(ws, rel, learnerFiles(record, files, track));
   const src = store.readLearnerFiles(ws, rel, track.files);
-  const sets: TestSet[] = includeHidden ? ["visible", "hidden"] : ["visible"];
-  const tests: TestResult[] = [];
-  for (const set of sets) {
-    const t = subMap(files, `tests/${set}`);
-    if (record.style === "io") {
-      const run: IoRun = await runIo(track, set, src, t);
-      const expected = Object.fromEntries(Object.entries(record.expected ?? {}).filter(([k]) => k.startsWith(`${set}/`)));
-      tests.push(...gradeIoRun(run, expected));
-    } else {
-      const run: UnitRun = await runUnit(track, src, t);
-      tests.push(...gradeUnitRun(set, run, record.inventory?.[set]));
-    }
-  }
+  const visible = subMap(files, "tests/visible");
+  const sets = includeHidden ? { visible, hidden: subMap(files, "tests/hidden") } : { visible };
+  // Each visible io test's result as it finishes, graded as Results grades it. The final grade still decides:
+  // a flood or a memory kill afterwards makes every test an error.
+  const total = Object.keys(visible).filter((p) => p.endsWith(".in")).length;
+  const report = (done: number) => onProgress?.({ phase: "visible", done: Math.min(done, total), total });
+  let finished = 0;
+  const onCase = (c: CaseFrames) => {
+    const name = `visible/${c.name}`;
+    const expected = record.expected?.[name];
+    if (expected === undefined) return;
+    const [r] = gradeIo([{ ...c, name }], { [name]: expected });
+    finished += 1;
+    const test = { name, status: r!.status, ...(r!.message ? { message: r!.message } : {}), ...(r!.actual !== undefined ? { actual: r!.actual } : {}) };
+    onProgress?.({ phase: "visible", done: Math.min(finished, total), total, test });
+  };
+  const onSet = (set: TestSet) => {
+    // unit runners report at the end, and hidden tests report their phase only: per-test timing could hint at
+    // what a hidden input does.
+    if (record.style !== "io" || set === "hidden") return void onProgress?.({ phase: set, done: 0, total: 0 });
+    // The build runs in each set's container; it shows once, before the visible tests.
+    if (track.build) onProgress?.({ phase: "building", done: 0, total: 0 });
+    else report(0);
+    return onProgress && { onProgress: (m: "built" | number) => report(m === "built" ? 0 : m), onCase };
+  };
+  const tests = await judgeSets(track, record.style, src, sets, { expected: record.expected, inventory: record.inventory }, { onSet });
   return { ...ctx, src, tests };
 }
 
+/**
+ * Run: the learner's program, interactively, in the sandbox, with typed stdin and live output. io tracks only.
+ * Never recorded; infrastructure failures reject `done`.
+ */
+export async function runInteractive(ws: string, slug: string | undefined, bound: string | undefined, output: (text: string, stream: "stdout" | "stderr") => void, limits: ProgramOptions = {}): Promise<ProgramRun> {
+  const ctx = loadExercise(ws, slug, bound);
+  if (!ctx.track.run) throw new CodemmError("This track has no run command, so Run isn't available.");
+  await ensureImage(ctx.track);
+  store.materialize(ws, ctx.rel, learnerFiles(ctx.record, ctx.files, ctx.track));
+  const src = store.readLearnerFiles(ws, ctx.rel, ctx.track.files);
+  return runProgram({ ...ctx.track, image: ctx.track.imageId }, src, output, limits);
+}
+
 /** Runs the visible tests only. Never recorded. */
-export async function testExercise(ws: string, slug?: string, bound?: string): Promise<CheckView> {
-  const { record, tests } = await judge(ws, slug, false, bound);
+export async function testExercise(ws: string, slug?: string, bound?: string, onProgress?: (p: CheckProgress) => void): Promise<CheckView> {
+  const { record, tests } = await judge(ws, slug, false, bound, onProgress);
   return present(record.slug, tests, false);
 }
 
@@ -438,8 +643,8 @@ export async function testExercise(ws: string, slug?: string, bound?: string): P
  * Runs every test and records the attempt. Infrastructure failures throw before anything is recorded.
  * A check of the unedited starter is graded but records no check event: it isn't an attempt (DESIGN §7).
  */
-export async function checkExercise(ws: string, slug?: string, bound?: string): Promise<CheckView> {
-  const { course, config, record, files, track, src, tests } = await judge(ws, slug, true, bound);
+export async function checkExercise(ws: string, slug?: string, bound?: string, onProgress?: (p: CheckProgress) => void): Promise<CheckView> {
+  const { course, config, record, files, track, src, tests } = await judge(ws, slug, true, bound, onProgress);
   const unedited = track.files.every((f) => src[f] === files[`starter/${f}`]);
   const passed = tests.filter((t) => t.status === "pass").length;
   await store.withLock(store.courseLockPath(course.course), async () => {
@@ -471,6 +676,7 @@ export function progress(ws: string, bound?: string) {
       return {
         id: c.id, title: c.title, requires: c.requires, mastery: Math.round(mastery * 1000) / 1000,
         mastered: mastery >= MASTERED, difficulty: s?.difficulty ?? 1, attempts: s?.attempts ?? 0, stuck: s?.stuck ?? false,
+        ...(s?.review ? { reviewDue: s.review.due } : {}),
       };
     }),
     next: nextStep(ws, bound),

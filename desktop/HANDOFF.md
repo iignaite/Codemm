@@ -37,7 +37,7 @@ Each state has a mock scenario, a test, and a specific next step on screen. Infr
 
 Check this computer runs three checks in order: Docker is installed, Docker is running, and the sandbox works. Only the first failing check shows its fix. It re-checks every 5 seconds, and at once when the window regains focus, until all three pass.
 
-To click through a state, run `CODEMM_MOCK=no-docker npm start` (on Windows PowerShell: `$env:CODEMM_MOCK="no-docker"; npm start`). Packaged builds ignore the flag.
+To click through a state, run `CODEMM_MOCK=no-docker npm start` (on Windows PowerShell: `$env:CODEMM_MOCK="no-docker"; npm start`). Packaged builds ignore the flag. `CODEMM_MOCK=slow-jobs` slows every agent job so its staged progress can be seen, and `quiet-jobs` adds the 90-second quiet line.
 
 ## Layout
 
@@ -69,7 +69,7 @@ packaging.cjs          electron-builder settings; signing only from the environm
 - Packaging:
   - macOS dmg (arm64 and x64) and Windows nsis (x64). There are no Linux installers for 1.0.
   - Without a certificate, macOS builds are signed ad hoc, without the hardened runtime, so that Gatekeeper offers Open Anyway and the app still launches. Checked on macOS 15.6.1: an earlier CI arm64 build (no signature) failed `codesign --verify` with "code has no resources but signature indicates they must be present", which macOS reports as damaged. The ad hoc build verifies, Gatekeeper rejects it as unnotarized (the Open Anyway case), and once allowed it launches and responds.
-  - Real signing reads only from secrets (`SIGNING.md`). Auto-update is off.
+  - Real signing reads only from secrets (`SIGNING.md`). Auto-update installs only in signed builds; unsigned ones link to the release (§7.2).
 
 **Mocked (`src/main/mock.ts`):**
 - Agents, their sign-in checks and the minimum model hint, which is a placeholder until the bench reports.

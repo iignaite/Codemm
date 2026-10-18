@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CHANGED, NO_AGENT, PLAN_LIMIT, SIGNED_OUT, type CodemmApi, type CourseView } from '../shared/api';
+import { CHANGED, NO_AGENT, PLAN_LIMIT, REBUILD, SIGNED_OUT, type CodemmApi, type CourseView, type JobProgress } from '../shared/api';
 import { isSafeLink } from './links';
+import { AGENT_INFO } from './connect';
 import { createMock, scenario, SCENARIOS, type MockOptions } from './mock';
 
-const goal = { topic: 'React', known: 'Python' };
+const goal = { topic: 'React', known: 'Python', depth: 'standard' as const };
 
 async function roadmapped(options?: MockOptions) {
   const api = createMock(options);
@@ -32,7 +33,59 @@ async function practising(options?: MockOptions) {
   return { api, activity: await api.activity(course.topics[0].id) };
 }
 
+describe('mock: installing an agent', () => {
+  it('installs a missing agent step by step, then checks its sign-in; signing in connects it on the next look', async () => {
+    const api = createMock({ ...scenario('no-agent'), platform: 'mac' });
+    const codex = async () => (await api.agents()).find((a) => a.id === 'codex')!;
+    expect(await codex()).toMatchObject({ state: 'missing', canInstall: true });
+    expect((await api.agents()).find((a) => a.id === 'cursor')!.canInstall).toBe(false);
+    await api.installAgent('codex');
+    const phases: string[] = [];
+    for (let a = await codex(); a.install?.phase !== 'done' && a.install?.phase !== 'failed'; a = await codex()) phases.push(a.install!.phase);
+    expect(phases).toContain('downloading');
+    expect(await codex()).toMatchObject({ state: 'signed-out', install: { phase: 'done' } });
+    await api.signIn('codex');
+    expect(await codex()).toMatchObject({ state: 'connected' });
+  });
+
+  it('says why an install stopped, and can try again', async () => {
+    const api = createMock({ ...scenario('agent-install-offline'), platform: 'mac' });
+    await api.installAgent('claude');
+    let claude = (await api.agents()).find((a) => a.id === 'claude')!;
+    while (claude.install?.phase !== 'failed') claude = (await api.agents()).find((a) => a.id === 'claude')!;
+    expect(claude).toMatchObject({ state: 'missing', install: { phase: 'failed', problem: 'offline' } });
+  });
+
+  it('cannot install on Linux', async () => {
+    const api = createMock({ ...scenario('no-agent'), platform: 'linux' });
+    expect((await api.agents()).every((a) => !a.canInstall)).toBe(true);
+  });
+});
+
+describe('mock: agents', () => {
+  it('describes each agent exactly as the connect screen\'s connector does', async () => {
+    const agents = await createMock().agents();
+    expect(agents.map(({ id, name, installUrl, signIn, experimental }) => ({ id, name, installUrl, signIn, experimental }))).toEqual(
+      Object.entries(AGENT_INFO).map(([id, info]) => ({ id, ...info })),
+    );
+  });
+});
+
 describe('mock: roadmap and setup', () => {
+  it('keeps the approved course while a new roadmap is a draft, with edits saved as they happen', async () => {
+    const { api } = await practising();
+    expect(await api.draft()).toBeNull();
+    let r = await api.research({ ...goal, topic: 'Vue' });
+    while (r.state === 'running') r = await api.research({ ...goal, topic: 'Vue' });
+    expect((await api.course())!.goal).toBe('React');
+    const edited = [...r.roadmap!.concepts.slice(0, -2), ...r.roadmap!.concepts.slice(-2).reverse()];
+    await api.saveDraft(edited);
+    expect((await api.draft())!).toMatchObject({ goal: 'Vue', concepts: edited });
+    await api.approve((await api.draft())!.concepts);
+    expect((await api.course())!.goal).toBe('Vue');
+    expect(await api.draft()).toBeNull();
+  });
+
   it('researches until a roadmap with prerequisites is ready', async () => {
     const { roadmap } = await roadmapped();
     expect(roadmap.concepts.length).toBeGreaterThan(3);
@@ -93,7 +146,7 @@ describe('mock: practice', () => {
     await api.saveFile(activity.id, activity.files[0].path, '/* your code */ wrong', activity.files[0].digest);
     await api.check(activity.id);
     await api.check(activity.id);
-    expect(await api.check(activity.id)).toMatchObject({ stuck: true });
+    expect(await api.check(activity.id)).toMatchObject({ stuck: true, later: true });
     await api.easier(activity.concept);
     const course = (await api.course())!;
     expect(course.topics[0]).toMatchObject({ title: 'JavaScript basics: first steps', state: 'now' });
@@ -125,10 +178,13 @@ describe('mock: practice', () => {
 });
 
 describe('mock: agents', () => {
-  it('shows the recommended model and marks Cursor experimental', async () => {
-    const agents = await createMock().agents();
-    expect(agents.find((a) => a.id === 'codex')).toMatchObject({ state: 'not-connected', recommended: 'gpt-5.6-luna', experimental: false, untested: false });
-    expect(agents.find((a) => a.id === 'cursor')).toMatchObject({ experimental: true, recommended: null });
+  it('offers bench-tested models with the recommended one chosen, and marks Cursor experimental', async () => {
+    const api = createMock();
+    const agents = await api.agents();
+    expect(agents.find((a) => a.id === 'codex')).toMatchObject({ state: 'not-connected', model: 'gpt-5.6-luna', experimental: false, untested: false });
+    expect(agents.find((a) => a.id === 'cursor')).toMatchObject({ experimental: true, models: [{ id: 'auto', label: 'Auto', recommended: true }], model: 'auto' });
+    expect(await api.chooseModel('claude', 'opus')).toMatchObject({ id: 'claude', model: 'opus' });
+    await expect(api.chooseModel('claude', 'gpt-6-luna')).rejects.toThrow();
     expect((await createMock(scenario('untested-version')).agents())[0].untested).toBe(true);
   });
 
@@ -166,6 +222,7 @@ describe('mock: environment', () => {
     expect(await createMock({ docker: 'missing', platform: 'windows' }).computer()).toEqual({
       platform: 'windows',
       ready: false,
+      canInstall: true,
       checks: [
         { id: 'docker-installed', state: 'problem' },
         { id: 'docker-running', state: 'waiting' },
@@ -174,6 +231,27 @@ describe('mock: environment', () => {
     });
     expect((await createMock(scenario('docker-starting')).computer()).checks[1]).toEqual({ id: 'docker-running', state: 'problem', detail: 'starting' });
     expect((await createMock(scenario('windows-containers')).computer()).checks[1]).toEqual({ id: 'docker-running', state: 'problem', detail: 'windows-containers' });
+  });
+
+  it('installs Docker step by step, then it starts and the computer is ready', async () => {
+    const api = createMock({ docker: 'missing', platform: 'mac' });
+    await api.installDocker();
+    const seen: string[] = [];
+    for (let i = 0; i < 10 && seen.at(-1) !== 'ready'; i++) {
+      const c = await api.computer();
+      const now = c.ready ? 'ready' : `${c.install?.phase ?? '-'}:${c.checks.find((x) => x.state === 'problem')?.id ?? ''}`;
+      if (seen.at(-1) !== now) seen.push(now);
+    }
+    expect(seen).toEqual(['downloading:docker-installed', 'checking:docker-installed', 'installing:docker-installed', 'starting:docker-running', 'ready']);
+    expect((await createMock({ docker: 'missing', platform: 'linux' }).computer()).canInstall).toBeUndefined();
+  });
+
+  it('opens a stopped Docker, which starts, then runs', async () => {
+    const api = createMock({ docker: 'stopped', platform: 'mac' });
+    expect((await api.computer()).checks[1]).toEqual({ id: 'docker-running', state: 'problem' });
+    await api.openDocker();
+    expect((await api.computer()).checks[1]).toEqual({ id: 'docker-running', state: 'problem', detail: 'starting' });
+    expect((await api.computer()).ready).toBe(true);
   });
 
   it('sees Docker change while the app runs', async () => {
@@ -191,6 +269,12 @@ describe('mock: environment', () => {
     expect(await api.check(activity.id)).toEqual({ kind: 'not-counted', reason: "Docker isn't running." });
     expect(await api.tryIt(activity.id)).toMatchObject({ kind: 'not-counted' });
     expect((await api.activity(activity.concept)).files[0]).toMatchObject({ text: 'mine', digest });
+  });
+
+  it('says a check needs a rebuild when the track image is missing, and records nothing', async () => {
+    const { api, activity } = await practising(scenario('image-missing'));
+    expect(await api.check(activity.id)).toEqual({ kind: 'not-counted', reason: REBUILD });
+    expect(await api.tryIt(activity.id)).toEqual({ kind: 'not-counted', reason: REBUILD });
   });
 
   it('fails setup offline or low on disk, records nothing, and retries the same proposal', async () => {
@@ -216,9 +300,90 @@ describe('mock: environment', () => {
     expect(await settled(api, (c) => c.setup === 'consent')).toMatchObject({ proposal: { retry: true } });
   });
 
+  it('a relaunch shows the agent connected before', async () => {
+    expect((await createMock(scenario('relaunch')).agents()).find((a) => a.id === 'claude')!.state).toBe('connected');
+  });
+
   it('names every scenario, and rejects unknown ones', () => {
-    expect(Object.keys(SCENARIOS)).toHaveLength(13);
+    expect(Object.keys(SCENARIOS)).toHaveLength(25);
     expect(scenario(undefined)).toEqual({});
     expect(() => scenario('nope')).toThrow('Unknown mock scenario');
+  });
+});
+
+describe('mock: job progress (§4.11)', () => {
+  it('reports each job kind through its stages, then its end; without slow, jobs finish at once', async () => {
+    const api = createMock();
+    const heard: JobProgress[] = [];
+    api.onJobProgress((p) => heard.push(p));
+    await api.connect('claude');
+    let r = await api.research({ topic: 'React', known: '', depth: 'standard' });
+    while (r.state === 'running') r = await api.research({ topic: 'React', known: '', depth: 'standard' });
+    await api.approve(r.roadmap!.concepts);
+    await api.course();
+    expect(new Set(heard.map((p) => p.kind))).toEqual(new Set(['research', 'setup', 'lesson']));
+    const lesson = heard.filter((p) => p.kind === 'lesson');
+    expect(lesson.map((p) => [p.stage, p.ended ?? false])).toEqual([[0, false], [1, false], [2, false], [2, true]]);
+    expect(await api.jobProgress()).toEqual([]);
+  });
+
+  it('slow: a job holds each stage over several reads, and jobProgress lists it meanwhile', async () => {
+    const api = createMock({ slow: 2 });
+    await api.connect('claude');
+    let r = await api.research({ topic: 'React', known: '', depth: 'standard' });
+    while (r.state === 'running') r = await api.research({ topic: 'React', known: '', depth: 'standard' });
+    await api.approve(r.roadmap!.concepts);
+    await api.course();
+    expect((await api.jobProgress()).map((p) => [p.kind, p.stage])).toEqual([['setup', 0], ['lesson', 0]]);
+    for (let i = 0; i < 6; i++) await api.course();
+    expect((await api.course())!.setup).toBe('consent');
+  });
+
+  it('quiet: every job has been quiet for over 90 seconds', async () => {
+    const api = createMock({ quiet: true });
+    const heard: JobProgress[] = [];
+    api.onJobProgress((p) => heard.push(p));
+    await api.connect('claude');
+    await api.research({ topic: 'React', known: '', depth: 'standard' });
+    expect(heard[0]!.idleMs).toBeGreaterThan(90_000);
+  });
+});
+
+describe('mock: Run', () => {
+  it('runs an io activity\'s program with typed input and says when its time is up', async () => {
+    const { api, activity } = await practising({ style: 'io', runLimitMs: 50 });
+    expect(activity.run).toBe('python3 main.py');
+    const heard: unknown[] = [];
+    api.onRunOutput((o) => heard.push(o));
+    const ran = api.runProgram(activity.id, 'run-1');
+    expect(await api.sendRunInput('run-1', 'Ada\n')).toBe(true);
+    expect(await ran).toMatchObject({ kind: 'ran', exit: 0, timedOut: false });
+    expect(heard).toEqual([
+      { run: 'run-1', started: 'run', limitMs: 50 },
+      { run: 'run-1', stream: 'stdout', text: "What's your name? " },
+      { run: 'run-1', stream: 'stdout', text: 'Hello, Ada!\n' },
+    ]);
+    expect(await api.runProgram(activity.id, 'run-2')).toMatchObject({ kind: 'ran', timedOut: true });
+    const stopped = api.runProgram(activity.id, 'run-3');
+    await api.stopRun('run-3');
+    expect(await stopped).toMatchObject({ kind: 'ran', stopped: true });
+  });
+
+  it('streams each visible io test\'s result in Try it and Check, and nothing about hidden ones', async () => {
+    const { api, activity } = await practising({ style: 'io' });
+    const heard: unknown[] = [];
+    api.onCheckProgress((p) => heard.push(p));
+    await api.check(activity.id, 'run-1');
+    expect(heard).toEqual([
+      { run: 'run-1', phase: 'visible', done: 0, total: 2 },
+      { run: 'run-1', phase: 'visible', done: 1, total: 2, test: { name: 'visible/01', status: 'fail', message: 'Output differs from the expected output.', actual: 'Hello, !\n' } },
+      { run: 'run-1', phase: 'visible', done: 2, total: 2, test: { name: 'visible/02', status: 'fail', message: 'Output differs from the expected output.', actual: 'Hello, !\n' } },
+      { run: 'run-1', phase: 'hidden', done: 0, total: 0 },
+    ]);
+  });
+
+  it('has no Run for a unit activity', async () => {
+    const { activity } = await practising();
+    expect(activity.run).toBeUndefined();
   });
 });

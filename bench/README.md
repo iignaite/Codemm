@@ -26,6 +26,8 @@ Run one cell at a time. Track images are tagged globally (`codemm-track-<id>:<ve
 
 Unit tests for the parsers and checks: `npx vitest run --config bench/vitest.config.ts`. Type check: `npx tsc -p bench/tsconfig.json`.
 
+**Docker cleanup.** Track tags are global, and other sessions may build the same ones. Each run gives Codemm a container CLI wrapper (`CODEMM_CONTAINER_CLI`) that records the image ID of every build (`--iidfile`) and labels it with a run-unique id, so an identical build by another session can't share that ID. Afterwards it removes only those image IDs, by ID and without force, so another session's image is never touched. Tags that the run's builds replaced aren't restored; Codemm checks installed tracks by image ID.
+
 ## How it measures
 
 Nothing is judged by a model unless labelled.

@@ -1,13 +1,15 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { parse as parseToml } from "smol-toml";
 import { beforeEach, describe, expect, it } from "vitest";
-import { init } from "../src/init.js";
+import { CODEX_TOOL_TIMEOUT_SEC, init } from "../src/init.js";
+import { BUILD_TIMEOUT_MS } from "../src/sandbox.js";
+import { tempDir } from "./temp.js";
 
 const launcher = { command: "/opt/node/bin/node", args: ["/opt/codemm/dist/cli.js"] };
 let ws: string;
 beforeEach(() => {
-  ws = mkdtempSync(join(tmpdir(), "codemm init-"));
+  ws = tempDir("codemm init-");
 });
 const read = (p: string) => readFileSync(join(ws, p), "utf8");
 const json = (p: string) => JSON.parse(read(p));
@@ -26,6 +28,14 @@ describe("init", () => {
     expect(hook.hooks[0].command).toBe(`'/opt/node/bin/node' '/opt/codemm/dist/cli.js' hook claude --workspace '${ws}'`);
     expect(read("CLAUDE.md")).toContain("@AGENTS.md");
     expect(read("AGENTS.md")).toContain("<!-- codemm:start -->");
+  });
+
+  it("gives Codex a tool timeout longer than Codemm's slowest tool call", async () => {
+    await init(ws, ["codex"], launcher);
+    const codemm = (parseToml(read(".codex/config.toml")) as { mcp_servers: { codemm: { tool_timeout_sec: number } } }).mcp_servers.codemm;
+    expect(codemm.tool_timeout_sec).toBe(CODEX_TOOL_TIMEOUT_SEC);
+    // Installing a track can take the whole build limit, then the probe gates; Codex's default is 60 s.
+    expect(CODEX_TOOL_TIMEOUT_SEC * 1000).toBeGreaterThan(BUILD_TIMEOUT_MS);
   });
 
   it("only touches the hosts you name", async () => {
@@ -103,7 +113,7 @@ describe("init", () => {
   });
 
   it("refuses to write through a symlinked config folder", async () => {
-    const outside = mkdtempSync(join(tmpdir(), "codemm-outside-"));
+    const outside = tempDir("codemm-outside-");
     symlinkSync(outside, join(ws, ".claude"));
     await expect(init(ws, ["claude"], launcher)).rejects.toThrow(/symlink/i);
     expect(readdirSync(outside)).toEqual([]);

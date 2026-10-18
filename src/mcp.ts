@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -42,11 +43,13 @@ export function parseToolList(text: string): string[] {
 /**
  * One server per agent job (docs/desktop/DESIGN.md §4.6): `course` replaces the workspace's active course,
  * `tools` limits the registered tools, and `desktop` makes save_track only propose (the learner consents in the app).
+ * `progress` is a file where save_exercise writes which gate runs, by name only, for the app to show (§4.11).
  */
-export type ServerOptions = { course?: string; tools?: string[]; desktop?: boolean };
+export type ServerOptions = { course?: string; tools?: string[]; desktop?: boolean; progress?: string };
 
-export function createServer(ws: string, version: string, { course, tools, desktop }: ServerOptions = {}): McpServer {
+export function createServer(ws: string, version: string, { course, tools, desktop, progress }: ServerOptions = {}): McpServer {
   if (course !== undefined) assertId("course", course);
+  if (progress !== undefined && !isAbsolute(progress)) throw new CodemmError("--progress needs an absolute path.");
   const server = new McpServer({ name: "codemm", version });
   const want = (name: (typeof TOOL_NAMES)[number]) => !tools || tools.includes(name);
 
@@ -83,15 +86,18 @@ export function createServer(ws: string, version: string, { course, tools, deskt
     ({ course: c, roadmap }) => respond(() => app.saveRoadmap(ws, c, roadmap, course)),
   );
 
-  if (want("get_roadmap")) server.registerTool("get_roadmap", { description: "The course roadmap: goal, track, style and concepts with their prerequisites." }, () =>
-    respond(() => app.getRoadmap(ws, course)),
+  if (want("get_roadmap")) server.registerTool(
+    "get_roadmap",
+    { description: "The course roadmap: goal, track, style and concepts with their prerequisites, and the track's contract once it's set up." },
+    () => respond(() => app.getRoadmap(ws, course, true)),
   );
 
   if (want("next_step")) server.registerTool(
     "next_step",
     {
       description:
-        "What to do next: setup (install the track), practice an existing exercise, author a new one (concept, difficulty, style, track), stuck, or done. " +
+        "What to do next: setup (install the track), practice an existing exercise, review a mastered concept on an exercise (a check keeps it mastered), " +
+        "author a new one (concept, difficulty, style, track; review: true when it's for a review), stuck, or done. " +
         "On practice and author, lesson is null when the concept needs a lesson first, or the id of a lesson the learner hasn't read yet; teach before the activity until it's gone.",
     },
     () => respond(() => app.nextStep(ws, course)),
@@ -105,7 +111,7 @@ export function createServer(ws: string, version: string, { course, tools, deskt
         "Codemm runs every gate and stores it only if all pass. Returns only the exercise id; report nothing else to the tutor.",
       inputSchema: { files },
     },
-    ({ files: f }) => respond(() => app.saveExercise(ws, f, course)),
+    ({ files: f }) => respond(() => app.saveExercise(ws, f, course, progress ? app.gateProgressTo(progress) : undefined)),
   );
 
   if (want("get_exercise")) server.registerTool("get_exercise", { description: "Show an exercise to the learner: statement, the file(s) to edit, visible tests and hint.", inputSchema: { slug } }, ({ slug: s }) =>
@@ -123,8 +129,14 @@ export function createServer(ws: string, version: string, { course, tools, deskt
   if (want("save_lesson")) server.registerTool(
     "save_lesson",
     {
-      description: "Save a lesson for one roadmap concept: static Markdown (at most 64 KB) the learner reads before the activity. Nothing in it runs. The id must be new in the course.",
-      inputSchema: { id: lessonId, concept: z.string().describe("Concept id from the roadmap"), title: z.string(), markdown: z.string() },
+      description:
+        "Save a lesson for one roadmap concept: Markdown (at most 64 KB) the learner reads before the activity, and up to 5 runnable examples. " +
+        "Each example is a file map with exactly the track's learner files (for unit, plus tests/ files); Codemm runs each in the sandbox and it must exit 0. " +
+        "Place example N in the Markdown as a fenced block with info string example whose only line is N. The id must be new in the course.",
+      inputSchema: {
+        id: lessonId, concept: z.string().describe("Concept id from the roadmap"), title: z.string(), markdown: z.string(),
+        examples: z.array(files).optional().describe("Runnable examples; they need the track set up"),
+      },
     },
     (lesson) => respond(() => app.saveLesson(ws, lesson, course)),
   );

@@ -1,18 +1,23 @@
 import { useState } from 'react';
 import type { CourseView, Lesson as LessonData, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
-import { cacheFor } from '../../app/cache';
+import { lessonCache } from '../../app/cache';
+import { useBusy } from '../../app/useBusy';
 import { useConversation } from '../../app/useConversation';
 import { useRouter, type Route } from '../../app/router';
-import { Failed, Sidebar } from '../../app/Shell';
+import { settled } from '../../app/course';
+import { Failed, Stalled } from '../../app/Problems';
+import { Sidebar } from '../../app/Sidebar';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
-import { Markdown } from '../../ui/Markdown';
+import { lessonParts } from '../../ui/Markdown';
 import { stagger } from '../../ui/motion';
 import { Rail } from '../../ui/Rail';
+import { Example } from './Example';
 import { NoteEditor } from './NoteEditor';
 import { Outline } from './Outline';
+import { SetupOffer } from './SetupConsent';
 
 function neighbours(topic: TopicView, lessonId: string): { prev: Route; next: (course: CourseView) => Route } {
   const at = topic.lessons.findIndex((l) => l.id === lessonId);
@@ -29,9 +34,6 @@ function neighbours(topic: TopicView, lessonId: string): { prev: Route; next: (c
   };
 }
 
-/** The title is shown above the lesson, so a leading top-level heading would repeat it. */
-const withoutTitle = (markdown: string) => markdown.replace(/^#\s[^\n]*\n+/, '');
-
 interface View {
   lesson: LessonData;
   course: CourseView;
@@ -41,7 +43,8 @@ interface View {
 /** A static lesson with the learner's notes. Reopens instantly from the cache (§4.3). */
 export function Lesson({ lessonId }: { lessonId: string }) {
   const api = useApi();
-  const cache = cacheFor<View>(api, 'lessons');
+  const cache = lessonCache<View>(api);
+  // Keeps reading while the topic's work is pending, so a stall shows here too (§5).
   const { data, error, reload } = useLoad(async () => {
     const version = cache.version();
     const lesson = await api.lesson(lessonId);
@@ -49,14 +52,22 @@ export function Lesson({ lessonId }: { lessonId: string }) {
     const view = { lesson, course, topic: course.topics.find((t) => t.id === lesson.concept)! };
     cache.set(lessonId, view, version);
     return view;
-  }, [lessonId]);
+  }, [lessonId], (v) => settled(v.course));
   const view = data ?? cache.get(lessonId);
-  // Saved notes make every cached copy stale; read again.
-  const onSaved = () => {
+  // Saved notes and restarted work make every cached copy stale; read again.
+  const refresh = () => {
     cache.clear();
     reload();
   };
-  if (view) return <><Sidebar slim /><Reader {...view} onSaved={onSaved} /></>;
+  if (view) {
+    return (
+      <>
+        <Sidebar slim />
+        <Reader {...view} onSaved={refresh} />
+        {view.course.stalled && <Stalled stalled={view.course.stalled} retry={refresh} />}
+      </>
+    );
+  }
   if (error) return <><Sidebar slim /><Failed error={error} retry={reload} /></>;
   return <Sidebar slim />;
 }
@@ -81,19 +92,24 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
     }
   }
 
-  async function onNext() {
-    try {
-      await api.markRead(lesson.id);
-      go(next((await api.course())!));
-    } catch (e) {
-      fail(e);
-    }
-  }
+  // Marking the lesson read takes a moment: Next runs once, and waits meanwhile.
+  const moving = useBusy();
+  const onNext = () =>
+    moving.guard(async () => {
+      try {
+        await api.markRead(lesson.id);
+        go(next((await api.course())!));
+      } catch (e) {
+        fail(e);
+      }
+    });
 
   return (
     <div className="ws lesson">
       <Outline topic={topic} current={lesson.id} />
       <main className="reader">
+        {/* Setup waits for the learner's OK; reading doesn't wait for setup (§4.1). */}
+        <SetupOffer course={course} banner onChange={onSaved} />
         <div className="head">
           <h1 className="h1 a-up">{lesson.title}</h1>
           {!editing && (
@@ -103,7 +119,11 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
             </Button>
           )}
         </div>
-        <Markdown text={withoutTitle(lesson.markdown)} className="md a-up" />
+        <div className="a-up">
+          {lessonParts(lesson.markdown, true).map((part, i) =>
+            'example' in part ? <Example key={i} lesson={lesson} index={part.example} /> : <div key={i} className="md" dangerouslySetInnerHTML={{ __html: part.html }} />,
+          )}
+        </div>
         {editing ? (
           <NoteEditor note={notes} onSave={save} onCancel={() => setEditing(false)} />
         ) : (
@@ -116,10 +136,10 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
         )}
         <div className="actions a-up" style={stagger(6)}>
           <Button variant="ghost" size="lg" onClick={() => go(prev)}>Previous</Button>
-          <Button size="lg" onClick={onNext}>Next</Button>
+          <Button size="lg" disabled={moving.busy} onClick={onNext}>Next</Button>
         </div>
       </main>
-      <Rail messages={chat.messages} onAsk={(text) => chat.ask(text)} busy={chat.busy} name={course.track} />
+      <Rail messages={chat.messages} onAsk={(text) => chat.ask(text)} busy={chat.busy} answering={chat.answering} name={course.track} />
     </div>
   );
 }

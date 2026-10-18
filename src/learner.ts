@@ -2,33 +2,29 @@
  * Learner rules. Pure functions of the attempt log: the log is the only learner
  * state, and everything here is recomputed by replaying it.
  */
+import type { LearnerEventRecord } from "./schemas.js";
 
 export const PRIOR = 0.5;
 export const RATE = 0.3;
 export const ASSISTED_WEIGHT = 0.25;
 export const MASTERED = 0.85;
 const MAX_DIFFICULTY = 3;
+/** Days from mastering a concept, then from each passed review, to the next review. */
+export const REVIEW_DAYS = [1, 3, 7, 21, 60];
+const DAY_MS = 86_400_000;
+const addDays = (iso: string, days: number) => new Date(Date.parse(iso) + days * DAY_MS).toISOString();
 
-export type CheckEvent = {
-  format_version: 1;
-  kind: "check";
-  at: string;
-  exercise: string;
-  concepts: string[];
-  difficulty: number;
-  passed: number;
-  total: number;
-  assisted: boolean;
-};
+/** The event log's records, as the schema reads them (schemas.ts LearnerEventSchema). */
+export type LearnerEvent = LearnerEventRecord;
+export type CheckEvent = Extract<LearnerEvent, { kind: "check" }>;
 /** "Come back later": defers the concept until its next check. Never changes mastery. */
-export type SkipEvent = { format_version: 1; kind: "skip"; at: string; concept: string };
+export type SkipEvent = Extract<LearnerEvent, { kind: "skip" }>;
 /** Marks an exercise as assisted for good: every check of it counts as assisted. */
-export type AssistEvent = { format_version: 1; kind: "assist"; at: string; exercise: string };
+export type AssistEvent = Extract<LearnerEvent, { kind: "assist" }>;
 /** A fresh start after a new prerequisite: resets the fail streak, leaves mastery alone. */
-export type RetryEvent = { format_version: 1; kind: "retry"; at: string; concept: string };
+export type RetryEvent = Extract<LearnerEvent, { kind: "retry" }>;
 /** The learner acknowledged reading a lesson. Never changes mastery. */
-export type ReadEvent = { format_version: 1; kind: "read"; at: string; lesson: string; concept: string };
-export type LearnerEvent = CheckEvent | SkipEvent | AssistEvent | RetryEvent | ReadEvent;
+export type ReadEvent = Extract<LearnerEvent, { kind: "read" }>;
 
 export type ConceptState = {
   mastery: number;
@@ -37,6 +33,8 @@ export type ConceptState = {
   attempts: number;
   stuck: boolean;
   deferred: boolean;
+  /** For a mastered concept: the next review (index into REVIEW_DAYS, and when it's due). Absent after the last. */
+  review?: { stage: number; due: string };
 };
 
 export type RoadmapGraph = { concepts: { id: string; requires: string[] }[] };
@@ -50,7 +48,8 @@ export type LessonSummary = { id: string; concept: string };
  */
 export type Step =
   | { kind: "practice"; exercise: string; concept: string; difficulty: number; lesson?: string | null }
-  | { kind: "author"; concept: string; difficulty: number; lesson?: string | null }
+  | { kind: "author"; concept: string; difficulty: number; lesson?: string | null; review?: true }
+  | { kind: "review"; concept: string; difficulty: number; exercise: string }
   | { kind: "stuck"; concept: string }
   | { kind: "done" };
 
@@ -99,6 +98,8 @@ export function replay(log: LearnerEvent[]): Map<string, ConceptState> {
 
     for (const concept of new Set(a.concepts)) {
       const s = get(concept);
+      const wasMastered = s.mastery >= MASTERED;
+      const reviewing = s.review !== undefined && Date.parse(a.at) >= Date.parse(s.review.due);
       if (improves) s.mastery += RATE * (assisted ? ASSISTED_WEIGHT : 1) * (score - s.mastery);
       s.attempts += 1;
 
@@ -113,6 +114,17 @@ export function replay(log: LearnerEvent[]): Map<string, ConceptState> {
         }
       }
       s.stuck = s.difficulty === 1 && s.failStreak >= 2;
+
+      // A check once a review is due is the review: a pass moves to the next interval, a fail means practice again.
+      if (reviewing && perfect) {
+        const stage = s.review!.stage + 1;
+        s.review = stage < REVIEW_DAYS.length ? { stage, due: addDays(a.at, REVIEW_DAYS[stage]!) } : undefined;
+      } else if (reviewing) {
+        s.mastery = Math.min(s.mastery, MASTERED - 0.1);
+      } else if (!wasMastered && s.mastery >= MASTERED) {
+        s.review = { stage: 0, due: addDays(a.at, REVIEW_DAYS[0]!) };
+      }
+      if (s.mastery < MASTERED) s.review = undefined;
     }
   }
   return states;
@@ -133,12 +145,25 @@ export function topoOrder(roadmap: RoadmapGraph): string[] {
   return order;
 }
 
-export function nextStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], log: LearnerEvent[], lessons: LessonSummary[]): Step {
+/** `now` decides which reviews are due. */
+export function nextStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], log: LearnerEvent[], lessons: LessonSummary[], now: string): Step {
   const states = replay(log);
   const state = (id: string) => states.get(id) ?? fresh();
   const mastered = (id: string) => state(id).mastery >= MASTERED;
   const order = topoOrder(roadmap);
   const requires = new Map(roadmap.concepts.map((c) => [c.id, c.requires]));
+
+  // Due reviews come first, the earliest due first: a check on an exercise the learner hasn't tried, at the
+  // mastered difficulty, or a new one.
+  const dueAt = (id: string) => Date.parse(state(id).review?.due ?? "");
+  const due = order.filter((id) => mastered(id) && dueAt(id) <= Date.parse(now)).sort((a, b) => dueAt(a) - dueAt(b));
+  if (due.length > 0) {
+    const concept = due[0]!;
+    const difficulty = state(concept).difficulty;
+    const tried = new Set(log.flatMap((a) => (a.kind === "check" ? [a.exercise] : [])));
+    const unused = exercises.find((e) => e.concepts.includes(concept) && e.difficulty === difficulty && !tried.has(e.slug));
+    return unused ? { kind: "review", concept, difficulty, exercise: unused.slug } : { kind: "author", concept, difficulty, review: true };
+  }
 
   const candidates = order.filter((id) => !mastered(id) && (requires.get(id) ?? []).every(mastered));
   if (candidates.length === 0) return { kind: "done" };

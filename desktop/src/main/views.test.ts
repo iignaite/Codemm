@@ -10,20 +10,21 @@ const core = {
   tests: [
     { name: 'shows zero', status: 'pass' as const },
     { name: 'adds one', status: 'fail' as const, message: 'expected 1', actual: 'Count: 0' },
-    { name: 'hidden #1', status: 'pass' as const },
-    { name: 'hidden #2', status: 'fail' as const },
+    { name: 'hidden #1', index: 1, status: 'pass' as const },
+    { name: 'hidden #2', index: 2, status: 'fail' as const },
   ],
 };
 
 describe('views (§2.2, D4)', () => {
   it('reduces hidden results to an index and a status', () => {
-    expect(checkView(core, { stuck: false, mastered: false })).toEqual({
+    expect(checkView(core, { stuck: false, mastered: false, later: true })).toEqual({
       kind: 'graded',
       passed: 2,
       total: 4,
       recorded: true,
       stuck: false,
       mastered: false,
+      later: true,
       tests: [
         { hidden: false, name: 'shows zero', status: 'pass' },
         { hidden: false, name: 'adds one', status: 'fail', message: 'expected 1', actual: 'Count: 0' },
@@ -33,8 +34,14 @@ describe('views (§2.2, D4)', () => {
     });
   });
 
+  it("takes a hidden result's index from core's index, not from its name", () => {
+    const view = checkView({ ...core, tests: [{ name: 'hidden #7', index: 2, status: 'pass', message: 'secret' }] }, { stuck: false, mastered: false, later: true });
+    expect(view).toMatchObject({ tests: [{ hidden: true, index: 2, status: 'pass' }] });
+    expect(JSON.stringify(view)).not.toContain('secret');
+  });
+
   it('never forwards a hidden result even if core named it differently', () => {
-    const view = checkView({ ...core, tests: [{ name: 'hidden #1', status: 'fail', message: 'secret', actual: 'secret' }] }, { stuck: false, mastered: false });
+    const view = checkView({ ...core, tests: [{ name: 'hidden #1', status: 'fail', message: 'secret', actual: 'secret' }] }, { stuck: false, mastered: false, later: true });
     expect(JSON.stringify(view)).not.toContain('secret');
   });
 

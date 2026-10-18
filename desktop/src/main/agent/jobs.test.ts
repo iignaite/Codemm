@@ -1,20 +1,23 @@
 // @vitest-environment node
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { JOBS, runJob, type Job } from './jobs';
+import { tempDir } from '../testing/temp';
 
 /** A fake Claude Code: a Node script that replays stream-json lines, the way recorded fixtures do. */
-function fakeAgent(lines: object[], { exitCode = 0, hang = false } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'codemm-agent-'));
+function fakeAgent(lines: object[], { exitCode = 0, hang = false, stderr = [] as string[] } = {}) {
+  const dir = tempDir('codemm-agent-');
   const script = join(dir, 'claude.js');
   writeFileSync(
     script,
     `#!/usr/bin/env node
 const fs = require('node:fs');
 fs.appendFileSync(${JSON.stringify(join(dir, 'runs'))}, JSON.stringify(process.argv.slice(2)) + '\\n');
+fs.appendFileSync(${JSON.stringify(join(dir, 'cwds'))}, process.cwd() + '\\n');
 for (const l of ${JSON.stringify(lines.map((l) => JSON.stringify(l)))}) console.log(l);
+for (const l of ${JSON.stringify(stderr)}) console.error(l);
 ${hang ? 'setInterval(() => {}, 1000);' : `process.exit(${exitCode});`}`,
   );
   const runs = () => {
@@ -25,7 +28,8 @@ ${hang ? 'setInterval(() => {}, 1000);' : `process.exit(${exitCode});`}`,
     }
   };
   const argv = () => JSON.parse(require('node:fs').readFileSync(join(dir, 'runs'), 'utf8').trim().split('\n')[0]) as string[];
-  return { exe: { path: script, js: true }, runs, argv };
+  const cwds = () => require('node:fs').readFileSync(join(dir, 'cwds'), 'utf8').trim().split('\n') as string[];
+  return { exe: { path: script, js: true }, runs, argv, cwds };
 }
 
 const init = { type: 'system', subtype: 'init', session_id: 's1' };
@@ -56,6 +60,16 @@ describe('jobs (§3.2)', () => {
     expect(await runJob(job(agent.exe))).toEqual({ ok: true, session: 's1', text: ['Look at line 3.'] });
   });
 
+  it('counts a fetched page as a source only once its fetch succeeds', async () => {
+    const fetch = (id: string, url: string) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'WebFetch', input: { url } }] } });
+    const agent = fakeAgent([init, fetch('f1', 'https://good.example/a'), result('f1', false), fetch('f2', 'https://bad.example/b'), result('f2', true), success]);
+    const sources: unknown[] = [];
+    const steps: unknown[] = [];
+    await runJob(job(agent.exe, { kind: 'research', done: () => true, onEvent: (e) => e.type === 'progress' && steps.push(e.step), onSource: (s) => sources.push(s) }));
+    expect(steps).toHaveLength(2);
+    expect(sources).toEqual([{ title: 'good.example/a', url: 'https://good.example/a' }]);
+  });
+
   it('launches with only the job tools on the server and in the allowed list', async () => {
     const agent = fakeAgent([init, success]);
     let server: string[] = [];
@@ -70,6 +84,13 @@ describe('jobs (§3.2)', () => {
     expect(agent.runs()).toBe(2);
   });
 
+  it('tells its listener each event and each relaunch, for its progress (§4.11)', async () => {
+    const agent = fakeAgent([init, say('Saved!'), success]);
+    const heard: string[] = [];
+    await runJob(job(agent.exe, { kind: 'lesson', done: () => false, onEvent: (e) => heard.push(e.type), onRelaunch: () => heard.push('relaunch') }));
+    expect(heard).toEqual(['session', 'text', 'done', 'relaunch', 'session', 'text', 'done']);
+  });
+
   it('is not relaunched when its save landed just before a crash', async () => {
     const agent = fakeAgent([init], { exitCode: 1 });
     let saved = false;
@@ -81,6 +102,20 @@ describe('jobs (§3.2)', () => {
   it('recognizes a plan limit, never relaunches, and spends no retry', async () => {
     const agent = fakeAgent([init, failure("You've hit your usage limit. Try again at 5pm.")]);
     expect(await runJob(job(agent.exe))).toMatchObject({ ok: false, problem: 'plan-limit' });
+    expect(agent.runs()).toBe(1);
+  });
+
+  it("an agent that can't reach its service is offline: no relaunch, no retry spent", async () => {
+    let asked = false;
+    const agent = fakeAgent([init, failure('API Error: Connection error. (getaddrinfo ENOTFOUND api.anthropic.com)')], { exitCode: 1 });
+    expect(await runJob(job(agent.exe, { signedIn: async () => ((asked = true), true) }))).toMatchObject({ ok: false, problem: 'offline' });
+    expect([agent.runs(), asked]).toEqual([1, false]);
+  });
+
+  it("a save that can't reach the network is offline, not a plain infrastructure failure", async () => {
+    const offline = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: "The build couldn't reach the network." }] } };
+    const agent = fakeAgent([init, call('a', 'save_exercise'), offline], { hang: true });
+    expect(await runJob(job(agent.exe, { kind: 'author', done: () => false }))).toMatchObject({ ok: false, problem: 'offline' });
     expect(agent.runs()).toBe(1);
   });
 
@@ -152,6 +187,31 @@ describe('jobs (§3.2)', () => {
     let blocked = false;
     const outcome = await runJob(job(agent.exe, { kind: 'lesson', done: () => false, blocked: () => blocked, signedIn: async () => ((blocked = true), true) }));
     expect(outcome).toMatchObject({ ok: false, problem: 'unstoppable' });
+    expect(agent.runs()).toBe(1);
+  });
+
+  it('cursor: runs in a Codemm-owned folder holding only its config, the same folder for the same config (so a chat resumes)', async () => {
+    const agentDir = tempDir('codemm-agents-');
+    const ws = tempDir('codemm-ws-');
+    const cursorInit = { type: 'system', subtype: 'init', session_id: 'chat-1' };
+    const agent = fakeAgent([cursorInit, success]);
+    expect(await runJob(job(agent.exe, { agent: 'cursor', cwd: ws, agentDir }))).toMatchObject({ ok: true, session: 'chat-1' });
+    await runJob(job(agent.exe, { agent: 'cursor', cwd: ws, agentDir, resume: 'chat-1' }));
+    const [first, second] = agent.cwds().map((d) => realpathSync(d));
+    expect(first).toBe(second);
+    expect(dirname(first)).toBe(realpathSync(agentDir));
+    expect(readdirSync(join(first, '.cursor')).sort()).toEqual(['cli.json', 'mcp.json']);
+    expect(JSON.parse(readFileSync(join(first, '.cursor', 'mcp.json'), 'utf8')).mcpServers.codemm.args).toContain(JOBS.tutor.tools.join(','));
+    // The workspace gets no agent config.
+    expect(readdirSync(ws)).toEqual([]);
+    await runJob(job(agent.exe, { agent: 'cursor', kind: 'lesson', cwd: ws, agentDir, done: () => true }));
+    expect(new Set(agent.cwds()).size).toBe(2);
+  });
+
+  it('cursor: a plan limit on stderr ends the job without a relaunch', async () => {
+    const agent = fakeAgent([{ type: 'system', subtype: 'init', session_id: 'chat-1' }], { exitCode: 1, stderr: ["Error: You've hit your usage limit"] });
+    const agentDir = tempDir('codemm-agents-');
+    expect(await runJob(job(agent.exe, { agent: 'cursor', agentDir }))).toMatchObject({ ok: false, problem: 'plan-limit' });
     expect(agent.runs()).toBe(1);
   });
 

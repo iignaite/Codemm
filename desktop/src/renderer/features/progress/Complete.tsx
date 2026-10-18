@@ -4,9 +4,10 @@ import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Icon } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
+import { reviewText } from '../../app/course';
 
 /** Every topic pops in. Then pick anything next. */
-export function Complete({ course }: { course: CourseView }) {
+export function Complete({ course, onView }: { course: CourseView; onView: () => void }) {
   const { go } = useRouter();
   return (
     <main className="center">
@@ -21,7 +22,17 @@ export function Complete({ course }: { course: CourseView }) {
             </li>
           ))}
         </ul>
-        <Button size="lg" className="a-up" style={stagger(0, 1500)} onClick={() => go({ to: 'goal' })}>Learn something new</Button>
+        {course.topics.some((t) => t.reviewIn) && (
+          <ul className="soon" style={{ listStyle: 'none', margin: 0, padding: 0 }} aria-label="Reviews">
+            {course.topics.filter((t) => t.reviewIn).map((t) => (
+              <li key={t.id}>{t.title}: {reviewText(t.reviewIn!)}</li>
+            ))}
+          </ul>
+        )}
+        <div className="actions a-up" style={stagger(0, 1500)}>
+          <Button variant="ghost" size="lg" onClick={onView}>View course</Button>
+          <Button size="lg" onClick={() => go({ to: 'goal' })}>Learn something new</Button>
+        </div>
       </div>
     </main>
   );
