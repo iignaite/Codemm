@@ -71,4 +71,29 @@ describe('useLoad', () => {
     await act(async () => m.pending[1].ok('new'));
     expect(result.current.data).toBe('new');
   });
+
+  it("never shows one input's data as stale for another: a failed first read of new inputs is an error", async () => {
+    const m = manual<string>();
+    const { result, rerender } = renderHook(({ id }) => useLoad(m.load, [id]), { initialProps: { id: 'a' } });
+    await waitFor(() => expect(m.pending).toHaveLength(1));
+    await act(async () => m.pending[0].ok('a'));
+    rerender({ id: 'b' });
+    await waitFor(() => expect(m.pending).toHaveLength(2));
+    // The old data stays up while the new inputs load.
+    expect(result.current.data).toBe('a');
+    await act(async () => m.pending[1].no(new Error('offline')));
+    expect(result.current.error).toBeInstanceOf(Error);
+    expect(result.current.stale).toBeUndefined();
+    expect(result.current.data).toBeUndefined();
+    // Once the new inputs have loaded, a failed reload of them is stale again.
+    act(() => result.current.reload());
+    await waitFor(() => expect(m.pending).toHaveLength(3));
+    await act(async () => m.pending[2].ok('b'));
+    act(() => result.current.reload());
+    await waitFor(() => expect(m.pending).toHaveLength(4));
+    await act(async () => m.pending[3].no(new Error('offline')));
+    expect(result.current.data).toBe('b');
+    expect(result.current.stale).toBeInstanceOf(Error);
+    expect(result.current.error).toBeUndefined();
+  });
 });

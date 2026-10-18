@@ -13,9 +13,9 @@ export interface LoadOptions<T> {
 
 interface Loaded<T> {
   data?: T;
-  /** A read failed and there is nothing to show yet: the screen shows Failed. */
+  /** A read failed and nothing has loaded for these inputs: the screen shows Failed. */
   error?: unknown;
-  /** A read failed after one succeeded: the last data stays, and the screen says it couldn't refresh. */
+  /** A read failed after one for the same inputs succeeded: that data stays, and the screen says it couldn't refresh. */
   stale?: unknown;
   /** True while a read is in flight. */
   loading: boolean;
@@ -27,8 +27,10 @@ interface Loaded<T> {
  * New inputs (`deps`) start over at once.
  */
 export function useLoad<T>(load: () => Promise<T>, deps: unknown[], { settled, every = timing.pollMs, onFocus = false }: LoadOptions<T> = {}): Loaded<T> {
-  const [state, setState] = useState<{ data?: T; error?: unknown; loading: boolean }>({ loading: true });
+  // `gen` counts input changes, not reloads: the data's own `gen` says which inputs it came from.
+  const [state, setState] = useState<{ data?: T; gen?: number; error?: unknown; loading: boolean }>({ loading: true });
   const [tick, setTick] = useState(0);
+  const gen = useRef(0);
   const reading = useRef(false);
   const again = useRef(false);
   const reload = useCallback(() => {
@@ -36,8 +38,14 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[], { settled, e
     else setTick((t) => t + 1);
   }, []);
 
+  // Declared first, so it runs before the read below.
+  useEffect(() => {
+    gen.current += 1;
+  }, deps);
+
   useEffect(() => {
     let live = true;
+    const at = gen.current;
     let timer: ReturnType<typeof setTimeout> | undefined;
     reading.current = true;
     again.current = false;
@@ -53,7 +61,7 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[], { settled, e
     load().then(
       (data) => {
         if (!live) return;
-        setState({ data, loading: false });
+        setState({ data, gen: at, loading: false });
         done(() => {
           if (settled && !settled(data)) timer = setTimeout(reload, every);
           else if (onFocus) timer = setTimeout(reload, timing.idleMs);
@@ -61,8 +69,9 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[], { settled, e
       },
       (error) => {
         if (!live) return;
-        // The last data stays: one failed read doesn't take the screen away.
-        setState((s) => ({ data: s.data, error, loading: false }));
+        // The last data stays when it came from these inputs: one failed read doesn't take the screen away.
+        // Data from other inputs never stands in for these.
+        setState((s) => (s.gen === at ? { data: s.data, gen: at, error, loading: false } : { error, loading: false }));
         done(() => undefined);
       },
     );
