@@ -195,7 +195,7 @@ test('failure and environment screens pass WCAG AA checks', async () => {
     await page.getByRole('textbox', { name: 'Counter.jsx' }).fill('wrong /* your code */');
     for (let i = 0; i < 3; i++) {
       await button(page, 'Check').click();
-      await expect(results.getByRole('heading', { name: /passed|Try another way/ })).toBeVisible();
+      await expect(results.getByRole('heading', { name: /passed|Try another way/ }).first()).toBeVisible();
     }
     await expect(results.getByRole('heading', { name: 'Try another way' })).toBeVisible();
     await audit(page, 'results, stuck');
@@ -349,7 +349,7 @@ test('the journey works with the keyboard alone', async () => {
   await typeInto(page, 'Counter.jsx', 'wrong /* your code */');
   for (let i = 0; i < 3; i++) {
     await press(page, 'Check');
-    await expect(results.getByRole('heading', { name: /passed|Try another way/ })).toBeVisible();
+    await expect(results.getByRole('heading', { name: /passed|Try another way/ }).first()).toBeVisible();
   }
   await press(page, 'Come back later');
   await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();

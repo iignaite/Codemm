@@ -106,7 +106,7 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
           <div className="a-up" style={stagger(4, 150)}><Button variant="text" onClick={ways.keepTrying}>Keep trying</Button></div>
         </div>
       </div>
-      <Failing result={result} name={name} visibleTests={visibleTests} />
+      <Failing result={result} visibleTests={visibleTests} />
       </>
     );
   }
@@ -114,12 +114,13 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
 }
 
 /** A graded check that didn't pass: each visible test, and the hidden ones as statuses. */
-function Failing({ result, name, visibleTests }: { result: Extract<CheckResult, { kind: 'graded' }>; name: string; visibleTests: VisibleTest[] }) {
+function Failing({ result, name, visibleTests }: { result: Extract<CheckResult, { kind: 'graded' }>; name?: string; visibleTests: VisibleTest[] }) {
   const hidden = result.tests.filter((t) => t.hidden);
   return (
     <>
       <div className="rhead">
-        <Emm mood="think" width={56} name={name} />
+        {/* Under the ways forward, Codemm is already there. */}
+        {name && <Emm mood="think" width={56} name={name} />}
         <h2 className="h3">{result.passed} of {result.total} passed</h2>
         {!result.recorded && <span className="quiet-text">Change the code first. This check wasn't counted.</span>}
       </div>
