@@ -305,6 +305,24 @@ export async function saveLesson(ws: string, input: unknown, bound?: string): Pr
   return { lesson: lesson.id };
 }
 
+/**
+ * Runs a saved io example live in the sandbox, with the learner's typed input and the track it was checked with:
+ * the same interactive run as Run on an activity. Never recorded. A unit example runs as tests (runExample).
+ */
+export async function runExampleLive(
+  ws: string, lessonId: string, index: number, bound: string | undefined, output: (text: string, stream: "stdout" | "stderr") => void, options: ProgramOptions = {},
+): Promise<ProgramRun> {
+  const { record, examples } = store.readLesson(activeCourse(ws, bound).course, lessonId);
+  const files = Number.isInteger(index) ? examples[index - 1] : undefined;
+  if (!files || !record.track || !record.style) throw new CodemmError(`Lesson "${lessonId}" has no example ${index}.`);
+  if (record.style !== "io") throw new CodemmError(`Example ${index} runs as tests, so it has no live run.`);
+  const track = installedTrack(record.track);
+  assertExampleFits(index, files, track, record.style);
+  await ensureImage(track);
+  const learner = Object.fromEntries(track.files.map((f) => [f, files[f]!]));
+  return runProgram({ ...track, image: track.imageId }, learner, output, options);
+}
+
 /** Runs a saved example in the sandbox, with the track and style it was checked with, for the learner to see. Never recorded. */
 export async function runExample(ws: string, lessonId: string, index: number, bound?: string): Promise<ExampleRun> {
   const { record, examples } = store.readLesson(activeCourse(ws, bound).course, lessonId);
@@ -320,7 +338,8 @@ export async function runExample(ws: string, lessonId: string, index: number, bo
 /** The lesson and the learner's notes. Reading records nothing: only markLessonRead does. */
 export function getLesson(ws: string, id: string, bound?: string) {
   const { record, markdown, notes, examples } = store.readLesson(activeCourse(ws, bound).course, id);
-  return { id: record.id, concept: record.concept, title: record.title, markdown, notes, examples };
+  // The style says how its examples run: io ones take typed input (runExampleLive), unit ones run as tests.
+  return { id: record.id, concept: record.concept, title: record.title, markdown, notes, examples, ...(record.style ? { style: record.style } : {}) };
 }
 
 export function listLessons(ws: string, bound?: string) {
