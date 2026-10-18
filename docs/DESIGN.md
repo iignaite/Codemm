@@ -225,7 +225,7 @@ sources:                    # optional: the roadmaps and docs the agent used, at
   - The lesson records the track and style its examples were checked with, and they always run with those.
   - The gate: under the course lock, then the track lock, each example runs in the track's image exactly as a check runs code, with the same sandbox and limits. io runs the build and run commands once, with empty input; unit runs the test command on the example's tests. Each must exit 0 within the limits. A runtime failure is infrastructure and saves nothing.
   - Examples need the installed track, and `get_roadmap` over MCP includes the track's contract once it's installed.
-- **Running.** `runExample(ws, lesson, n)` runs a saved example the same way and returns its exit code, output (capped at 16 KB) and errors (capped at 4 KB). It is never recorded.
+- **Running.** `runExample(ws, lesson, n)` runs a saved example the same way and returns its exit code, output (capped at 16 KB) and errors (capped at 4 KB). It is never recorded. `runExampleLive(ws, lesson, n, output)` runs an io example interactively instead, as Run does for an activity (`runProgram`): its output streams, and the learner's typed input reaches its stdin. It checks the files against the recorded track first, and is never recorded either. A unit example has no live run.
 - **Storage.** `lesson.md` never changes after saving. The learner's `notes.md` (at most 64 KB) sits beside it. Writes are atomic and hold the course lock.
 - **Reading.** `get_lesson` returns the text, the notes and the examples, and records nothing. Only an acknowledgement records a read: `mark_lesson_read` appends a `read` event the first time.
 
