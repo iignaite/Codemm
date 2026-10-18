@@ -11,7 +11,7 @@ function fakeHandler() {
   const ends: Record<string, (value: unknown) => void> = {};
   const handle = (event: { sender: Window }, method: unknown, args: unknown) => {
     calls.push(`${event.sender.id} ${String(method)} ${JSON.stringify(args)}`);
-    if (method === 'runProgram') return new Promise((resolve) => (ends[(args as string[])[1]] = resolve));
+    if (method === 'runProgram' || method === 'runExampleLive') return new Promise((resolve) => (ends[(args as string[]).at(-1)!] = resolve));
     return Promise.resolve(method === 'sendRunInput' ? true : undefined);
   };
   return { calls, ends, handle };
@@ -63,6 +63,19 @@ describe('bindRuns', () => {
     const runs = bindRuns<Window>();
     const invoke = runs.wrap(() => Promise.reject(new Error('Unknown sender')));
     await expect(invoke({ sender: a }, 'runProgram', ['act-1', 'run-1'])).rejects.toThrow('Unknown sender');
+    expect(runs.ownerOf('run-1')).toBeUndefined();
+  });
+
+  it("binds a lesson example's live Run by its run id, the last argument", async () => {
+    const h = fakeHandler();
+    const runs = bindRuns<Window>();
+    const invoke = runs.wrap(h.handle);
+    const ran = invoke({ sender: a }, 'runExampleLive', ['values-1', 1, 'run-1']);
+    expect(runs.ownerOf('run-1')).toBe(a);
+    expect(await invoke({ sender: b }, 'sendRunInput', ['run-1', 'x\n'])).toBe(false);
+    await expect(invoke({ sender: b }, 'runProgram', ['act-1', 'run-1'])).rejects.toThrow('Bad input');
+    h.ends['run-1']({ kind: 'ran' });
+    await ran;
     expect(runs.ownerOf('run-1')).toBeUndefined();
   });
 

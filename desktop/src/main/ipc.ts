@@ -66,6 +66,7 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProg
   saveFile: [id, path, fileText, digest],
   tryIt: [id, runId],
   runExample: [id, exampleNumber],
+  runExampleLive: [id, exampleNumber, runId],
   check: [id, runId],
   runProgram: [id, runId],
   sendRunInput: [runId, text(64 * 1024, 1)],
