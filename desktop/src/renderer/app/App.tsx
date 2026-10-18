@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { CodemmApi } from '../../shared/api';
 import { Connect } from '../features/connect/Connect';
 import { Welcome } from '../features/connect/Welcome';
@@ -16,6 +16,7 @@ import { Button } from '../ui/Button';
 import { ApiContext } from './api';
 import { SAY, problemOf } from './errors';
 import { RouterContext, type Route, type Router } from './router';
+import { useRouteFocus } from './useRouteFocus';
 import { WithSide } from './Sidebar';
 
 function Screen({ route }: { route: Route }) {
@@ -25,7 +26,7 @@ function Screen({ route }: { route: Route }) {
     case 'connect':
       return <Connect then={route.then} />;
     case 'computer':
-      return <Computer then={route.then} />;
+      return <Computer then={route.then} fromConnect={route.fromConnect} />;
     case 'setup':
       return <Setup />;
     case 'goal':
@@ -50,6 +51,8 @@ function Screen({ route }: { route: Route }) {
 export function App({ api, start = { to: 'welcome' } }: { api: CodemmApi; start?: Route }) {
   const [route, setRoute] = useState<Route>(start);
   const [failed, setFailed] = useState<{ text: string; agent: boolean }>();
+  const body = useRef<HTMLDivElement>(null);
+  useRouteFocus(route, body);
   const router = useMemo<Router>(
     () => ({
       route,
@@ -75,7 +78,7 @@ export function App({ api, start = { to: 'welcome' } }: { api: CodemmApi; start?
       <RouterContext.Provider value={router}>
         <div className="win">
           <div className="tbar">Codemm</div>
-          <div className="wbody">
+          <div className="wbody" ref={body}>
             <Screen route={route} />
           </div>
           {failed && (

@@ -2,7 +2,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import type { Concept, Roadmap } from '../../../shared/api';
 import { addTopic, moveTopic, removeTopic, renameTopic } from '../../../shared/roadmap';
 import { useApi } from '../../app/api';
-import { lessonCache } from '../../app/cache';
+import { cacheFor, lessonCache } from '../../app/cache';
 import { useJob } from '../../app/useJob';
 import { useRouter } from '../../app/router';
 import { Button } from '../../ui/Button';
@@ -83,6 +83,7 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
       await api.approve(concepts);
       // A new course reuses lesson ids, so cached lessons belong to the old one.
       lessonCache(api).clear();
+      cacheFor(api, 'conversations').clear();
       const now = (await api.course())?.topics.find((t) => t.state === 'now');
       go(now ? { to: 'topic', topicId: now.id } : { to: 'learn' });
     } catch (err) {

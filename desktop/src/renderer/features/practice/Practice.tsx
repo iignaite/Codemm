@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import type { Activity, CourseView } from '../../../shared/api';
 import { useApi } from '../../app/api';
+import { continueRoute } from '../../app/course';
 import { useConversation } from '../../app/useConversation';
 import { useRouter } from '../../app/router';
 import { Failed } from '../../app/Problems';
@@ -86,7 +87,15 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
     later: () => act(() => api.skip(activity.concept), { to: 'learn' }),
     computer: () => go({ to: 'computer', then: { to: 'practice', concept: activity.concept } }),
     tracks: () => go({ to: 'tracks' }),
-    next: () => go({ to: 'learn' }),
+    // Straight on to the next topic; a finished course shows its celebration.
+    next: async () => {
+      try {
+        const now = (await api.course())?.topics.find((t) => t.state === 'now');
+        go(now ? continueRoute(now) : { to: 'learn' });
+      } catch (e) {
+        fail(e);
+      }
+    },
   };
 
   return (

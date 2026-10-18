@@ -12,17 +12,20 @@ function Entry({ m }: { m: Message }) {
   return <div className="note a-up"><Markdown text={m.text} className="md small" /></div>;
 }
 
-/** The Codemm tutor beside a lesson or activity. While it answers, `answering` is that turn's progress (§4.11). */
+/**
+ * The Codemm tutor beside a lesson or activity. While it answers, `answering` is that turn's progress (§4.11).
+ * `onAsk` may resolve false when the question failed: it goes back in the field, unless the learner typed again.
+ */
 export function Rail({ messages, onAsk, busy = false, answering, name, children }: {
-  messages: Message[]; onAsk: (text: string) => void; busy?: boolean; answering?: HeardJob; name?: string; children?: ReactNode;
+  messages: Message[]; onAsk: (text: string) => unknown; busy?: boolean; answering?: HeardJob; name?: string; children?: ReactNode;
 }) {
   const [text, setText] = useState('');
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     const q = text.trim();
     if (!q || busy) return;
-    onAsk(q);
     setText('');
+    if ((await onAsk(q)) === false) setText((now) => now || q);
   }
   return (
     <aside className="coach" aria-label="Codemm">

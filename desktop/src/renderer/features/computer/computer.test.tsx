@@ -15,19 +15,31 @@ function open(options: MockOptions) {
 }
 
 describe('check this computer', () => {
-  it('follows connecting an agent, and says when the computer is ready', async () => {
-    const user = userEvent.setup();
-    renderApp({ to: 'connect' });
-    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
-    await user.click(within(claude).getByRole('button', { name: 'Connect' }));
-    await within(claude).findByText('Connected');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+  it('moves on by itself when the first check after Connect finds the computer ready', async () => {
+    renderApp({ to: 'computer', then: { to: 'goal' }, fromConnect: true });
+    expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
+  });
 
-    expect(await screen.findByRole('heading', { name: 'Check this computer' })).toBeInTheDocument();
+  it('an explicit Check this computer that finds it ready says so, and waits for Continue', async () => {
+    const user = userEvent.setup();
+    renderApp({ to: 'computer', then: { to: 'goal' } });
+    expect(await screen.findByText('This computer is ready.')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole('heading', { name: 'Check this computer' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
+  });
+
+  it('waits for Continue once the learner had a step to take', async () => {
+    const options: MockOptions = { docker: 'stopped', platform: 'mac' };
+    const user = open(options);
+    await screen.findByRole('listitem', { name: 'Docker is running' });
+    options.docker = 'ready';
+    window.dispatchEvent(new Event('focus'));
     expect(await screen.findByText('This computer is ready.')).toBeInTheDocument();
     expect(within(screen.getByRole('listitem', { name: 'Docker is installed' })).getByText('Ready')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Continue' }));
-    expect(await screen.findByRole('heading', { name: 'Ready when you are.' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Learn anything.' })).toBeInTheDocument();
   });
 
   it('shows the fix for this computer, links to the official page, and re-checks until Docker is ready', async () => {

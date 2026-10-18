@@ -28,7 +28,7 @@ describe.skipIf(!real)("Docker's real download (opt-in)", () => {
     await desktop.done();
     expect(desktop.status()).toEqual({ phase: 'starting' });
     expect(progress.at(-1)).toBe(1);
-    expect(ran.filter((c) => /^(codesign|spctl)/.test(c))).toHaveLength(3);
+    expect(ran.filter((c) => /^(\/usr\/bin\/codesign|\/usr\/sbin\/spctl) /.test(c))).toHaveLength(3);
     expect(deps.exists(dir)).toBe(false);
   });
 });

@@ -18,7 +18,7 @@ function fake(platform: NodeJS.Platform, over: Partial<DesktopDeps> & { answers?
   const answer = (file: string, args: string[]) => {
     const key = [file, ...args].join(' ');
     for (const [prefix, value] of Object.entries(over.answers ?? {})) if (key.startsWith(prefix)) return value;
-    if (file === 'codesign' && args[0] === '-dv') return { code: 0, output: `Executable=/x\n${DOCKER_TEAM}\n` };
+    if (file === '/usr/bin/codesign' && args[0] === '-dv') return { code: 0, output: `Executable=/x\n${DOCKER_TEAM}\n` };
     if (file.endsWith('powershell.exe')) return { code: 0, output: 'Valid|CN=Docker Inc, O=Docker Inc, L=Palo Alto, S=California, C=US\n' };
     return { code: 0, output: '' };
   };
@@ -58,9 +58,10 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
     expect(f.downloads).toEqual([{ url: 'https://desktop.docker.com/mac/main/arm64/Docker.dmg', file: '/tmp/codemm-docker/Docker.dmg' }]);
     expect(commands(f.calls)).toEqual([
       'hdiutil attach -nobrowse -readonly -noautoopen -mountpoint /tmp/codemm-docker/mnt /tmp/codemm-docker/Docker.dmg',
-      'codesign --verify --deep --strict /tmp/codemm-docker/mnt/Docker.app',
-      'codesign -dv --verbose=2 /tmp/codemm-docker/mnt/Docker.app',
-      'spctl --assess --type execute /tmp/codemm-docker/mnt/Docker.app',
+      // Apple's own tools by absolute path: a codesign or spctl earlier on PATH can't answer for them.
+      '/usr/bin/codesign --verify --deep --strict /tmp/codemm-docker/mnt/Docker.app',
+      '/usr/bin/codesign -dv --verbose=2 /tmp/codemm-docker/mnt/Docker.app',
+      '/usr/sbin/spctl --assess --type execute /tmp/codemm-docker/mnt/Docker.app',
       expect.stringMatching(/^ditto \/tmp\/codemm-docker\/mnt\/Docker\.app \/Applications\/\.codemm-docker-\w+\/Docker\.app$/),
       expect.stringMatching(/^mv \/Applications\/\.codemm-docker-\w+\/Docker\.app \/Applications\/Docker\.app$/),
       'hdiutil detach /tmp/codemm-docker/mnt -quiet',
@@ -79,7 +80,7 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
   });
 
   it('never installs an app that is not signed by Docker: it says so and deletes the download', async () => {
-    const f = fake('darwin', { answers: { 'codesign -dv': { code: 0, output: 'TeamIdentifier=SOMEONEELSE\n' } } });
+    const f = fake('darwin', { answers: { '/usr/bin/codesign -dv': { code: 0, output: 'TeamIdentifier=SOMEONEELSE\n' } } });
     f.desktop.install();
     await f.desktop.done();
     expect(commands(f.calls).some((c) => c.startsWith('ditto'))).toBe(false);
@@ -89,7 +90,7 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
   });
 
   it('refuses a broken signature or one macOS does not accept', async () => {
-    for (const bad of ['codesign --verify', 'spctl']) {
+    for (const bad of ['/usr/bin/codesign --verify', '/usr/sbin/spctl']) {
       const f = fake('darwin', { answers: { [bad]: { code: 3, output: 'invalid' } } });
       f.desktop.install();
       await f.desktop.done();
