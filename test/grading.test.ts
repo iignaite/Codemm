@@ -117,14 +117,23 @@ describe("grading whole runs", () => {
 
   it("says whether a killed program took too long or ran out of memory, by the limits it ran with", () => {
     const limits = { time_ms: 2000, memory_mb: 128 };
-    const killed = (exit: number, memoryKill = false) =>
-      gradeIoRun({ cases: [{ name: "visible/01", exit, stdout: "", stderr: "Killed\n" }], flooded: false, limits, ...(memoryKill ? { memoryKill } : {}) }, { "visible/01": "1\n" })[0]!.message;
-    expect(killed(124)).toMatch(/^It took longer than 2000 ms:\nKilled/);
-    expect(killed(137)).toMatch(/^It took longer than 2000 ms/);
-    expect(killed(137, true)).toMatch(/^It ran out of memory \(memory_mb 128\)/);
+    const killed = (exit: number, { timedOut = false, memoryKill = false } = {}) =>
+      gradeIoRun(
+        { cases: [{ name: "visible/01", exit, stdout: "", stderr: "Killed\n", ...(timedOut ? { timedOut } : {}) }], flooded: false, limits, ...(memoryKill ? { memoryKill } : {}) },
+        { "visible/01": "1\n" },
+      )[0]!.message;
+    expect(killed(137, { timedOut: true })).toMatch(/^It took longer than 2000 ms:\nKilled/);
+    expect(killed(137, { memoryKill: true })).toMatch(/^It ran out of memory \(memory_mb 128\)/);
+    // A time-out is the driver's own statement, so a memory kill elsewhere in the set doesn't relabel it.
+    expect(killed(137, { timedOut: true, memoryKill: true })).toMatch(/^It took longer than 2000 ms/);
+    // Neither recorded: killed, without guessing why. A program's own 124 or 3 is its exit code.
+    expect(killed(137)).toMatch(/^It was killed/);
+    expect(killed(124)).toMatch(/^Exited with code 124/);
     expect(killed(3)).toMatch(/^Exited with code 3/);
-    const unit = gradeUnitRun("visible", { report: { exit: 137, body: "", log: "Killed" }, flooded: false, limits, memoryKill: true }, ["t"]);
-    expect(unit[0]!.message).toMatch(/^The test runner ran out of memory \(memory_mb 128\)\.\nKilled/);
+    const unit = (report: { timedOut?: boolean }, memoryKill = false) =>
+      gradeUnitRun("visible", { report: { exit: 137, body: "", log: "Killed", ...report }, flooded: false, limits, ...(memoryKill ? { memoryKill } : {}) }, ["t"])[0]!.message;
+    expect(unit({}, true)).toMatch(/^The test runner ran out of memory \(memory_mb 128\)\.\nKilled/);
+    expect(unit({ timedOut: true })).toMatch(/^The test runner took longer than 2000 ms\./);
   });
 
   it("grades each set of runs against its own expected outputs, visible first", () => {

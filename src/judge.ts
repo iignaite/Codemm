@@ -25,6 +25,8 @@ const SLACK_MS = 30_000;
 export const DRIVER_TOOLS = ["timeout", "sleep", "head", "wc", "cat", "basename"];
 /** `timeout` and `sleep` take seconds; busybox and coreutils both accept decimals. */
 export const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
+/** The time limit, and when the watchdog marks a case as having reached it: a little before \`timeout\` kills it. */
+const timeEnv = (ms: number) => ({ CODEMM_TIME_S: seconds(ms), CODEMM_MARK_S: (Math.max(0.1, ms / 1000) * 0.9).toFixed(3) });
 
 // The driver is PID 1. Program output only leaves the container inside a length-framed
 // record, and `kill -9 -1` clears leftover processes between cases. Every command the track or learner
@@ -32,8 +34,12 @@ export const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
 // oom_score_adj needs no privilege), so a program that runs out of memory usually dies instead of the
 // driver. It's best effort: the program could lower its score back to 0. If the write fails, nothing changes.
 // Shell functions share variables, so emit() keeps its own (size) apart from the loop's case name (n).
+// watch() marks a time-out itself, since both kinds of \`timeout\` exit 137 on one, as a memory kill does: a watchdog
+// writes /tmp/t just before the limit (CODEMM_MARK_S), and \`kill -9 -1\` stops it after each case. If it can't start
+// (a fork bomb), \`timeout\` still stops the case; it's only not marked.
 const EMIT = `OOM='{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || :; '
 emit() { size=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$size"; cat "$4"; }
+watch() { : > /tmp/t; ( sleep "$CODEMM_MARK_S" 2>/dev/null && echo t > /tmp/t ) & }
 for u in ${DRIVER_TOOLS.join(" ")}; do command -v "$u" >/dev/null 2>&1 || { echo "the image has no '$u'" > /tmp/m; emit fatal tools 1 /tmp/m; exit 0; }; done`;
 
 const IO_DRIVER = `${EMIT}
@@ -45,19 +51,23 @@ fi
 for f in /work/tests/*.in; do
   [ -e "$f" ] || continue
   n=$(basename "$f" .in)
+  watch
   timeout -s KILL "$CODEMM_TIME_S" sh -c "$OOM$CODEMM_RUN" < "$f" > /tmp/o 2> /tmp/e; c=$?
   kill -9 -1 2>/dev/null
   head -c 4096 /tmp/e > /tmp/ec
   if [ $(($(wc -c < /tmp/o))) -gt 65536 ]; then : > /tmp/oc; emit big "$n" "$c" /tmp/oc; else emit case "$n" "$c" /tmp/o; fi
   emit stderr "$n" "$c" /tmp/ec
+  [ -s /tmp/t ] && emit timeout "$n" "$c" /tmp/t
 done
 exit 0`;
 
 const UNIT_DRIVER = `${EMIT}
+watch
 TESTS=/work/tests OUT=/tmp/report.json timeout -s KILL "$CODEMM_TIME_S" sh -c "$OOM$CODEMM_TEST" > /tmp/o 2>&1; c=$?
 kill -9 -1 2>/dev/null
 if [ -f /tmp/report.json ] && [ $(($(wc -c < /tmp/report.json))) -le 1048576 ]; then emit report report "$c" /tmp/report.json; else : > /tmp/r; emit report report "$c" /tmp/r; fi
 head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc
+[ -s /tmp/t ] && emit timeout report "$c" /tmp/t
 exit 0`;
 
 async function runDriver(track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number, onStdout?: (chunk: Buffer) => void): Promise<{ frames: Frame[]; flooded: boolean; outOfMemory?: boolean; memoryKill?: boolean }> {
@@ -102,9 +112,10 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
     }
     // Never echo a fatal frame's body: code in the container could forge one (DESIGN §4.2).
     if (frames.some((f) => f.kind === "fatal")) throw new CodemmError(`The track image is missing a tool Codemm needs: sh, ${DRIVER_TOOLS.join(", ")}.`);
-    // A case or runner killed with 137 while the driver went on hit its time limit or the memory limit: only the
-    // runtime's record tells which (DESIGN §4.3).
-    const memoryKill = frames.some((f) => f.exit === 137 && ["case", "big", "report"].includes(f.kind)) && (await started.hadOomKill());
+    // A case or runner killed with 137 that the watchdog didn't mark as a time-out may have hit the memory limit while
+    // the driver went on: only the runtime's record says so (DESIGN §4.3).
+    const marked = new Set(frames.filter((f) => f.kind === "timeout").map((f) => f.name));
+    const memoryKill = frames.some((f) => f.exit === 137 && (f.kind === "case" || f.kind === "report") && !marked.has(f.name)) && (await started.hadOomKill());
     return { frames, flooded: result.flooded, ...(memoryKill ? { memoryKill } : {}) };
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -117,15 +128,16 @@ export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, input
   const timeMs = opts.timeMs ?? track.limits.time_ms;
   const caseCount = Object.keys(inputs).filter((p) => p.endsWith(".in")).length;
   const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * (timeMs + 1000) + SLACK_MS;
-  const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_TIME_S: seconds(timeMs) };
+  const env: Record<string, string> = { CODEMM_RUN: track.run, ...timeEnv(timeMs) };
   if (track.build) env.CODEMM_BUILD = track.build;
   const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, (opts.onProgress || opts.onCase) && frameProgress(opts.onProgress ?? (() => undefined), opts.onCase));
 
   const buildFrame = frames.find((f) => f.kind === "build");
   const stderrOf = new Map(frames.filter((f) => f.kind === "stderr").map((f) => [f.name, f.body]));
+  const timedOut = new Set(frames.filter((f) => f.kind === "timeout").map((f) => f.name));
   const cases = frames
     .filter((f) => f.kind === "case" || f.kind === "big")
-    .map((f): RawCase => ({ name: `${set}/${f.name}`, exit: f.exit, stdout: f.body, stderr: stderrOf.get(f.name) ?? "", big: f.kind === "big" }));
+    .map((f): RawCase => ({ name: `${set}/${f.name}`, exit: f.exit, stdout: f.body, stderr: stderrOf.get(f.name) ?? "", big: f.kind === "big", ...(timedOut.has(f.name) ? { timedOut: true } : {}) }));
   const limits = { time_ms: timeMs, memory_mb: track.limits.memory_mb };
   return { ...(buildFrame ? { build: { exit: buildFrame.exit, output: buildFrame.body } } : {}), cases, flooded, limits, ...(outOfMemory ? { outOfMemory } : {}), ...(memoryKill ? { memoryKill } : {}) };
 }
@@ -135,12 +147,13 @@ export async function runUnit(track: JudgeTrack, src: FileMap, tests: FileMap, o
   if (!track.test) throw new CodemmError("This track has no test command, so it can't run unit exercises.");
   const timeMs = opts.timeMs ?? track.limits.time_ms;
   const deadline = opts.deadlineMs ?? timeMs + SLACK_MS;
-  const env = { CODEMM_TEST: track.test, CODEMM_TIME_S: seconds(timeMs) };
+  const env = { CODEMM_TEST: track.test, ...timeEnv(timeMs) };
   const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, UNIT_DRIVER, env, src, tests, deadline);
   const report = frames.find((f) => f.kind === "report");
   const log = frames.find((f) => f.kind === "log");
   const limits = { time_ms: timeMs, memory_mb: track.limits.memory_mb };
-  return { report: { exit: report?.exit ?? -1, body: report?.body ?? "", log: log?.body ?? "" }, flooded, limits, ...(outOfMemory ? { outOfMemory } : {}), ...(memoryKill ? { memoryKill } : {}) };
+  const timedOut = frames.some((f) => f.kind === "timeout" && f.name === "report");
+  return { report: { exit: report?.exit ?? -1, body: report?.body ?? "", log: log?.body ?? "", ...(timedOut ? { timedOut } : {}) }, flooded, limits, ...(outOfMemory ? { outOfMemory } : {}), ...(memoryKill ? { memoryKill } : {}) };
 }
 
 /** Runs each given test set, visible first, each in its own container. `onSet` is told as a set starts and may return its options (progress). */

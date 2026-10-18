@@ -86,8 +86,9 @@ case "$1" in
       fi
       exit 0
     fi
-    # caseoom / casekill: each io case's program is killed (exit 137, "Killed") while the driver goes on. The runtime
-    # records a memory-limit kill for caseoom, not for casekill (a time-out). unitoom: the unit runner is killed so.
+    # caseoom / casekill: each io case's program is killed (exit 137, "Killed") while the driver goes on. caseoom: the
+    # runtime records a memory-limit kill. casekill: the driver's watchdog marks a time-out. unitoom: the unit runner
+    # is killed for memory.
     if [ "$FAKE_DOCKER" = caseoom ] || [ "$FAKE_DOCKER" = casekill ] || [ "$FAKE_DOCKER" = unitoom ]; then
       tests=""
       for a in "$@"; do case "$a" in *target=/work/tests,*) tests="${a#*source=}"; tests="${tests%%,target=*}" ;; esac; done
@@ -97,6 +98,7 @@ case "$1" in
         found=1; n="${f##*/}"; n="${n%.in}"
         printf '\n@@codemm case %s 137 0\n' "$n"
         printf '\n@@codemm stderr %s 137 7\nKilled\n' "$n"
+        [ "$FAKE_DOCKER" = casekill ] && printf '\n@@codemm timeout %s 137 2\nt\n' "$n"
       done
       if [ -z "$found" ]; then printf '\n@@codemm report report 137 0\n'; printf '\n@@codemm log log 137 6\nKilled'; fi
       exit 0

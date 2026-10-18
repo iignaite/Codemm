@@ -13,8 +13,9 @@ export type TestResult = {
 };
 
 export type Frame = { kind: string; name: string; exit: number; body: string };
-export type RawCase = { name: string; exit: number; stdout: string; stderr: string; big?: boolean };
-export type RawReport = { exit: number; body: string; log: string };
+/** `timedOut`: the driver's watchdog marked that the case, or the unit runner, reached its time limit. */
+export type RawCase = { name: string; exit: number; stdout: string; stderr: string; big?: boolean; timedOut?: boolean };
+export type RawReport = { exit: number; body: string; log: string; timedOut?: boolean };
 export type RawBuild = { exit: number; output: string };
 
 const MARKER = Buffer.from("@@codemm ");
@@ -110,7 +111,7 @@ export function frameProgress(on: (milestone: "built" | number) => void, onCase?
 /**
  * `flooded` and `outOfMemory` mean the program got the whole container killed, so every test in the set is an error.
  * `limits` are what the set ran with, and `memoryKill` that the runtime recorded a memory-limit kill inside it while
- * the driver went on: together they say why a killed case or runner stopped.
+ * the driver went on: with each case's `timedOut`, they say why a killed case or runner stopped.
  */
 export type Stops = { limits?: { time_ms: number; memory_mb: number }; memoryKill?: boolean };
 export type IoRun = { build?: RawBuild; cases: RawCase[]; flooded: boolean; outOfMemory?: boolean } & Stops;
@@ -177,18 +178,21 @@ export function normalizeOutput(text: string): string {
 const setOf = (name: string): TestSet => (name.startsWith("hidden/") ? "hidden" : "visible");
 
 /**
- * Why a killed program stopped. `timeout` exits 124 (coreutils) or is killed itself (busybox, 137); a memory-limit
- * kill is 137 too, so only the runtime's record tells them apart.
+ * Why a program killed with 137 stopped: a time-out the driver's watchdog marked, else a memory-limit kill the
+ * runtime recorded. Neither is guessed from the exit code: both kinds of \`timeout\` exit 137 too.
  */
-function killReason(exit: number, stops: Stops = {}): string | undefined {
-  if (!stops.limits || (exit !== 124 && exit !== 137)) return undefined;
-  return exit === 137 && stops.memoryKill ? `ran out of memory (memory_mb ${stops.limits.memory_mb})` : `took longer than ${stops.limits.time_ms} ms`;
+function killReason(exit: number, timedOut: boolean | undefined, stops: Stops): string | undefined {
+  if (!stops.limits || exit !== 137) return undefined;
+  if (timedOut) return `took longer than ${stops.limits.time_ms} ms`;
+  return stops.memoryKill ? `ran out of memory (memory_mb ${stops.limits.memory_mb})` : undefined;
 }
 
-function exitMessage(exit: number, stderr: string, stops?: Stops): string {
-  const why = killReason(exit, stops);
-  const reason = why ? `It ${why}` : exit === 124 || exit === 143 || exit === 137 ? "Timed out or was killed" : `Exited with code ${exit}`;
-  return cap(stderr ? `${reason}:\n${stderr}` : reason);
+function exitMessage(c: RawCase, stops?: Stops): string {
+  const why = stops?.limits ? killReason(c.exit, c.timedOut, stops) : undefined;
+  // Without limits (a case graded as it streams), the driver's statements aren't known yet.
+  const killed = stops?.limits ? "It was killed" : "Timed out or was killed";
+  const reason = why ? `It ${why}` : c.exit === 143 || c.exit === 137 || (!stops?.limits && c.exit === 124) ? killed : `Exited with code ${c.exit}`;
+  return cap(c.stderr ? `${reason}:\n${c.stderr}` : reason);
 }
 
 /** Grades io cases against expected outputs, keyed by case name (e.g. "hidden/02"). */
@@ -200,7 +204,7 @@ export function gradeIo(cases: RawCase[], expected: Record<string, string>, buil
     const c = byName.get(name);
     if (!c) return { set, name, status: "error", message: "This case did not run." };
     if (c.big) return { set, name, status: "error", message: "Printed more than 64 KB of output." };
-    if (c.exit !== 0) return { set, name, status: "error", message: exitMessage(c.exit, c.stderr, stops), actual: c.stdout };
+    if (c.exit !== 0) return { set, name, status: "error", message: exitMessage(c, stops), actual: c.stdout };
     const pass = normalizeOutput(c.stdout) === normalizeOutput(expected[name]!);
     return pass ? { set, name, status: "pass", actual: c.stdout } : { set, name, status: "fail", message: "Output differs from the expected output.", actual: c.stdout };
   });
@@ -214,7 +218,7 @@ const Report = z.object({
 });
 
 function parseReport(raw: RawReport, stops?: Stops): z.infer<typeof Report>["tests"] | string {
-  if (raw.exit !== 0) return `The test runner ${killReason(raw.exit, stops) ?? `exited with code ${raw.exit}`}.${raw.log ? `\n${raw.log}` : ""}`;
+  if (raw.exit !== 0) return `The test runner ${(stops && killReason(raw.exit, raw.timedOut, stops)) ?? `exited with code ${raw.exit}`}.${raw.log ? `\n${raw.log}` : ""}`;
   let json: unknown;
   try {
     json = JSON.parse(raw.body);

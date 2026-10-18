@@ -173,7 +173,8 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
       for (let i = 0; i < 3; i++) {
         const r = await run("read x\ny=$(head -c 300000000 /dev/zero | tr '\\0' a)\necho survived\n");
         const [graded] = gradeIoRun(r, { "visible/01": "survived\n" });
-        expect(graded).toMatchObject({ status: "error", message: expect.stringMatching(/memory/i) });
+        // Memory, or killed if the runtime missed the event: never a time-out it didn't have.
+        expect(graded).toMatchObject({ status: "error", message: expect.not.stringMatching(/took longer/) });
       }
     });
 
