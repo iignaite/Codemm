@@ -86,16 +86,17 @@ Codemm is a personal project. **Use your personal accounts for every step, never
    turso db tokens create codemm-site
    ```
 
-3. **Apply the schema** from your computer. Put the URL and token in `site/.env.turso` (gitignored), as `TURSO_DATABASE_URL=libsql://…` and `TURSO_AUTH_TOKEN=…`, then:
+3. **Apply the schema.** Every Vercel build runs `scripts/migrate.mjs` first, so a deploy applies new migrations by itself. To apply them by hand from your computer: Put the URL and token in `site/.env.turso` (gitignored), as `TURSO_DATABASE_URL=libsql://…` and `TURSO_AUTH_TOKEN=…`, then:
 
    ```bash
    cd site && node --env-file=.env.turso scripts/migrate.mjs
    ```
 
-4. **Create the Vercel project** in your **personal Vercel** scope (in the scope switcher at the top left, pick your personal account, not a team). Import `iignaite/Codemm` and set **Root Directory** to `site`. `vercel.json` sets the rest: `npm ci`, `node build.mjs`, `dist/`, and the functions in `api/`.
-5. **Add three environment variables** under Project Settings, Environment Variables, for **Production** only: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `SITE_SECRET` (a new `openssl rand -base64 48`, not your development one). Preview deployments then answer "not configured" rather than writing to the production database; give Preview its own Turso database if you want previews to work.
-6. **Deploy**, then add your domain under Project Settings, Domains.
-7. **Check it**: submit your own email and download. Then export the unsubscribe links (below) and use yours.
+4. **Match the region.** `vercel.json` runs the functions in Tokyo (`hnd1`), next to the Turso database in AWS ap-northeast-1. If your database is elsewhere, change `regions` to the nearest Vercel region.
+5. **Create the Vercel project** in your **personal Vercel** scope (in the scope switcher at the top left, pick your personal account, not a team). Import `iignaite/Codemm` and set **Root Directory** to `site`. `vercel.json` sets the rest: `npm ci`, migrations then `node build.mjs`, `dist/`, the functions in `api/`, and the Tokyo region.
+6. **Add three environment variables** under Project Settings, Environment Variables, for **Production** only: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, and `SITE_SECRET` (a new `openssl rand -base64 48`, not your development one). Preview deployments then answer "not configured" rather than writing to the production database; give Preview its own Turso database if you want previews to work.
+7. **Deploy**, then add your domain under Project Settings, Domains.
+8. **Check it**: submit your own email and download. Then export the unsubscribe links (below) and use yours.
 
 If you'd rather use the Turso integration in the Vercel Marketplace, install it from your personal Vercel scope and connect it to your personal Turso organization. Then check that the variables it adds are named `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`.
 

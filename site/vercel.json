@@ -2,10 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "npm ci",
-  "buildCommand": "node build.mjs",
+  "buildCommand": "node scripts/migrate.mjs && node build.mjs",
   "outputDirectory": "dist",
   "ignoreCommand": "git diff --quiet HEAD^ HEAD -- .",
   "cleanUrls": true,
+  "regions": ["hnd1"],
   "functions": {
     "api/*.js": { "maxDuration": 10 }
   },
