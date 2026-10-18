@@ -326,9 +326,6 @@ export function readExercise(course: string, slug: string): { record: ExerciseRe
   return { record, files: readFileMap(dir, ["exercise.json"]) };
 }
 
-export const writeExerciseRecord = (course: string, record: ExerciseRecord) =>
-  writeJsonAtomic(join(exerciseDir(course, record.slug), "exercise.json"), record);
-
 // ---------- lessons ----------
 
 export const lessonDir = (course: string, id: string) => {
@@ -385,7 +382,7 @@ export function readEvents(course: string): LearnerEvent[] {
   lines.forEach((line, i) => {
     if (line === "" || (torn && i === lines.length - 1)) return;
     try {
-      events.push(LearnerEventSchema.parse(JSON.parse(line)) as LearnerEvent);
+      events.push(LearnerEventSchema.parse(JSON.parse(line)));
     } catch {
       throw new CodemmError(`The learning log ${file} has an invalid entry on line ${i + 1}. Fix or remove that line, then retry.`);
     }
