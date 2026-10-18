@@ -20,11 +20,11 @@ test/         node:test suites
    - more than 5 submits per IP in 10 minutes, or 3 per email in an hour;
    - a request from another origin, a body that isn't JSON, or one over 2 KB;
    - an invalid email (ASCII, at most 254 characters, a normal domain).
-3. It stores the email, a consent flag and a timestamp, and returns a signed download token, valid for 10 minutes. It never returns an unsubscribe token: submitting an email doesn't prove you own it, so removal links go only to the inbox.
+3. It requires the Terms box (`terms: true`) and stores the email, whether they ticked the optional release-emails box (`consent`), the Terms version they accepted (`terms_version`, matching `TERMS_VERSION` in `lib/app.js` and `public/terms.html`) and a timestamp, and returns a signed download token, valid for 10 minutes. It never returns an unsubscribe token: submitting an email doesn't prove you own it, so removal links go only to the inbox.
 4. The browser goes to `/downloads#d=…`. The fragment never reaches a server or a Referer header, and the page removes it from the address bar. `GET /api/downloads` with the download token returns the newest published release (stable first, otherwise the newest beta), reduced to its `.dmg` and `.exe` links on GitHub. The page picks the installer for the visitor's computer.
 5. `/unsubscribe#u=…` deletes the email after a click. `scripts/unsubscribe-link.mjs` makes one link per subscriber, for the owner's release emails.
 
-**What's stored.** The `subscribers` table holds `email`, `consent`, `created_at` and an id. Nothing else is stored: no IP, name or user agent. Rate limits are keyed by an HMAC of the IP or email, never the value itself, and are deleted after a day. When someone unsubscribes, their row is deleted and an HMAC of the email goes into `suppressions`, so nobody can put it back on the list through the form. Emails are never logged; errors log only an error code.
+**What's stored.** The `subscribers` table holds `email`, `consent` (release emails, opt-in), `terms_version`, `created_at` and an id. Nothing else is stored: no IP, name or user agent. Rate limits are keyed by an HMAC of the IP or email, never the value itself, and are deleted after a day. When someone unsubscribes, their row is deleted and an HMAC of the email goes into `suppressions`, so nobody can put it back on the list through the form. Emails are never logged; errors log only an error code.
 
 **No inbox confirmation yet.** Anyone can submit any address, so the list may hold emails whose owners never asked. Double opt-in (a confirmation email before `consent = 1`) needs an email provider, which is the owner's choice.
 
@@ -34,6 +34,10 @@ test/         node:test suites
 
 - **Vercel BotID**: invisible, no third-party script on the page, and checked in the function. Its deep analysis needs a paid plan.
 - **Cloudflare Turnstile**: free, with a widget script from `challenges.cloudflare.com`, so the CSP would need that origin.
+
+## Terms of Use
+
+`public/terms.html` is a plain-language draft, not legal advice; have a lawyer review it. The form is clickwrap: an unticked, required "I agree to the Terms" box beside a link to the Terms, and the server refuses a submit without it and records the version accepted. To change the Terms, edit the page, bump its version and date together with `TERMS_VERSION`, and commit; git keeps every earlier version. Before the first release the form is only a notify list, so the release-emails box is hidden and the submit counts as asking for release emails.
 
 ## Develop
 

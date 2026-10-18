@@ -5,6 +5,8 @@ const form = document.getElementById('get');
 const input = document.getElementById('email');
 const button = document.getElementById('gate-submit');
 const status = document.getElementById('gate-status');
+const terms = document.getElementById('terms');
+const updates = document.getElementById('updates');
 
 let state = { token: null, issued: 0, available: null };
 
@@ -15,7 +17,9 @@ async function loadForm() {
     const data = await res.json();
     state = { token: data.token, issued: Date.now(), available: data.available };
     if (data.available === false) {
+      // Before the first release the form is only a notify list, so asking for release emails is the point of it.
       document.getElementById('gate-note').textContent = 'The beta is on its way. We\'ll email you when it\'s out; unsubscribe anytime.';
+      document.getElementById('updates-row').hidden = true;
       button.textContent = 'Notify me';
     }
   } catch {
@@ -38,6 +42,13 @@ form.addEventListener('submit', async (event) => {
     return;
   }
   input.removeAttribute('aria-invalid');
+  if (!terms.checked) {
+    terms.setAttribute('aria-invalid', 'true');
+    say('Agree to the Terms to continue.', 'error');
+    terms.focus();
+    return;
+  }
+  terms.removeAttribute('aria-invalid');
   if (!state.token) await loadForm();
   if (!state.token) return say('Couldn\'t reach Codemm. Check your connection and try again.', 'error');
 
@@ -48,7 +59,13 @@ form.addEventListener('submit', async (event) => {
     const res = await fetch('/api/subscribe', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: input.value, token: state.token, company: form.elements.company.value }),
+      body: JSON.stringify({
+        email: input.value,
+        token: state.token,
+        company: form.elements.company.value,
+        terms: terms.checked,
+        updates: state.available === false ? true : updates.checked,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -66,6 +83,13 @@ form.addEventListener('submit', async (event) => {
     say('Couldn\'t reach Codemm. Check your connection and try again.', 'error');
   } finally {
     button.disabled = false;
+  }
+});
+
+terms.addEventListener('change', () => {
+  if (terms.checked && terms.hasAttribute('aria-invalid')) {
+    terms.removeAttribute('aria-invalid');
+    say('');
   }
 });
 

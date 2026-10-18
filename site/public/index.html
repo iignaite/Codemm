@@ -66,12 +66,16 @@
             <input id="email" name="email" type="email" inputmode="email" autocomplete="email" required maxlength="254" placeholder="Your email" aria-describedby="gate-note gate-status">
             <button class="btn primary" id="gate-submit" type="submit" disabled>Get Codemm</button>
           </div>
+          <div class="checks">
+            <label class="check"><input id="terms" name="terms" type="checkbox" required> <span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms</a>, including that Codemm comes with no warranty.</span></label>
+            <label class="check" id="updates-row"><input id="updates" name="updates" type="checkbox"> <span>Email me about Codemm releases.</span></label>
+          </div>
           <div class="hp" aria-hidden="true">
             <label for="company">Company</label>
             <input id="company" name="company" type="text" tabindex="-1" autocomplete="off">
           </div>
           <p class="gate-status" id="gate-status" role="status" aria-live="polite"></p>
-          <p class="gate-note" id="gate-note">For Mac and Windows. We'll email you about releases; unsubscribe anytime.</p>
+          <p class="gate-note" id="gate-note">For Mac and Windows. Remove your email anytime.</p>
           <noscript><p class="gate-note">The form needs JavaScript. The source is on <a href="https://github.com/iignaite/Codemm">GitHub</a>.</p></noscript>
         </form>
 
@@ -229,8 +233,9 @@
 
   <footer class="foot">
     <div class="wrap foot-in">
-      <p>© 2026 Gaille Amolong. Open source under the <a href="https://github.com/iignaite/Codemm/blob/main/LICENSE">MIT License</a>. We keep your email, that you agreed to release emails, and when. Page views are counted without cookies. Claude, Codex and Cursor are trademarks of their owners.</p>
+      <p>© 2026 Gaille Amolong. Open source under the <a href="https://github.com/iignaite/Codemm/blob/main/LICENSE">MIT License</a>. We keep your email, your choices and when you made them. Page views are counted without cookies. Claude, Codex and Cursor are trademarks of their owners.</p>
       <nav aria-label="Footer">
+        <a href="/terms">Terms</a>
         <a href="https://github.com/iignaite/Codemm/blob/main/docs/README.md">Docs</a>
         <a href="https://github.com/iignaite/Codemm">GitHub</a>
       </nav>

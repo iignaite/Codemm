@@ -5,6 +5,9 @@ import { normalizeEmail } from './email.js';
 import { keyedHash, sign, verify } from './tokens.js';
 import { pickRelease } from '../public/release.js';
 
+/** The Terms of Use version on public/terms.html. Change both together, and keep old versions in git. */
+export const TERMS_VERSION = '2026-10-18';
+
 export const LIMITS = {
   ip: { max: 5, windowMs: 10 * 60 * 1000 },
   email: { max: 3, windowMs: 60 * 60 * 1000 },
@@ -108,7 +111,7 @@ export function createApp({ db, secret, now, releases }) {
       });
     }),
 
-    /** POST { email, token, company }: stores the email and returns a download token. */
+    /** POST { email, token, company, terms, updates }: stores the email, release-email choice and Terms version; returns a download token. */
     subscribe: handle('subscribe', async (request) => {
       const body = await readJson(request);
       if (body.company) throw new Refusal(400, 'Something went wrong. Try again.'); // honeypot
@@ -118,14 +121,16 @@ export function createApp({ db, secret, now, releases }) {
       await limit('ip', ip(request));
       const email = normalizeEmail(body.email);
       if (!email) throw new Refusal(400, 'Enter a valid email address.');
+      if (body.terms !== true) throw new Refusal(400, 'Agree to the Terms to continue.');
+      const consent = body.updates === true ? 1 : 0;
       await limit('email', email);
       const t = now();
       // An email that unsubscribed stays off the list; the answer is the same either way.
       await db.execute({
-        sql: `INSERT INTO subscribers (email, consent, created_at)
-              SELECT ?, 1, ? WHERE NOT EXISTS (SELECT 1 FROM suppressions WHERE email_hash = ?)
-              ON CONFLICT (email) DO UPDATE SET consent = 1`,
-        args: [email, t, keyedHash(keys.suppress, email)],
+        sql: `INSERT INTO subscribers (email, consent, created_at, terms_version)
+              SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM suppressions WHERE email_hash = ?)
+              ON CONFLICT (email) DO UPDATE SET consent = excluded.consent, terms_version = excluded.terms_version`,
+        args: [email, consent, t, TERMS_VERSION, keyedHash(keys.suppress, email)],
       });
       await db.execute({ sql: 'DELETE FROM rate_limits WHERE window_start < ?', args: [t - 24 * 60 * 60 * 1000] });
       // No unsubscribe token here: whoever submits an email hasn't shown they own it.

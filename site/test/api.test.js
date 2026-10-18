@@ -1,7 +1,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from '@libsql/client';
-import { createApp, LIMITS, unsubscribeTokenFor } from '../lib/app.js';
+import { createApp, LIMITS, TERMS_VERSION, unsubscribeTokenFor } from '../lib/app.js';
 import { migrate } from '../lib/db.js';
 import { normalizeEmail } from '../lib/email.js';
 import { sign, verify } from '../lib/tokens.js';
@@ -37,7 +37,7 @@ async function formToken() {
 async function subscribe(email, o = {}) {
   const token = o.token ?? (await formToken());
   clock.t += o.wait ?? 5000;
-  const res = await app.subscribe(req('/api/subscribe', { method: 'POST', ip: o.ip, headers: o.headers, body: { email, token, company: o.honeypot ?? '' } }));
+  const res = await app.subscribe(req('/api/subscribe', { method: 'POST', ip: o.ip, headers: o.headers, body: { email, token, company: o.honeypot ?? '', terms: 'terms' in o ? o.terms : true, updates: o.updates ?? true } }));
   return { status: res.status, body: await res.json() };
 }
 const rows = async () => (await db.execute('SELECT * FROM subscribers ORDER BY id')).rows;
@@ -70,11 +70,31 @@ test('a valid submit stores only the email, a consent flag and a timestamp', asy
   assert.equal(typeof body.download, 'string');
   assert.deepEqual(Object.keys(body), ['download']);
   const cols = (await db.execute('PRAGMA table_info(subscribers)')).rows.map((r) => r.name);
-  assert.deepEqual(cols, ['id', 'email', 'consent', 'created_at']);
+  assert.deepEqual(cols, ['id', 'email', 'consent', 'created_at', 'terms_version']);
   const [row] = await rows();
   assert.equal(row.email, 'ada@example.org');
   assert.equal(row.consent, 1);
   assert.equal(row.created_at, clock.t);
+  assert.equal(row.terms_version, TERMS_VERSION);
+});
+
+/* Terms and release emails */
+
+test('the Terms must be accepted, with nothing stored otherwise', async () => {
+  for (const terms of [false, undefined, 'yes', 1]) {
+    const { status, body } = await subscribe(`t${String(terms)}@example.org`, { terms, ip: `198.51.100.${String(terms).length}` });
+    assert.equal(status, 400, String(terms));
+    assert.match(body.error, /Terms/);
+  }
+  assert.equal((await rows()).length, 0);
+});
+
+test('release emails are opt-in, and the latest choice wins', async () => {
+  await subscribe('quiet@example.org', { updates: false });
+  await subscribe('keen@example.org', { updates: true });
+  assert.deepEqual((await rows()).map((r) => [r.email, r.consent]), [['quiet@example.org', 0], ['keen@example.org', 1]]);
+  await subscribe('keen@example.org', { updates: false, ip: '192.0.2.77' });
+  assert.equal((await rows()).find((r) => r.email === 'keen@example.org').consent, 0);
 });
 
 test('subscribing twice keeps one row and the same answer', async () => {
