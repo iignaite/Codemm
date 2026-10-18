@@ -40,13 +40,16 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
   let tried: AgentId | undefined;
 
   /**
-   * The agent's CLI, unless Codemm is installing it or its check rejected what was installed: then nothing of it runs
-   * this session, not even --version. (An agent the learner installed themselves is theirs to trust, as in a terminal.)
+   * The agent's CLI, unless Codemm is installing it or installed something it couldn't verify: a rejected binary, or
+   * whatever a failed Codex script left (Claude Code's binary is checked before anything of it runs). Then nothing of
+   * it runs this session, not even --version, and Try again installs again. An agent the learner installed themselves
+   * is theirs to trust, as in a terminal; so is one found after a relaunch.
    */
   function usable(id: AgentId): Executable | null {
     const install = setup.status(id);
-    const blocked = install !== undefined && install.phase !== 'done' && (install.phase !== 'failed' || install.problem === 'unverified');
-    return blocked ? null : lookup.find(AGENT_CLIS[id].bin);
+    const running = install !== undefined && install.phase !== 'done' && install.phase !== 'failed';
+    const unchecked = install?.phase === 'failed' && (install.problem === 'unverified' || (id === 'codex' && install.problem === 'failed'));
+    return running || unchecked ? null : lookup.find(AGENT_CLIS[id].bin);
   }
 
   async function view(id: AgentId): Promise<Agent> {
@@ -86,7 +89,7 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
 
     /** Starts installing a missing agent; follow it with agents(). */
     async install(id: AgentId): Promise<void> {
-      if (setup.canInstall(id) && !lookup.find(AGENT_CLIS[id].bin)) {
+      if (setup.canInstall(id) && !usable(id)) {
         // A fresh install gets a fresh sign-in check.
         signedIn.delete(id);
         setup.install(id);

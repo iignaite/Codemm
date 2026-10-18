@@ -184,9 +184,16 @@ describe('connect (§3.1, §3.3)', () => {
       expect([ran, t.signIns]).toEqual([[], []]);
       // Nor do jobs, even for the agent chosen before.
       await expect(c.chosen()).rejects.toThrow(NO_AGENT);
-      // An install that failed for another reason, or none at all: an agent that's there is an agent that's there.
-      t.status.set('codex', { phase: 'failed', problem: 'offline' });
-      expect((await c.agents()).find((a) => a.id === 'codex')!.state).not.toBe('missing');
+      // Any failed install leaves nothing Codemm checked: nothing of it runs, and Try again installs again.
+      t.status.set('codex', { phase: 'failed', problem: 'failed' });
+      expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('missing');
+      expect(ran).toEqual([]);
+      await c.install('codex');
+      expect(t.installs).toEqual(['codex']);
+      // A failed Claude Code install ran nothing unchecked: one the learner then installs by hand is theirs.
+      t.installedAfter.push('claude');
+      t.status.set('claude', { phase: 'failed', problem: 'offline' });
+      expect((await c.agents()).find((a) => a.id === 'claude')!.state).not.toBe('missing');
     });
 
     it('signing in again never marks a signed-in agent signed out', async () => {
