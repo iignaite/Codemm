@@ -310,3 +310,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 /* A link inside running text: the text's own color, underlined, with the usual focus ring. */
 a.inline { color: inherit; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
 a.inline:hover { color: var(--ink); }
+
+/* A new version, at the foot of the sidebar (§7.2). */
+.side .update { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; padding: 12px; border: 1px solid var(--navy-line); border-radius: 10px; color: var(--navy-text); font-size: 13px; }
+.side .update a { color: #9AF0B8; font-weight: 600; }

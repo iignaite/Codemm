@@ -2,12 +2,29 @@ import { describe, expect, it } from 'vitest';
 import { packaging, releaseTag } from './packaging.cjs';
 
 describe('packaging', () => {
-  it('signs ad hoc, with no auto-update, when no signing settings are given', () => {
-    const config = packaging({});
+  it('signs ad hoc when no signing settings are given, and says the build is unsigned', () => {
+    const config = packaging({}, 'darwin');
     // Ad hoc, not none: an unsealed arm64 app is "damaged" to Gatekeeper, with no Open Anyway.
     expect(config.mac.identity).toBe('-');
     expect(config.win.azureSignOptions).toBeUndefined();
-    expect(config.publish).toBeNull();
+    expect(config.extraMetadata).toEqual({ codemm: { signed: false } });
+  });
+
+  it('points auto-update at GitHub Releases, which the release workflow fills as a draft', () => {
+    expect(packaging({}).publish).toEqual({ provider: 'github', owner: 'iignaite', repo: 'Codemm' });
+    // Squirrel.Mac updates from a zip; the dmg is for first installs.
+    expect(packaging({}).mac.target).toEqual([
+      { target: 'dmg', arch: ['arm64', 'x64'] },
+      { target: 'zip', arch: ['arm64', 'x64'] },
+    ]);
+  });
+
+  it('marks a build signed only by its own platform\'s signing settings', () => {
+    const azure = { AZURE_SIGNING_ENDPOINT: 'https://e/', AZURE_SIGNING_ACCOUNT: 'a', AZURE_SIGNING_PROFILE: 'p', AZURE_SIGNING_PUBLISHER: 'Codemm' };
+    expect(packaging({ CSC_LINK: 'base64-p12' }, 'darwin').extraMetadata).toEqual({ codemm: { signed: true } });
+    expect(packaging(azure, 'darwin').extraMetadata).toEqual({ codemm: { signed: false } });
+    expect(packaging(azure, 'win32').extraMetadata).toEqual({ codemm: { signed: true } });
+    expect(packaging({ CSC_LINK: 'base64-p12' }, 'win32').extraMetadata).toEqual({ codemm: { signed: false } });
   });
 
   it('signs on macOS only from a certificate in the environment', () => {

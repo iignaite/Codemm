@@ -3,14 +3,19 @@
 // from this repository. Without it the build is unsigned (ad hoc on macOS).
 // See SIGNING.md.
 
-/** @param {Record<string, string | undefined>} env */
-function packaging(env) {
+/**
+ * @param {Record<string, string | undefined>} env
+ * @param {string} platform the platform being built (each runner builds its own)
+ */
+function packaging(env, platform = process.platform) {
   const azure = {
     endpoint: env.AZURE_SIGNING_ENDPOINT,
     codeSigningAccountName: env.AZURE_SIGNING_ACCOUNT,
     certificateProfileName: env.AZURE_SIGNING_PROFILE,
     publisherName: env.AZURE_SIGNING_PUBLISHER,
   };
+  const winSigned = Object.values(azure).every(Boolean);
+  const signed = platform === 'darwin' ? Boolean(env.CSC_LINK) : platform === 'win32' ? winSigned : false;
   return {
     appId: 'org.codemm.desktop',
     productName: 'Codemm',
@@ -24,10 +29,18 @@ function packaging(env) {
       // The OFL asks that the license travel with the bundled fonts.
       { from: 'src/renderer/assets/fonts', to: 'fonts', filter: ['OFL-*.txt'] },
     ],
-    // Auto-update stays off until builds are signed (planned: electron-updater on GitHub Releases).
-    publish: null,
+    // Auto-update reads GitHub Releases (DESIGN §7.2): the app-update.yml in the app names this repository, and
+    // the release workflow attaches the latest*.yml feeds to its draft. The build itself never publishes.
+    publish: { provider: 'github', owner: 'iignaite', repo: 'Codemm' },
+    // Whether this build is signed: a signed one downloads updates and offers Restart to update; an unsigned one
+    // only says a new version is out, with a link to Releases.
+    extraMetadata: { codemm: { signed } },
     mac: {
-      target: [{ target: 'dmg', arch: ['arm64', 'x64'] }],
+      // Squirrel.Mac updates from the zip; the dmg is for first installs.
+      target: [
+        { target: 'dmg', arch: ['arm64', 'x64'] },
+        { target: 'zip', arch: ['arm64', 'x64'] },
+      ],
       category: 'public.app-category.education',
       // Without a certificate, sign ad hoc ('-'), never from the keychain. An
       // unsealed arm64 app is "damaged" to Gatekeeper and can't be opened at
@@ -40,7 +53,7 @@ function packaging(env) {
     },
     win: {
       target: [{ target: 'nsis', arch: ['x64'] }],
-      azureSignOptions: Object.values(azure).every(Boolean) ? azure : undefined,
+      azureSignOptions: winSigned ? azure : undefined,
     },
   };
 }

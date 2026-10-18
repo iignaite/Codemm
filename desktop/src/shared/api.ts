@@ -279,6 +279,16 @@ export type CheckResult =
 /** Try it: visible tests only, never recorded. */
 export type TryResult = { kind: 'ran'; passed: number; total: number; tests: TestView[] } | { kind: 'not-counted'; reason: string };
 
+/**
+ * A new version (DESIGN §7.2). `available`: an unsigned build, with the release's page. `downloading`, then
+ * `ready`: a signed build, which offers Restart to update.
+ */
+export type UpdateStatus =
+  | { kind: 'none' }
+  | { kind: 'available'; version: string; url: string }
+  | { kind: 'downloading'; version: string }
+  | { kind: 'ready'; version: string };
+
 export type Place = { lessonId: string } | { activityId: string };
 
 export interface Message {
@@ -362,6 +372,11 @@ export interface CodemmApi {
   easier(concept: string): Promise<void>;
 
   rebuild(trackRef: string): Promise<void>;
+
+  /** Whether a new version is out (§7.2). */
+  update(): Promise<UpdateStatus>;
+  /** Quits and installs a downloaded update: a signed build whose update is `ready`. */
+  restartToUpdate(): Promise<void>;
 }
 
 /** What the research job is looking at: a search, an https page (host and path) or one of Codemm's steps. */

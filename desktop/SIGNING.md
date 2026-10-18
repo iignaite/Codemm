@@ -52,12 +52,9 @@ Unsigned or newly signed Windows builds may still show SmartScreen until the pub
 
 ## Auto-update
 
-Off until builds are signed: `publish` is `null` in `packaging.cjs`. The plan is electron-updater with GitHub Releases as the provider. Turning it on means:
-- adding a `publish` entry;
-- calling `autoUpdater.checkForUpdatesAndNotify()` in the main process;
-- having the release workflow upload the installers and `latest*.yml`.
+On, through electron-updater and GitHub Releases (docs/desktop/DESIGN.md §7.2). A signed build downloads updates and offers Restart to update. An unsigned build only links to the new release. Whether a build counts as signed comes from these same secrets: `packaging.cjs` records it at build time.
 
-Publishing needs the owner's go-ahead.
+The release workflow attaches the update feeds (`*.yml`), the Mac zips and the blockmaps to the draft release. Apps see a release only once the owner publishes it.
 
 ## Checking a signed build
 

@@ -2,7 +2,7 @@
 // development (CODEMM_MOCK). Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner replaced the starter's
 // placeholder, and reports hidden results as statuses only.
-import { type CheckProgress, type ResearchProgress, type RunOutput, type RunResult,
+import { type CheckProgress, type ResearchProgress, type RunOutput, type UpdateStatus, type RunResult,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
@@ -45,6 +45,8 @@ export interface MockOptions {
   style?: 'io';
   /** Run's time limit; 120 s by default. */
   runLimitMs?: number;
+  /** What the update check says, to see the update notice. */
+  update?: UpdateStatus;
   /** Changes the options after the first approval or check, to act out a mid-session failure. */
   later?: { after: 'approve' | 'check'; set: Partial<MockOptions> };
 }
@@ -626,6 +628,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async rebuild(ref) {
       if (!tracks.some((t) => t.ref === ref)) throw new Error(`Unknown track: ${ref}`);
+    },
+
+    update: async () => options.update ?? { kind: 'none' },
+    async restartToUpdate() {
+      if (options.update?.kind !== 'ready') throw new Error('No update is ready.');
     },
   };
 }

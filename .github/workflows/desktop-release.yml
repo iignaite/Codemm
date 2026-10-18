@@ -1,7 +1,8 @@
 name: Desktop release
 
-# A v* tag builds the macOS and Windows installers and attaches them to a
-# draft GitHub Release. Nothing goes public until the owner publishes it.
+# A v* tag builds the macOS and Windows installers and attaches them, with the
+# auto-update feeds, to a draft GitHub Release. Nothing goes public, and no app
+# sees an update, until the owner publishes it.
 #
 # Before tagging, merge the same version into package.json (the core the app
 # bundles) and desktop/package.json, for example 1.0.0-beta.1. The tag must
@@ -135,12 +136,18 @@ jobs:
             $s = Get-AuthenticodeSignature $f.FullName
             if ($s.Status -ne 'Valid') { throw "$($f.Name) isn't validly signed: $($s.Status)" }
           }
+      # The installers, and what auto-update reads (DESIGN §7.2): the update feeds (latest*.yml, or a
+      # channel's such as beta-mac.yml), the Mac zips Squirrel.Mac updates from, and the blockmaps.
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ runner.os }}
           path: |
             desktop/release/*.dmg
             desktop/release/*.exe
+            desktop/release/*.zip
+            desktop/release/*.yml
+            !desktop/release/builder-debug.yml
+            desktop/release/*.blockmap
           if-no-files-found: error
 
   draft:

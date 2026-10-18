@@ -61,6 +61,7 @@ export function Sidebar({ slim = false }: { slim?: boolean }) {
       <div className="logo"><Logo height={22} onNavy /></div>
       {nav}
       <div className="foot">
+        <UpdateNotice />
         {course ? (
           <div className="pick">
             <span className="badge" style={{ background: hueColor(course.track) }} aria-hidden="true">{course.goal[0]}</span>
@@ -72,6 +73,33 @@ export function Sidebar({ slim = false }: { slim?: boolean }) {
       </div>
     </nav>
   );
+}
+
+/**
+ * A new version (§7.2). An unsigned build links to the release, which opens in the browser; a signed one has
+ * downloaded it and offers Restart to update. Read again on each screen, and every 30 s while it downloads.
+ */
+function UpdateNotice() {
+  const api = useApi();
+  const { route, fail } = useRouter();
+  const { data: update } = useLoad(() => api.update(), [route], (u) => u.kind !== 'downloading', 30_000);
+  if (update?.kind === 'available') {
+    return (
+      <div className="update">
+        <span>A new version is available.</span>
+        <a href={update.url} target="_blank" rel="noreferrer">Get Codemm {update.version}</a>
+      </div>
+    );
+  }
+  if (update?.kind === 'ready') {
+    return (
+      <div className="update">
+        <span>Codemm {update.version} is ready.</span>
+        <Button onClick={() => void api.restartToUpdate().catch(fail)}>Restart to update</Button>
+      </div>
+    );
+  }
+  return null;
 }
 
 /** A screen with the wide sidebar. */

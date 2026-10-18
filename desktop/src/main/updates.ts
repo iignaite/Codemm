@@ -1,0 +1,81 @@
+// Auto-update (DESIGN §7.2), on GitHub Releases through electron-updater. Checked at start and every 6 hours. A signed
+// build downloads a new version in the background and offers Restart to update. An unsigned build can't install
+// one (macOS refuses an unsigned update), so it only says a new version is out, with a link to its Releases page.
+// A prerelease build sees prereleases; a stable build sees stable releases only.
+import type { UpdateStatus } from '../shared/api';
+import type { Log } from './log';
+
+/** What Codemm needs from electron-updater: a check that finds a newer version or none, a download, an install. */
+export interface Updater {
+  check(): Promise<{ version: string } | null>;
+  download(): Promise<void>;
+  install(): void;
+}
+
+const EVERY_MS = 6 * 60 * 60 * 1000;
+const RELEASES = 'https://github.com/iignaite/Codemm/releases/tag/v';
+/** A version as releases are tagged: only then does it go into a link. */
+const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$/;
+
+export const isPrerelease = (version: string) => version.includes('-');
+
+export function updates({ signed, updater, log = () => undefined }: { signed: boolean; updater: Updater; log?: Log }) {
+  let status: UpdateStatus = { kind: 'none' };
+  let timer: ReturnType<typeof setInterval> | undefined;
+
+  async function check() {
+    if (status.kind === 'downloading' || status.kind === 'ready') return;
+    try {
+      const found = await updater.check();
+      if (!found || !VERSION.test(found.version)) return;
+      if (!signed) {
+        status = { kind: 'available', version: found.version, url: `${RELEASES}${found.version}` };
+        return;
+      }
+      status = { kind: 'downloading', version: found.version };
+      await updater.download();
+      status = { kind: 'ready', version: found.version };
+    } catch (e) {
+      log('update-error', { message: e instanceof Error ? e.message : String(e) });
+      if (status.kind === 'downloading') status = { kind: 'none' };
+    }
+  }
+
+  return {
+    start() {
+      void check();
+      timer = setInterval(() => void check(), EVERY_MS);
+    },
+    stop: () => clearInterval(timer),
+    status: () => status,
+    /** Quits and installs the downloaded version. Only a signed build that finished downloading has one. */
+    restart() {
+      if (status.kind === 'ready') updater.install();
+    },
+  };
+}
+
+/**
+ * electron-updater, set up for this build. It never downloads on its own: `updates` decides. `feed` replaces the
+ * GitHub feed with a generic one, for tests against a local server.
+ */
+export function electronUpdater(current: string, signed: boolean, feed?: string): Updater {
+  const { autoUpdater } = require('electron-updater') as typeof import('electron-updater');
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = signed;
+  autoUpdater.allowPrerelease = isPrerelease(current);
+  autoUpdater.allowDowngrade = false;
+  autoUpdater.logger = null;
+  if (feed) {
+    autoUpdater.forceDevUpdateConfig = true;
+    autoUpdater.setFeedURL({ provider: 'generic', url: feed });
+  }
+  return {
+    async check() {
+      const result = await autoUpdater.checkForUpdates();
+      return result?.isUpdateAvailable ? { version: result.updateInfo.version } : null;
+    },
+    download: async () => void (await autoUpdater.downloadUpdate()),
+    install: () => autoUpdater.quitAndInstall(),
+  };
+}

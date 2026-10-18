@@ -1,5 +1,7 @@
 import { _electron as electron, expect, test } from '@playwright/test';
 import { readFileSync, realpathSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { removeTempDirs, tempDir } from './temp';
 
@@ -219,4 +221,43 @@ test('Run streams a program through the bridge, with typed input', async () => {
   expect(result).toMatchObject({ kind: 'ran', exit: 0, taken: true });
   expect(asCall).toBe('Unknown call');
   await app.close();
+});
+
+// Auto-update (§7.2) against a local feed: electron-updater reads the feed, finds a newer version, and this unsigned
+// development build says so with the release's page, without downloading anything.
+test('auto-update finds a newer version on a feed, and an unsigned build only links to it', async () => {
+  const requests: string[] = [];
+  const feed = [
+    'version: 99.0.0',
+    'files:',
+    '  - url: Codemm-99.0.0-mac-arm64.zip',
+    '    sha512: AAAA',
+    '    size: 1',
+    'path: Codemm-99.0.0-mac-arm64.zip',
+    'sha512: AAAA',
+    "releaseDate: '2026-10-01T00:00:00.000Z'",
+    '',
+  ].join('\n');
+  const server = createServer((req, res) => {
+    const path = new URL(req.url ?? '/', 'http://feed').pathname; // the updater adds ?noCache=
+    requests.push(path);
+    // Whatever channel file it asks for (latest-mac.yml, latest.yml, beta-mac.yml...), the same feed.
+    if (path.endsWith('.yml')) res.writeHead(200, { 'content-type': 'text/yaml' }).end(feed);
+    else res.writeHead(404).end();
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: '', CODEMM_UPDATE_FEED: `http://127.0.0.1:${port}/` } });
+    const page = await app.firstWindow();
+    await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
+    const update = () => page.evaluate(() => (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<unknown> } }).codemm.invoke('update', []));
+    await expect.poll(update, { timeout: 15_000 }).toEqual({ kind: 'available', version: '99.0.0', url: 'https://github.com/iignaite/Codemm/releases/tag/v99.0.0' });
+    expect(requests.some((u) => u.endsWith('.yml'))).toBe(true);
+    // Unsigned: nothing was downloaded.
+    expect(requests.some((u) => u.endsWith('.zip') || u.endsWith('.exe'))).toBe(false);
+    await app.close();
+  } finally {
+    server.close();
+  }
 });

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, net, protocol, shell, type IpcMainInvokeEvent, type WebContents } from 'electron';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CodemmApi } from '../shared/api';
@@ -8,6 +9,7 @@ import { openOutside } from './links';
 import { createLog } from './log';
 import { CSP, fileFor, fromAppWindow, ORIGIN } from './origin';
 import { bindRuns } from './runs';
+import { electronUpdater, updates } from './updates';
 import { liveApi } from './wire';
 
 const renderer = join(__dirname, '../renderer');
@@ -30,7 +32,26 @@ process.on('unhandledRejection', (e) => log('error', { where: 'main', ...errorFi
 const mock = !app.isPackaged && process.env.CODEMM_MOCK !== undefined;
 const live = mock ? null : liveApi({ coreDir: app.isPackaged ? join(process.resourcesPath, 'core') : join(__dirname, '../core'), userData: app.getPath('userData'), log });
 // The mock loads only in mock mode, so installers can leave it out.
-const codemm: CodemmApi = live ?? devMock();
+// Auto-update (§7.2): in an installed app, on GitHub Releases. In development only, CODEMM_UPDATE_FEED points the
+// check at a local feed instead, for tests; an installed app ignores it.
+const feed = app.isPackaged ? undefined : process.env.CODEMM_UPDATE_FEED;
+const updater = app.isPackaged || feed ? updates({ signed: signedBuild(), updater: electronUpdater(app.getVersion(), signedBuild(), feed), log }) : undefined;
+const codemm: CodemmApi = withUpdates(live ?? devMock());
+
+/** Whether this build was signed: packaging.cjs records it in the packaged package.json. */
+function signedBuild(): boolean {
+  try {
+    return (JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) as { codemm?: { signed?: unknown } }).codemm?.signed === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Main answers the update calls when it checks for updates. */
+function withUpdates(api: CodemmApi): CodemmApi {
+  if (!updater) return api;
+  return { ...api, update: async () => updater.status(), restartToUpdate: async () => updater.restart() };
+}
 
 function devMock(): CodemmApi {
   const { createMock, scenario } = require('./mock') as typeof import('./mock');
@@ -103,6 +124,7 @@ void app.whenReady().then(() => {
   protocol.handle('app', serve);
   ipcMain.handle('codemm', handle);
   createWindow();
+  updater?.start();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
