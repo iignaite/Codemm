@@ -13,6 +13,16 @@ import { CourseRecord, ExerciseRecord, LearnerEventSchema, LessonRecord, Proposa
 /** Persistence for everything under $CODEMM_HOME and the workspace's codemm.json. */
 
 export const codemmHome = () => process.env.CODEMM_HOME ?? join(homedir(), ".codemm");
+
+/**
+ * The image tag for a track, named after this Codemm home (8 hex characters of the SHA-256 of its real path), so two
+ * homes on one Docker that install the same id@version never overwrite each other's tag.
+ */
+export function trackImageTag(id: string, version: number): string {
+  mkdirSync(codemmHome(), { recursive: true });
+  const home = createHash("sha256").update(realpathSync.native(codemmHome())).digest("hex").slice(0, 8);
+  return `codemm-track-${home}-${id}:${version}`;
+}
 const tracksDir = () => join(codemmHome(), "tracks");
 const courseDir = (course: string) => {
   assertId("course", course);
