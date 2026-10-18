@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { NO_AGENT, SIGNED_OUT } from '../shared/api';
-import { connector, type Lookup } from './connect';
+import type { AgentId, AgentInstall } from '../shared/api';
+import { connector, type AgentSetup, type Lookup } from './connect';
 import { desktopState } from './state';
 import { tempDir } from './testing/temp';
 
@@ -117,5 +118,73 @@ describe('connect (§3.1, §3.3)', () => {
     // Signed out since: shown as such, not as "not connected".
     const signedOut = connector(lookup({ signedIn: async () => false }), s);
     expect((await signedOut.agents()).find((a) => a.id === 'claude')?.state).toBe('signed-out');
+  });
+
+  describe('installing and signing in', () => {
+    function setup(installedAfter: AgentId[] = []) {
+      const installs: AgentId[] = [];
+      const signIns: { id: AgentId; path: string }[] = [];
+      const status = new Map<AgentId, AgentInstall>();
+      const s: AgentSetup = {
+        canInstall: (id) => id !== 'cursor',
+        install: (id) => {
+          installs.push(id);
+          status.set(id, { phase: 'done' });
+          installedAfter.push(id);
+        },
+        status: (id) => status.get(id),
+        signIn: async (id, exe) => void signIns.push({ id, path: exe.path }),
+      };
+      return { s, installs, signIns, status, installedAfter };
+    }
+    const found = (installed: AgentId[]) => (bin: string) => {
+      const id = ({ claude: 'claude', codex: 'codex', 'cursor-agent': 'cursor' } as Record<string, AgentId>)[bin];
+      return installed.includes(id) ? { path: `/home/.local/bin/${bin}`, js: false } : null;
+    };
+
+    it('offers Install for a missing agent, shows its progress, and connects it once installed and signed in', async () => {
+      const t = setup();
+      const st = state();
+      const c = connector(lookup({ find: found(t.installedAfter) }), st, t.s);
+      const before = (await c.agents()).find((a) => a.id === 'claude')!;
+      expect(before).toMatchObject({ state: 'missing', canInstall: true });
+      expect((await c.agents()).find((a) => a.id === 'cursor')!.canInstall).toBe(false);
+      t.status.set('claude', { phase: 'downloading', progress: 0.4 });
+      expect((await c.agents()).find((a) => a.id === 'claude')!.install).toEqual({ phase: 'downloading', progress: 0.4 });
+      t.status.delete('claude');
+      await c.install('claude');
+      expect(t.installs).toEqual(['claude']);
+      const after = (await c.agents()).find((a) => a.id === 'claude')!;
+      expect(after).toMatchObject({ state: 'connected', install: { phase: 'done' } });
+      expect(st.read().agent).toBe('claude');
+    });
+
+    it('after installing, a signed-out agent signs in with its own login, and connects when the learner comes back', async () => {
+      const t = setup();
+      let signedIn = false;
+      const c = connector(lookup({ find: found(t.installedAfter), signedIn: async () => signedIn }), state(), t.s);
+      await c.install('codex');
+      expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('signed-out');
+      await c.signIn('codex');
+      expect(t.signIns).toEqual([{ id: 'codex', path: '/home/.local/bin/codex' }]);
+      signedIn = true;
+      expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('connected');
+    });
+
+    it('signing in again never marks a signed-in agent signed out', async () => {
+      const t = setup();
+      const c = connector(lookup(), state(), t.s);
+      await c.connect('claude');
+      await c.signIn('claude');
+      expect((await c.chosen()).id).toBe('claude');
+    });
+
+    it('starts no sign-in for an agent that is not installed, and no install where it can\'t', async () => {
+      const t = setup();
+      const c = connector(lookup({ find: () => null }), state(), t.s);
+      await c.signIn('claude');
+      await c.install('cursor');
+      expect([t.signIns, t.installs]).toEqual([[], []]);
+    });
   });
 });

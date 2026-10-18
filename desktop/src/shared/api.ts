@@ -53,6 +53,22 @@ export interface Agent {
   /** The installed CLI version isn't one Codemm was tested with. It may still work. */
   untested: boolean;
   experimental: boolean;
+  /** Codemm can install this agent here, the vendor's own way (macOS and Windows; Claude Code and Codex). */
+  canInstall: boolean;
+  /** An install Codemm started, while it runs and after it ends. */
+  install?: AgentInstall;
+}
+
+/**
+ * Codemm installing an agent for the learner. Problems: `offline` and `disk` are this computer's; `unverified`:
+ * the download didn't match the vendor's checksum or signature, so nothing ran (or, for a script's result, it isn't
+ * used); `failed`: the vendor's installer didn't finish.
+ */
+export interface AgentInstall {
+  phase: 'downloading' | 'checking' | 'installing' | 'done' | 'failed';
+  /** 0 to 1 while downloading. */
+  progress?: number;
+  problem?: 'offline' | 'disk' | 'unverified' | 'failed';
 }
 
 // ---------- check this computer (§6.1) ----------
@@ -299,6 +315,10 @@ export interface CodemmApi {
   agents(): Promise<Agent[]>;
   /** Chooses the agent and runs its sign-in check. */
   connect(agent: AgentId): Promise<Agent>;
+  /** Installs a missing agent the vendor's own way; follow it with agents(). */
+  installAgent(agent: AgentId): Promise<void>;
+  /** Starts the agent's own sign-in where the learner sees it; the next agents() after they sign in shows it. */
+  signIn(agent: AgentId): Promise<void>;
   /** Chooses the model for an agent's jobs, one of its `models`. */
   chooseModel(agent: AgentId, model: string): Promise<Agent>;
   /** Hears progress while Try it or Check runs; returns a function that stops listening. An event, not a call. */

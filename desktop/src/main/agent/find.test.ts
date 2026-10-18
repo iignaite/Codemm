@@ -65,6 +65,17 @@ describe('find (§3.1)', () => {
     expect(find('codex', posix('', fnm.at('home')))?.path).toBe(fnm.at('home', '.local', 'share', 'fnm', 'aliases', 'default', 'bin', 'codex'));
   });
 
+  it("finds Codex where OpenAI's Windows installer puts it, and Claude Code in the profile's .local\\bin", () => {
+    const { at } = tree();
+    mkdirSync(at('local', 'Programs', 'OpenAI', 'Codex', 'bin'), { recursive: true });
+    writeFileSync(at('local', 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'), 'MZ');
+    mkdirSync(at('home', '.local', 'bin'), { recursive: true });
+    writeFileSync(at('home', '.local', 'bin', 'claude.exe'), 'MZ');
+    const w: Where = { platform: 'win32', path: '', home: at('home'), localAppData: at('local') };
+    expect(find('codex', w)?.path).toBe(join(at('local'), 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'));
+    expect(find('claude', w)?.path).toBe(join(at('home'), '.local', 'bin', 'claude.exe'));
+  });
+
   it("reads an npm .cmd shim's script instead of running the shim", () => {
     const { at } = tree();
     mkdirSync(at('npm', 'node_modules', '@openai', 'codex', 'bin'), { recursive: true });

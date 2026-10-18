@@ -48,6 +48,8 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProg
   agents: [],
   connect: [oneOf('claude', 'codex', 'cursor')],
   chooseModel: [oneOf('claude', 'codex', 'cursor'), text(64, 1)],
+  installAgent: [oneOf('claude', 'codex', 'cursor')],
+  signIn: [oneOf('claude', 'codex', 'cursor')],
   computer: [],
   installDocker: [],
   openDocker: [],

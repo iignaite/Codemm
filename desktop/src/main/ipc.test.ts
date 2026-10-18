@@ -10,6 +10,8 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgr
   agents: [],
   connect: ['claude'],
   chooseModel: ['claude', 'opus'],
+  installAgent: ['claude'],
+  signIn: ['codex'],
   computer: [],
   installDocker: [],
   openDocker: [],

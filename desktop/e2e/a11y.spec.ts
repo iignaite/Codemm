@@ -168,6 +168,28 @@ test('failure and environment screens pass WCAG AA checks', async () => {
     await app.close();
   }
   {
+    // Install what's missing: before, during, and the agent's sign-in after Docker.
+    const { app, page } = await launch('nothing-installed');
+    await button(page, "Install what's missing").click();
+    await expect(page.getByRole('listitem', { name: 'Docker Desktop' })).toBeVisible();
+    await audit(page, 'setup, before installing');
+    await button(page, "Install what's missing").click();
+    await expect(page.getByRole('progressbar').first()).toBeVisible();
+    await audit(page, 'setup, installing');
+    await expect(button(page, 'Sign in')).toBeVisible();
+    await audit(page, 'setup, sign in');
+    await app.close();
+  }
+  {
+    const { app, page } = await launch('agent-install-offline');
+    await button(page, 'Connect an agent').click();
+    const claude = page.getByRole('listitem', { name: 'Claude Code' });
+    await claude.getByRole('button', { name: 'Install', exact: true }).click();
+    await expect(claude.getByRole('alert')).toHaveText("You're offline. Connect to the internet, then try again.");
+    await audit(page, 'connect, agent install failed');
+    await app.close();
+  }
+  {
     const { app, page } = await launch('signed-out');
     await button(page, 'Connect an agent').click();
     const claude = page.getByRole('listitem', { name: 'Claude Code' });

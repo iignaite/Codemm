@@ -15,8 +15,11 @@ export interface DesktopDeps {
   arch: string;
   tempDir(): string;
   freeBytes(dir: string): Promise<number>;
-  /** Saves `url` to `file`, reporting 0 to 1. Rejects with OfflineError when this computer can't reach it. */
-  download(url: string, file: string, progress: (fraction: number) => void): Promise<void>;
+  /**
+   * Saves `url` to `file`, reporting 0 to 1, if every hop is on an `allowed` host (Docker's by default).
+   * Rejects with OfflineError when this computer can't reach it.
+   */
+  download(url: string, file: string, progress: (fraction: number) => void, allowed?: (url: string) => boolean): Promise<void>;
   /** Runs a program to its end, or until `timeoutMs` (then `code` is null). */
   run(file: string, args: string[], opts?: { env?: Record<string, string>; timeoutMs?: number }): Promise<{ code: number | null; output: string }>;
   /** Starts a program without waiting for it; rejects if it can't start. */
@@ -190,7 +193,7 @@ export function dockerDesktop(d: DesktopDeps) {
 
 const NETWORK = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH/;
 const MAX_HOPS = 5;
-/** Docker Desktop is well under 2 GB; anything bigger isn't it. */
+/** Docker Desktop and the agents are well under 2 GB; anything bigger isn't them. */
 const MAX_BYTES = 2 * GiB;
 const DOWNLOAD_DEADLINE_MS = 45 * 60_000;
 
@@ -214,13 +217,13 @@ export function nodeDesktopDeps(): DesktopDeps {
       const s = statfsSync(dir);
       return s.bavail * s.bsize;
     },
-    async download(start, file, progress) {
+    async download(start, file, progress, allowed = isDockerHost) {
       const signal = AbortSignal.timeout(DOWNLOAD_DEADLINE_MS);
       let url = start;
       let res: Response | undefined;
       // Each hop is checked before it's requested.
       for (let hop = 0; hop <= MAX_HOPS; hop++) {
-        if (!isDockerHost(url)) throw new Error('The download left Docker’s site.');
+        if (!allowed(url)) throw new Error('The download left the vendor’s site.');
         try {
           res = await fetch(url, { redirect: 'manual', signal });
         } catch (e) {
@@ -235,12 +238,12 @@ export function nodeDesktopDeps(): DesktopDeps {
       if (!res) throw new Error('Too many redirects.');
       if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
       const total = Number(res.headers.get('content-length')) || 0;
-      if (total > MAX_BYTES) throw new Error('The download is larger than Docker Desktop.');
+      if (total > MAX_BYTES) throw new Error('The download is larger than any installer.');
       let got = 0;
       const count = new Transform({
         transform(chunk: Buffer, _enc, done) {
           got += chunk.length;
-          if (got > MAX_BYTES) return done(new Error('The download is larger than Docker Desktop.'));
+          if (got > MAX_BYTES) return done(new Error('The download is larger than any installer.'));
           if (total) progress(Math.min(1, got / total));
           done(null, chunk);
         },
