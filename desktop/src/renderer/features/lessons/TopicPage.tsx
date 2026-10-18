@@ -1,7 +1,7 @@
 import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed, Stalled } from '../../app/Problems';
+import { Failed, Stale, Stalled } from '../../app/Problems';
 import { useBusy } from '../../app/useBusy';
 import { useJob } from '../../app/useJob';
 import { useCourse } from '../../app/useCourse';
@@ -19,7 +19,7 @@ const BUSY = { proposing: 'Preparing setup for', installing: 'Setting up' } as c
 
 /** A topic's lessons, then its activity. Reading starts as soon as the first lesson exists; setup runs beside it. */
 export function TopicPage({ topicId }: { topicId: string }) {
-  const { data: course, error, reload } = useCourse([topicId]);
+  const { data: course, error, stale, reload } = useCourse([topicId]);
   // Setup's progress: the agent proposing, then Codemm building and checking (§4.11). A proposing agent may still be
   // ending its turn while the install runs, so each state follows its own job.
   const installing = course?.setup === 'installing';
@@ -47,6 +47,7 @@ export function TopicPage({ topicId }: { topicId: string }) {
         <SetupOffer course={course} onChange={reload} />
       </div>
       {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }
@@ -58,24 +59,24 @@ function Items({ topic }: { topic: TopicView }) {
     <div className="card">
       {topic.lessons.map((l, i) => (
         <div className={`row a-up${l.state === 'writing' ? ' writing' : ''}`} key={l.id} style={stagger(i, 300)}>
-          <Icon name="book" color={l.state === 'writing' ? '#5B6A84' : '#0E7C35'} size={18} />
+          <Icon name="book" color={l.state === 'writing' ? 'var(--faint)' : 'var(--green-ink)'} size={18} />
           {l.state === 'writing' ? (
             <>
-              <span style={{ flex: 1 }}>{l.title}</span>
+              <span className="fill">{l.title}</span>
               <Writing kind="lesson" concept={topic.id} label="Writing the lesson" />
             </>
           ) : (
             <>
-              <span style={{ flex: 1 }}>{l.title}</span>
-              {l.state === 'read' && <Icon name="check" color="#0E7C35" size={14} />}
+              <span className="fill">{l.title}</span>
+              {l.state === 'read' && <Icon name="check" color="var(--green-ink)" size={14} />}
               <Button variant={l.state === 'read' ? 'ghost' : 'primary'} onClick={() => go({ to: 'lesson', lessonId: l.id })} aria-label={`Read ${l.title}`}>Read</Button>
             </>
           )}
         </div>
       ))}
       <div className={`row a-up${open ? '' : ' off'}${topic.activity === 'writing' ? ' writing' : ''}`} style={stagger(topic.lessons.length, 300)}>
-        <Icon name="code" color="#5B6A84" size={18} />
-        <span style={{ flex: 1 }}>{topic.review ? 'Review' : 'Activity'}</span>
+        <Icon name="code" color="var(--faint)" size={18} />
+        <span className="fill">{topic.review ? 'Review' : 'Activity'}</span>
         {open ? (
           <Button onClick={() => go({ to: 'practice', concept: topic.id })}>{topic.activity === 'passed' ? 'Again' : 'Start'}</Button>
         ) : topic.activity === 'writing' ? (
@@ -84,7 +85,7 @@ function Items({ topic }: { topic: TopicView }) {
             waiting={topic.lessons.some((l) => l.state === 'writing') ? 'Waiting for the lesson' : undefined}
           />
         ) : (
-          <span className="locked"><Icon name="lock" color="#5B6A84" size={16} />Opens after you finish the lessons</span>
+          <span className="locked"><Icon name="lock" color="var(--faint)" size={16} />Opens after you finish the lessons</span>
         )}
       </div>
     </div>

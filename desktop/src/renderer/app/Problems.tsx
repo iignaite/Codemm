@@ -57,3 +57,23 @@ export function Failed({ error, retry }: { error: unknown; retry: () => void }) 
     </main>
   );
 }
+
+/**
+ * A read failed after one worked: the screen keeps what it showed and says it couldn't refresh, with Try again. A
+ * status, not an alert: nothing was lost. An agent that is missing or signed out goes to connect instead.
+ */
+export function Stale({ error, retry }: { error: unknown; retry: () => void }) {
+  const { fail } = useRouter();
+  const problem = problemOf(error);
+  useEffect(() => {
+    if (problem === 'connect') fail(error);
+  }, [problem, error, fail]);
+  if (problem === 'connect') return null;
+  const why = problem === 'other' || problem === 'agent' ? '' : ` ${SAY[problem]}`;
+  return (
+    <div className="failed" role="status">
+      Codemm couldn't refresh this.{why}
+      <Button variant="text" onClick={retry}>Try again</Button>
+    </div>
+  );
+}

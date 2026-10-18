@@ -35,7 +35,7 @@ export function Goal() {
 
   return (
     <main className="center">
-      <form className="stack" style={{ width: 680, gap: 22 }} onSubmit={start}>
+      <form className="stack wide goal-form" onSubmit={start}>
         <h1 className="h1 a-up" id="goal-q">What do you want to learn?</h1>
         <div className="goal-box a-up" style={stagger(1)}>
           <input aria-labelledby="goal-q" value={topic} onChange={(e) => setTopic(e.target.value)} autoFocus />
