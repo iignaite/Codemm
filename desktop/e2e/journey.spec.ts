@@ -990,8 +990,16 @@ test(`journey: ${label}`, async () => {
           await check();
           await wrongAnswer(5);
           expect(await check()).toBe('Try another way');
-          await page.getByRole('button', { name: 'Come back later' }).click();
+          // Come back later shows only when another topic is ready (§4.4); otherwise keep trying.
+          if (await visible(button('Come back later'))) {
+            await button('Come back later').click();
+            await toMap();
+            return 'came back later';
+          }
+          await shot('stuck-no-later');
+          await button('Keep trying').click();
           await toMap();
+          return 'no other topic ready: Come back later not offered, kept trying';
         });
       }
       await step('progress', async () => {
