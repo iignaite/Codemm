@@ -1,13 +1,14 @@
 // @vitest-environment node
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { JOBS, runJob, type Job } from './jobs';
+import { tempDir } from '../testing/temp';
 
 /** A fake Claude Code: a Node script that replays stream-json lines, the way recorded fixtures do. */
 function fakeAgent(lines: object[], { exitCode = 0, hang = false, stderr = [] as string[] } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'codemm-agent-'));
+  const dir = tempDir('codemm-agent-');
   const script = join(dir, 'claude.js');
   writeFileSync(
     script,
@@ -183,8 +184,8 @@ describe('jobs (§3.2)', () => {
   });
 
   it('cursor: runs in a Codemm-owned folder holding only its config, the same folder for the same config (so a chat resumes)', async () => {
-    const agentDir = mkdtempSync(join(tmpdir(), 'codemm-agents-'));
-    const ws = mkdtempSync(join(tmpdir(), 'codemm-ws-'));
+    const agentDir = tempDir('codemm-agents-');
+    const ws = tempDir('codemm-ws-');
     const cursorInit = { type: 'system', subtype: 'init', session_id: 'chat-1' };
     const agent = fakeAgent([cursorInit, success]);
     expect(await runJob(job(agent.exe, { agent: 'cursor', cwd: ws, agentDir }))).toMatchObject({ ok: true, session: 'chat-1' });
@@ -202,7 +203,7 @@ describe('jobs (§3.2)', () => {
 
   it('cursor: a plan limit on stderr ends the job without a relaunch', async () => {
     const agent = fakeAgent([{ type: 'system', subtype: 'init', session_id: 'chat-1' }], { exitCode: 1, stderr: ["Error: You've hit your usage limit"] });
-    const agentDir = mkdtempSync(join(tmpdir(), 'codemm-agents-'));
+    const agentDir = tempDir('codemm-agents-');
     expect(await runJob(job(agent.exe, { agent: 'cursor', agentDir }))).toMatchObject({ ok: false, problem: 'plan-limit' });
     expect(agent.runs()).toBe(1);
   });
