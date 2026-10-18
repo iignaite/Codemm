@@ -33,7 +33,7 @@ const known = process.env.JOURNEY_KNOWN ?? 'variables and print';
 const depth = process.env.JOURNEY_DEPTH;
 const flow = new Set((process.env.JOURNEY_FLOW ?? '').split(',').filter(Boolean));
 const switchTo = [...flow].find((f) => f.startsWith('switch='))?.slice('switch='.length);
-const NAMES: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' };
+const NAMES: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', cursor: 'Cursor' };
 const MIN = 60_000;
 
 test.skip(!dir || !exe, 'set CODEMM_JOURNEY and CODEMM_APP to run the real-agent journey');
@@ -575,7 +575,7 @@ test(`journey: ${label}`, async () => {
           if (await visible(consent)) {
             approved.push((await consent.getByRole('heading').first().innerText()).trim());
             await shot(`consent-${approved.length}`);
-            await consent.getByRole('button', { name: 'Set up', exact: true }).click();
+            await tap(consent.getByRole('button', { name: 'Set up', exact: true }));
             idle = 0;
           } else if (flow.has('relaunch-setup') && !relaunched && (await visible(page.getByText(/^Setting up /)))) {
             // Quit mid-setup, then come back.
