@@ -13,6 +13,8 @@
 export const SIGNED_OUT = 'codemm:signed-out';
 export const NO_AGENT = 'codemm:no-agent';
 export const PLAN_LIMIT = 'codemm:plan-limit';
+/** This computer couldn't reach the network: the agent's service, or a build's downloads. */
+export const OFFLINE = 'codemm:offline';
 /** An agent job failed or wasn't done by its check (§5). */
 export const AGENT_FAILED = 'codemm:agent-failed';
 /** A damaged Codemm record. The message's next lines are core's repair guidance (§5). */
@@ -64,10 +66,27 @@ export interface ComputerCheck {
   detail?: 'starting' | 'windows-containers';
 }
 
+/**
+ * Codemm installing Docker Desktop for the learner (§6.1). `starting`: installed and opened; Docker's own window
+ * asks the learner to accept its terms. Problems: `offline` and `disk` are this computer's; `unverified`: the
+ * download wasn't signed by Docker, so it was deleted; `manual`: drag Docker to Applications in the window that
+ * opened; `restart`: Windows needs a restart; `failed`: Docker's installer didn't finish.
+ */
+export interface DockerInstall {
+  phase: 'downloading' | 'checking' | 'installing' | 'starting' | 'failed';
+  /** 0 to 1 while downloading. */
+  progress?: number;
+  problem?: 'offline' | 'disk' | 'unverified' | 'manual' | 'restart' | 'failed';
+}
+
 export interface Computer {
   platform: Platform;
   checks: ComputerCheck[];
   ready: boolean;
+  /** Codemm can install and open Docker Desktop here (macOS and Windows). */
+  canInstall?: boolean;
+  /** An install Codemm started, while it runs and after it fails. */
+  install?: DockerInstall;
 }
 
 // ---------- roadmap (§4.2) ----------
@@ -159,7 +178,7 @@ export interface CourseView {
   topics: TopicView[];
   done: boolean;
   /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
-  stalled?: 'plan-limit' | 'signed-out' | 'failed' | 'unstoppable';
+  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'failed' | 'unstoppable';
 }
 
 export interface Lesson {
@@ -256,6 +275,10 @@ export interface CodemmApi {
   /** Hears what research is looking at while it runs; returns a function that stops listening. An event, not a call. */
   onResearchProgress(listener: (progress: ResearchProgress) => void): () => void;
   computer(): Promise<Computer>;
+  /** Downloads Docker Desktop from Docker, checks Docker signed it, installs and opens it. Follow it with computer(). */
+  installDocker(): Promise<void>;
+  /** Opens Docker Desktop. */
+  openDocker(): Promise<void>;
   tracks(): Promise<Track[]>;
 
   /** Starts the research job on the first call; call again to follow it. */

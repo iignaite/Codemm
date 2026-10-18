@@ -1,4 +1,4 @@
-import type { CheckId, Platform } from '../../../shared/api';
+import type { CheckId, DockerInstall, Platform } from '../../../shared/api';
 
 export interface Fix {
   steps: string[];
@@ -19,7 +19,29 @@ export const NOT_YET: Record<CheckId, string> = {
 };
 
 const START_DESKTOP: Fix = {
-  steps: ['Open Docker Desktop.', 'Wait until it says Docker Desktop is running.'],
+  steps: ['Open Docker Desktop, then wait until it says it is running.'],
+};
+
+/** Installing Docker Desktop for the learner (§6.1). The phase line names what is happening now. */
+export const INSTALL = {
+  terms: "Docker Desktop is free for personal use. Docker's terms apply.",
+  termsUrl: 'https://www.docker.com/legal/docker-subscription-service-agreement/',
+  phase: {
+    downloading: 'Downloading Docker Desktop',
+    checking: "Checking it's from Docker…",
+    installing: { mac: 'Installing Docker…', windows: "Finish in Docker's installer.", linux: 'Installing Docker…' },
+    starting: "Opening Docker. When it asks, accept Docker's terms in its window.",
+  },
+  problem: {
+    offline: "You're offline. Connect to the internet, then try again.",
+    disk: 'Not enough disk space. Free up a few GB, then try again.',
+    unverified: "The download wasn't signed by Docker, so Codemm deleted it.",
+    manual: 'Drag Docker to Applications in the window that opened.',
+    restart: 'Restart Windows, then open Codemm again.',
+    failed: "Docker's installer didn't finish.",
+  } satisfies Record<NonNullable<DockerInstall['problem']>, string>,
+  /** Problems where trying again can help; the others need the learner first. */
+  retry: new Set<DockerInstall['problem']>(['offline', 'disk', 'unverified', 'failed']),
 };
 
 /** A running problem with a known cause replaces the usual fix (§6.1). */

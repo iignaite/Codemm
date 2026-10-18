@@ -6,7 +6,7 @@ import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentId } from '../../shared/api';
 import { AGENT_CLIS, PLAN_LIMIT, type AgentEvent, type Invocation, type McpServer, type ResearchStep } from './agents';
-import { spendsNoRetry } from '../core/failures';
+import { infra as infraOf, spendsNoRetry } from '../core/failures';
 import { run, type Executable } from './bridge';
 
 export type JobKind = 'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor';
@@ -32,8 +32,11 @@ export const JOBS: Record<JobKind, JobSpec> = {
 /** Failed saves that end a job (§3.2). */
 export const SAVE_BOUND = 3;
 
+/** Network errors in an agent's `done` error: it couldn't reach its own service (§6.1). PLAN_LIMIT lives with the agents. */
+const OFFLINE = /connection error|ENOTFOUND|EAI_AGAIN|network is unreachable|could not resolve host|error sending request|connection lost/i;
+
 /** `infra`: Docker, disk, network or the Codemm server failed: nothing is recorded and no attempt is spent (§6.1). `unstoppable`: a cancel the agent survived. */
-export type JobProblem = 'plan-limit' | 'signed-out' | 'failed' | 'infra' | 'unstoppable';
+export type JobProblem = 'plan-limit' | 'signed-out' | 'offline' | 'failed' | 'infra' | 'unstoppable';
 
 export interface JobOutcome {
   ok: boolean;
@@ -78,8 +81,8 @@ interface Attempt {
   text: string[];
   /** A cancel the agent's process group survived (§3.1). */
   unstoppable: boolean;
-  /** `server`: the Codemm server didn't start. `tool`: a Codemm tool hit Docker, disk or network. `unstarted`: the agent exited before it started. */
-  infra?: 'server' | 'tool' | 'unstarted';
+  /** `server`: the Codemm server didn't start. `tool`: a Codemm tool hit Docker or disk; `offline`: the network. `unstarted`: the agent exited before it started. */
+  infra?: 'server' | 'tool' | 'offline' | 'unstarted';
 }
 
 /**
@@ -139,7 +142,7 @@ async function once(job: Job): Promise<Attempt> {
     }
     if (e.type === 'tool_call' && spec.save && e.name === `codemm.${spec.save}`) saves.add(e.id);
     if (e.type === 'tool_result' && e.error && e.text && spendsNoRetry(e.text)) {
-      infra = 'tool';
+      infra = infraOf(e.text) === 'offline' ? 'offline' : 'tool';
       stop.abort();
     }
     if (e.type === 'tool_result' && e.error && saves.has(e.id) && ++failedSaves >= SAVE_BOUND) stop.abort();
@@ -176,6 +179,7 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };
     if (job.signal?.aborted) break;
     if (last.error && PLAN_LIMIT.test(last.error)) return { ok: false, problem: 'plan-limit', text: last.text };
+    if (last.infra === 'offline' || (last.error && OFFLINE.test(last.error))) return { ok: false, problem: 'offline', text: last.text };
     if (last.infra === 'server' || last.infra === 'tool') return { ok: false, problem: 'infra', text: last.text };
     if (!(await job.signedIn())) return { ok: false, problem: 'signed-out', text: last.text };
     if (last.infra === 'unstarted') return { ok: false, problem: 'infra', text: last.text };
