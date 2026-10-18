@@ -33,21 +33,24 @@ describe('live CodemmApi', () => {
     expect(t.jobs.ran.map((j) => j.model)).toEqual(['sonnet', 'haiku']);
   });
 
-  it('forwards check progress to listeners, counts only, until they stop listening', async () => {
+  it('forwards check progress to listeners, each visible test\'s result but nothing hidden, until they stop listening', async () => {
     const t = live();
     const { id } = await practising(t);
     const seen: unknown[] = [];
     const off = t.api.onCheckProgress((p) => seen.push(p));
     await t.api.tryIt(id, 'run-1');
     await t.api.check(id, 'run-2');
+    const test = { name: 'visible/01', status: 'fail', message: 'Output differs from the expected output.', actual: '0\n' };
     expect(seen).toEqual([
       { run: 'run-1', phase: 'visible', done: 1, total: 1 },
+      { run: 'run-1', phase: 'visible', done: 1, total: 1, test },
       { run: 'run-2', phase: 'visible', done: 1, total: 1 },
       { run: 'run-2', phase: 'hidden', done: 1, total: 2 },
     ]);
+    expect(JSON.stringify(seen)).not.toContain('CANARY');
     off();
     await t.api.check(id, 'run-3');
-    expect(seen).toHaveLength(3);
+    expect(seen).toHaveLength(4);
   });
 
   it('runs the program with typed input, sends what it prints tagged with the run, and records nothing', async () => {

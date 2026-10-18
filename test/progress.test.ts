@@ -27,11 +27,12 @@ describe.runIf(posix)("check progress", () => {
     fakeDocker("streams");
     const seen: (CheckProgress & { at: number })[] = [];
     await app.checkExercise(ws, undefined, undefined, (p) => seen.push({ ...p, at: Date.now() }));
-    expect(seen.map(({ phase, done, total }) => [phase, done, total])).toEqual([
-      ["building", 0, 0],
-      ["visible", 0, 1],
-      ["visible", 1, 1],
-      ["hidden", 0, 0],
+    expect(seen.map(({ phase, done, total, test }) => [phase, done, total, test?.status])).toEqual([
+      ["building", 0, 0, undefined],
+      ["visible", 0, 1, undefined],
+      ["visible", 1, 1, undefined],
+      ["visible", 1, 1, "fail"],
+      ["hidden", 0, 0, undefined],
     ]);
     // Streamed, not reported all at once when the container exits: the fake waits 0.2 s after the build.
     const visible = seen.filter((p) => p.phase === "visible");
@@ -57,12 +58,16 @@ describe.runIf(posix)("check progress", () => {
     expect(store.readEvents("shell")).toEqual([]);
   });
 
-  it("carries only a phase and counts: no test names, inputs or output", async () => {
+  it("carries each visible test's result as it finishes; hidden progress carries a phase and counts only", async () => {
     const ws = await installedExercise();
     fakeDocker("streams");
     const seen: CheckProgress[] = [];
     await app.checkExercise(ws, undefined, undefined, (p) => seen.push(p));
-    for (const p of seen) expect(Object.keys(p).sort()).toEqual(["done", "phase", "total"]);
+    expect(seen.filter((p) => p.test)).toEqual([
+      { phase: "visible", done: 1, total: 1, test: { name: "visible/01", status: "fail", message: "Output differs from the expected output.", actual: "0\n" } },
+    ]);
+    for (const p of seen.filter((p) => !p.test)) expect(Object.keys(p).sort()).toEqual(["done", "phase", "total"]);
+    for (const p of seen.filter((p) => p.phase === "hidden")) expect(p).toEqual({ phase: "hidden", done: 0, total: 0 });
   });
 
   it("reports the visible tests only for Try it", async () => {
@@ -70,7 +75,7 @@ describe.runIf(posix)("check progress", () => {
     fakeDocker("streams");
     const seen: CheckProgress[] = [];
     await app.testExercise(ws, undefined, undefined, (p) => seen.push(p));
-    expect(seen.map((p) => p.phase)).toEqual(["building", "visible", "visible"]);
+    expect(seen.map((p) => p.phase)).toEqual(["building", "visible", "visible", "visible"]);
   });
 });
 

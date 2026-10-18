@@ -12,7 +12,7 @@
   </picture>
 </p>
 
-<p align="center"><strong>Enhance your coding journey with your own coding agent.</strong></p>
+<p align="center"><strong>Supercharge your coding journey with your own coding agent.</strong></p>
 
 <p align="center">
   <a href="https://github.com/iignaite/Codemm/actions/workflows/ci.yml"><img src="https://github.com/iignaite/Codemm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>

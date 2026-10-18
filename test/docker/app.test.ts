@@ -77,12 +77,15 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   it("runs visible tests without recording an attempt, reporting progress as it goes", async () => {
     const seen: app.CheckProgress[] = [];
     const r = await app.testExercise(ws, undefined, undefined, (p) => seen.push(p));
-    expect(seen).toEqual([
+    expect(seen.filter((p) => !p.test)).toEqual([
       { phase: "building", done: 0, total: 0 },
       { phase: "visible", done: 0, total: 1 },
       { phase: "visible", done: 1, total: 1 },
     ]);
     expect(r.tests.map((t) => t.status)).toEqual(["fail"]);
+    // Each visible test's result arrives as it finishes, the same as Results shows it.
+    const streamed = seen.filter((p) => p.test).map((p) => p.test);
+    expect(streamed).toEqual([{ name: "visible/01", status: "fail", message: r.tests[0]!.message, actual: r.tests[0]!.actual }]);
     expect(readEvents("shell")).toEqual([]);
   });
 

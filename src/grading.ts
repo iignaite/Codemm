@@ -43,14 +43,32 @@ export function parseFrames(buf: Buffer): Frame[] {
   return frames;
 }
 
+/** One io case as the driver framed it: its output (from a `case` or `big` frame), then its stderr. */
+export type CaseFrames = { name: string; exit: number; stdout: string; stderr: string; big: boolean };
+
 /**
- * Follows the driver's frames as they stream, for progress only, never grading. It keeps no bodies and decodes
- * only headers: "built" when the build frame arrives, then the count of finished io cases (case or big).
+ * Follows the driver's frames as they stream, for progress: "built" when the build frame arrives, then the count
+ * of finished io cases (case or big). Without `onCase` it keeps no bodies and decodes only headers. With it, each
+ * case is handed over whole once its stderr frame ends; the caller passes it only for visible tests.
  */
-export function frameProgress(on: (milestone: "built" | number) => void): (chunk: Buffer) => void {
+
+export function frameProgress(on: (milestone: "built" | number) => void, onCase?: (c: CaseFrames) => void): (chunk: Buffer) => void {
   let pending = Buffer.alloc(0); // a marker or header split across chunks
   let skip = 0; // body bytes still to pass over
   let cases = 0;
+  // With onCase, case, big and stderr bodies are kept; a case is handed over once its stderr frame ends.
+  let kept: { kind: string; name: string; exit: number; parts: Buffer[] } | undefined;
+  let waiting: Omit<CaseFrames, "stderr"> | undefined;
+  const finish = () => {
+    const f = kept!;
+    kept = undefined;
+    const body = Buffer.concat(f.parts).toString("utf8");
+    if (f.kind !== "stderr") waiting = { name: f.name, exit: f.exit, stdout: body, big: f.kind === "big" };
+    else {
+      if (waiting?.name === f.name) onCase!({ ...waiting, stderr: body });
+      waiting = undefined;
+    }
+  };
   return (chunk) => {
     const buf = pending.length ? Buffer.concat([pending, chunk]) : chunk;
     pending = Buffer.alloc(0);
@@ -58,8 +76,10 @@ export function frameProgress(on: (milestone: "built" | number) => void): (chunk
     while (pos < buf.length) {
       if (skip > 0) {
         const n = Math.min(skip, buf.length - pos);
+        kept?.parts.push(Buffer.from(buf.subarray(pos, pos + n)));
         skip -= n;
         pos += n;
+        if (skip === 0 && kept) finish();
         continue;
       }
       const start = buf.indexOf(MARKER, pos);
@@ -72,13 +92,17 @@ export function frameProgress(on: (milestone: "built" | number) => void): (chunk
         if (buf.length - start <= 1024) pending = Buffer.from(buf.subarray(start)); // a real header is short
         return;
       }
-      const [kind, , , bytes] = buf.toString("utf8", start + MARKER.length, headerEnd).split(" ");
+      const [kind, name, exit, bytes] = buf.toString("utf8", start + MARKER.length, headerEnd).split(" ");
       const size = Number(bytes);
       pos = headerEnd + 1;
       if (!Number.isInteger(size) || size < 0) continue;
       skip = size;
       if (kind === "build") on("built");
       if (kind === "case" || kind === "big") on((cases += 1));
+      if (onCase && (kind === "case" || kind === "big" || kind === "stderr")) {
+        kept = { kind, name: name ?? "", exit: Number(exit), parts: [] };
+        if (size === 0) finish();
+      }
     }
   };
 }
