@@ -331,12 +331,19 @@ export function buildProblem(log: string): BuildProblem | undefined {
   return undefined;
 }
 
-/** The kind of a runtime's own failure, from its diagnostics: out of disk or offline when it says so, else Docker. */
-export function runtimeKind(text: string): "disk" | "offline" | "docker" {
+/**
+ * This computer's problem that a runtime diagnostic shows, if any: out of disk, offline, or Docker itself. The
+ * markers are the ones the desktop read from messages before errors carried a kind, so nothing reads differently.
+ */
+export function infraKind(text: string): "disk" | "offline" | "docker" | undefined {
   if (/not enough disk space|ran out of disk space|no space left on device/i.test(text)) return "disk";
   if (/couldn't reach the network|could not resolve host|network is unreachable/i.test(text)) return "offline";
-  return "docker";
+  if (/container runtime|Windows containers|Cannot connect to the Docker daemon|error getting credentials|container couldn't be removed|Couldn't list Codemm's containers|container couldn't start/i.test(text)) return "docker";
+  return undefined;
 }
+
+/** The kind of a runtime's own failure: what its diagnostic shows, else Docker. */
+export const runtimeKind = (text: string): "disk" | "offline" | "docker" => infraKind(text) ?? "docker";
 
 /** A track build is killed after 10 minutes (DESIGN §4.4). */
 export const BUILD_TIMEOUT_MS = 600_000;

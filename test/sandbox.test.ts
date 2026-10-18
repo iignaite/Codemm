@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GateError } from "../src/gates.js";
 import { buildProblem, buildStep, runtimeHelp, runtimeKind, runtimeProblem, sandboxArgs, startHelp } from "../src/sandbox.js";
 
 describe("sandboxArgs", () => {
@@ -174,5 +175,15 @@ describe("runtimeKind", () => {
     expect(runtimeKind("docker: Error response from daemon: dial tcp: network is unreachable.")).toBe("offline");
     expect(runtimeKind("Error: could not resolve host registry-1.docker.io")).toBe("offline");
     expect(runtimeKind("docker: Error response from daemon: Conflict.")).toBe("docker");
+  });
+});
+
+describe("gate failures that are this computer's problem", () => {
+  it("carry the kind their details show, so setup keeps the proposal, and plain gate failures carry none", () => {
+    expect(new GateError("probe pass", "the io pass probe should pass every test:\n  01: error (write: no space left on device)").kind).toBe("disk");
+    expect(new GateError("build", "the image didn't build:\nfailed to create container runtime task").kind).toBe("docker");
+    expect(new GateError("build", "the image didn't build:\nDocker is running Windows containers").kind).toBe("docker");
+    expect(new GateError("build", "the image didn't build:\ncould not resolve host: deb.debian.org").kind).toBe("offline");
+    expect(new GateError("starter unsolved", "the unedited starter passes every test.").kind).toBeUndefined();
   });
 });
