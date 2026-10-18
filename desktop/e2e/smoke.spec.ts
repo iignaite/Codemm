@@ -1,4 +1,4 @@
-import { _electron as electron, expect, test } from '@playwright/test';
+import { expect, test } from './launch';
 import { readFileSync, realpathSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -8,9 +8,8 @@ import { removeTempDirs, tempDir } from './temp';
 test.afterAll(removeTempDirs);
 
 // Launches the built app with the mock (CODEMM_MOCK) and walks the main journey.
-test('connect, computer check, goal, course, lesson and practice', async () => {
-  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: '' } });
-  const page = await app.firstWindow();
+test('connect, computer check, goal, course, lesson and practice', async ({ launch }) => {
+  const { app, page } = await launch();
   const button = (name: string) => page.getByRole('button', { name, exact: true });
   const heading = (name: string) => page.getByRole('heading', { name, exact: true });
 
@@ -50,9 +49,8 @@ test('connect, computer check, goal, course, lesson and practice', async () => {
 });
 
 // Learners who lack a prerequisite get a specific next step, acted out by the mock.
-test('no agent installed: Install, or get it by hand, on the connect screen', async () => {
-  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: 'no-agent' } });
-  const page = await app.firstWindow();
+test('no agent installed: Install, or get it by hand, on the connect screen', async ({ launch }) => {
+  const { app, page } = await launch('no-agent');
   // macOS and Windows: Welcome offers to install what's missing, and connecting by hand stays possible.
   await expect(page.getByRole('button', { name: "Install what's missing", exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Connect an agent', exact: true }).click();
@@ -65,9 +63,8 @@ test('no agent installed: Install, or get it by hand, on the connect screen', as
   await app.close();
 });
 
-test('no Docker: Install Docker, a link to do it by hand, and a re-check', async () => {
-  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: 'no-docker' } });
-  const page = await app.firstWindow();
+test('no Docker: Install Docker, a link to do it by hand, and a re-check', async ({ launch }) => {
+  const { app, page } = await launch('no-docker');
   await page.getByRole('button', { name: 'Connect an agent', exact: true }).click();
   await page.getByRole('listitem', { name: 'Claude Code' }).getByRole('button', { name: 'Connect' }).click();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -84,9 +81,8 @@ test('no Docker: Install Docker, a link to do it by hand, and a re-check', async
 
 // D2: the window is the app's own origin under the spec's CSP, with no Node, no remote requests,
 // no frames, no navigation and no new windows.
-test('renderer security', async () => {
-  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: '' } });
-  const page = await app.firstWindow();
+test('renderer security', async ({ launch }) => {
+  const { app, page } = await launch();
   await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
   expect(page.url()).toBe('app://codemm/index.html');
   expect(await page.evaluate(() => [typeof (window as unknown as { require?: unknown }).require, typeof (window as unknown as { process?: unknown }).process])).toEqual(['undefined', 'undefined']);
@@ -123,9 +119,8 @@ test('renderer security', async () => {
 
 // N3: a rejected call reaches the renderer as Codemm's own message, without Electron's
 // "Error invoking remote method" envelope, so codes like codemm:repair still match.
-test('errors cross IPC as their own message', async () => {
-  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: '' } });
-  const page = await app.firstWindow();
+test('errors cross IPC as their own message', async ({ launch }) => {
+  const { app, page } = await launch();
   await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
   const messages = await page.evaluate(async () => {
     const bridge = (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<unknown> } }).codemm;
@@ -137,10 +132,9 @@ test('errors cross IPC as their own message', async () => {
 });
 
 // A separate profile (--user-data-dir) keeps its log too, so runs with one never write to the learner's log.
-test('logs live under a given user-data-dir', async () => {
+test('logs live under a given user-data-dir', async ({ launch }) => {
   const dir = realpathSync(tempDir('codemm-profile-'));
-  const app = await electron.launch({ args: ['.', `--user-data-dir=${dir}`], env: { ...process.env, CODEMM_MOCK: '' } });
-  const page = await app.firstWindow();
+  const { app, page } = await launch('', { args: [`--user-data-dir=${dir}`] });
   await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
   expect(await app.evaluate(({ app: a }) => a.getPath('logs'))).toBe(join(dir, 'logs'));
   await app.close();
@@ -149,9 +143,8 @@ test('logs live under a given user-data-dir', async () => {
 
 // Check progress: main sends it to the app window, the preload hands the page only a phase and counts,
 // and the renderer can't call it as a method.
-test('check progress reaches the page as phase and counts only', async () => {
-  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: '' } });
-  const page = await app.firstWindow();
+test('check progress reaches the page as phase and counts only', async ({ launch }) => {
+  const { app, page } = await launch();
   await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
   const { events, asCall } = await page.evaluate(async () => {
     type P = { phase: string; done: number; total: number };
@@ -194,9 +187,8 @@ test('check progress reaches the page as phase and counts only', async () => {
 
 // Run: main sends a program's output only to the window that started it; the page hears it tagged with its run,
 // types into it, and can't call onRunOutput as a method.
-test('Run streams a program through the bridge, with typed input', async () => {
-  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: 'io-track' } });
-  const page = await app.firstWindow();
+test('Run streams a program through the bridge, with typed input', async ({ launch }) => {
+  const { app, page } = await launch('io-track');
   await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
   const { events, result, asCall } = await page.evaluate(async () => {
     type O = Record<string, unknown>;
@@ -246,7 +238,7 @@ test('Run streams a program through the bridge, with typed input', async () => {
 
 // Auto-update (§7.2) against a local feed: electron-updater reads the feed, finds a newer version, and this unsigned
 // development build says so with the release's page, without downloading anything.
-test('auto-update finds a newer version on a feed, and an unsigned build only links to it', async () => {
+test('auto-update finds a newer version on a feed, and an unsigned build only links to it', async ({ launch }) => {
   const requests: string[] = [];
   const feed = [
     'version: 99.0.0',
@@ -269,8 +261,7 @@ test('auto-update finds a newer version on a feed, and an unsigned build only li
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const { port } = server.address() as AddressInfo;
   try {
-    const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: '', CODEMM_UPDATE_FEED: `http://127.0.0.1:${port}/` } });
-    const page = await app.firstWindow();
+    const { app, page } = await launch('', { env: { CODEMM_UPDATE_FEED: `http://127.0.0.1:${port}/` } });
     await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
     const update = () => page.evaluate(() => (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<unknown> } }).codemm.invoke('update', []));
     await expect.poll(update, { timeout: 15_000 }).toEqual({ kind: 'available', version: '99.0.0', url: 'https://github.com/iignaite/Codemm/releases/tag/v99.0.0' });
