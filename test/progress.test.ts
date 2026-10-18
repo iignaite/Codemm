@@ -70,6 +70,19 @@ describe.runIf(posix)("check progress", () => {
     for (const p of seen.filter((p) => p.phase === "hidden")) expect(p).toEqual({ phase: "hidden", done: 0, total: 0 });
   });
 
+  it("shows each hidden test as an index and a status only, in the result and its progress", async () => {
+    const ws = await installedExercise();
+    fakeDocker("streams");
+    const seen: CheckProgress[] = [];
+    const view = await app.checkExercise(ws, undefined, undefined, (p) => seen.push(p));
+    const hidden = view.tests.filter((t) => t.name.startsWith("hidden"));
+    expect(hidden.map((t) => Object.keys(t).sort())).toEqual([["name", "status"], ["name", "status"], ["name", "status"]]);
+    expect(hidden.map((t) => t.name)).toEqual(["hidden #1", "hidden #2", "hidden #3"]);
+    // Nothing from the hidden files: their names, inputs or expected outputs.
+    const out = JSON.stringify({ view, seen });
+    for (const secret of ["hidden/01", "hidden/02", "hidden/03", "-1\\n", "7\\n"]) expect(out).not.toContain(secret);
+  });
+
   it("reports the visible tests only for Try it", async () => {
     const ws = await installedExercise();
     fakeDocker("streams");
@@ -81,16 +94,7 @@ describe.runIf(posix)("check progress", () => {
 
 describe.runIf(posix)("check progress for unit exercises", () => {
   it("reports each phase once, with no count, because the runner reports at the end", async () => {
-    const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
-    const track = readFileMap(join(fixtures, "tracks", "shell-unit"));
-    store.commitFolder(store.trackDir("shell-unit@1"), track, {
-      "track.json": { format_version: 1, ...parseTrackYaml(track["track.yaml"]!), image: "codemm-track-shell-unit:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
-    });
-    await app.saveRoadmap(ws, "units", "goal: Units\ntrack: shell-unit@1\nstyle: unit\nconcepts:\n  - { id: sh.loops, title: Loops, requires: [] }\n");
-    store.commitFolder(store.exerciseDir("units", "maxof"), readFileMap(join(fixtures, "exercises", "unit-max")), {
-      "exercise.json": { format_version: 1, slug: "maxof", style: "unit", concepts: ["sh.loops"], difficulty: 1, track: "shell-unit@1", createdAt: new Date().toISOString(), inventory: { visible: ["t"], hidden: ["t"] } },
-    });
-    await app.getExercise(ws, "maxof");
+    const ws = await unitExercise();
     fakeDocker("streams");
     const seen: CheckProgress[] = [];
     await app.checkExercise(ws, undefined, undefined, (p) => seen.push(p));
@@ -99,7 +103,30 @@ describe.runIf(posix)("check progress for unit exercises", () => {
       { phase: "hidden", done: 0, total: 0 },
     ]);
   });
+
+  it("masks a hidden unit test's name, even in the result for a test the runner didn't report", async () => {
+    const ws = await unitExercise(["secret-edge-case"]);
+    fakeDocker("streams");
+    const view = await app.checkExercise(ws);
+    expect(view.tests.filter((t) => t.name.startsWith("hidden"))).toEqual([{ name: "hidden #1", status: expect.any(String) }]);
+    expect(JSON.stringify(view)).not.toContain("secret");
+  });
 });
+
+/** A workspace whose unit exercise (visible test "t", and `hidden`) is installed with a fake image. */
+async function unitExercise(hidden = ["t"]) {
+  const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+  const track = readFileMap(join(fixtures, "tracks", "shell-unit"));
+  store.commitFolder(store.trackDir("shell-unit@1"), track, {
+    "track.json": { format_version: 1, ...parseTrackYaml(track["track.yaml"]!), image: "codemm-track-shell-unit:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
+  });
+  await app.saveRoadmap(ws, "units", "goal: Units\ntrack: shell-unit@1\nstyle: unit\nconcepts:\n  - { id: sh.loops, title: Loops, requires: [] }\n");
+  store.commitFolder(store.exerciseDir("units", "maxof"), readFileMap(join(fixtures, "exercises", "unit-max")), {
+    "exercise.json": { format_version: 1, slug: "maxof", style: "unit", concepts: ["sh.loops"], difficulty: 1, track: "shell-unit@1", createdAt: new Date().toISOString(), inventory: { visible: ["t"], hidden } },
+  });
+  await app.getExercise(ws, "maxof");
+  return ws;
+}
 
 /** A workspace whose io exercise (1 visible, 3 hidden tests) is installed with a fake image and edited. */
 async function installedExercise(): Promise<string> {
