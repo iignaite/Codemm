@@ -163,6 +163,25 @@ describe.runIf(posix)("a check that loses Docker mid-run", () => {
   });
 });
 
+describe.runIf(posix)("a check whose program is killed", () => {
+  it.each([
+    ["caseoom", /^It ran out of memory \(memory_mb 128\)/],
+    ["casekill", /^It took longer than 2000 ms/],
+  ] as const)("tells a time-out from a memory kill the runtime recorded (%s)", async (scenario, message) => {
+    const ws = await installedExercise();
+    fakeDocker(scenario);
+    const r = await app.checkExercise(ws);
+    expect(r.tests[0]).toMatchObject({ status: "error", message: expect.stringMatching(message) });
+    expect(r.recorded).toBe(true);
+  });
+
+  it("says a track's test runner ran out of memory, not just that it was killed", async () => {
+    fakeDocker("unitoom");
+    const unit = readFileMap(join(fixtures, "tracks", "shell-unit"));
+    await expect(app.saveTrack(unit)).rejects.toThrow(/Gate "probe pass"[\s\S]*The test runner ran out of memory \(memory_mb 128\)/);
+  });
+});
+
 /** A workspace whose exercise is installed (with a fake image) and edited, ready to check. */
 async function installedExercise(): Promise<string> {
   const ws = tempDir("codemm-ws-");
