@@ -35,6 +35,9 @@ function packaging(env, platform = process.platform) {
     // Whether this build is signed: a signed one downloads updates and offers Restart to update; an unsigned one
     // only says a new version is out, with a link to Releases.
     extraMetadata: { codemm: { signed } },
+    // A build meant to be signed fails rather than ship unsigned: electron-builder otherwise only warns when it finds
+    // no signing identity, and the app would still trust codemm.signed.
+    forceCodeSigning: signed,
     mac: {
       // Squirrel.Mac updates from the zip; the dmg is for first installs.
       target: [

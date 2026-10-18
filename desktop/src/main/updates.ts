@@ -81,6 +81,59 @@ export function downloaded(doneOn: Pick<NodeJS.EventEmitter, 'once' | 'off'>, er
   });
 }
 
+/** Runs a program and gives its stdout. */
+type Exec = (file: string, args: string[], env: NodeJS.ProcessEnv) => Promise<string>;
+
+/** A distinguished name's parts, such as CN and O, by key. */
+function dn(name: string): Map<string, string> {
+  return new Map(
+    name.split(/,\s*(?=[A-Za-z.]+=)/).map((part) => {
+      const at = part.indexOf('=');
+      return [part.slice(0, at).trim().toUpperCase(), part.slice(at + 1).trim().replace(/^"(.*)"$/, '$1')] as [string, string];
+    }),
+  );
+}
+
+/** A publisher given by name matches the signer's CN; one given as a full name must match every part it names. */
+function signedBy(subject: string, publisher: string): boolean {
+  const signer = dn(subject);
+  if (!publisher.includes('=')) return signer.get('CN') === publisher;
+  return [...dn(publisher)].every(([key, value]) => signer.get(key) === value);
+}
+
+/**
+ * The Windows update's signature check, in place of electron-updater's, which lets an update through when PowerShell
+ * can't run. This one fails closed: only a valid Authenticode signature from an expected publisher passes; anything
+ * else, a check that couldn't run included, returns why and stops the install. The file reaches PowerShell through
+ * the environment, never inside the command.
+ */
+export async function verifyWindowsSignature(publisherNames: string[], file: string, exec: Exec): Promise<string | null> {
+  if (publisherNames.length === 0) return 'The update has no publisher to check its signature against.';
+  let out: string;
+  try {
+    out = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-InputFormat', 'None', '-Command', 'Get-AuthenticodeSignature -LiteralPath $env:CODEMM_UPDATE_FILE | ConvertTo-Json -Compress'], { ...process.env, CODEMM_UPDATE_FILE: file });
+  } catch (e) {
+    return `The update's signature couldn't be checked: ${e instanceof Error ? e.message : String(e)}`;
+  }
+  let data: { Status?: unknown; SignerCertificate?: { Subject?: unknown } };
+  try {
+    data = JSON.parse(out);
+  } catch {
+    return "The update's signature couldn't be read.";
+  }
+  // 0 is Valid in System.Management.Automation.SignatureStatus.
+  if (data?.Status !== 0) return `The update isn't validly signed (status ${String(data?.Status)}).`;
+  const subject = typeof data.SignerCertificate?.Subject === 'string' ? data.SignerCertificate.Subject : '';
+  if (!publisherNames.some((name) => signedBy(subject, name))) return `The update is signed by someone else: ${subject}`;
+  return null;
+}
+
+const powershell: Exec = (file, args, env) =>
+  new Promise((resolve, reject) => {
+    const { execFile } = require('node:child_process') as typeof import('node:child_process');
+    execFile(file, args, { env, timeout: 20_000, windowsHide: true }, (error, stdout) => (error ? reject(error) : resolve(stdout)));
+  });
+
 /**
  * electron-updater, set up for this build. It never downloads on its own: `updates` decides. `feed` replaces the
  * GitHub feed with a generic one, for tests against a local server.
@@ -92,6 +145,10 @@ export function electronUpdater(current: string, signed: boolean, feed?: string)
   autoUpdater.allowPrerelease = isPrerelease(current);
   autoUpdater.allowDowngrade = false;
   autoUpdater.logger = null;
+  // A signed Windows build checks each update's signature, and refuses it when the check can't run.
+  if (process.platform === 'win32' && signed) {
+    (autoUpdater as import('electron-updater').NsisUpdater).verifyUpdateCodeSignature = (names, file) => verifyWindowsSignature(names, file, powershell);
+  }
   if (feed) {
     autoUpdater.forceDevUpdateConfig = true;
     autoUpdater.setFeedURL({ provider: 'generic', url: feed });

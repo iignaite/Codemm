@@ -19,6 +19,12 @@ describe('packaging', () => {
     ]);
   });
 
+  it('fails a build that should be signed but could not be, instead of shipping it unsigned', () => {
+    // electron-builder otherwise only warns when it finds no signing identity.
+    expect(packaging({}, 'darwin').forceCodeSigning).toBe(false);
+    expect(packaging({ CSC_LINK: 'base64-p12' }, 'darwin').forceCodeSigning).toBe(true);
+  });
+
   it('marks a build signed only by its own platform\'s signing settings', () => {
     const azure = { AZURE_SIGNING_ENDPOINT: 'https://e/', AZURE_SIGNING_ACCOUNT: 'a', AZURE_SIGNING_PROFILE: 'p', AZURE_SIGNING_PUBLISHER: 'Codemm' };
     expect(packaging({ CSC_LINK: 'base64-p12' }, 'darwin').extraMetadata).toEqual({ codemm: { signed: true } });

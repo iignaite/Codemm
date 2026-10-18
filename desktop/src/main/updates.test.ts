@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { downloaded, isPrerelease, updates, type Updater } from './updates';
+import { downloaded, isPrerelease, updates, verifyWindowsSignature, type Updater } from './updates';
 
 /** An updater whose next check finds `next` (or nothing), recording downloads and installs. */
 function fake(next: string | null = '1.2.0') {
@@ -136,5 +136,33 @@ describe('updates', () => {
     const third = downloaded(wrapper, wrapper, async () => undefined);
     wrapper.emit('update-downloaded');
     await expect(third).resolves.toBeUndefined();
+  });
+
+  describe('the Windows signature check, which fails closed', () => {
+    const signed = (subject: string, status = 0) => async () => JSON.stringify({ Status: status, SignerCertificate: { Subject: subject } });
+    const file = 'C:\\Users\\me\\AppData\\Local\\codemm-desktop-updater\\pending\\Codemm-1.2.0.exe';
+
+    it('accepts only a valid signature from the expected publisher, by name or by full name', async () => {
+      expect(await verifyWindowsSignature(['Codemm'], file, signed('CN=Codemm, O=Codemm, C=PH'))).toBeNull();
+      expect(await verifyWindowsSignature(['CN=Codemm, O=Codemm'], file, signed('CN=Codemm, O=Codemm, C=PH'))).toBeNull();
+      expect(await verifyWindowsSignature(['Codemm'], file, signed('CN=Someone Else, O=Codemm'))).toMatch(/signed by someone else/);
+      expect(await verifyWindowsSignature(['Codemm'], file, signed('CN=Codemm', 2))).toMatch(/isn't validly signed/);
+    });
+
+    it("rejects the update when the check can't run or its answer can't be read", async () => {
+      const blocked = async () => {
+        throw new Error('powershell is disabled by policy');
+      };
+      expect(await verifyWindowsSignature(['Codemm'], file, blocked)).toMatch(/couldn't be checked/);
+      expect(await verifyWindowsSignature(['Codemm'], file, async () => 'not json')).toMatch(/couldn't be read/);
+      expect(await verifyWindowsSignature([], file, signed('CN=Codemm'))).toMatch(/no publisher/);
+    });
+
+    it('passes the file to PowerShell in the environment, never inside the command', async () => {
+      let seen: { args: string[]; env: Record<string, string | undefined> } | undefined;
+      await verifyWindowsSignature(['Codemm'], "C:\\x\\a';calc;'.exe", async (_exe, args, env) => ((seen = { args, env }), JSON.stringify({ Status: 0, SignerCertificate: { Subject: 'CN=Codemm' } })));
+      expect(seen!.args.join(' ')).not.toContain('calc');
+      expect(seen!.env.CODEMM_UPDATE_FILE).toBe("C:\\x\\a';calc;'.exe");
+    });
   });
 });
