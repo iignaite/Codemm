@@ -4,7 +4,6 @@
   "installCommand": "npm ci",
   "buildCommand": "node build.mjs",
   "outputDirectory": "dist",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- .",
   "cleanUrls": true,
   "headers": [
     {

@@ -54,6 +54,20 @@ The tests cover OS detection, the Mac chip choice, the copy (it says only what C
 
 ## Deploy
 
-The Vercel project `codemm` in the owner's personal scope (gael55xs-projects) is connected to this repository, with Root Directory `site` and production branch `main`. Merging to `main` deploys; commits that don't touch `site/` are skipped (`ignoreCommand`). A new GitHub release needs no redeploy.
+Deploys are manual. The Vercel project `codemm`, in the owner's personal scope (gael55xs-projects), isn't connected to GitHub. Every connected push, even to an unrelated branch, used up the free plan's 100 deployments a day.
+
+After a site change is merged, deploy `main` from this folder with the Vercel CLI, signed in to the owner's personal account:
+
+```bash
+git switch main && git pull && cd site && npm run deploy
+```
+
+The first time on a computer, link the folder to the project:
+
+```bash
+cd site && vercel link --project codemm --scope gael55xs-projects
+```
+
+`npm run deploy` runs the tests first. A new GitHub release needs no redeploy: the page reads releases in the browser.
 
 `vercel.json` sets the security headers: a CSP with no inline code that allows network requests only to this site (the analytics beacon) and `api.github.com`, plus HSTS, `nosniff`, `X-Frame-Options`, `Referrer-Policy: no-referrer`, a restrictive `Permissions-Policy`, and same-origin COOP and CORP.
