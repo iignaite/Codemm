@@ -5,6 +5,7 @@ import type { CodemmApi, CourseView } from '../../shared/api';
 import type { Job, JobOutcome } from '../agent/jobs';
 import { connector } from '../connect';
 import { JOB_BRIEFS } from '../../../../src/templates';
+import type { CoreErrorKind } from '../core/failures';
 import type { CoreApp, CoreCheckView, CoreNextStep, CoreProgramRun } from '../core/types';
 import { createLive, type LiveDeps } from '../live';
 import { createLog } from '../log';
@@ -16,6 +17,9 @@ export const CANARY = 'printf("CANARY-SOLUTION-LINE %d", count + 1);';
 type FakeRoadmap = { course: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[]; sources?: { title: string; url: string }[] };
 
 const DOCKER_DOWN = "The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.";
+
+/** An error as core throws it: a CodemmError, with its kind when it has one (src/errors.ts). */
+export const coreError = (message: string, kind?: CoreErrorKind) => Object.assign(new Error(message), { name: 'CodemmError', ...(kind ? { kind } : {}) });
 
 /** A program that asks for a name and greets it; stops when killed. */
 function greeter(output: (text: string, stream: 'stdout' | 'stderr') => void, options?: { onStart?: (stage: 'build' | 'run', limitMs: number) => void }): CoreProgramRun {
@@ -80,7 +84,7 @@ export function fakeCore() {
   /** A bound call's course, else the active one (core's activeCourse). */
   const roadmapOf = (bound?: string) => {
     const r = bound ? c.courses.get(bound) : c.roadmap;
-    if (!r) throw new Error(bound ? `Course "${bound}" is missing from /home.` : 'No course in this workspace yet.');
+    if (!r) throw coreError(bound ? `Course "${bound}" is missing from /home.` : 'No course in this workspace yet.', 'no-course');
     return r;
   };
   const next = (bound?: string): CoreNextStep => {
@@ -143,14 +147,14 @@ export function fakeCore() {
     },
     testExercise: async (_ws, slug, bound, onProgress) => {
       c.bound.push(bound);
-      if (c.down) throw new Error(DOCKER_DOWN);
+      if (c.down) throw coreError(DOCKER_DOWN, 'docker');
       onProgress?.({ phase: 'visible', done: 1, total: 1 });
       onProgress?.({ phase: 'visible', done: 1, total: 1, test: { name: 'visible/01', status: 'fail', message: 'Output differs from the expected output.', actual: '0\n' } });
       return view(slug!, 1, false);
     },
     checkExercise: async (_ws, slug, bound, onProgress) => {
       c.bound.push(bound);
-      if (c.down) throw new Error(DOCKER_DOWN);
+      if (c.down) throw coreError(DOCKER_DOWN, 'docker');
       onProgress?.({ phase: 'visible', done: 1, total: 1 });
       // A hidden event never carries a test, even if core sent one.
       onProgress?.({ phase: 'hidden', done: 1, total: 2, test: { name: 'hidden/01', status: 'fail', actual: 'CANARY-HIDDEN-OUTPUT' } });
@@ -175,18 +179,18 @@ export function fakeCore() {
     // Run: asks for a name and greets it; stops when killed.
     runInteractive: async (_ws, slug, bound, output, options) => {
       c.bound.push(bound);
-      if (c.down) throw new Error(DOCKER_DOWN);
+      if (c.down) throw coreError(DOCKER_DOWN, 'docker');
       c.runs.push(slug!);
       return greeter(output, options);
     },
     runExampleLive: async (_ws, id, index, _bound, output, options) => {
-      if (c.down) throw new Error(DOCKER_DOWN);
+      if (c.down) throw coreError(DOCKER_DOWN, 'docker');
       c.runs.push(`${id}#${index}`);
       return greeter(output, options);
     },
     runExample: async (_ws, id, index, bound) => {
       c.bound.push(bound);
-      if (c.down) throw new Error(DOCKER_DOWN);
+      if (c.down) throw coreError(DOCKER_DOWN, 'docker');
       const files = c.lessons.find((l) => l.id === id)?.examples?.[index - 1];
       if (!files) throw new Error(`Lesson "${id}" has no example ${index}.`);
       return { exit: 0, output: `ran ${Object.keys(files).join(',')}\n`, errors: '' };
@@ -202,7 +206,7 @@ export function fakeCore() {
     writeLearnerFile: async (_ws, slug, _path, text, digest, bound) => {
       c.bound.push(bound);
       const ex = c.exercises.get(slug)!;
-      if (ex.digest !== digest) throw new Error('Changed outside Codemm since it was loaded.');
+      if (ex.digest !== digest) throw coreError('Changed outside Codemm since it was loaded.', 'changed');
       ex.file = text;
       ex.digest = String(Number(digest) + 1).padStart(64, '0');
       return { digest: ex.digest };

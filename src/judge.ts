@@ -88,7 +88,10 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       if (await runtimeDown()) throw new CodemmError(`The container runtime stopped during the run, so it wasn't counted. ${startHelp()}`, "docker");
       if (result.oomKilled) return { frames: [], flooded: false, outOfMemory: true };
       // Exit 125 is the runtime's own failure. With no output, no code ran, so its stderr is the runtime's own too.
-      if (result.exit === 125 && result.stdout.length === 0) throw new CodemmError(`The container couldn't start: ${result.stderr.trim().slice(0, 500)}`, runtimeKind(result.stderr));
+      if (result.exit === 125 && result.stdout.length === 0) {
+        const shown = result.stderr.trim().slice(0, 500);
+        throw new CodemmError(`The container couldn't start: ${shown}`, runtimeKind(shown));
+      }
       if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.", "docker");
       throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.", "docker");
     }
@@ -215,7 +218,8 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       // No end marker: the driver itself was killed. Only a memory-limit kill is the program's doing.
       if (r.oomKilled) return { exit: 137, timedOut: false, flooded: false, outOfMemory: true };
       if (r.exit === 125 && !printed && begun.size === 0 && beforeStart.trim()) {
-        throw new CodemmError(`The container couldn't start: ${beforeStart.trim().slice(0, 500)}`, runtimeKind(beforeStart));
+        const shown = beforeStart.trim().slice(0, 500);
+        throw new CodemmError(`The container couldn't start: ${shown}`, runtimeKind(shown));
       }
       throw new CodemmError(`The container runtime failed during the run. ${startHelp()}`, "docker");
     })
