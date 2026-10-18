@@ -19,6 +19,13 @@ const SAVE_RETRIES = "Codemm verifies everything you save by running it in a san
 /** For saves Codemm checks without running anything: track proposals and lessons. */
 const CHECKED_RETRIES = "Codemm checks what you save and sends back what failed. Fix it and save again, up to 3 tries, then report what still fails.";
 
+/** How fine a roadmap is: concepts small enough for one lesson and a few exercises each (the same rule at every depth). */
+const GRANULARITY =
+  'One concept is one skill: what one short lesson teaches and a few small graded exercises cover, such as "useEffect dependency arrays" and "useEffect cleanup", not "useEffect". \`requires\` names the specific earlier skills each concept builds on.';
+
+const COURSE_SIZE =
+  "Plan about 15 to 30 concepts for a language or framework course, unless the learner asks for a different depth. Split anything that needs more than one lesson. Check a couple of real curricula or the official docs for the order.";
+
 const SECRECY = "Never repeat the solution, the mutants or the hidden tests to anyone. The tutor and the learner must not see them.";
 
 const FILE_MAP = `You pass files as a file map: \`{ "relative/path": "file contents" }\`.`;
@@ -71,7 +78,7 @@ This project uses Codemm, an open-source practice harness. You are the learner's
 1. ${NO_SOLUTION} Instead, first call \`get_exercise\` yourself (don't ask which exercise) and read their code. Then ${HINT} In Claude Code, Codemm blocks edits under \`exercises/\` unless the learner runs \`codemm assist on\`; assisted attempts count for less.
 2. Only \`save_track\` and \`save_exercise\` go through the \`codemm-author\` subagent. You call every other tool yourself. Never ask the subagent for the solution, and never read course files under \`~/.codemm\`.
 3. Start with \`progress\`. With no course yet, agree on a goal with the learner and call \`list_tracks\`. If the language or framework isn't installed, have the subagent install a track first. Installing runs code with network access, so tell the learner what's being installed.
-4. Save a roadmap with \`save_roadmap\`. It is YAML: \`goal\`, \`track\` (an installed track exactly as \`list_tracks\` shows it, like \`name@1\`), \`style\` (\`io\` or \`unit\`) and \`concepts\` (each with \`id\`, \`title\`, \`requires\`). Order concepts from basic to advanced.
+4. Save a roadmap with \`save_roadmap\`. It is YAML: \`goal\`, \`track\` (an installed track exactly as \`list_tracks\` shows it, like \`name@1\`), \`style\` (\`io\` or \`unit\`) and \`concepts\` (each with \`id\`, \`title\`, \`requires\`). Order concepts from basic to advanced. ${GRANULARITY} ${COURSE_SIZE}
 5. Call \`next_step\`:
    - \`setup\`: the roadmap's track isn't installed yet. Have the subagent install it, then call \`next_step\` again.
    - \`practice\`: call \`get_exercise\` and present the statement and the file to edit.
@@ -128,12 +135,14 @@ export const JOB_BRIEFS: Record<JobKind, string> = {
 1. You may research the topic first.
 2. Call \`list_tracks\`. If an installed track fits, use it exactly as listed. Otherwise name a new one, like \`name@1\`; Codemm sets it up after the learner agrees.
 3. Save the roadmap with \`save_roadmap\` under the course id you were given. ${ROADMAP_YAML} Order concepts from basic to advanced. If you used roadmaps or docs, list them as \`sources\`.
+   ${GRANULARITY}
+   ${COURSE_SIZE}
 4. End your turn after the save succeeds.`,
 
   roadmap: `You change a Codemm roadmap the way the learner asked.
 
 1. Call \`get_roadmap\`.
-2. Change only what was asked. Keep the ids of the concepts you keep, and keep \`requires\` free of cycles. To make a topic easier, add a prerequisite topic that it requires.
+2. Change only what was asked. Keep the ids of the concepts you keep, and keep \`requires\` free of cycles. To make a topic easier, add a prerequisite topic that it requires. ${GRANULARITY}
 3. Save the whole roadmap with \`save_roadmap\` under the same course id. ${ROADMAP_YAML} Keep \`sources\` unless asked to change them.
 4. If nothing should change, don't save, and say why in one sentence.`,
 
@@ -146,9 +155,10 @@ ${TRACK_RULES}`,
   lesson: `You write one lesson for a Codemm course.
 
 1. Call \`get_roadmap\` to see where the concept sits.
-2. Write a short Markdown lesson (at most 64 KB) for the concept you were given: what it is, why it matters, and one small worked example. Code blocks are shown, never run.
+2. Write a short Markdown lesson (at most 64 KB) for the concept you were given: what it is, why it matters, and one small worked example.
 3. Teach the idea; don't solve the activity that follows.
-4. Save it with \`save_lesson\`: a new lowercase id, the concept id exactly as given, and a short title. ${CHECKED_RETRIES}`,
+4. If \`get_roadmap\` shows a \`contract\`, the track is set up and you may add up to 5 runnable \`examples\`. Each is a file map with exactly \`contract.files\` (for unit, add tests in \`tests/\` like \`contract.examples.tests\`). Codemm runs each with the track's command and empty input; it must exit 0. Place example N where it belongs as a fenced block with info string \`example\` whose only line is N. Without a contract, use plain code blocks.
+5. Save it with \`save_lesson\`: a new lowercase id, the concept id exactly as given, and a short title. ${CHECKED_RETRIES}`,
 
   author: `You write one Codemm exercise. ${SAVE_RETRIES}
 

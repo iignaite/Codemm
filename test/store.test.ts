@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { appendEvent, assertFreeSpace, materialize, readEvents, withLock, withWorkspaceLock } from "../src/store.js";
+import { appendEvent, assertFreeSpace, materialize, readEvents, trackImageTag, withLock, withWorkspaceLock } from "../src/store.js";
 
 let home: string;
 beforeEach(() => {
@@ -143,5 +143,22 @@ describe("assertFreeSpace", () => {
   it("refuses when the volume has less free space than setup needs", () => {
     expect(() => assertFreeSpace(home, Number.MAX_SAFE_INTEGER)).toThrow(/Not enough disk space/);
     expect(() => assertFreeSpace(home, 1)).not.toThrow();
+  });
+});
+
+describe("trackImageTag", () => {
+  it("names a track's image after its Codemm home, so two homes on one Docker never share a tag", () => {
+    const a = trackImageTag("python", 1);
+    expect(a).toMatch(/^codemm-track-[0-9a-f]{8}-python:1$/);
+    expect(trackImageTag("python", 1)).toBe(a);
+    const other = mkdtempSync(join(tmpdir(), "codemm-home-"));
+    process.env.CODEMM_HOME = other;
+    expect(trackImageTag("python", 1)).not.toBe(a);
+    // The same home spelled through a symlink is the same home.
+    const link = join(mkdtempSync(join(tmpdir(), "codemm-link-")), "home");
+    symlinkSync(other, link);
+    const direct = trackImageTag("python", 1);
+    process.env.CODEMM_HOME = link;
+    expect(trackImageTag("python", 1)).toBe(direct);
   });
 });

@@ -31,8 +31,9 @@ const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
 // supplies starts with $OOM, which makes it the out-of-memory killer's first choice (raising
 // oom_score_adj needs no privilege), so a program that runs out of memory usually dies instead of the
 // driver. It's best effort: the program could lower its score back to 0. If the write fails, nothing changes.
+// Shell functions share variables, so emit() keeps its own (size) apart from the loop's case name (n).
 const EMIT = `OOM='{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || :; '
-emit() { n=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$n"; cat "$4"; }
+emit() { size=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$size"; cat "$4"; }
 for u in timeout head wc cat basename; do command -v "$u" >/dev/null 2>&1 || { echo "the image has no '$u'" > /tmp/m; emit fatal tools 1 /tmp/m; exit 0; }; done`;
 
 const IO_DRIVER = `${EMIT}
