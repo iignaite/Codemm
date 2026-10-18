@@ -33,6 +33,20 @@ async function practising(options?: MockOptions) {
 }
 
 describe('mock: roadmap and setup', () => {
+  it('keeps the approved course while a new roadmap is a draft, with edits saved as they happen', async () => {
+    const { api } = await practising();
+    expect(await api.draft()).toBeNull();
+    let r = await api.research({ ...goal, topic: 'Vue' });
+    while (r.state === 'running') r = await api.research({ ...goal, topic: 'Vue' });
+    expect((await api.course())!.goal).toBe('React');
+    const edited = [...r.roadmap!.concepts.slice(0, -2), ...r.roadmap!.concepts.slice(-2).reverse()];
+    await api.saveDraft(edited);
+    expect((await api.draft())!).toMatchObject({ goal: 'Vue', concepts: edited });
+    await api.approve((await api.draft())!.concepts);
+    expect((await api.course())!.goal).toBe('Vue');
+    expect(await api.draft()).toBeNull();
+  });
+
   it('researches until a roadmap with prerequisites is ready', async () => {
     const { roadmap } = await roadmapped();
     expect(roadmap.concepts.length).toBeGreaterThan(3);
@@ -93,7 +107,7 @@ describe('mock: practice', () => {
     await api.saveFile(activity.id, activity.files[0].path, '/* your code */ wrong', activity.files[0].digest);
     await api.check(activity.id);
     await api.check(activity.id);
-    expect(await api.check(activity.id)).toMatchObject({ stuck: true });
+    expect(await api.check(activity.id)).toMatchObject({ stuck: true, later: true });
     await api.easier(activity.concept);
     const course = (await api.course())!;
     expect(course.topics[0]).toMatchObject({ title: 'JavaScript basics: first steps', state: 'now' });

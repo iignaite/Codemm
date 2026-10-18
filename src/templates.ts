@@ -48,7 +48,7 @@ A track is the environment for one language or framework. It needs:
 How checks run:
 
 - The learner's files are read-only in \`/work/src\` (the working directory), and the tests are read-only in \`/work/tests\`. Only \`/tmp\` is writable, and \`HOME=/tmp\`, so put build output and caches in \`/tmp\`.
-- The image must have \`sh\`, \`timeout\`, \`head\`, \`wc\`, \`cat\` and \`basename\`, and must not declare a \`VOLUME\`.
+- The image must have \`sh\`, \`timeout\`, \`sleep\`, \`head\`, \`wc\`, \`cat\` and \`basename\`, and must not declare a \`VOLUME\`.
 - **Unit tracks:** the \`test\` command runs the tests in \`$TESTS\` against \`/work/src\` and writes \`$OUT\`, for example \`{"tests":[{"name":"test_sum.test_basic","status":"pass"},{"name":"test_sum.test_empty","status":"fail","message":"expected 0, got 1"}]}\`. Each status is exactly \`pass\`, \`fail\` or \`error\`, and every name is unique and stable. It must exit 0 whenever it wrote the report, even if tests failed. Usually that means a small script baked into the image that runs the framework and converts its report.`;
 
 const EXERCISE_RULES = `## Exercises (\`save_exercise\`)

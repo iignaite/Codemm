@@ -19,6 +19,8 @@ export function Goal() {
   const { go } = useRouter();
   const api = useApi();
   const { data: tracks } = useLoad(() => api.tracks(), []);
+  // A roadmap not approved yet: the learner left it, or Codemm was closed (§4.2).
+  const { data: draft } = useLoad(() => api.draft(), []);
   const [topic, setTopic] = useState('');
   const [known, setKnown] = useState('');
   const [depth, setDepth] = useState<Depth>('standard');
@@ -48,6 +50,12 @@ export function Goal() {
             </label>
           ))}
         </div>
+        {draft && (
+          <div className="card info resume a-up" style={stagger(4)}>
+            <span><b>{draft.goal}</b></span>
+            <Button variant="ghost" onClick={() => go({ to: 'course', roadmap: draft })}>Resume roadmap</Button>
+          </div>
+        )}
         {isNew && (
           <div className="card info a-up">
             <Emm mood="look" width={56} />

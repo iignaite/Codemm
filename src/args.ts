@@ -4,7 +4,7 @@ type Kind = "value" | "multi" | "flag";
 type Spec = { args: [min: number, max: number]; options: Record<string, Kind>; usage: string };
 
 const ws: Record<string, Kind> = { workspace: "value" };
-export const COMMANDS: Record<string, Spec> = {
+export const COMMANDS = {
   init: { args: [0, 0], options: { ...ws, host: "multi" }, usage: "init [--host claude|codex|cursor]..." },
   doctor: { args: [0, 0], options: { fix: "flag" }, usage: "doctor [--fix]" },
   status: { args: [0, 0], options: ws, usage: "status" },
@@ -14,23 +14,29 @@ export const COMMANDS: Record<string, Spec> = {
   assist: { args: [1, 1], options: ws, usage: "assist on|off" },
   tracks: { args: [0, 0], options: {}, usage: "tracks" },
   track: { args: [2, 2], options: {}, usage: "track add <folder> | track rebuild <id@version>" },
-  mcp: { args: [0, 0], options: { ...ws, course: "value", tools: "value", desktop: "flag" }, usage: "mcp [--workspace <dir>] [--course <course>] [--tools <a,b>] [--desktop]" },
+  mcp: {
+    args: [0, 0], options: { ...ws, course: "value", tools: "value", desktop: "flag", progress: "value" },
+    usage: "mcp [--workspace <dir>] [--course <course>] [--tools <a,b>] [--desktop] [--progress <file>]",
+  },
   hook: { args: [1, 1], options: ws, usage: "hook claude [--workspace <dir>]" },
   help: { args: [0, 0], options: {}, usage: "help" },
   version: { args: [0, 0], options: {}, usage: "--version" },
-};
+} satisfies Record<string, Spec>;
 
-export type Parsed = { command: string; args: string[]; options: Record<string, string[]> };
+export type Command = keyof typeof COMMANDS;
+export type Parsed = { command: Command; args: string[]; options: Record<string, string[]> };
 
 /** Strict per-command parsing: unknown options, missing values and wrong argument counts are errors. */
 export function parseCli(argv: string[]): Parsed {
   if (argv.length === 0) return { command: "help", args: [], options: {} };
   // Aliases become ordinary commands, so the rest of the line is still validated.
-  const aliases: Record<string, string> = { "--version": "version", "-v": "version", "--help": "help", "-h": "help" };
+  const aliases: Record<string, Command> = { "--version": "version", "-v": "version", "--help": "help", "-h": "help" };
   const [first, ...rest] = argv as [string, ...string[]];
-  const command = aliases[first] ?? first;
-  const spec = COMMANDS[command];
-  if (!spec) throw new CodemmError(`Unknown command "${command}". Run codemm help.`);
+  // Own keys only: "constructor" and the like are on every object's prototype.
+  const name = Object.hasOwn(aliases, first) ? aliases[first]! : first;
+  if (!Object.hasOwn(COMMANDS, name)) throw new CodemmError(`Unknown command "${name}". Run codemm help.`);
+  const command = name as Command;
+  const spec: Spec = COMMANDS[command];
 
   const args: string[] = [];
   const options: Record<string, string[]> = {};

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { CoreProgress } from './core/types';
-import { courseView, type Setup } from './courseView';
+import { courseView, otherReady, type Setup } from './courseView';
 
 const concepts = [
   { id: 'values', title: 'Values', requires: [], mastery: 0.9, mastered: true, attempts: 2, stuck: false },
@@ -63,5 +63,13 @@ describe('course view', () => {
 
   it('keeps a stuck activity open', () => {
     expect(courseView(progress({ kind: 'stuck', concept: 'state' }), [], ready, new Set()).topics[1]).toMatchObject({ state: 'now', activity: 'open' });
+  });
+});
+
+describe('another topic ready', () => {
+  it('is true only when a topic besides these is not mastered and has its prerequisites mastered', () => {
+    expect(otherReady(progress({ kind: 'stuck', concept: 'state' }), ['state'])).toBe(true);
+    const linear = { ...progress({ kind: 'stuck', concept: 'state' }), concepts: concepts.filter((c) => c.id !== 'forms') };
+    expect(otherReady(linear, ['state'])).toBe(false);
   });
 });

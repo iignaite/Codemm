@@ -17,13 +17,14 @@ const core = {
 
 describe('views (§2.2, D4)', () => {
   it('reduces hidden results to an index and a status', () => {
-    expect(checkView(core, { stuck: false, mastered: false })).toEqual({
+    expect(checkView(core, { stuck: false, mastered: false, later: true })).toEqual({
       kind: 'graded',
       passed: 2,
       total: 4,
       recorded: true,
       stuck: false,
       mastered: false,
+      later: true,
       tests: [
         { hidden: false, name: 'shows zero', status: 'pass' },
         { hidden: false, name: 'adds one', status: 'fail', message: 'expected 1', actual: 'Count: 0' },
@@ -34,7 +35,7 @@ describe('views (§2.2, D4)', () => {
   });
 
   it('never forwards a hidden result even if core named it differently', () => {
-    const view = checkView({ ...core, tests: [{ name: 'hidden #1', status: 'fail', message: 'secret', actual: 'secret' }] }, { stuck: false, mastered: false });
+    const view = checkView({ ...core, tests: [{ name: 'hidden #1', status: 'fail', message: 'secret', actual: 'secret' }] }, { stuck: false, mastered: false, later: true });
     expect(JSON.stringify(view)).not.toContain('secret');
   });
 

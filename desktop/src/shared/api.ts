@@ -274,6 +274,8 @@ export type CheckResult =
       recorded: boolean;
       stuck: boolean;
       mastered: boolean;
+      /** Another topic is ready, so "Come back later" moves on (§4.4). */
+      later: boolean;
     }
   /** An infrastructure failure: nothing was recorded. */
   | { kind: 'not-counted'; reason: string };
@@ -318,6 +320,10 @@ export interface CodemmApi {
   reviseRoadmap(concepts: Concept[], request: string): Promise<RoadmapChange>;
   /** Saves the roadmap. If its track isn't installed, starts the setup job. */
   approve(concepts: Concept[]): Promise<void>;
+  /** The roadmap written or edited but not approved yet, to resume. The approved course stays the course until then. */
+  draft(): Promise<Roadmap | null>;
+  /** Saves the learner's edits to the draft as they happen. */
+  saveDraft(concepts: Concept[]): Promise<void>;
 
   course(): Promise<CourseView | null>;
   /** Builds the proposal the learner saw. Also retries after an offline or low-disk failure. */

@@ -1,12 +1,12 @@
 // @vitest-environment node
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { dockerFolders, find, here, shimTarget, withDockerFolders, type Where } from './find';
+import { tempDir } from '../testing/temp';
 
 function tree() {
-  const root = mkdtempSync(join(tmpdir(), 'codemm-find-'));
+  const root = tempDir('codemm-find-');
   const at = (...p: string[]) => join(root, ...p);
   return { root, at };
 }
@@ -77,7 +77,7 @@ describe('find (§3.1)', () => {
   });
 
   it("gives Docker's calls the folders its credential helpers live in, as well as the one it was found in", () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-docker-')));
+    const dir = realpathSync(tempDir('codemm-docker-'));
     const cellar = join(dir, 'Cellar', 'docker', 'bin');
     const desktop = join(dir, 'Docker.app', 'Contents', 'Resources', 'bin');
     mkdirSync(cellar, { recursive: true });
@@ -91,7 +91,7 @@ describe('find (§3.1)', () => {
   });
 
   it("adds Docker's folders to a PATH once, keeping what was there", () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-path-')));
+    const dir = realpathSync(tempDir('codemm-path-'));
     writeFileSync(join(dir, 'docker'), '');
     const path = ['/usr/bin', '/bin'].join(delimiter);
     const once = withDockerFolders(path, join(dir, 'docker'), []);
@@ -100,7 +100,7 @@ describe('find (§3.1)', () => {
   });
 
   it('searches only the given folders when a test sets them: the journey\'s "no Docker" run', () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-only-')));
+    const dir = realpathSync(tempDir('codemm-only-'));
     writeFileSync(join(dir, 'docker'), '#!/bin/sh\n');
     chmodSync(join(dir, 'docker'), 0o755);
     const w: Where = { platform: 'darwin', path: '', home: '/nowhere', searchDirs: [] };

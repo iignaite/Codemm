@@ -14,6 +14,12 @@ export function currentConcept(progress: CoreProgress): string | undefined {
   return progress.concepts.find((c) => !c.mastered && c.requires.every((r) => mastered.has(r)))?.id;
 }
 
+/** Whether a topic besides these is ready: not mastered, with every prerequisite mastered. Only then does deferring move on (§4.4). */
+export function otherReady(progress: CoreProgress, concepts: string[]): boolean {
+  const mastered = new Set(progress.concepts.filter((c) => c.mastered).map((c) => c.id));
+  return progress.concepts.some((c) => !concepts.includes(c.id) && !c.mastered && c.requires.every((r) => mastered.has(r)));
+}
+
 const trackName = (ref: string) => ref.split('@')[0];
 
 export function courseView(

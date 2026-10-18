@@ -1,5 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
@@ -8,13 +7,14 @@ import { readFileMap } from "../src/files.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import * as store from "../src/store.js";
 import { fakeDocker, posix } from "./fake-docker.js";
+import { tempDir } from "./temp.js";
 
 /** Check progress: io reports each test as it finishes; hidden tests are counted, never named. */
 
 const fixtures = join(import.meta.dirname, "fixtures");
 
 beforeEach(() => {
-  vi.stubEnv("CODEMM_HOME", mkdtempSync(join(tmpdir(), "codemm-home-")));
+  vi.stubEnv("CODEMM_HOME", tempDir("codemm-home-"));
 });
 
 afterEach(() => {
@@ -81,7 +81,7 @@ describe.runIf(posix)("check progress", () => {
 
 describe.runIf(posix)("check progress for unit exercises", () => {
   it("reports each phase once, with no count, because the runner reports at the end", async () => {
-    const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+    const ws = tempDir("codemm-ws-");
     const track = readFileMap(join(fixtures, "tracks", "shell-unit"));
     store.commitFolder(store.trackDir("shell-unit@1"), track, {
       "track.json": { format_version: 1, ...parseTrackYaml(track["track.yaml"]!), image: "codemm-track-shell-unit:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
@@ -101,9 +101,22 @@ describe.runIf(posix)("check progress for unit exercises", () => {
   });
 });
 
+describe.runIf(posix)("exercise gate progress", () => {
+  it("reports which gate runs, by name only, in order", async () => {
+    const ws = await installedExercise();
+    fakeDocker("streams");
+    const seen: unknown[] = [];
+    const files = { ...readFileMap(join(fixtures, "exercises", "io-max")) };
+    files["exercise.yaml"] = files["exercise.yaml"]!.replace("max-of-line", "max-again");
+    // Every fake run prints the same output, so the starter passes too and its gate fails.
+    await expect(app.saveExercise(ws, files, undefined, (p) => seen.push(p))).rejects.toThrow(/Gate "starter unsolved"/);
+    expect(seen).toEqual([{ gate: "reference" }, { gate: "starter" }]);
+  });
+});
+
 /** A workspace whose io exercise (1 visible, 3 hidden tests) is installed with a fake image and edited. */
 async function installedExercise(): Promise<string> {
-  const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+  const ws = tempDir("codemm-ws-");
   const track = readFileMap(join(fixtures, "tracks", "shell-io"));
   const spec = parseTrackYaml(track["track.yaml"]!);
   store.commitFolder(store.trackDir("shell-io@1"), track, {
