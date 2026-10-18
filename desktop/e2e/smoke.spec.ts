@@ -50,14 +50,17 @@ test('connect, computer check, goal, course, lesson and practice', async () => {
 });
 
 // Learners who lack a prerequisite get a specific next step, acted out by the mock.
-test('no agent installed: install links on the connect screen', async () => {
+test('no agent installed: Install, or get it by hand, on the connect screen', async () => {
   const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: 'no-agent' } });
   const page = await app.firstWindow();
+  // macOS and Windows: Welcome offers to install what's missing, and connecting by hand stays possible.
+  await expect(page.getByRole('button', { name: "Install what's missing", exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Connect an agent', exact: true }).click();
   const claude = page.getByRole('listitem', { name: 'Claude Code' });
   await expect(claude.getByText('Not installed')).toBeVisible();
-  await expect(claude.getByRole('link', { name: 'Get Claude Code' })).toHaveAttribute('href', 'https://code.claude.com/docs/en/setup');
-  await expect(page.getByRole('link', { name: 'Get Codex' })).toBeVisible();
+  await expect(claude.getByRole('button', { name: 'Install', exact: true })).toBeVisible();
+  await expect(claude.getByRole('link', { name: 'Get it myself' })).toHaveAttribute('href', 'https://code.claude.com/docs/en/setup');
+  await expect(page.getByRole('link', { name: 'Get Cursor' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
   await app.close();
 });

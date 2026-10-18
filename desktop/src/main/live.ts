@@ -495,6 +495,14 @@ export function createLive(d: LiveDeps): Live {
       }
       return agent;
     },
+    async installAgent(id) {
+      log('agent-install', { agent: id });
+      await d.connect.install(id);
+    },
+    async signIn(id) {
+      log('agent-sign-in', { agent: id });
+      await d.connect.signIn(id);
+    },
     async chooseModel(id, model) {
       const agent = await d.connect.chooseModel(id, model);
       log('model', { agent: id, model });

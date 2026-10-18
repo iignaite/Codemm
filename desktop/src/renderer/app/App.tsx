@@ -10,6 +10,7 @@ import { TopicPage } from '../features/lessons/TopicPage';
 import { Practice } from '../features/practice/Practice';
 import { CourseMap } from '../features/progress/CourseMap';
 import { Research } from '../features/research/Research';
+import { Setup } from '../features/setup/Setup';
 import { Tracks } from '../features/tracks/Tracks';
 import { Button } from '../ui/Button';
 import { ApiContext } from './api';
@@ -25,6 +26,8 @@ function Screen({ route }: { route: Route }) {
       return <Connect then={route.then} />;
     case 'computer':
       return <Computer then={route.then} />;
+    case 'setup':
+      return <Setup />;
     case 'goal':
       return <WithSide><Goal /></WithSide>;
     case 'research':

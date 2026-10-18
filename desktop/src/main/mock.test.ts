@@ -32,6 +32,35 @@ async function practising(options?: MockOptions) {
   return { api, activity: await api.activity(course.topics[0].id) };
 }
 
+describe('mock: installing an agent', () => {
+  it('installs a missing agent step by step, then checks its sign-in; signing in connects it on the next look', async () => {
+    const api = createMock({ ...scenario('no-agent'), platform: 'mac' });
+    const codex = async () => (await api.agents()).find((a) => a.id === 'codex')!;
+    expect(await codex()).toMatchObject({ state: 'missing', canInstall: true });
+    expect((await api.agents()).find((a) => a.id === 'cursor')!.canInstall).toBe(false);
+    await api.installAgent('codex');
+    const phases: string[] = [];
+    for (let a = await codex(); a.install?.phase !== 'done' && a.install?.phase !== 'failed'; a = await codex()) phases.push(a.install!.phase);
+    expect(phases).toContain('downloading');
+    expect(await codex()).toMatchObject({ state: 'signed-out', install: { phase: 'done' } });
+    await api.signIn('codex');
+    expect(await codex()).toMatchObject({ state: 'connected' });
+  });
+
+  it('says why an install stopped, and can try again', async () => {
+    const api = createMock({ ...scenario('agent-install-offline'), platform: 'mac' });
+    await api.installAgent('claude');
+    let claude = (await api.agents()).find((a) => a.id === 'claude')!;
+    while (claude.install?.phase !== 'failed') claude = (await api.agents()).find((a) => a.id === 'claude')!;
+    expect(claude).toMatchObject({ state: 'missing', install: { phase: 'failed', problem: 'offline' } });
+  });
+
+  it('cannot install on Linux', async () => {
+    const api = createMock({ ...scenario('no-agent'), platform: 'linux' });
+    expect((await api.agents()).every((a) => !a.canInstall)).toBe(true);
+  });
+});
+
 describe('mock: roadmap and setup', () => {
   it('keeps the approved course while a new roadmap is a draft, with edits saved as they happen', async () => {
     const { api } = await practising();
@@ -262,7 +291,7 @@ describe('mock: environment', () => {
   });
 
   it('names every scenario, and rejects unknown ones', () => {
-    expect(Object.keys(SCENARIOS)).toHaveLength(18);
+    expect(Object.keys(SCENARIOS)).toHaveLength(21);
     expect(scenario(undefined)).toEqual({});
     expect(() => scenario('nope')).toThrow('Unknown mock scenario');
   });
