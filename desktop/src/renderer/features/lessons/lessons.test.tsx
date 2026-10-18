@@ -151,6 +151,14 @@ describe('background work that stopped', () => {
     expect(within(alert).queryByRole('button')).not.toBeInTheDocument();
   });
 
+  it('says the computer is offline, with Try again and no Check your agent', async () => {
+    const { api } = await mockWithCourse({ stalled: 'offline' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("You're offline. Connect to the internet, then try again.");
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
+  });
+
   it('names a plan limit', async () => {
     const { api } = await mockWithCourse({ stalled: 'plan-limit' });
     renderApp({ to: 'learn' }, api);

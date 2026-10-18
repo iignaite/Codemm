@@ -6,6 +6,7 @@ import { type CheckProgress, type ResearchProgress,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
+  OFFLINE,
   PLAN_LIMIT,
   SIGNED_OUT,
   type Activity,
@@ -34,7 +35,7 @@ export interface MockOptions {
   /** Agents that aren't installed, or whose sign-in check fails. */
   agents?: Partial<Record<AgentId, 'missing' | 'signed-out'>>;
   /** Read on every call: agent jobs fail with this until it's cleared. */
-  agentProblem?: 'signed-out' | 'plan-limit' | 'failed';
+  agentProblem?: 'signed-out' | 'plan-limit' | 'offline' | 'failed';
   untested?: boolean;
   setupProblem?: SetupProblem;
   /** Read on every call: background work stopped with this until the learner tries again or connects again. */
@@ -164,7 +165,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   function agentJob() {
     if (!agents.some((a) => a.state === 'connected')) throw new Error(NO_AGENT);
     const problem = options.agentProblem;
-    if (problem) throw new Error({ 'signed-out': SIGNED_OUT, 'plan-limit': PLAN_LIMIT, failed: AGENT_FAILED }[problem]);
+    if (problem) throw new Error({ 'signed-out': SIGNED_OUT, 'plan-limit': PLAN_LIMIT, offline: OFFLINE, failed: AGENT_FAILED }[problem]);
   }
 
   function happen(after: 'approve' | 'check') {

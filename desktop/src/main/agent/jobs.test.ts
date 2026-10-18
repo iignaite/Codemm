@@ -94,6 +94,20 @@ describe('jobs (§3.2)', () => {
     expect(agent.runs()).toBe(1);
   });
 
+  it("an agent that can't reach its service is offline: no relaunch, no retry spent", async () => {
+    let asked = false;
+    const agent = fakeAgent([init, failure('API Error: Connection error. (getaddrinfo ENOTFOUND api.anthropic.com)')], { exitCode: 1 });
+    expect(await runJob(job(agent.exe, { signedIn: async () => ((asked = true), true) }))).toMatchObject({ ok: false, problem: 'offline' });
+    expect([agent.runs(), asked]).toEqual([1, false]);
+  });
+
+  it("a save that can't reach the network is offline, not a plain infrastructure failure", async () => {
+    const offline = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: "The build couldn't reach the network." }] } };
+    const agent = fakeAgent([init, call('a', 'save_exercise'), offline], { hang: true });
+    expect(await runJob(job(agent.exe, { kind: 'author', done: () => false }))).toMatchObject({ ok: false, problem: 'offline' });
+    expect(agent.runs()).toBe(1);
+  });
+
   it('reports a sign-out when a failed job finds the agent signed out', async () => {
     const agent = fakeAgent([init, failure('Invalid API key')]);
     expect(await runJob(job(agent.exe, { signedIn: async () => false }))).toMatchObject({ ok: false, problem: 'signed-out' });
