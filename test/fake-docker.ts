@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { vi } from "vitest";
 import { tempDir } from "./temp.js";
 
-export type Scenario = "missing" | "down" | "offline" | "disk-full" | "stops" | "drops" | "oom" | "killed" | "builds" | "no-iid" | "interactive" | "waits" | "ignores" | "exits124" | "euro" | "forges" | "quickkill" | "timesout" | "exits138" | "buildtimesout" | "childoom" | "streams" | "echoes" | "no-image" | "nospace";
+export type Scenario = "missing" | "down" | "offline" | "disk-full" | "stops" | "drops" | "oom" | "killed" | "builds" | "no-iid" | "interactive" | "waits" | "ignores" | "exits124" | "euro" | "forges" | "quickkill" | "timesout" | "exits138" | "buildtimesout" | "childoom" | "streams" | "echoes" | "no-image" | "nospace" | "inspect-fails";
 
 /** Node can't run a shell script without a shell on Windows, so only "missing" works there. */
 export const posix = process.platform !== "win32";

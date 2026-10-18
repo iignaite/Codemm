@@ -403,9 +403,17 @@ export async function buildImage(
   }
 }
 
+/**
+ * The image's id and whether it declares volumes, or undefined when the runtime says there is no such image (Docker:
+ * "No such image" or "No such object"; Podman: "image not known"). Any other failure is the runtime's, and throws as one.
+ */
 export async function inspectImage(tag: string): Promise<{ id: string; hasVolumes: boolean } | undefined> {
   const r = await cli(["image", "inspect", "--format", "{{.Id}} {{json .Config.Volumes}}", tag]);
-  if (r.exit !== 0) return undefined;
+  if (r.exit !== 0) {
+    if (/no such (image|object)|image not known/i.test(r.output)) return undefined;
+    const down = await runtimeDown();
+    throw new CodemmError(down ?? `The container runtime couldn't inspect the track image: ${r.output.trim().slice(0, 300)}`, down ? "docker" : runtimeKind(r.output));
+  }
   const [id, volumes] = r.output.trim().split(" ", 2);
   return { id: id!, hasVolumes: !!volumes && volumes !== "null" && volumes !== "{}" };
 }
