@@ -312,7 +312,8 @@ export type BuildStep = { done: number; total: number };
  * `Step 2/7 :` and Podman's `STEP 2/7:`. Anything else, the step's own text included, reads as nothing.
  */
 export function buildStep(line: string): BuildStep | undefined {
-  const m = /^(?:#\d+ \[(?:\S+ )?(\d+)\/(\d+)\]|Step (\d+)\/(\d+) :|STEP (\d+)\/(\d+):)/.exec(line);
+  // BuildKit pads the counter (`[ 2/10]`, `[builder  2/10]`); Podman names the stage (`[2/2] STEP 3/4:`).
+  const m = /^(?:#\d+ \[(?:\S+\s+)?\s*(\d+)\/(\d+)\]|Step (\d+)\/(\d+) :|(?:\[\d+\/\d+\] )?STEP (\d+)\/(\d+):)/.exec(line);
   if (!m) return undefined;
   const done = Number(m[1] ?? m[3] ?? m[5]);
   const total = Number(m[2] ?? m[4] ?? m[6]);

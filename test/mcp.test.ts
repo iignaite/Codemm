@@ -9,7 +9,7 @@ import { readFileMap } from "../src/files.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import { createServer, parseToolList, type ServerOptions, TOOL_NAMES } from "../src/mcp.js";
 import * as store from "../src/store.js";
-import { fakeDocker } from "./fake-docker.js";
+import { fakeDocker, posix } from "./fake-docker.js";
 
 /** The per-job server: `codemm mcp --tools`, `--course` and `--desktop`. */
 
@@ -99,7 +99,7 @@ describe("--course", () => {
 });
 
 describe("--progress", () => {
-  it("writes which gate save_exercise runs to the job's progress file, by name only", async () => {
+  it.runIf(posix)("writes which gate save_exercise runs to the job's progress file, by name only", async () => {
     const fixtures = join(import.meta.dirname, "fixtures");
     const track = readFileMap(join(fixtures, "tracks", "shell-io"));
     store.commitFolder(store.trackDir("shell-io@1"), track, {

@@ -120,9 +120,16 @@ describe("buildStep", () => {
     expect(buildStep("#7 [builder 3/4] COPY . .")).toEqual({ done: 3, total: 4 });
   });
 
+  it("reads BuildKit's padded counters, for builds of 10 steps or more", () => {
+    expect(buildStep("#5 [ 2/10] RUN npm ci")).toEqual({ done: 2, total: 10 });
+    expect(buildStep("#5 [builder  2/10] RUN npm ci")).toEqual({ done: 2, total: 10 });
+  });
+
   it("reads the legacy builder's and Podman's step counts", () => {
     expect(buildStep("Step 3/7 : RUN apk add bash")).toEqual({ done: 3, total: 7 });
     expect(buildStep("STEP 1/2: FROM alpine:3.20")).toEqual({ done: 1, total: 2 });
+    // Podman (Buildah) names the stage in a multi-stage build.
+    expect(buildStep("[2/2] STEP 3/4: COPY --from=builder /out /app")).toEqual({ done: 3, total: 4 });
   });
 
   it("reads nothing else: internal steps, logs and nonsense counts", () => {
