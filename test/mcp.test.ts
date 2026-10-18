@@ -216,6 +216,9 @@ describe.runIf(posix)("reference-gate diagnostics through save_exercise", () => 
     expect(message).toMatch(/Gate "reference passes"/);
     expect(message).toMatch(reason);
     expect(message).not.toContain("CANARY");
+    // Actionable without the output: author jobs can't build anything themselves.
+    if (scenario === "leaks-build") expect(message).toMatch(/with the track's build command \(`sh -n main\.sh`\)/);
+    expect(message).not.toMatch(/yourself/);
   });
 
   it("a container that dies at start after the code wrote to stderr is described without that output", async () => {
@@ -233,9 +236,12 @@ describe.runIf(posix)("reference-gate diagnostics through save_exercise", () => 
     fakeDocker("leaks");
     const message = await failure(call, withCanary(readFileMap(join(fixtures, "exercises", "unit-max"))));
     expect(message).toMatch(/Gate "reference passes"/);
-    // Numbered, not named: the names come from the runner's report while the reference runs.
-    expect(message).toMatch(/visible #1: fail/);
+    // Visible tests by name, so the agent knows which to fix; hidden ones only by number; no messages.
+    expect(message).toMatch(/visible\/t: fail/);
+    expect(message).toMatch(/hidden #1: fail/);
     expect(message).not.toContain("CANARY");
+  });
+});
 
 describe("file maps through the real MCP SDK", () => {
   it("rejects a non-text file value without naming a hidden file", async () => {

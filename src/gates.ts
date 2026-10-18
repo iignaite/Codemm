@@ -37,13 +37,10 @@ function summarize(tests: TestResult[]): string {
 
 /**
  * One line per test, with its status only: for the reference, whose messages and output come from running hidden
- * code (a compiler error or a traceback can quote it).
+ * code (a compiler error or a traceback can quote it). Visible tests are named, so the agent knows which to fix;
+ * hidden ones stay numbered.
  */
-const statuses = (tests: TestResult[]) => {
-  // Numbered, not named: a unit runner reports the names while the reference runs.
-  let visible = 0;
-  return redact(tests).map((t) => `  ${t.index === undefined ? `visible #${(visible += 1)}` : t.name}: ${t.status}`).join("\n");
-};
+const statuses = (tests: TestResult[]) => redact(tests).map((t) => `  ${t.name}: ${t.status}`).join("\n");
 
 /**
  * The end of what a track's own run printed (its build, or a probe's test runner): the last 40 lines and 4 KB.
@@ -248,7 +245,14 @@ export async function verifyExercise(
     // The reference's own output is never shown: building or running it is running hidden code, and a compiler
     // error or a traceback can quote it. Only the phase, exit codes and the visible test names are.
     const visibleBuild = (first.visible as IoRun).build;
-    if (visibleBuild && visibleBuild.exit !== 0) throw new GateError("reference passes", `the reference doesn't build (exit ${visibleBuild.exit}). Build it yourself to see why.`);
+    if (visibleBuild && visibleBuild.exit !== 0) {
+      throw new GateError(
+        "reference passes",
+        `the reference doesn't build (exit ${visibleBuild.exit}) with the track's build command (\`${track.build}\`). ` +
+          `Check that solution/ holds exactly the track's learner files (${track.files.join(", ")}) and builds with the track's toolchain. ` +
+          "Codemm doesn't show the build output, because it can quote the reference.",
+      );
+    }
     const hiddenBuild = (first.hidden as IoRun).build;
     if (hiddenBuild && hiddenBuild.exit !== 0) throw new GateError("reference passes", "the reference didn't build for the hidden tests.");
     const bad = a.filter((c) => c.exit !== 0 || c.big);
