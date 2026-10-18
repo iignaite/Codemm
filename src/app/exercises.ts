@@ -28,7 +28,20 @@ export type TrackContract = {
 export type NextStep =
   | Step
   | { kind: "setup"; track: string }
-  | (Extract<Step, { kind: "author" }> & { title: string; style: string; track: string; contract: TrackContract });
+  | (Extract<Step, { kind: "author" }> & { title: string; style: string; track: string; contract: TrackContract; earlier: Earlier[] });
+
+/** An exercise the course already has, as its statement shows it, so the next one can be a different task. */
+export type Earlier = { title: string; summary: string };
+
+/** Each exercise's statement title (its first heading) and first line of prose. Never its solution or tests. */
+function earlierExercises(course: string): Earlier[] {
+  return store.listExercises(course).map((e) => {
+    const lines = (store.readExercise(course, e.slug).files["README.md"] ?? "").split("\n").map((l) => l.trim());
+    const heading = lines.find((l) => l.startsWith("#"));
+    const prose = lines.find((l) => l !== "" && !l.startsWith("#")) ?? "";
+    return { title: heading ? heading.replace(/^#+\s*/, "") : e.slug, summary: prose.length > 200 ? `${prose.slice(0, 199)}…` : prose };
+  });
+}
 
 const pickFor = (course: CourseRecord) =>
   pickNext(course, store.listExercises(course.course), store.readEvents(course.course), store.listLessons(course.course), new Date().toISOString());
@@ -43,7 +56,7 @@ export function nextStep(ws: string, bound?: string): NextStep {
   const step = pickFor(course);
   if (step.kind !== "author") return step;
   const title = course.concepts.find((c) => c.id === step.concept)?.title ?? step.concept;
-  return { ...step, title, style: course.style, track: course.track, contract: trackContract(track, course.style) };
+  return { ...step, title, style: course.style, track: course.track, contract: trackContract(track, course.style), earlier: earlierExercises(course.course) };
 }
 
 /** Writes each exercise gate as it starts to a job's progress file (`codemm mcp --progress`), by name only. */
@@ -60,8 +73,13 @@ export async function saveExercise(ws: string, files: FileMap, bound?: string, o
     return store.withLock(store.trackLockPath(store.parseTrackRef(course.track).id), async () => {
       const track = installedTrack(course.track);
       await ensureImage(track);
-      const taken = new Set(store.listExercises(courseId).map((e) => e.slug));
-      const verified = await verifyExercise(track, course, files, taken, onGate && ((gate) => onGate({ gate })));
+      const existing = store.listExercises(courseId);
+      const taken = new Set(existing.map((e) => e.slug));
+      // Earlier exercises on this track have the same learner files, so their solutions can run against the new tests.
+      const earlier = existing
+        .filter((e) => e.track === course.track)
+        .map((e) => ({ slug: e.slug, style: e.style, concepts: e.concepts, createdAt: e.createdAt, solution: subMap(store.readExercise(courseId, e.slug).files, "solution") }));
+      const verified = await verifyExercise(track, course, files, taken, onGate && ((gate) => onGate({ gate })), earlier);
       store.commitFolder(store.exerciseDir(courseId, verified.slug), files, { "exercise.json": verified });
       return { record: verified, track };
     });

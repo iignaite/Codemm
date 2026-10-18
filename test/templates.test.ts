@@ -37,6 +37,15 @@ describe("tutor instructions (AGENTS.md section)", () => {
     }
   });
 
+  it("asks every author for a task unlike the course's earlier ones, with its own title", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) {
+      expect(text).toMatch(/`earlier` lists the exercises this course already has/);
+      expect(text).toMatch(/a different problem, not one of them renamed/);
+      expect(text).toMatch(/title must differ from the concept's title/);
+    }
+    expect(AGENTS_SECTION).toMatch(/contract and earlier exercises from `next_step`/);
+  });
+
   it("shows how a roadmap pins its track", () => {
     expect(AGENTS_SECTION).toMatch(/exactly as `list_tracks` shows it/);
   });
@@ -110,7 +119,7 @@ describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
   it("sends a fresh author to next_step for the exact target and the track's contract", () => {
     expect(JOB_BRIEFS.author).toMatch(/`contract\.files`/);
     expect(JOB_BRIEFS.author).toMatch(/`contract\.examples`/);
-    expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, difficulty, style, track and contract from `next_step`/);
+    expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, difficulty, style, track, contract and earlier exercises from `next_step`/);
   });
 
   it("asks the research job for its sources, and a roadmap change to keep them", () => {

@@ -269,6 +269,7 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
 4. **Starter is unsolved:** the starter does not pass everything.
 5. **Mutants are caught:** each mutant fails or errors on at least one hidden test. A copy of the reference is caught by this gate too.
 6. **Hidden tests matter:** at least one mutant passes every visible test.
+7. **New task:** no earlier exercise's solution on the same track passes every visible test. To bound the wait, it compares at most 3 earlier exercises on a shared concept and the 3 most recent others: at most 6 runs of the visible tests. The author sees the earlier exercises' titles and first lines in `next_step`'s `earlier`, never their solutions or tests.
 
 **Commit point.** After the gates pass, the exercise folder is renamed into the store under the course lock. Learner files are then materialized into the workspace. `get_exercise`, `test` and `check` re-materialize any missing learner files, so a crash between the two steps is recoverable.
 

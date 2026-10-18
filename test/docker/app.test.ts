@@ -10,6 +10,9 @@ import { tempDir } from "../temp.js";
 
 const roadmap = (name: string) => readFileSync(join(FIXTURES, "roadmaps", `${name}.yaml`), "utf8");
 const exercise = (name: string) => readFileMap(join(FIXTURES, "exercises", name));
+/** io-max as a different task (it prints "<label> N"), so a course that already has io-max accepts it (gate 7). */
+const asNewTask = (files: Record<string, string>, label: string) =>
+  Object.fromEntries(Object.entries(files).map(([p, t]) => [p, /^(solution|mutants)\//.test(p) ? t.replace(/echo "\$(max|1)"/, `echo "${label} $$$1"`) : t]));
 
 describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   let ws: string;
@@ -165,7 +168,7 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   });
 
   it("writes learner files for an exercise with more visible tests than the author file limit allows twice over", async () => {
-    const base = exercise("io-max");
+    const base = asNewTask(exercise("io-max"), "many");
     const many: Record<string, string> = { ...base, "exercise.yaml": base["exercise.yaml"]!.replace("max-of-line", "many-cases").replace("sh.loops", "sh.basics") };
     for (let i = 2; i <= 140; i++) many[`tests/visible/${String(i).padStart(3, "0")}.in`] = "3 1 2\n";
     expect(await app.saveExercise(ws, many)).toEqual({ exercise: "many-cases" });
@@ -206,7 +209,7 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   });
 
   it("saves a bound author job's exercise to its own course, even if the learner switches mid-save", async () => {
-    const files = { ...exercise("io-max"), "exercise.yaml": exercise("io-max")["exercise.yaml"]!.replace("max-of-line", "bound-save").replace("sh.loops", "sh.basics") };
+    const files = { ...asNewTask(exercise("io-max"), "bound"), "exercise.yaml": exercise("io-max")["exercise.yaml"]!.replace("max-of-line", "bound-save").replace("sh.loops", "sh.basics") };
     const pending = app.saveExercise(ws, files, "shell");
     await app.saveRoadmap(ws, "shell-other", roadmap("shell-io"));
     expect(await pending).toEqual({ exercise: "bound-save" });

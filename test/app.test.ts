@@ -30,10 +30,10 @@ function installFake(ref = "shell-io@1", styles: ("io" | "unit")[] = ["io"]): vo
   });
 }
 
-function addExercise(course: string, slug: string, concept: string, track = "shell-io@1"): void {
+function addExercise(course: string, slug: string, concept: string, track = "shell-io@1", readme = "Print the max."): void {
   store.commitFolder(
     store.exerciseDir(course, slug),
-    { "README.md": "Print the max.", "starter/main.sh": "echo todo\n", "solution/main.sh": "SECRET-SOLUTION\n", "tests/visible/01.in": "3 1 2\n", "tests/hidden/01.in": "HIDDEN-INPUT\n" },
+    { "README.md": readme, "starter/main.sh": "echo todo\n", "solution/main.sh": "SECRET-SOLUTION\n", "tests/visible/01.in": "3 1 2\n", "tests/hidden/01.in": "HIDDEN-INPUT\n" },
     {
       "exercise.json": {
         format_version: 1, slug, style: "io", concepts: [concept], difficulty: 1, track, createdAt: new Date().toISOString(),
@@ -159,7 +159,23 @@ describe("the author step", () => {
           tests: { "negatives.check": files["probe/unit/tests/negatives.check"], "sums.check": files["probe/unit/tests/sums.check"] },
         },
       },
+      earlier: [],
     });
+  });
+});
+
+describe("authoring a new exercise", () => {
+  it("lists the course's earlier exercises by title and first line, so the next one can differ", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    addExercise("shell", "sum-two", "sh.basics", "shell-io@1", "# Sum two numbers\n\nRead two integers on one line and print their sum.\n\n## Example\n\n`3 5` prints `8`.\n");
+    for (let i = 0; i < 4; i++) {
+      store.appendEvent("shell", event({ kind: "check", at: new Date().toISOString(), exercise: "sum-two", concepts: ["sh.basics"], difficulty: 1, passed: 1, total: 1, assisted: false }));
+    }
+    const step = app.nextStep(ws);
+    expect(step).toMatchObject({ kind: "author", earlier: [{ title: "Sum two numbers", summary: "Read two integers on one line and print their sum." }] });
+    // The statement only: never the solution or hidden tests.
+    expect(JSON.stringify(step)).not.toMatch(/SECRET|HIDDEN/);
   });
 });
 
