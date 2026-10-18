@@ -56,7 +56,9 @@ export function downloads(release, platform) {
   const find = (id) => all.find((i) => i.id === id) ?? null;
   const arm = find('mac-arm64');
   const intel = find('mac-x64');
-  const mac = platform.arch === 'x86' ? intel ?? arm : arm ?? intel;
+  // Only a Mac's own chip says which Mac build it needs.
+  const chip = platform.os === 'mac' ? platform.arch : null;
+  const mac = chip === 'x86' ? intel ?? arm : arm ?? intel;
   const win = find('win-x64');
   const buttons = [
     mac && { os: 'mac', label: 'Download for Mac', url: mac.url },
@@ -69,6 +71,6 @@ export function downloads(release, platform) {
     // Prereleases are unsigned builds: the page shows the one-time first-launch step.
     unsigned: Boolean(release.prerelease),
     buttons,
-    intel: mac === arm && intel && platform.arch !== 'arm' ? intel.url : null,
+    intel: mac === arm && intel && chip !== 'arm' ? intel.url : null,
   };
 }

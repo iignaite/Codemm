@@ -110,6 +110,11 @@ test('Windows gets the Windows button first', () => {
     buttons: [['windows', 'Codemm-1.0.0-win-x64.exe', true], ['mac', 'Codemm-1.0.0-mac-arm64.dmg', false]],
     intel: 'Codemm-1.0.0-mac-x64.dmg',
   });
+  // A Windows PC's own chip says nothing about the visitor's Mac.
+  assert.deepEqual(shape(downloads(release('v1.0.0'), { os: 'windows', arch: 'x86' })), {
+    buttons: [['windows', 'Codemm-1.0.0-win-x64.exe', true], ['mac', 'Codemm-1.0.0-mac-arm64.dmg', false]],
+    intel: 'Codemm-1.0.0-mac-x64.dmg',
+  });
 });
 
 test('other devices get both buttons, neither highlighted', () => {
