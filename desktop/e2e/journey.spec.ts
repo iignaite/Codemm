@@ -869,8 +869,10 @@ test(`journey: ${label}`, async () => {
           if (Date.now() > deadline) throw new Error(`Setup not done within 40 minutes (${approved.length} proposals approved)`);
           await waitingStates();
           if (await visible(page.getByRole('alert'))) throw new Error(`Setup failed: ${(await page.getByRole('alert').innerText()).replace(/\s+/g, ' ')}`);
-          if (await visible(consent)) {
-            approved.push((await consent.getByRole('heading').first().innerText()).trim());
+          // The late-consent handler (waitingStates) may have just approved it: then the dialog is gone.
+          const asked = (await visible(consent)) ? await consent.getByRole('heading').first().innerText({ timeout: 3000 }).catch(() => null) : null;
+          if (asked) {
+            approved.push(asked.trim());
             await shot(`consent-${approved.length}`);
             keepProposals(approved.length);
             await tap(consent.getByRole('button', { name: 'Set up', exact: true }));
