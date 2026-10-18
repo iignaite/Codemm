@@ -94,6 +94,21 @@ describe('course editor', () => {
     expect(await screen.findByRole('listitem', { name: 'Testing' })).toBeInTheDocument();
   });
 
+  it('applies a typed request with Apply, and Approve waits until it is applied', async () => {
+    const { api, user } = await open();
+    const revise = api.reviseRoadmap;
+    let finish!: () => void;
+    api.reviseRoadmap = (concepts, request) => new Promise((resolve) => (finish = () => resolve(revise(concepts, request))));
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Testing');
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(await screen.findByText('Updating the roadmap…')).toBeInTheDocument();
+    finish();
+    expect(await screen.findByRole('listitem', { name: 'Testing' })).toBeInTheDocument();
+    expect(screen.queryByText('Updating the roadmap…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+  });
+
   it("keeps the learner's edits when sign-in expires during a request", async () => {
     const options: MockOptions = {};
     const { user } = await open(options);
