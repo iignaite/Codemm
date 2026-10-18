@@ -62,7 +62,9 @@ desktop/
     ipc.ts                  one handler per channel: check the sender, validate input, call one function, return a view
     views.ts                learner-safe projections of core results, and the reply filter (§2.2)
     state.ts                desktop.json in userData: chosen agent, executable path, tutor session ids
-    agent/agents.ts         per agent: launch arguments, stream parser, sign-in and version checks
+    agent/agents.ts         the agent CLIs (AGENT_CLIS), their shared types, and the tested versions
+    agent/claude.ts, codex.ts, cursor.ts  per agent: launch arguments, stream parser, sign-in and version checks
+    agent/stream.ts         the line-stream parsing the adapters share
     agent/bridge.ts         spawn, line parsing, cancellation, status commands (proved in spikes/agent-bridge)
     agent/jobs.ts           job kinds: brief, tools, deadline, retry bound, done check (§3.2)
   src/renderer/             screens only; no Node, no file or process access
@@ -342,7 +344,7 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 
 ### 4.9 Research sources and progress
 
-- **Progress.** One stream parser in `agent/agents.ts` reads both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. The research job's steps travel with its progress (§4.11). The research screen lists them quietly, the latest first and fading as they age, with a step count.
+- **Progress.** The stream parsers in `agent/claude.ts` and `agent/codex.ts`, with the shared steps in `agent/stream.ts`, read both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. The research job's steps travel with its progress (§4.11). The research screen lists them quietly, the latest first and fading as they age, with a step count.
 - **Reads become sources.** When research has saved the roadmap, the https pages it read join the agent's own `sources` (at most 10), saved through core's roadmap rules.
 
 - **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
@@ -403,7 +405,7 @@ Every long step shows its live progress, so the learner always knows where it is
   - Claude Code's `result` line: tokens (input, cache writes, cache reads, output) and `total_cost_usd`, its own estimate.
   - Codex's `turn.completed` usage: tokens, no cost.
   - Cursor's `result` usage, when present: tokens, no cost.
-- **Parser:** the stream parsers in `agent/agents.ts` emit `{ type: 'usage', input, output, cachedInput?, costUsd? }`, where `input` counts every input token and `cachedInput` the ones read from cache. Jobs pass each report to `Job.onUsage` with its session.
+- **Parser:** the stream parsers (`agent/claude.ts`, `codex.ts`, `cursor.ts`) emit `{ type: 'usage', input, output, cachedInput?, costUsd? }`, where `input` counts every input token and `cachedInput` the ones read from cache. Jobs pass each report to `Job.onUsage` with its session.
 - **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs). It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs.
   - Only tutor sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor session (a crashed turn can report 0) and adds only the rise.
   - One app process owns userData, as with `desktop.json`: two instances writing at the same moment could lose one report.
