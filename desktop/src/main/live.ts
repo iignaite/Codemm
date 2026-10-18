@@ -31,7 +31,7 @@ import { jobTracker, type JobTracker } from './agent/progress';
 import { briefsFrom, courseId } from './agent/briefs';
 import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type JobProblem } from './agent/jobs';
 import type { connector } from './connect';
-import { infra } from './core/failures';
+import { infraOf, kindOf } from './core/failures';
 import { errorFields, SafeError } from './errors';
 import type { CoreApp, CoreProgramRun, CoreProgress, CoreRoadmap } from './core/types';
 import { courseView, currentConcept, otherReady, type Setup } from './courseView';
@@ -84,16 +84,14 @@ const NOT_COUNTED: Record<'docker' | 'disk' | 'offline', string> = {
 const MAX_PROGRAMS = 4;
 
 function notCounted(error: unknown): string | null {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/image for .* is missing or changed/i.test(message)) return REBUILD;
-  const kind = infra(message);
+  if (kindOf(error) === 'image-missing') return REBUILD;
+  const kind = infraOf(error);
   return kind ? NOT_COUNTED[kind] : null;
 }
 
 /** core store.ts's damaged-record errors: the learner repairs them; a retry can't (§5). */
-const DAMAGED = /^Codemm's record .* is damaged|^The learning log .* has an invalid entry/;
 function repairable(e: unknown): unknown {
-  if (e instanceof Error && e.name === 'CodemmError' && DAMAGED.test(e.message)) e.message = `${REPAIR}\n${e.message}`;
+  if (kindOf(e) === 'damaged') (e as Error).message = `${REPAIR}\n${(e as Error).message}`;
   return e;
 }
 
@@ -150,7 +148,7 @@ export function createLive(d: LiveDeps): Live {
     try {
       return core.getRoadmap(ws, course);
     } catch (e) {
-      if (e instanceof Error && /^No course in this workspace yet|^Course ".*" is missing from /.test(e.message)) return null;
+      if (kindOf(e) === 'no-course') return null;
       throw e;
     }
   };
@@ -626,7 +624,7 @@ export function createLive(d: LiveDeps): Live {
         })
         .catch(async (e: Error) => {
           // This computer's problems keep the proposal for Try again; nothing is recorded and no agent runs (§6.1).
-          const kind = infra(e.message);
+          const kind = infraOf(e);
           log('setup-failed', { problem: kind ?? 'gates' });
           if (kind) {
             setup.problem = kind;
@@ -693,7 +691,7 @@ export function createLive(d: LiveDeps): Live {
       try {
         return (await core.writeLearnerFile(ws, activityId, path, text, digest, approved())).digest;
       } catch (e) {
-        if (/changed outside codemm/i.test((e as Error).message)) throw new Error(CHANGED);
+        if (kindOf(e) === 'changed') throw new Error(CHANGED);
         throw e;
       }
     },
