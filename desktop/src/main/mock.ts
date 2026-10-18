@@ -68,6 +68,8 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'untested-version': { untested: true },
   'io-track': { style: 'io' },
   'run-time-up': { style: 'io', runLimitMs: 3000 },
+  'update-available': { update: { kind: 'available', version: '1.0.1', url: 'https://github.com/iignaite/Codemm/releases/tag/v1.0.1' } },
+  'update-ready': { update: { kind: 'ready', version: '1.0.1' } },
 };
 
 export function scenario(name: string | undefined): MockOptions {
