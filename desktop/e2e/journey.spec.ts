@@ -89,7 +89,14 @@ async function step(name: string, run: () => Promise<string | void>) {
 async function shot(name: string) {
   mkdirSync(join(dir!, 'shots'), { recursive: true });
   // The test-run banner stays out of the screenshots used for the visual review.
-  const banner = (on: boolean) => page.evaluate((show) => document.getElementById('journey-banner')?.style.setProperty('display', show ? 'block' : 'none'), on).catch(() => undefined);
+  const banner = (on: boolean) =>
+    page
+      .evaluate(([show, text]) => {
+        document.getElementById('journey-banner')?.style.setProperty('display', show ? 'block' : 'none');
+        const bar = document.querySelector('.tbar');
+        if (bar?.hasAttribute('data-title')) bar.textContent = show ? text : bar.getAttribute('data-title');
+      }, [on, LABEL] as const)
+      .catch(() => undefined);
   await banner(false);
   await page.screenshot({ path: join(dir!, 'shots', `${label}-${name}.jpg`), type: 'jpeg', quality: 60 });
   await banner(true);
@@ -295,6 +302,12 @@ async function labelWindow() {
       background: '#b42318', color: '#fff', font: '600 12px system-ui, sans-serif', textAlign: 'center', padding: '3px 0',
     });
     document.body.appendChild(banner);
+    // The window hides the OS title bar, so Codemm's own bar is the title people see.
+    const bar = document.querySelector('.tbar');
+    if (bar) {
+      bar.setAttribute('data-title', bar.textContent ?? '');
+      bar.textContent = text;
+    }
   }, LABEL);
   // One screenshot with the label showing, as evidence it is there.
   mkdirSync(join(dir!, 'shots'), { recursive: true });
