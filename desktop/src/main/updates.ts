@@ -62,20 +62,21 @@ export function updates({ signed, updater, log = () => undefined, cleanup = asyn
 }
 
 /**
- * Starts a download and settles when the updater says it's done: its `update-downloaded` event, which on macOS comes
- * only after the platform checked the update's signature. `downloadUpdate()` resolves earlier, when the transfer
- * ends, so an `error` after that still fails the download.
+ * Starts a download and settles when it's ready to install: when `doneOn` emits `update-downloaded`. On macOS that's
+ * Electron's own autoUpdater, after Squirrel.Mac fetched the update and checked its signature; electron-updater's
+ * event comes earlier, when it hands the update over. Until then, an `error` on `errorsOn` (electron-updater, which
+ * passes Squirrel's errors on) fails the download.
  */
-export function downloaded(emitter: Pick<NodeJS.EventEmitter, 'once' | 'off'>, start: () => Promise<unknown>): Promise<void> {
+export function downloaded(doneOn: Pick<NodeJS.EventEmitter, 'once' | 'off'>, errorsOn: Pick<NodeJS.EventEmitter, 'once' | 'off'>, start: () => Promise<unknown>): Promise<void> {
   return new Promise((resolve, reject) => {
     const done = () => (stop(), resolve());
     const failed = (e: unknown) => (stop(), reject(e));
     const stop = () => {
-      emitter.off('update-downloaded', done);
-      emitter.off('error', failed);
+      doneOn.off('update-downloaded', done);
+      errorsOn.off('error', failed);
     };
-    emitter.once('update-downloaded', done);
-    emitter.once('error', failed);
+    doneOn.once('update-downloaded', done);
+    errorsOn.once('error', failed);
     start().catch(failed);
   });
 }
@@ -100,7 +101,7 @@ export function electronUpdater(current: string, signed: boolean, feed?: string)
       const result = await autoUpdater.checkForUpdates();
       return result?.isUpdateAvailable ? { version: result.updateInfo.version } : null;
     },
-    download: () => downloaded(autoUpdater, () => autoUpdater.downloadUpdate()),
+    download: () => downloaded(process.platform === 'darwin' ? (require('electron') as typeof import('electron')).autoUpdater : autoUpdater, autoUpdater, () => autoUpdater.downloadUpdate()),
     install: () => autoUpdater.quitAndInstall(),
   };
 }

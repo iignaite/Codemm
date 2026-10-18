@@ -112,20 +112,29 @@ describe('updates', () => {
     expect(isPrerelease('1.0.0')).toBe(false);
   });
 
-  it("a download is done only when the updater says so, after the platform's own checks; an error after the transfer fails it", async () => {
-    const ok = new EventEmitter();
+  it("a download is done only when the platform has checked it; an error until then fails it", async () => {
+    // On macOS, electron-updater says "downloaded" when it hands the zip to Squirrel.Mac, which then checks the
+    // signature: only Electron's own autoUpdater says when that's done. Errors arrive through electron-updater.
+    const wrapper = new EventEmitter();
+    const native = new EventEmitter();
     let settled = '';
-    const first = downloaded(ok, async () => undefined).then(() => (settled = 'done'), () => (settled = 'failed'));
+    const first = downloaded(native, wrapper, async () => undefined).then(() => (settled = 'done'), () => (settled = 'failed'));
+    wrapper.emit('update-downloaded');
     await tick();
-    expect(settled).toBe(''); // the transfer finished, the checks haven't
-    ok.emit('update-downloaded');
+    expect(settled).toBe('');
+    native.emit('update-downloaded');
     await first;
     expect(settled).toBe('done');
 
-    const bad = new EventEmitter();
-    const second = downloaded(bad, async () => undefined);
-    bad.emit('error', new Error('Code signature did not pass validation'));
+    const second = downloaded(native, wrapper, async () => undefined);
+    wrapper.emit('update-downloaded');
+    wrapper.emit('error', new Error('Code signature did not pass validation'));
     await expect(second).rejects.toThrow('Code signature');
-    expect(bad.listenerCount('update-downloaded') + bad.listenerCount('error')).toBe(0);
+    expect(native.listenerCount('update-downloaded') + wrapper.listenerCount('error')).toBe(0);
+
+    // Elsewhere, electron-updater's own event is the end.
+    const third = downloaded(wrapper, wrapper, async () => undefined);
+    wrapper.emit('update-downloaded');
+    await expect(third).resolves.toBeUndefined();
   });
 });
