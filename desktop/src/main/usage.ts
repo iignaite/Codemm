@@ -1,4 +1,4 @@
-// usage.json in the app's userData folder (DESIGN §4.11): what the agent CLIs reported using, per course and job
+// usage.json in the app's userData folder (DESIGN §4.12): what the agent CLIs reported using, per course and job
 // kind. Codemm reads only what the CLIs already print; it never calls a model or reads a credential. It carries
 // format_version and is written atomically, like every Codemm-owned file.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';

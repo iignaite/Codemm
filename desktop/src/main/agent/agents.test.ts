@@ -214,6 +214,8 @@ describe('launch arguments (§3.1)', () => {
     expect(args.slice(0, 4)).toEqual(['exec', '--json', '--skip-git-repo-check', '--ignore-user-config']);
     expect(args.flatMap((a, i) => (args[i - 1] === '-c' ? [a] : []))).toEqual([
       'sandbox_mode="read-only"',
+      // Only research may search the web (§3.2).
+      'web_search="disabled"',
       'mcp_servers.codemm.command="/abs/Codemm"',
       'mcp_servers.codemm.args=["/abs/core/cli.js","mcp","--workspace","/ws"]',
       'mcp_servers.codemm.env={CODEMM_HOME="/home",ELECTRON_RUN_AS_NODE="1"}',
@@ -229,10 +231,21 @@ describe('launch arguments (§3.1)', () => {
     expect(args.at(-1)).toBe('hi');
   });
 
+  it('codex: research keeps its web search; every other job has it off', () => {
+    const c = (web: boolean) => {
+      const { args } = AGENT_CLIS.codex.launch!({ prompt: 'hi', server, tools: [], web });
+      return args.filter((a, i) => args[i - 1] === '-c' && a.startsWith('web_search='));
+    };
+    expect(c(true)).toEqual([]);
+    expect(c(false)).toEqual(['web_search="disabled"']);
+  });
+
   it('codex: resume uses exec resume with the thread before the prompt', () => {
     const { args } = AGENT_CLIS.codex.launch!({ prompt: 'again', server, tools: [], resume: 't1' });
     expect(args.slice(0, 2)).toEqual(['exec', 'resume']);
     expect(args.slice(-2)).toEqual(['t1', 'again']);
+    // A resumed tutor turn still can't search the web.
+    expect(args[args.indexOf('web_search="disabled"') - 1]).toBe('-c');
   });
 
   it('cursor: print mode with stream-json and its MCP servers approved; the prompt goes last', () => {

@@ -1,20 +1,24 @@
-import { useEffect, useState } from 'react';
-import type { Goal, ResearchProgress } from '../../../shared/api';
+import { useEffect } from 'react';
+import type { Goal } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
 import { Failed } from '../../app/Shell';
+import { useJob } from '../../app/useJob';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
+import { EmmFill } from '../../ui/EmmFill';
+import { fillOf, JobBar, sayStep } from '../../ui/JobBar';
 
 /** Codemm's agent researches the goal and writes a roadmap, which the learner then edits. */
 export function Research({ goal }: { goal: Goal }) {
   const api = useApi();
   const { go } = useRouter();
   const { data, error, reload } = useLoad(() => api.research(goal), [goal], (r) => r.state !== 'running');
-  // What the agent is looking at, the latest first (§4.9).
-  const [steps, setSteps] = useState<ResearchProgress[]>([]);
-  useEffect(() => api.onResearchProgress((step) => setSteps((s) => [step, ...s])), [api]);
+  // What the agent is looking at, the latest first (§4.9, §4.11).
+  const job = useJob((p) => p.kind === 'research', []);
+  const steps = job?.progress.steps ?? [];
+  const count = job?.progress.count ?? 0;
 
   useEffect(() => {
     if (data?.state === 'done' && data.roadmap) go({ to: 'course', roadmap: data.roadmap });
@@ -38,17 +42,21 @@ export function Research({ goal }: { goal: Goal }) {
   return (
     <main className="main page">
       <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-        <Emm mood="think" width={110} />
+        {/* While research runs, the heading's Emm is its progress, filling as it goes (§4.11). */}
+        {job ? <EmmFill value={fillOf(job.progress)} width={110} dim={Boolean(job.progress.retry)} /> : <Emm mood="think" width={110} />}
         <h1 className="h1 a-up">Researching {goal.topic}</h1>
       </div>
-      {steps.length > 0 && (
+      {job && (
         <section className="looking" aria-label="Research progress">
-          <ol aria-label="What Codemm is looking at">
-            {steps.slice(0, 8).map((step, i) => (
-              <li key={steps.length - i} style={{ opacity: Math.max(0.35, 1 - i * 0.12) }}>{say(step)}</li>
-            ))}
-          </ol>
-          <span className="soon">{steps.length === 1 ? '1 step' : `${steps.length} steps`}</span>
+          <JobBar job={job} label={`Researching ${goal.topic}`} noLine emm={false} />
+          {steps.length > 0 && (
+            <ol aria-label="What Codemm is looking at">
+              {steps.map((step, i) => (
+                <li key={count - i} style={{ opacity: Math.max(0.35, 1 - i * 0.12) }}>{sayStep(step)}</li>
+              ))}
+            </ol>
+          )}
+          {count > 0 && <span className="soon">{count === 1 ? '1 step' : `${count} steps`}</span>}
         </section>
       )}
       <section className="card research" aria-labelledby="path" aria-busy="true">
@@ -60,5 +68,3 @@ export function Research({ goal }: { goal: Goal }) {
     </main>
   );
 }
-
-const say = (step: ResearchProgress) => (step.kind === 'search' ? `Searching ${step.query}` : step.kind === 'read' ? `Reading ${step.url}` : step.label);

@@ -97,7 +97,7 @@ function Aside({ course, usage }: { course: CourseView; usage: Usage | null }) {
 const tokens = (n: number) => n.toLocaleString('en-US');
 const dollars = (n: number) => (n < 0.01 ? 'under $0.01' : `$${n.toFixed(2)}`);
 
-/** What the agent reported using for this course: tokens, and Claude's own cost estimate when it gave one (§4.11). */
+/** What the agent reported using for this course: tokens, and Claude's own cost estimate when it gave one (§4.12). */
 function UsageCard({ usage }: { usage: Usage }) {
   const { total } = usage;
   return (

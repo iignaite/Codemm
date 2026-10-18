@@ -87,7 +87,7 @@ desktop/
 ### 2.2 The learner-safe boundary
 
 - **IPC.** Every IPC result is built in `views.ts` from core results that are already learner-safe: `getExercise`, `CheckView`, `progress`, `getRoadmap`, `getLesson`, `listTracks`, and the learner file reads. Hidden results carry only an index and a status, as in core §4.2.
-- **Agent events.** Only `text` events from tutor and roadmap-change turns reach the renderer. For other jobs the renderer sees a job state: `running`, `done` or `failed`.
+- **Agent events.** Only `text` events from tutor and roadmap-change turns reach the renderer. For other jobs the renderer sees a job state: `running`, `done` or `failed`. Every job also sends its progress (§4.11): a stage, fixed step labels, web searches and pages, counts and times, never a tool's arguments or results.
 - **Never forwarded.** Author, setup and lesson job streams, tool arguments and results, agent stderr, and status-command output.
 - **Reply filter.** Before forwarding text, main compares it with the current exercise's solution, mutants, hidden tests and expected outputs. If any normalized line of at least 24 characters from that material appears verbatim, the message is replaced with "Codemm held back a reply that showed hidden material." This is a backstop, not proof: a paraphrase passes it.
 - **Honor system.** As in core §1 and §4.2, grading is on the honor system, and hidden tests are hidden from the agent's tools, not from the computer. §3.1 says how much each agent can still read (decision 10).
@@ -103,7 +103,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 | Headless turn | `claude -p <brief> --output-format stream-json --verbose` | `codex exec --json --skip-git-repo-check <brief>` | `cursor-agent -p --output-format stream-json --approve-mcps --trust [--model <m>] <brief>`, run in a job folder |
 | Codemm server | `--mcp-config <json> --strict-mcp-config` | `-c mcp_servers.codemm.{command,args,env}=…` | `.cursor/mcp.json` in the job folder, `<userData>/agents/cursor-<config hash>` (no flag exists, and the workspace and `~/.cursor` stay untouched) |
 | Codemm tools | `--allowedTools mcp__codemm__<tool>,…` | `-c mcp_servers.codemm.enabled_tools=[…]`, then `default_tools_approval_mode="approve"` | `.cursor/cli.json` in the job folder: `permissions.allow` `Mcp(codemm:<tool>)`, … |
-| Built-in tools | `--tools ""` (web search and fetch for the research job only) | `--ignore-user-config`, `--disable shell_tool --disable unified_exec --disable browser_use --disable computer_use --disable apps --disable multi_agent`, and `-c sandbox_mode="read-only"` | The same file denies `Shell(*)`, `Read` and `Write` of `**` and `/**`, and `WebFetch(*)` except for research. Research adds `--force`, since print mode approves web search and fetch only with it |
+| Built-in tools | `--tools ""` (web search and fetch for the research job only) | `--ignore-user-config`, `--disable shell_tool --disable unified_exec --disable browser_use --disable computer_use --disable apps --disable multi_agent`, `-c sandbox_mode="read-only"`, and `-c web_search="disabled"` except for research | The same file denies `Shell(*)`, `Read` and `Write` of `**` and `/**`, and `WebFetch(*)` except for research. Research adds `--force`, since print mode approves web search and fetch only with it |
 | Follow-up turn | `--resume <session_id>` | `codex exec resume <thread_id>` | `--resume <chatId>` |
 | Sign-in check | `claude auth status --json`, field `loggedIn` | `codex login status`, exit 0 and "Logged in" | `cursor-agent status`, "Not logged in" |
 
@@ -324,7 +324,7 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 
 ### 4.9 Research sources and progress
 
-- **Progress.** One stream parser in `agent/agents.ts` reads both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. Main sends the research job's steps to the app window only, on the one-way `codemm:research-progress` event, and the preload exposes it as `onResearchProgress`. The research screen lists them quietly, the latest first and fading as they age, with a step count.
+- **Progress.** One stream parser in `agent/agents.ts` reads both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. The research job's steps travel with its progress (§4.11). The research screen lists them quietly, the latest first and fading as they age, with a step count.
 - **Reads become sources.** When research has saved the roadmap, the https pages it read join the agent's own `sources` (at most 10), saved through core's roadmap rules.
 
 - **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
@@ -348,7 +348,38 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 - **Renderer.** The pane appears with the first Run, between the editor and the results, and focus moves into it. Run turns into Stop on the same button, so focus stays put. Codemm's last line says how the program ended, for example "Exited with code 0." or "Time's up. The program was stopped after 2 minutes." Leaving the screen stops the program.
 - **Try it and Check in the pane.** For an io activity, each visible test prints as it finishes: `$ <run command>  (test 01)`, what the program printed, then ✓, or ✗ with expected and found (or the error). Then Try it prints "✓ 2 of 2 visible tests passed" (✗ when any failed). Check prints each hidden test as "hidden #2 ✗", an index and a status only, then "✓ 4 of 4 passed". Visible tests that never streamed (the build failed) print from the final result. The structured Results view stays. Unit activities keep Results only: their runner reports at the end.
 
-### 4.11 Usage and cost
+### 4.11 Job progress
+
+Every long step shows its live progress, so the learner always knows where it is and that it isn't stuck.
+
+- **One channel.** Every agent job (§3.2) reports on the one-way `codemm:job-progress` event, sent to the app's windows only. The preload exposes it as `onJobProgress`, and `invoke('onJobProgress')` is refused. `jobProgress()` lists the jobs running now, so a screen that opens mid-job gets its progress so far.
+- **What a report holds** (`JobProgress` in `shared/api.ts`). It is a whole snapshot, so a later one replaces an earlier one.
+  - An opaque id for this run of the job, its kind, and the topic for a lesson or author job.
+  - The stage reached, an index into `JOB_STAGES` (`shared/progress.ts`).
+  - The latest 8 steps, newest first, and a count of all of them. Steps come from the stream parser (§4.9): searches, pages as host and path, and a fixed label per Codemm tool. Searches and pages are shown for research only: another job's agent may still search (Codex has no switch for it), and what it looks up could carry an exercise still being written, which the reply filter doesn't know yet.
+  - A retry: "Trying again (2 of 3)" after a failed save, within the bound in §3.2, or 2 of 2 when a failed job is relaunched.
+  - A real fraction within the stage, where one exists: a setup's build steps, or which of the exercise's 3 gates runs.
+  - Whether the agent is thinking, which is false while one of Codemm's own tools runs, and the time since the job started and since its last event.
+  - The final report says the job ended.
+- **Stages.** Each lights up as the job reaches it (`main/agent/progress.ts`):
+  - Every job starts on its first stage and moves to the second at the agent's first event.
+  - The save tool (`save_roadmap`, `save_lesson`, `save_exercise`) reaches the last stage. A failed save goes back to the second stage and counts as a retry.
+  - Setup stays on "Proposing the setup" while its agent runs. A tutor turn has one stage.
+- **Setup.** The setup job proposes; a proposal after one failed its gates starts as "Trying again (2 of 3)". Once the learner consents, Codemm's own install reports on the same channel: "Building" with core's "Step 3 of 7" (counts only, core §4.4), then "Checking the setup". While Codemm works, the agent isn't thinking.
+- **Exercise gates.** An author job's server gets `--progress <userData>/progress/<job>.json` (core §8). While `save_exercise` runs, main reads the gate's name from that file every half second: "Codemm is checking that the reference passes", "… that the starter fails" or "… that the tests catch each broken version", as 1, 2 or 3 of 3. Only a known gate name is read; the file is cleared when a save ends and removed with the job.
+- **Safe.** The tracker keeps nothing from a tool's arguments or results, a file or Codemm's records. The reply filter (§2.2) drops a step that shows hidden material, as it does for tutor replies.
+- **Emm fills up** (`renderer/ui/JobBar.tsx`, `ui/EmmFill.tsx`). Progress is Emm, grey with its eye closed, filling with color from the tail to the head as the job reaches each stage. Each stage reached fills its share, a real fraction (build steps, gates) fills within it, and the last share is the job done (a one-stage tutor turn is half full). The fill edge breathes while the stage runs. A retry, or 90 seconds of quiet, dims Emm. Under reduced motion there is no breathing and the fill steps. The fill is a second copy of Emm's artwork clipped to the fraction, so it keeps Emm's exact shape. It is decorative; a `progressbar` around it carries the value and a text such as "Checking the exercise, 0:07".
+  - **Full** (topic page, setup, research, the course editor): an 84 px Emm beside the named stages (done in green, the current one in blue, later ones muted) with the time so far, the latest step or "Trying again (2 of 3)" beneath, and "Still working: the agent is thinking." after 90 seconds with no event while the agent thinks. Research's heading Emm is its fill. Where no real fraction exists, it shows the stage and the step, never a percentage.
+  - **Compact** (the outline, the tutor rail): a 32 px Emm and the latest step (or the stage); in the outline the time is right-aligned on the label's line. A retry reads "Try 2 of 3". In the outline, the lesson or activity keeps its icon and label on the first line, as the other rows do, and the progress line starts under the label.
+- **Where it shows.**
+  - Research: the bar above the live list of searches and pages.
+  - The course editor, while "Ask Codemm for changes" or Go deeper runs.
+  - The topic page and the outline: a lesson or activity being written shows its job's stages (compact in the outline). A job still waiting its turn keeps the quiet shimmer.
+  - The topic page, during setup: proposing, then building and checking.
+  - The tutor rail: "Codemm is thinking…" and the turn's latest step.
+- **Mock.** `CODEMM_MOCK=slow-jobs` holds each stage over a few reads, so every state can be seen; `quiet-jobs` also shows the quiet line.
+
+### 4.12 Usage and cost
 
 - **Source:** only what the agent CLIs already print. Codemm never calls a model and never reads a credential.
   - Claude Code's `result` line: tokens (input, cache writes, cache reads, output) and `total_cost_usd`, its own estimate.
@@ -525,7 +556,7 @@ Work test-first. For each behavior, write a failing test, make it pass simply, t
 Cut from 1.0 by the owner's scope ledger:
 
 - **Lessons:** predict questions, and learner edits of lesson text. Notes stay. (Runnable examples are in 1.0: §4.3.)
-- **Usage:** cost per topic. Totals per course and job kind are in 1.0 (§4.11); lesson caching stays (§4.3).
+- **Usage:** cost per topic. Totals per course and job kind are in 1.0 (§4.12); lesson caching stays (§4.3).
 - **Auto-update:** electron-updater on GitHub Releases, enabled only once builds are signed (macOS updates need a signed app).
 - The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
 - **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.8).
