@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CodemmApi, JobProgress } from '../shared/api';
 import { dispatch } from './ipc';
-import { CANARY, live, practising } from './testing/fakes';
+import { CANARY, live, practising, settle } from './testing/fakes';
 import { HELD_BACK } from './views';
 
 // D4: an exercise whose solution, mutants, hidden tests and expected outputs
@@ -107,7 +107,7 @@ describe('the learner-safe boundary (D4)', () => {
     }
     payloads.push(...(await Promise.all(running)));
     // The last research call started a job; wait for it, so its progress is heard.
-    for (let i = 0; i < 20 && (await t.api.research({ topic: 'React', known: '', depth: 'standard' })).state === 'running'; i++) await new Promise((r) => setTimeout(r, 5));
+    await settle(() => t.api.research({ topic: 'React', known: '', depth: 'standard' }), (r) => r.state !== 'running', 'Research');
     payloads.push(JSON.stringify(heard));
 
     // Each path really ran, so its success payload was checked, not only an error.
