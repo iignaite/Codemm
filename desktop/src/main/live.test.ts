@@ -13,7 +13,7 @@ describe('live CodemmApi', () => {
   it('researches a new course on a server bound to it, then shows the roadmap', async () => {
     const t = live();
     const r = await researched(t);
-    expect(r).toEqual({ state: 'done', roadmap: { goal: 'React', track: 'react', installed: false, concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }] } });
+    expect(r).toEqual({ state: 'done', roadmap: { goal: 'React', track: 'react', installed: false, concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }], sources: [] } });
     const job = t.jobs.ran[0];
     const course = t.c.roadmap!.course;
     expect(course).toMatch(/^react-[a-z0-9]+$/);
@@ -224,6 +224,107 @@ describe('live CodemmApi', () => {
       throw new Error("The container runtime stopped during the run, so it wasn't counted. Start Docker Desktop.");
     };
     expect(await s.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: "Docker isn't running." });
+  });
+
+  it("shows the roadmap's https sources, and keeps them through the learner's own edits", async () => {
+    const t = live({
+      research: (job) => {
+        const args = job.server([]).args;
+        t.c.roadmap = {
+          course: args[args.indexOf('--course') + 1], goal: 'React', track: 'react@1', style: 'io',
+          concepts: [{ id: 'values', title: 'Values', requires: [] }],
+          sources: [{ title: 'React docs', url: 'https://react.dev/learn' }, { title: 'Not https', url: 'http://example.com' }],
+        };
+        return {};
+      },
+    });
+    const r = await researched(t);
+    expect(r.roadmap!.sources).toEqual([{ title: 'React docs', url: 'https://react.dev/learn' }]);
+    await t.api.approve([...r.roadmap!.concepts, { id: 'hooks', title: 'Hooks', requires: [] }]);
+    expect(t.c.roadmap!.sources).toEqual([{ title: 'React docs', url: 'https://react.dev/learn' }, { title: 'Not https', url: 'http://example.com' }]);
+  });
+
+  it('starts no second research while the first saves its sources', async () => {
+    const t = live({
+      research: (job) => {
+        job.onSource?.({ title: 'roadmap.sh/react', url: 'https://roadmap.sh/react' });
+        const args = job.server([]).args;
+        t.c.roadmap = { course: args[args.indexOf('--course') + 1], goal: 'React', track: 'react@1', style: 'io', concepts: [{ id: 'values', title: 'Values', requires: [] }] };
+        return {};
+      },
+    });
+    const save = t.app.saveRoadmap;
+    let release: () => void = () => undefined;
+    t.app.saveRoadmap = async (...args) => {
+      await new Promise<void>((r) => (release = r));
+      return save(...args);
+    };
+    await t.api.connect('claude');
+    const goal = { topic: 'React', known: '', depth: 'standard' as const };
+    await t.api.research(goal);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await t.api.research(goal)).toEqual({ state: 'running' });
+    // Quitting waits for the save.
+    let stopped = false;
+    const stopping = t.api.stop().then(() => (stopped = true));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stopped).toBe(false);
+    release();
+    await stopping;
+    expect(t.jobs.ran.filter((j) => j.kind === 'research')).toHaveLength(1);
+    expect(t.c.roadmap!.sources).toEqual([{ title: 'roadmap.sh/react', url: 'https://roadmap.sh/react' }]);
+  });
+
+  it('holds back research progress that shows hidden material, and caps source titles', async () => {
+    const t = live({
+      research: (job) => {
+        job.onProgress?.({ kind: 'search', query: `look up ${CANARY}` });
+        job.onSource?.({ title: 'x'.repeat(200), url: 'https://example.com/long' });
+        const args = job.server([]).args;
+        t.c.roadmap = { course: args[args.indexOf('--course') + 1], goal: 'React', track: 'react@1', style: 'io', concepts: [{ id: 'values', title: 'Values', requires: [] }] };
+        return {};
+      },
+    });
+    t.c.current = 'solved';
+    const heard: unknown[] = [];
+    t.api.onResearchProgress((p) => heard.push(p));
+    const r = await researched(t);
+    expect(JSON.stringify(heard)).not.toContain(CANARY);
+    expect(r.roadmap!.sources[0]!.title).toHaveLength(120);
+  });
+
+  it('forwards what research looks at, then adds the pages it read to the roadmap sources', async () => {
+    const t = live({
+      research: (job) => {
+        job.onProgress?.({ kind: 'search', query: 'react roadmap 2026' });
+        job.onProgress?.({ kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react' });
+        job.onSource?.({ title: 'roadmap.sh/react', url: 'https://roadmap.sh/react' });
+        job.onProgress?.({ kind: 'read', url: 'react.dev/learn', href: 'https://react.dev/learn' });
+        job.onSource?.({ title: 'react.dev/learn', url: 'https://react.dev/learn' });
+        const args = job.server([]).args;
+        t.c.roadmap = {
+          course: args[args.indexOf('--course') + 1], goal: 'React', track: 'react@1', style: 'io',
+          concepts: [{ id: 'values', title: 'Values', requires: [] }], sources: [{ title: 'React docs', url: 'https://react.dev/learn' }],
+        };
+        return {};
+      },
+    });
+    const heard: unknown[] = [];
+    t.api.onResearchProgress((p) => heard.push(p));
+    const r = await researched(t);
+    expect(heard).toEqual([{ kind: 'search', query: 'react roadmap 2026' }, { kind: 'read', url: 'roadmap.sh/react' }, { kind: 'read', url: 'react.dev/learn' }]);
+    // The agent's own source comes first; a page it read only once joins it.
+    expect(r.roadmap!.sources).toEqual([{ title: 'React docs', url: 'https://react.dev/learn' }, { title: 'roadmap.sh/react', url: 'https://roadmap.sh/react' }]);
+  });
+
+  it("shows a lesson's examples and runs one in core's sandbox; a stopped Docker means it didn't run", async () => {
+    const t = live();
+    await practising(t);
+    t.c.lessons.push({ id: 'ex', concept: 'values', title: 'Run it', markdown: 'See:\n\n```example\n1\n```\n', notes: '', examples: [{ 'main.c': 'int main(){}' }] });
+    expect((await t.api.lesson('ex')).examples).toEqual([{ files: [{ path: 'main.c', text: 'int main(){}' }] }]);
+    expect(await t.api.runExample('ex', 1)).toEqual({ kind: 'ran', exit: 0, output: 'ran main.c\n', errors: '' });
+    t.c.down = true;
+    expect(await t.api.runExample('ex', 1)).toEqual({ kind: 'not-run', reason: "Docker isn't running." });
   });
 
   it('keeps a stuck activity open beside the ways forward', async () => {

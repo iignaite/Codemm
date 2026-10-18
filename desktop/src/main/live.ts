@@ -1,6 +1,7 @@
 // The CodemmApi over the real core and the learner's own agent (DESIGN §2–§6).
 // Main calls core `app` functions in-process; agent jobs run through the
 // bridge; everything returned goes through views.ts.
+import { isSafeLink } from './links';
 import {
   AGENT_FAILED,
   CHANGED,
@@ -10,6 +11,7 @@ import {
   SIGNED_OUT,
   UNSTOPPABLE,
   type CheckProgress,
+  type ResearchProgress,
   type CodemmApi,
   type Computer,
   type Concept,
@@ -18,7 +20,7 @@ import {
   type Roadmap,
   type SetupProblem,
 } from '../shared/api';
-import type { McpServer } from './agent/agents';
+import type { McpServer, ResearchStep } from './agent/agents';
 import { briefsFrom, courseId } from './agent/briefs';
 import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type JobProblem } from './agent/jobs';
 import type { connector } from './connect';
@@ -133,7 +135,11 @@ export function createLive(d: LiveDeps): Live {
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
   const trackName = (ref: string) => ref.split('@')[0];
-  const roadmapView = (r: CoreRoadmap): Roadmap => ({ goal: r.goal, track: trackName(r.track), installed: installed(r.track), concepts: r.concepts.map((c) => ({ id: c.id, title: c.title, requires: [...c.requires] })) });
+  const roadmapView = (r: CoreRoadmap): Roadmap => ({
+    goal: r.goal, track: trackName(r.track), installed: installed(r.track), concepts: r.concepts.map((c) => ({ id: c.id, title: c.title, requires: [...c.requires] })),
+    // Core accepts only https sources; main checks again before anything reaches the window (§2.1).
+    sources: (r.sources ?? []).filter((s) => isSafeLink(s.url)).map((s) => ({ title: s.title, url: s.url })),
+  });
   const hidden = (): string[] => {
     const { course, current } = core.readWorkspace(ws);
     if (!course || !current) return [];
@@ -148,14 +154,18 @@ export function createLive(d: LiveDeps): Live {
   /** Saves the learner's edits through core's roadmap rules (§4.2). JSON is YAML. */
   async function saveConcepts(concepts: Concept[]) {
     const current = core.getRoadmap(ws);
-    await core.saveRoadmap(ws, current.course, JSON.stringify({ goal: current.goal, track: current.track, style: current.style, concepts }), current.course);
+    const { goal, track, style, sources } = current;
+    await core.saveRoadmap(ws, current.course, JSON.stringify({ goal, track, style, concepts, ...(sources ? { sources } : {}) }), current.course);
   }
 
   /**
    * Runs one agent job in a lane: one foreground job and one background queue,
    * each one at a time (§3.2). The job starts only when its turn comes.
    */
-  function start(key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'], resume?: string): Promise<JobOutcome> {
+  function start(
+    key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'], resume?: string,
+    onProgress?: Job['onProgress'], onSource?: Job['onSource'],
+  ): Promise<JobOutcome> {
     const existing = running.get(key);
     if (existing) return existing.outcome;
     if (stopping) return Promise.resolve({ ok: false, problem: 'failed', text: [] });
@@ -187,6 +197,8 @@ export function createLive(d: LiveDeps): Live {
         done,
         blocked: () => unstoppable,
         signedIn: () => d.connect.recheck(id, exe),
+        onProgress,
+        onSource,
       });
       if (outcome.problem === 'unstoppable') unstoppable = true;
       log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
@@ -321,10 +333,29 @@ export function createLive(d: LiveDeps): Live {
   const progressListeners = new Set<(p: CheckProgress) => void>();
   const progressOf = (run?: string) => ({ phase, done, total }: CheckProgress) => progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
 
+  // Research progress goes to whoever listens (main sends it to the app window): searches, page hosts and paths, steps.
+  const researchListeners = new Set<(p: ResearchProgress) => void>();
+  /** Research jobs that ended but whose sources aren't saved yet. */
+  const finishing = new Set<string>();
+
+  /** After research saves the roadmap, the pages it read join the agent's own sources (§4.9), at most 10. */
+  async function addReads(course: string, reads: { title: string; url: string }[]) {
+    const r = core.getRoadmap(ws, course);
+    const sources = [...(r.sources ?? [])];
+    for (const read of reads) if (!sources.some((s) => s.url === read.url)) sources.push(read);
+    if (sources.length === (r.sources ?? []).length) return;
+    const { goal, track, style, concepts } = r;
+    await core.saveRoadmap(ws, course, JSON.stringify({ goal, track, style, concepts, sources: sources.slice(0, 10) }), course);
+  }
+
   const api: Live = {
     onCheckProgress(listener) {
       progressListeners.add(listener);
       return () => void progressListeners.delete(listener);
+    },
+    onResearchProgress(listener) {
+      researchListeners.add(listener);
+      return () => void researchListeners.delete(listener);
     },
     async agents() {
       const agents = await d.connect.agents();
@@ -361,18 +392,40 @@ export function createLive(d: LiveDeps): Live {
       const outcome = outcomes.get(key);
       if (outcome) {
         outcomes.delete(key);
+        finishing.delete(key);
         if (!outcome.ok) {
           if (outcome.problem && outcome.problem !== 'failed' && outcome.problem !== 'infra') throw problemError(outcome.problem);
           return { state: 'failed' };
         }
         return { state: 'done', roadmap: roadmapView(core.getRoadmap(ws)) };
       }
-      if (!running.has(key)) {
+      if (!running.has(key) && !finishing.has(key)) {
         await d.connect.chosen();
         // A new course, on a server that saves only it (§4.6).
         const course = courseId(goal.topic, Date.now());
-        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course)
-          .then((o) => outcomes.set(key, o))
+        const reads: { title: string; url: string }[] = [];
+        // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
+        const filter = hidden();
+        const safe = (text: string) => filterReply(text, filter) === text;
+        const onProgress = (step: ResearchStep) => {
+          const shown: ResearchProgress = step.kind === 'read' ? { kind: 'read', url: step.url } : step;
+          if (safe(step.kind === 'search' ? step.query : step.kind === 'read' ? (step.href ?? step.url) : step.label)) researchListeners.forEach((l) => l(shown));
+        };
+        const onSource = (source: { title: string; url: string }) => {
+          if (safe(source.url)) reads.push({ title: source.title.slice(0, 120), url: source.url });
+        };
+        // Research counts as running until its sources are saved, so a poll meanwhile starts no second agent.
+        finishing.add(key);
+        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, undefined, onProgress, onSource)
+          .then(async (o) => {
+            if (o.ok) {
+              // Quitting waits for this save, like any other run (stop()).
+              const saving = addReads(course, reads).catch((e: Error) => log('sources-error', errorFields(e)));
+              runs.add(saving);
+              await saving.finally(() => runs.delete(saving));
+            }
+            outcomes.set(key, o);
+          })
           .catch((e: Error) => outcomes.set(key, { ok: false, problem: e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed', text: [] }));
       }
       return { state: 'running' };
@@ -452,7 +505,21 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async lesson(id) {
-      return core.getLesson(ws, id);
+      const { examples, ...lesson } = core.getLesson(ws, id);
+      return { ...lesson, examples: examples.map((files) => ({ files: Object.entries(files).map(([path, text]) => ({ path, text })) })) };
+    },
+
+    async runExample(lessonId, index) {
+      try {
+        return { kind: 'ran', ...(await whenDockerReady(() => core.runExample(ws, lessonId, index))) };
+      } catch (e) {
+        const reason = notCounted(e);
+        if (reason) {
+          log('not-counted', { run: 'example', reason });
+          return { kind: 'not-run', reason };
+        }
+        throw e;
+      }
     },
     saveNotes: (id, notes) => core.saveNotes(ws, id, notes),
     async markRead(id) {
@@ -552,7 +619,7 @@ export function createLive(d: LiveDeps): Live {
   };
   // Every call: a damaged record says so, with core's guidance. (onCheckProgress subscribes; it isn't a call.)
   for (const name of Object.keys(api) as (keyof Live)[]) {
-    if (name === 'onCheckProgress') continue;
+    if (name === 'onCheckProgress' || name === 'onResearchProgress') continue;
     const call = api[name] as (...args: unknown[]) => Promise<unknown>;
     (api as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => call.apply(api, args).catch((e: unknown) => Promise.reject(repairable(e)));
   }

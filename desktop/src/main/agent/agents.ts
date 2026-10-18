@@ -12,7 +12,52 @@ export type AgentEvent =
   | { type: 'tool_result'; id: string; error: boolean; text?: string }
   /** The Codemm server failed to start. */
   | { type: 'server'; ok: false }
-  | { type: 'done'; ok: boolean; error?: string };
+  | { type: 'done'; ok: boolean; error?: string }
+  /**
+   * What the agent is looking at: a web search, an https page, or one of Codemm's steps (research progress). `id` is
+   * the tool call of a page fetch still under way: it counts as a source only if that call succeeds.
+   */
+  | { type: 'progress'; step: ResearchStep; id?: string };
+
+/**
+ * One step a job shows while it runs. `read` keeps the full https `href` for the roadmap's sources and shows only
+ * host and path. Nothing here ever comes from a file path, a file's contents or Codemm's records.
+ */
+export type ResearchStep = { kind: 'search'; query: string } | { kind: 'read'; url: string; href?: string } | { kind: 'step'; label: string };
+
+const STEP_LABELS: Record<string, string> = {
+  list_tracks: 'Checking the installed tracks',
+  save_roadmap: 'Saving the roadmap',
+  get_roadmap: 'Reading the roadmap',
+  save_track: 'Preparing the setup',
+  save_lesson: 'Saving the lesson',
+  save_exercise: 'Saving the activity',
+  next_step: 'Checking the next step',
+};
+
+const searchOf = (query: unknown): ResearchStep[] =>
+  typeof query === 'string' && query.trim() ? [{ kind: 'search', query: query.trim().slice(0, 120) }] : [];
+
+/**
+ * An https page: shown as host and path, kept whole (query included, fragment dropped) for the roadmap's sources.
+ * Anything else (http, files) or a link over core's 2,000 characters shows nothing.
+ */
+export function readOf(url: unknown): ResearchStep | undefined {
+  if (typeof url !== 'string') return undefined;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' || u.username || u.password) return undefined;
+    const href = `https://${u.host}${u.pathname}${u.search}`;
+    if (href.length > 2000) return undefined;
+    const path = u.pathname === '/' ? '' : u.pathname;
+    return { kind: 'read', url: `${u.host}${path}`.slice(0, 200), href };
+  } catch {
+    return undefined;
+  }
+}
+
+const stepOf = (tool: string): ResearchStep[] => (STEP_LABELS[tool] ? [{ kind: 'step', label: STEP_LABELS[tool] }] : []);
+const progress = (steps: (ResearchStep | undefined)[]): AgentEvent[] => steps.flatMap((step) => (step ? [{ type: 'progress' as const, step }] : []));
 
 /** How an agent starts Codemm's MCP server for one job. */
 export interface McpServer {
@@ -109,7 +154,16 @@ const claude: AgentCli = {
     if (!Array.isArray(content)) return [];
     return content.flatMap((c): AgentEvent[] => {
       if (c?.type === 'text' && str(c.text)) return [{ type: 'text', text: c.text }];
-      if (c?.type === 'tool_use' && str(c.id) && str(c.name)) return [{ type: 'tool_call', id: c.id, name: c.name.replace(/^mcp__(.+?)__/, '$1.') }];
+      if (c?.type === 'tool_use' && str(c.id) && str(c.name)) {
+        const input = (c.input ?? {}) as Record<string, unknown>;
+        const call: AgentEvent = { type: 'tool_call', id: c.id, name: c.name.replace(/^mcp__(.+?)__/, '$1.') };
+        if (c.name === 'WebFetch') {
+          const read = readOf(input.url);
+          return read ? [call, { type: 'progress', step: read, id: c.id }] : [call];
+        }
+        const steps = c.name === 'WebSearch' ? searchOf(input.query) : c.name.startsWith('mcp__codemm__') ? stepOf(c.name.slice(13)) : [];
+        return [call, ...progress(steps)];
+      }
       if (c?.type === 'tool_result' && str(c.tool_use_id)) {
         return [c.is_error === true ? { type: 'tool_result', id: c.tool_use_id, error: true, text: textOf(c.content) } : { type: 'tool_result', id: c.tool_use_id, error: false }];
       }
@@ -153,8 +207,14 @@ const codex: AgentCli = {
     if (e.type === 'turn.failed') return [{ type: 'done', ok: false, error: String((e.error as { message?: unknown } | undefined)?.message ?? 'turn failed') }];
     const item = e.item as Record<string, unknown> | undefined;
     if (item?.type === 'agent_message' && e.type === 'item.completed' && str(item.text)) return [{ type: 'text', text: item.text }];
+    if (item?.type === 'web_search' && e.type === 'item.completed') {
+      const action = (item.action ?? {}) as { type?: unknown; queries?: unknown; query?: unknown; url?: unknown };
+      if (action.type === 'open_page') return progress([readOf(action.url)]);
+      const queries = Array.isArray(action.queries) ? action.queries : [action.query ?? item.query];
+      return progress(queries.flatMap(searchOf));
+    }
     if (item?.type === 'mcp_tool_call' && str(item.id) && str(item.server) && str(item.tool)) {
-      if (e.type === 'item.started') return [{ type: 'tool_call', id: item.id, name: `${item.server}.${item.tool}` }];
+      if (e.type === 'item.started') return [{ type: 'tool_call', id: item.id, name: `${item.server}.${item.tool}` }, ...(item.server === 'codemm' ? progress(stepOf(item.tool)) : [])];
       if (e.type === 'item.completed') {
         const error = item.status !== 'completed' || item.error != null;
         const failure = (item.error as { message?: unknown } | null)?.message ?? (item.result as { content?: unknown } | null)?.content;

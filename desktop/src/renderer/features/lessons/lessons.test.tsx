@@ -31,6 +31,26 @@ describe('review on the topic page', () => {
   });
 });
 
+describe('lesson examples', () => {
+  it('shows each example where the lesson places it, and runs it on request', async () => {
+    const user = userEvent.setup();
+    const { api, course } = await mockWithCourse({ read: true });
+    const first = course.topics[0].lessons[0];
+    const real = await api.lesson(first.id);
+    api.lesson = async () => ({ ...real, markdown: 'Before\n\n```example\n1\n```\n\nAfter', examples: [{ files: [{ path: 'main.js', text: 'console.log(1)' }] }] });
+    const runs: number[] = [];
+    api.runExample = async (_id, n) => (runs.push(n), { kind: 'ran', exit: 0, output: '1\n', errors: '' });
+    renderApp({ to: 'lesson', lessonId: first.id }, api);
+    const example = await screen.findByRole('region', { name: 'Example 1' });
+    expect(example).toHaveTextContent('console.log(1)');
+    await user.click(within(example).getByRole('button', { name: 'Run' }));
+    expect(await within(example).findByText('1', { selector: 'pre.out' })).toBeInTheDocument();
+    expect(runs).toEqual([1]);
+    expect(screen.getByText('Before')).toBeInTheDocument();
+    expect(screen.getByText('After')).toBeInTheDocument();
+  });
+});
+
 describe('topic page and setup consent', () => {
   it('asks once before setup, shows exactly what will be built, and sets up', async () => {
     const user = userEvent.setup();

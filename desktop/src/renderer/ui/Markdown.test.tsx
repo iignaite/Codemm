@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { Markdown } from './Markdown';
+import { lessonParts, Markdown } from './Markdown';
 
 const html = (text: string) => render(<Markdown text={text} />).container;
 
@@ -32,5 +32,39 @@ describe('Markdown (§2.1)', () => {
     expect(links).toHaveLength(1);
     expect(links[0]).toHaveAttribute('target', '_blank');
     expect(links[0]).toHaveAttribute('rel', 'noreferrer');
+  });
+});
+
+describe('lessonParts', () => {
+  const fence = (n: number, mark = '```') => `${mark}example\n${n}\n${mark}`;
+
+  it('cuts the lesson at top-level example fences, tildes included, keeping links defined elsewhere', () => {
+    const parts = lessonParts(`See [docs][d].\n\n${fence(1)}\n\nThen\n\n${fence(2, '~~~')}\n\n[d]: https://example.com/docs\n`);
+    expect(parts.map((p) => ('example' in p ? p.example : 'html'))).toEqual(['html', 1, 'html', 2]);
+    expect((parts[0] as { html: string }).html).toContain('href="https://example.com/docs"');
+  });
+
+  // Core pins the same cases (test/schemas.test.ts): both use markdown-it's tokens.
+  it.each([
+      ["- item\n  ~~~text\n  code\n\n~~~example\n1\n~~~", [1]],
+      ["~~~example\n1\n~~~\u00a0", []],
+      ["~~~example\r1\r~~~", [1]],
+      ["```example\n\n1\n\n```\n", []],
+      ["```example\n1\n", []],
+      ["   ````md\n```example\n1\n```\n   ````\n", []],
+    ])('finds the same example blocks as core in %j', (text, refs) => {
+    expect(lessonParts(text as string).flatMap((p) => ('example' in p ? [p.example] : []))).toEqual(refs);
+  });
+
+  it('drops a leading title without touching what follows it', () => {
+    expect(lessonParts('#\n```example\n1\n```', true).flatMap((p) => ('example' in p ? [p.example] : []))).toEqual([1]);
+    const [first] = lessonParts('# Title\n\nText', true);
+    expect((first as { html: string }).html).not.toContain('Title');
+    expect((first as { html: string }).html).toContain('Text');
+  });
+
+  it('shows, never runs, an example fence inside another fence or indented', () => {
+    const parts = lessonParts(`\`\`\`\`md\n${fence(1)}\n\`\`\`\`\n\n    \`\`\`example\n    2\n    \`\`\`\n`);
+    expect(parts.every((p) => 'html' in p)).toBe(true);
   });
 });

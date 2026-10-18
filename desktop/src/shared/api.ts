@@ -96,6 +96,8 @@ export interface Roadmap {
   track: string;
   installed: boolean;
   concepts: Concept[];
+  /** The roadmaps and docs the agent used. Opened only in the system browser (§2.1). */
+  sources: { title: string; url: string }[];
 }
 
 export type JobState = 'running' | 'done' | 'failed';
@@ -166,10 +168,15 @@ export interface Lesson {
   id: string;
   concept: string;
   title: string;
-  /** Static Markdown, rendered with raw HTML stripped (§2.1). */
+  /** Static Markdown, rendered with raw HTML stripped (§2.1). It places example N as a fenced block `example` holding N. */
   markdown: string;
   notes: string;
+  /** Runnable examples, in order: each runs in the sandbox on request and is never recorded (§4.3). */
+  examples: { files: { path: string; text: string }[] }[];
 }
+
+/** One run of a lesson example (output capped by core), or why it didn't run (Docker, §6.1). */
+export type ExampleRun = { kind: 'ran'; exit: number; output: string; errors: string } | { kind: 'not-run'; reason: string };
 
 // ---------- activity (§4.5, D11) ----------
 
@@ -248,6 +255,8 @@ export interface CodemmApi {
   chooseModel(agent: AgentId, model: string): Promise<Agent>;
   /** Hears progress while Try it or Check runs; returns a function that stops listening. An event, not a call. */
   onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
+  /** Hears what research is looking at while it runs; returns a function that stops listening. An event, not a call. */
+  onResearchProgress(listener: (progress: ResearchProgress) => void): () => void;
   computer(): Promise<Computer>;
   tracks(): Promise<Track[]>;
 
@@ -276,6 +285,8 @@ export interface CodemmApi {
   saveFile(activityId: string, path: string, text: string, digest: string): Promise<string>;
   /** `run` tags this run's progress events, so the renderer hears only its own. */
   tryIt(activityId: string, run?: string): Promise<TryResult>;
+  /** Runs a lesson's example `index` (from 1) in the sandbox. Never recorded. */
+  runExample(lessonId: string, index: number): Promise<ExampleRun>;
   check(activityId: string, run?: string): Promise<CheckResult>;
 
   /** A tutor turn. A reply that shows hidden material is held back (§2.2). */
@@ -288,9 +299,13 @@ export interface CodemmApi {
   rebuild(trackRef: string): Promise<void>;
 }
 
+/** What the research job is looking at: a search, an https page (host and path) or one of Codemm's steps. */
+export type ResearchProgress = { kind: 'search'; query: string } | { kind: 'read'; url: string } | { kind: 'step'; label: string };
+
 /** What the preload script exposes as `window.codemm`. */
 export interface Bridge {
   invoke(method: string, args: unknown[]): Promise<unknown>;
-  /** The one event main sends: check progress, to the app window only. */
+  /** Events main sends, to the app window only: check progress and research progress. */
   onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
+  onResearchProgress(listener: (progress: ResearchProgress) => void): () => void;
 }
