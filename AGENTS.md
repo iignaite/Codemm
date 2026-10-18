@@ -33,7 +33,7 @@ Codemm is a harness: the learner's coding agent writes tracks, roadmaps and exer
   | `gates` | verification |
   | `learner` | pure learner rules |
   | `store` | persistence |
-  | `app` | use cases |
+  | `app` | use cases (`src/app/`, one file per section behind the `app.ts` barrel) |
 
   `cli`, `mcp`, `init`, `hook` and `doctor` are thin entry points.
 - **Never vendor AGPL code.** Exercism's test runners are AGPL-3.0.
