@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { createMock, scenario } from '../../../main/mock';
@@ -24,7 +24,8 @@ describe('install what is missing', () => {
     // Nothing downloads until the learner says so.
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: "Install what's missing" }));
-    expect(await screen.findAllByRole('progressbar')).toHaveLength(2);
+    // Both installs show progress; Docker's and the agent's can appear one read apart.
+    await waitFor(() => expect(screen.getAllByRole('progressbar')).toHaveLength(2));
     expect(await within(docker).findByText(/accept Docker's terms in its window/, {}, { timeout: 4000 })).toBeInTheDocument();
     await user.click(await within(agent).findByRole('button', { name: 'Sign in' }, { timeout: 4000 }));
     window.dispatchEvent(new Event('focus'));
