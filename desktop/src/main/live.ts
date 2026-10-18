@@ -14,8 +14,6 @@ import {
   UNSTOPPABLE,
   type CheckProgress,
   type JobProgress,
-  type RunOutput,
-  type RunResult,
   type CodemmApi,
   type Computer,
   type Concept,
@@ -32,9 +30,10 @@ import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type Job
 import type { connector } from './connect';
 import { infraOf, kindOf } from './core/failures';
 import { errorFields, SafeError } from './errors';
-import type { CoreApp, CoreProgramRun, CoreProgress, CoreRoadmap } from './core/types';
+import type { CoreApp, CoreProgress, CoreRoadmap } from './core/types';
 import { courseView, currentConcept, otherReady, type Setup } from './courseView';
 import { noLog, type Log } from './log';
+import { programs } from './programs';
 import type { desktopState } from './state';
 import type { usageStore } from './usage';
 import { activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
@@ -82,9 +81,6 @@ const NOT_COUNTED: Record<'docker' | 'disk' | 'offline', string> = {
 };
 
 /** An infrastructure failure during Try it or Check isn't counted (§5). */
-/** Run's programs at once, across windows: each holds a container. */
-const MAX_PROGRAMS = 4;
-
 function notCounted(error: unknown): string | null {
   if (kindOf(error) === 'image-missing') return REBUILD;
   const kind = infraOf(error);
@@ -414,47 +410,8 @@ export function createLive(d: LiveDeps): Live {
     }
   }
 
-  // Run's programs, by run id (§4.10). What they print goes to whoever listens; main sends it to the window that started each.
-  const programs = new Map<string, { program?: CoreProgramRun; stopped: boolean; cancel?: () => void }>();
-  const runListeners = new Set<(o: RunOutput) => void>();
-  const tell = (o: RunOutput) => runListeners.forEach((l) => l(o));
-  type StartProgram = (output: (text: string, stream: 'stdout' | 'stderr') => void, options: { onStart: (stage: 'build' | 'run', limitMs: number) => void }) => Promise<CoreProgramRun>;
-
-  /** One Run, an activity's or a lesson example's: its output tagged with `run`, and stoppable before it has started. */
-  async function program(run: string, startProgram: StartProgram): Promise<RunResult> {
-    if (programs.has(run)) throw new SafeError('Bad input');
-    if (programs.size >= MAX_PROGRAMS) throw new SafeError('Too many programs are running. Stop one, then try again.');
-    const entry: { program?: CoreProgramRun; stopped: boolean; cancel?: () => void } = { stopped: false };
-    programs.set(run, entry);
-    try {
-      const r = await new Promise<Awaited<CoreProgramRun['done']> | undefined>((resolve, reject) => {
-        let starting = false;
-        // Stopped while waiting for Docker: it ends now, frees its place, and never starts.
-        entry.cancel = () => !starting && resolve(undefined);
-        // Tracked until the program has ended, so quitting waits for its container and files to go.
-        whenDockerReady(async () => {
-          if (entry.stopped) return undefined;
-          starting = true;
-          const program = await startProgram((text, stream) => tell({ run, stream, text }), { onStart: (stage, limitMs) => tell({ run, started: stage, limitMs }) });
-          entry.program = program;
-          // Stopped while it was starting.
-          if (entry.stopped) program.kill();
-          return program.done;
-        }).then(resolve, reject);
-      });
-      if (!r) return { kind: 'ran', exit: 137, timedOut: false, stopped: true, flooded: false, outOfMemory: false };
-      return { kind: 'ran', exit: r.exit, ...(r.stage ? { stage: r.stage } : {}), timedOut: r.timedOut, stopped: r.stopped ?? false, flooded: r.flooded, outOfMemory: r.outOfMemory ?? false };
-    } catch (e) {
-      const reason = notCounted(e);
-      if (reason) {
-        log('not-counted', { run: 'program', reason });
-        return { kind: 'not-run', reason };
-      }
-      throw e;
-    } finally {
-      programs.delete(run);
-    }
-  }
+  // Run's programs, by run id (§4.10): programs.ts.
+  const programRuns = programs({ whenDockerReady, notCounted, log });
 
   /** Research jobs that ended but whose sources aren't saved yet. */
   const finishing = new Set<string>();
@@ -481,10 +438,7 @@ export function createLive(d: LiveDeps): Live {
     async jobProgress() {
       return [...trackers.values()].map((t) => t.snapshot());
     },
-    onRunOutput(listener) {
-      runListeners.add(listener);
-      return () => void runListeners.delete(listener);
-    },
+    onRunOutput: (listener) => programRuns.onOutput(listener),
     async agents() {
       const agents = await d.connect.agents();
       log('agents', Object.fromEntries(agents.map((a) => [a.id, a.untested ? `${a.state}-untested` : a.state])));
@@ -723,16 +677,10 @@ export function createLive(d: LiveDeps): Live {
       }
     },
 
-    runProgram: (activityId, run) => program(run, (output, options) => core.runInteractive(ws, activityId, approved(), output, options)),
-    runExampleLive: (lessonId, index, run) => program(run, (output, options) => core.runExampleLive(ws, lessonId, index, approved(), output, options)),
-    sendRunInput: async (run, text) => programs.get(run)?.program?.write(text) ?? false,
-    async stopRun(run) {
-      const entry = programs.get(run);
-      if (!entry) return;
-      entry.stopped = true;
-      entry.cancel?.();
-      entry.program?.kill();
-    },
+    runProgram: (activityId, run) => programRuns.start(run, (output, options) => core.runInteractive(ws, activityId, approved(), output, options)),
+    runExampleLive: (lessonId, index, run) => programRuns.start(run, (output, options) => core.runExampleLive(ws, lessonId, index, approved(), output, options)),
+    sendRunInput: (run, text) => programRuns.input(run, text),
+    stopRun: (run) => programRuns.stop(run),
 
     async check(activityId, run) {
       try {
@@ -801,11 +749,7 @@ export function createLive(d: LiveDeps): Live {
     async stop() {
       stopping = true;
       log('quit', { jobs: running.size, runs: runs.size });
-      for (const entry of programs.values()) {
-        entry.stopped = true;
-        entry.cancel?.();
-        entry.program?.kill();
-      }
+      programRuns.stopAll();
       await cancel(() => true);
       await Promise.all([...runs].map((r) => r.catch(() => undefined)));
       await core.cleanupLeftovers().catch(() => undefined);
