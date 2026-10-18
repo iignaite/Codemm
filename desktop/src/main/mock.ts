@@ -791,6 +791,12 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       if (!tracks.some((t) => t.ref === ref)) throw new Error(`Unknown track: ${ref}`);
     },
 
+    // What a few jobs might report, to see the Usage section; nothing is counted.
+    async usage() {
+      if (!course) return null;
+      return { kinds: {}, total: { input: 182_400, output: 12_300, cachedInput: 90_000, costUsd: 0.42, runs: 6 } };
+    },
+
     update: async () => options.update ?? { kind: 'none' },
     async restartToUpdate() {
       if (options.update?.kind !== 'ready') throw new Error('No update is ready.');

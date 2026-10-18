@@ -60,6 +60,14 @@ describe('jobs (§3.2)', () => {
     expect(await runJob(job(agent.exe))).toEqual({ ok: true, session: 's1', text: ['Look at line 3.'] });
   });
 
+  it('reports what the run used, with its session', async () => {
+    const used = { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.05, usage: { input_tokens: 10, cache_read_input_tokens: 90, output_tokens: 7 } };
+    const agent = fakeAgent([init, say('Done.'), used]);
+    const reports: unknown[] = [];
+    await runJob(job(agent.exe, { onUsage: (u) => reports.push(u) }));
+    expect(reports).toEqual([{ input: 100, output: 7, cachedInput: 90, costUsd: 0.05, session: 's1' }]);
+  });
+
   it('counts a fetched page as a source only once its fetch succeeds', async () => {
     const fetch = (id: string, url: string) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'WebFetch', input: { url } }] } });
     const agent = fakeAgent([init, fetch('f1', 'https://good.example/a'), result('f1', false), fetch('f2', 'https://bad.example/b'), result('f2', true), success]);

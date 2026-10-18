@@ -36,6 +36,7 @@ import type { CoreApp, CoreProgramRun, CoreProgress, CoreRoadmap } from './core/
 import { courseView, currentConcept, otherReady, type Setup } from './courseView';
 import { noLog, type Log } from './log';
 import type { desktopState } from './state';
+import type { usageStore } from './usage';
 import { activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
 
 export interface LiveDeps {
@@ -54,6 +55,8 @@ export interface LiveDeps {
   /** A Codemm-owned folder for agents that read their config from the working directory (Cursor). */
   agentDir?: string;
   runJob?: (job: Job) => Promise<JobOutcome>;
+  /** What the agents reported using, per course and job kind (usage.ts). */
+  usage?: ReturnType<typeof usageStore>;
   /** Lifecycle and detection events only (log.ts). */
   log?: Log;
   /** Resolves once Docker isn't starting any more (§6.1). */
@@ -254,6 +257,7 @@ export function createLive(d: LiveDeps): Live {
           tellJob(tracker.snapshot());
         },
         onSource,
+        onUsage: (u) => recordUsage(course, kind, u),
       }).finally(() => {
         gates?.stop();
         trackers.delete(key);
@@ -400,6 +404,16 @@ export function createLive(d: LiveDeps): Live {
   const finished = ({ name, status, message, actual }: NonNullable<CheckProgress['test']>) => ({ name, status, ...(message !== undefined ? { message } : {}), ...(actual !== undefined ? { actual } : {}) });
   const progressOf = (run?: string) => ({ phase, done, total, test }: CheckProgress) =>
     progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total, ...(phase === 'visible' && test ? { test: finished(test) } : {}) }));
+
+  /** What a job's agent reported using, under its course and kind (§4.12). Never stops the job. */
+  function recordUsage(course: string | undefined, kind: Job['kind'], u: Parameters<NonNullable<Job['onUsage']>>[0]) {
+    if (!d.usage || !course) return;
+    try {
+      d.usage.record(course, kind, u, u.session);
+    } catch (e) {
+      log('usage-error', errorFields(e));
+    }
+  }
 
   // Run's programs, by run id (§4.10). What they print goes to whoever listens; main sends it to the window that started each.
   const programs = new Map<string, { program?: CoreProgramRun; stopped: boolean; cancel?: () => void }>();
@@ -776,6 +790,11 @@ export function createLive(d: LiveDeps): Live {
       await core.rebuildTrack(ref);
     },
 
+    // The course on screen: the approved one, as course() shows, not a draft being researched.
+    async usage() {
+      const course = approved();
+      return course && d.usage ? d.usage.course(course) : null;
+    },
     // Updates are main's (updates.ts), which answers these in place of live.
     update: async () => ({ kind: 'none' }),
     restartToUpdate: async () => undefined,

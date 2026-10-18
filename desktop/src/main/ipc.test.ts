@@ -42,6 +42,7 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' 
   skip: ['values'],
   easier: ['values'],
   rebuild: ['react@1'],
+  usage: [],
   update: [],
   restartToUpdate: [],
 };
