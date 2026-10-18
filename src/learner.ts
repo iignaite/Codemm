@@ -2,6 +2,7 @@
  * Learner rules. Pure functions of the attempt log: the log is the only learner
  * state, and everything here is recomputed by replaying it.
  */
+import type { LearnerEventRecord } from "./schemas.js";
 
 export const PRIOR = 0.5;
 export const RATE = 0.3;
@@ -13,26 +14,17 @@ export const REVIEW_DAYS = [1, 3, 7, 21, 60];
 const DAY_MS = 86_400_000;
 const addDays = (iso: string, days: number) => new Date(Date.parse(iso) + days * DAY_MS).toISOString();
 
-export type CheckEvent = {
-  format_version: 1;
-  kind: "check";
-  at: string;
-  exercise: string;
-  concepts: string[];
-  difficulty: number;
-  passed: number;
-  total: number;
-  assisted: boolean;
-};
+/** The event log's records, as the schema reads them (schemas.ts LearnerEventSchema). */
+export type LearnerEvent = LearnerEventRecord;
+export type CheckEvent = Extract<LearnerEvent, { kind: "check" }>;
 /** "Come back later": defers the concept until its next check. Never changes mastery. */
-export type SkipEvent = { format_version: 1; kind: "skip"; at: string; concept: string };
+export type SkipEvent = Extract<LearnerEvent, { kind: "skip" }>;
 /** Marks an exercise as assisted for good: every check of it counts as assisted. */
-export type AssistEvent = { format_version: 1; kind: "assist"; at: string; exercise: string };
+export type AssistEvent = Extract<LearnerEvent, { kind: "assist" }>;
 /** A fresh start after a new prerequisite: resets the fail streak, leaves mastery alone. */
-export type RetryEvent = { format_version: 1; kind: "retry"; at: string; concept: string };
+export type RetryEvent = Extract<LearnerEvent, { kind: "retry" }>;
 /** The learner acknowledged reading a lesson. Never changes mastery. */
-export type ReadEvent = { format_version: 1; kind: "read"; at: string; lesson: string; concept: string };
-export type LearnerEvent = CheckEvent | SkipEvent | AssistEvent | RetryEvent | ReadEvent;
+export type ReadEvent = Extract<LearnerEvent, { kind: "read" }>;
 
 export type ConceptState = {
   mastery: number;
