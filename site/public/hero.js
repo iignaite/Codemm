@@ -1,4 +1,4 @@
-// The hero orbit: Claude Code, Codex and Cursor circle Codemm on a tilted ring,
+// The hero orbit: the names Claude Code, Codex and Cursor circle Codemm on a tilted ring,
 // passing behind and in front of it. One dips in to charge Codemm every few
 // seconds, a click sends that agent in, and the scene tilts with the pointer.
 // Emm turns the color of the agent that charged Codemm. It has a pause button, stops offscreen and in hidden tabs, and with reduced
@@ -61,7 +61,6 @@ if (orbit) {
     const cy = r.top - s.top + r.height / 2;
     const rx = r.width / 2;
     const ry = r.height / 2;
-    const size = agents[0].offsetWidth;
     const intro = reduce.matches ? 1 : ease(Math.min(1, (now - started) / 1200));
     agents.forEach((el, i) => {
       const theta = reduce.matches ? STILL[i] : angle + (i * Math.PI * 2) / 3;
@@ -80,7 +79,7 @@ if (orbit) {
       const x = cx + Math.cos(theta) * rx * k;
       const y = cy + depth * ry * k;
       const scale = 0.72 + 0.34 * (depth + 1) / 2;
-      el.style.transform = `translate3d(${x - size / 2}px, ${y - size / 2}px, 0) scale(${scale})`;
+      el.style.transform = `translate3d(${x - el.offsetWidth / 2}px, ${y - el.offsetHeight / 2}px, 0) scale(${scale})`;
       el.style.zIndex = depth > 0 ? '3' : '1';
       el.style.opacity = String(0.2 + 0.8 * intro);
       el.style.filter = depth > 0 ? 'none' : `brightness(${0.86 + 0.14 * (depth + 1)})`;
