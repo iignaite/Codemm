@@ -273,7 +273,7 @@ export function live(over: Partial<Record<Job['kind'], Act>> = {}, deps: Partial
 }
 
 /** Reads until `done` holds, for up to 2 s, then fails. A read that throws fails at once. */
-async function settle<T>(read: () => Promise<T>, done: (value: T) => boolean, what: string): Promise<T> {
+export async function settle<T>(read: () => Promise<T>, done: (value: T) => boolean, what: string): Promise<T> {
   const deadline = Date.now() + 2000;
   for (;;) {
     const value = await read();
