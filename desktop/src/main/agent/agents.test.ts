@@ -97,7 +97,8 @@ describe('agent stream contracts (recorded fixtures, §3.3)', () => {
   });
 
   it('cursor: errors go to stderr; only a plan limit or a lost connection is read from it, as a fixed message', () => {
-    expect(AGENT_CLIS.cursor.errors!("Error: You've hit your usage limit for this account (user@example.com)")).toEqual([{ type: 'done', ok: false, error: 'usage limit' }]);
+    // Recorded on the free plan, after research and before setup.
+    expect(AGENT_CLIS.cursor.errors!("ActionRequiredError: You've hit your usage limit Get Cursor Pro for more Agent usage, unlimited Tab, and more.")).toEqual([{ type: 'done', ok: false, error: 'usage limit' }]);
     // A lost connection is the computer being offline: the fixed text matches the offline markers (jobs.ts).
     expect(AGENT_CLIS.cursor.errors!('Connection lost, reconnecting...')).toEqual([{ type: 'done', ok: false, error: 'connection error' }]);
     expect(AGENT_CLIS.cursor.errors!("Error: Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY environment variable.")).toEqual([]);

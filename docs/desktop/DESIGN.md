@@ -129,6 +129,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
   - **No startup signal.** Cursor never reports that a server failed to start. Its tool lookup can't find the `codemm` namespace, or a call fails with "MCP server does not exist", and either becomes the server event (recorded).
   - **Errors.** They go to stderr, which is drained. Only a plan limit or a lost connection is read from it, as a fixed message.
   - **Models.** The free plan runs only Auto ("Named models unavailable"), so Auto is the one tested model.
+  - **Plan limit (recorded).** On the free plan, stderr says "You've hit your usage limit", with no result event. Codemm shows the plan-limit state.
 - **The invariant.** Codemm never runs agent-written code on the host, and runs untrusted code only through `sandbox.ts`. What the agent's own tools do happens under the agent's own sandbox, exactly as in a terminal. Turning those tools off is defense in depth.
 
 **Running processes.**
