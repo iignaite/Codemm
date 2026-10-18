@@ -611,7 +611,9 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         { hidden: true, index: 1, status: 'pass' },
         { hidden: true, index: 2, status: done ? 'pass' : 'fail' },
       ];
-      return { kind: 'graded', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests, recorded: !unedited, stuck: topic.stuck, mastered: topic.state === 'mastered' };
+      const requires = (id: string) => roadmap!.concepts.find((x) => x.id === id)?.requires ?? [];
+      const later = course!.topics.some((t) => t !== topic && t.state !== 'mastered' && requires(t.id).every((r) => topicOf(r).state === 'mastered'));
+      return { kind: 'graded', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests, recorded: !unedited, stuck: topic.stuck, mastered: topic.state === 'mastered', later };
     },
 
     async ask(place, text) {
