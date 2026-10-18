@@ -15,12 +15,12 @@ let codemm: { command: string; args: string[] };
 let files: string[];
 
 /** Builds and packs Codemm exactly as it would ship, then installs the tarball into a clean folder. */
-beforeAll(() => {
+beforeAll(async () => {
   const out = tempDir("codemm-pack-");
-  const packed = JSON.parse(npm(["pack", "--json", "--pack-destination", out], root))[0];
+  const packed = JSON.parse(await npm(["pack", "--json", "--pack-destination", out], root))[0];
   files = packed.files.map((f: { path: string }) => f.path);
   const prefix = tempDir("codemm-install-");
-  npm(["install", "--prefix", prefix, "--prefer-offline", "--no-audit", "--no-fund", join(out, packed.filename)]);
+  await npm(["install", "--prefix", prefix, "--prefer-offline", "--no-audit", "--no-fund", join(out, packed.filename)]);
   // npm links a shell shim on POSIX. On Windows it links a .cmd shim, which Node won't spawn without
   // a shell, so there the packed package's own bin entry runs with this Node.
   const installed = join(prefix, "node_modules", "codemm");
