@@ -120,6 +120,7 @@ describe("frameProgress", () => {
     const chunks = Array.from({ length: Math.ceil(big.length / 1024) }, (_, i) => big.subarray(i * 1024, (i + 1) * 1024));
     const started = performance.now();
     expect(milestones(chunks)).toHaveLength(400);
-    expect(performance.now() - started).toBeLessThan(500);
+    // Quadratic copying would take many seconds here; linear takes milliseconds. The bound leaves room for slow runners.
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 });
