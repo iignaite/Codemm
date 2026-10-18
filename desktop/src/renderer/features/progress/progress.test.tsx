@@ -168,7 +168,7 @@ describe('usage', () => {
     ...over,
   });
 
-  it("shows the course's tokens, and Claude's cost as its own estimate, which a plan counts toward its usage", async () => {
+  it("shows the course's tokens, and Claude's cost as its estimate once, with no claim about billing", async () => {
     const { api } = await mockWithCourse();
     api.usage = async () => usage();
     renderApp({ to: 'learn' }, api);
@@ -176,7 +176,10 @@ describe('usage', () => {
     expect(section).toHaveTextContent('Tokens in182,400');
     expect(section).toHaveTextContent('Tokens out12,300');
     expect(section).toHaveTextContent("Claude's estimate$0.42");
-    expect(section).toHaveTextContent("Claude's own estimate. On a Claude plan, this counts toward the plan's usage.");
+    // The row's label says it's an estimate; no footnote says it again.
+    expect(section.textContent!.match(/estimate/g)).toHaveLength(1);
+    // Codemm can't tell a plan from an API key, so it says nothing about either.
+    expect(section).not.toHaveTextContent('plan');
     // No promise about charges: Codemm can't tell a plan from an API key.
     expect(section).not.toHaveTextContent('charge');
   });

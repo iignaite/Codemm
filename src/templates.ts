@@ -41,15 +41,15 @@ A track is the environment for one language or framework. It needs:
   - \`build\` (optional, io only: runs once before the cases);
   - \`run\` (io: reads stdin, writes stdout);
   - \`test\` (unit);
-  - \`limits\` (\`time_ms\`, \`memory_mb\`).
-- \`Dockerfile\`. Install every tool and dependency at build time, because checks run with **no network**. Pin the base image by digest (\`image@sha256:...\`) only if you know the real digest; never make one up, because a wrong digest fails the build. A plain tag works, with a warning.
+  - \`limits\` (\`time_ms\`, \`memory_mb\`). The pass probe must also pass within a third of \`time_ms\`, as every exercise's reference must, so leave room for the runtime's own start-up.
+- \`Dockerfile\`. Install every tool and dependency at build time, because checks run with **no network**. Pin the base image by digest (\`image@sha256:...\`) only if you know the real digest; never make one up, because a wrong digest fails the build. A plain tag works, with a warning. Put any script or config the track needs in the track's own files and \`COPY\` it into the image; never create files inside the Dockerfile with heredocs or long \`echo\` chains, which many builders reject.
 - \`probe/<style>/pass/\` (a correct solution), \`probe/<style>/fail/\` (a wrong one) and \`probe/<style>/tests/\` for each style. io probe tests are \`NN.in\` with a matching \`NN.out\`. Unit probe tests are test files.
 
 How checks run:
 
 - The learner's files are read-only in \`/work/src\` (the working directory), and the tests are read-only in \`/work/tests\`. Only \`/tmp\` is writable, and \`HOME=/tmp\`, so put build output and caches in \`/tmp\`.
 - The image must have \`sh\`, \`timeout\`, \`sleep\`, \`head\`, \`wc\`, \`cat\` and \`basename\`, and must not declare a \`VOLUME\`.
-- **Unit tracks:** the \`test\` command runs the tests in \`$TESTS\` against \`/work/src\` and writes \`$OUT\`, for example \`{"tests":[{"name":"test_sum.test_basic","status":"pass"},{"name":"test_sum.test_empty","status":"fail","message":"expected 0, got 1"}]}\`. Each status is exactly \`pass\`, \`fail\` or \`error\`, and every name is unique and stable. It must exit 0 whenever it wrote the report, even if tests failed. Usually that means a small script baked into the image that runs the framework and converts its report.`;
+- **Unit tracks:** the \`test\` command runs the tests in \`$TESTS\` against \`/work/src\` and writes \`$OUT\`, for example \`{"tests":[{"name":"test_sum.test_basic","status":"pass"},{"name":"test_sum.test_empty","status":"fail","message":"expected 0, got 1"}]}\`. Each status is exactly \`pass\`, \`fail\` or \`error\`, and every name is unique and stable. It must exit 0 whenever it wrote the report, even if tests failed, and must find the test files in \`$TESTS\`, wherever Codemm puts them. Never hide the runner's own failure, such as finding no test files: a report that lists no tests fails. Usually that means a small script baked into the image that runs the framework and converts its report.`;
 
 const EXERCISE_RULES = `## Exercises (\`save_exercise\`)
 

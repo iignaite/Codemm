@@ -3,7 +3,7 @@ import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { saveExercise, saveTrack } from "../src/app.js";
-import { assertId, assertPortablePaths, readFileMap, validateFileMap } from "../src/files.js";
+import { assertId, assertPortablePaths, describePath, readFileMap, validateFileMap } from "../src/files.js";
 import { tempDir } from "./temp.js";
 
 describe("assertId", () => {
@@ -28,9 +28,31 @@ describe("validateFileMap", () => {
     expect(() => validateFileMap({ [path]: "x" })).toThrow(/path/i);
   });
 
+  it("never echoes a path under mutants/, whose folder names can say what bug each holds", () => {
+    expect(() => validateFileMap({ "mutants/CANARY-forgets-negatives/../x": "x" })).toThrow(/under mutants\//);
+    expect(() => validateFileMap({ "mutants/CANARY-forgets-negatives/../x": "x" })).not.toThrow(/CANARY/);
+  });
+
   it("never echoes a path under tests/hidden/", () => {
     expect(() => validateFileMap({ "tests/hidden/secret-name/../x": "x" })).toThrow(/under tests\/hidden/);
     expect(() => validateFileMap({ "tests/hidden/secret-name/../x": "x" })).not.toThrow(/secret-name/);
+  });
+
+  it.each([
+    "./tests/hidden/CANARY-neg_overflow.in",
+    "tests//hidden/CANARY-x.in",
+    "/mutants/CANARY-off-by-one/main.py",
+    "tests\\hidden\\CANARY-x.in",
+    "Tests/Hidden/CANARY-x.in",
+    "a/../tests/hidden/CANARY-x.in",
+    "tests/hidden\u0000CANARY-x.in",
+  ])("never echoes a malformed path that still points into hidden material (%s)", (path) => {
+    expect(describePath(path)).toMatch(/^a file under (tests\/hidden|mutants)\/$/);
+  });
+
+  it("rejects a malformed hidden path without echoing it", () => {
+    expect(() => validateFileMap({ "./tests/hidden/CANARY-neg_overflow.in": "x" })).toThrow(/Invalid path a file under tests\/hidden\//);
+    expect(() => validateFileMap({ "./tests/hidden/CANARY-neg_overflow.in": "x" })).not.toThrow(/CANARY/);
   });
 
   it("rejects paths that differ only by case", () => {

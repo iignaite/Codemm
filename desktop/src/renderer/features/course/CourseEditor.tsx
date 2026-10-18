@@ -12,6 +12,8 @@ import { JobBar } from '../../ui/JobBar';
 import { stagger } from '../../ui/motion';
 import { TopicItem } from './TopicItem';
 import { ExternalLink } from '../../ui/ExternalLink';
+import { Limit } from '../../ui/Limit';
+import { LIMITS } from '../../../shared/limits';
 
 /** Rename, reorder, add or remove topics, or ask Codemm for changes. Then approve (§4.2). */
 export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
@@ -30,6 +32,7 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
 
   /** Applies an edit and saves it, so the draft survives leaving or closing Codemm; or says why it was refused. */
   function edit(change: (cs: Concept[]) => Concept[]) {
+    if (asking) return;
     let next: Concept[];
     try {
       next = change(concepts);
@@ -62,8 +65,11 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
     if (!asking) void change(`Go deeper on "${title}": split it into the smaller skills it needs, each its own topic with its prerequisites.`);
   }
 
+  /** Codemm changes the roadmap as it stands now, so the learner's own edits wait until it's done (an open one closes). */
   async function change(text: string) {
     setAsking(true);
+    setEditing(undefined);
+    setAdding(false);
     try {
       const result = await api.reviseRoadmap(concepts, text);
       setConcepts(result.roadmap.concepts);
@@ -110,20 +116,22 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
               onMove={(to) => edit((cs) => moveTopic(cs, c.id, to))}
               onDragStart={() => (dragFrom.current = c.id)}
               onDrop={() => dragFrom.current && edit((cs) => moveTopic(cs, dragFrom.current!, i))}
+              locked={asking}
             />
           ))}
           {adding && <TopicItem index={concepts.length} count={concepts.length + 1} title="" editing onEdit={() => {}} onRename={add} />}
         </ol>
         {asking && job && <JobBar job={job} label="Changing the roadmap" />}
         <p className={asking ? 'quiet-text' : 'alert'} role="status">{asking ? (job ? '' : 'Updating the roadmap…') : notice}</p>
-        <button className="add a-up" type="button" style={stagger(0, 100)} disabled={adding} onClick={() => setAdding(true)}>
+        <button className="add a-up" type="button" style={stagger(0, 100)} disabled={adding || asking} onClick={() => setAdding(true)}>
           <Icon name="plus" color="#0E2754" size={16} />
           Add a topic
         </button>
         <form className="composer a-up" style={{ ...stagger(1, 100), marginTop: 10 }} onSubmit={ask}>
-          <Field aria-label="Ask Codemm for changes" placeholder="Ask Codemm for changes" value={request} disabled={asking} onChange={(e) => setRequest(e.target.value)} />
+          <Field aria-label="Ask Codemm for changes" placeholder="Ask Codemm for changes" value={request} maxLength={LIMITS.words} disabled={asking} onChange={(e) => setRequest(e.target.value)} />
           <Button type="submit" variant="ghost" size="lg" disabled={!request.trim() || asking}>Apply</Button>
         </form>
+        <Limit value={request} max={LIMITS.words} />
         {/* A typed request is applied or cleared first, so approving never drops it. */}
         <div className="actions approve a-up" style={stagger(2, 100)}>
           <Button size="lg" disabled={concepts.length === 0 || editing !== undefined || adding || asking || request.trim() !== ''} onClick={approve}>Approve</Button>

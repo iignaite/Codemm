@@ -429,11 +429,11 @@ describe('Run', () => {
     expect(sent).toEqual(['Ada\n']);
   });
 
-  it("says why a program couldn't run", async () => {
+  it("says why a program couldn't run, and what to do next", async () => {
     const { api, user } = await openIo();
     api.runProgram = async () => ({ kind: 'not-run', reason: "Docker isn't running." });
     await user.click(screen.getByRole('button', { name: 'Run' }));
-    await vi.waitFor(() => expect(mirror()).toHaveTextContent("Docker isn't running."));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("Docker isn't running. Open Docker Desktop, then run again."));
   });
 
   it('Try it prints each visible test as it finishes: the command, the output, then expected and found', async () => {

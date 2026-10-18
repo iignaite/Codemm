@@ -44,26 +44,28 @@ const safe = (url) => (typeof url === 'string' && url.startsWith('https://github
 function content(d) {
   if (d.status === 'soon') {
     return [el('div', { className: 'soon' },
-      el('p', { className: 'soon-title' }, 'Coming soon'),
-      el('p', { className: 'note' }, 'The first beta is on its way. The source is already on GitHub.'),
-      el('a', { className: 'btn secondary', href: REPO }, 'Codemm on GitHub'))];
+      el('span', { className: 'soon-pill' }, 'Coming soon to Mac and Windows'),
+      el('a', { href: REPO }, 'Source on GitHub'))];
   }
   const parts = [];
-  if (d.primary) {
-    parts.push(el('a', { className: 'btn primary big', href: safe(d.primary.url) },
-      el('span', { className: 'btn-label' }, d.primary.label),
-      el('span', { className: 'btn-detail' }, d.primary.detail)));
+  if (d.primaries.length) {
+    parts.push(el('div', { className: 'primaries' }, ...d.primaries.map((i) =>
+      el('a', { className: 'btn primary big', href: safe(i.url) },
+        el('span', { className: 'btn-label' }, i.label),
+        el('span', { className: 'btn-detail' }, i.detail)))));
+    // Both Mac builds: the browser didn't say which chip this Mac has.
+    if (d.primaries.length > 1) parts.push(el('p', { className: 'chip-hint' }, 'About This Mac shows Chip on Apple Silicon and Processor on Intel.'));
   } else {
     parts.push(el('p', { className: 'desktop-only' }, 'Codemm is a desktop app for a Mac or a Windows PC.'));
   }
-  const version = el('p', { className: 'version' }, 'Version ', el('code', {}, d.version));
-  if (d.beta) version.append(el('span', { className: 'pill' }, 'Beta'));
-  parts.push(version);
+  // One quiet line under the buttons: the beta label and the other installers.
+  const line = el('p', { className: 'others' });
+  if (d.beta) line.append(el('span', { className: 'pill' }, 'Beta'));
   if (d.others.length) {
-    const others = el('p', { className: 'others' }, el('span', {}, d.primary ? 'Also for' : 'Download for'));
-    for (const o of d.others) others.append(el('a', { href: safe(o.url) }, o.name));
-    parts.push(others);
+    line.append(el('span', {}, d.primaries.length ? 'Also for' : 'Download for'));
+    for (const o of d.others) line.append(el('a', { href: safe(o.url) }, o.name));
   }
+  if (line.childNodes.length) parts.push(line);
   return parts;
 }
 

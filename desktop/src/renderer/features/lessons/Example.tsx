@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { ExampleRun, Lesson } from '../../../shared/api';
+import { notRunLine, type ExampleRun, type Lesson } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
 import { Button } from '../../ui/Button';
@@ -66,7 +66,7 @@ function RunOnce({ lesson, index }: { lesson: Lesson; index: number }) {
       <div className="run">
         <Button variant="ghost" disabled={busy} onClick={start}>Run</Button>
       </div>
-      {run?.kind === 'not-run' && <p className="alert" role="status">This didn't run. {run.reason}</p>}
+      {run?.kind === 'not-run' && <p className="alert" role="status">This didn't run. {notRunLine(run.reason)}</p>}
       {run?.kind === 'ran' && (
         <div role="status">
           {run.output && <pre className="out">{run.output}</pre>}

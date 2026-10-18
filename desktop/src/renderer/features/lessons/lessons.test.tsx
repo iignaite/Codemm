@@ -55,6 +55,24 @@ describe('lesson examples', () => {
     expect(screen.getByText('After')).toBeInTheDocument();
   });
 
+  it("says why an example didn't run, and what to do next", async () => {
+    const user = userEvent.setup();
+    const { api, course } = await mockWithCourse({ read: true });
+    const first = course.topics[0].lessons[0];
+    const real = await api.lesson(first.id);
+    api.lesson = async () => ({ ...real, markdown: '```example\n1\n```', examples: [{ files: [{ path: 'main.js', text: 'console.log(1)' }] }] });
+    const reasons = ["Docker isn't running.", 'Docker ran out of disk space.', "Docker couldn't reach the network."];
+    const next = ['Open Docker Desktop, then run again.', 'Free up disk space, then run again.', 'Connect to the internet, then run again.'];
+    let i = 0;
+    api.runExample = async () => ({ kind: 'not-run', reason: reasons[i] });
+    renderApp({ to: 'lesson', lessonId: first.id }, api);
+    const example = await screen.findByRole('region', { name: 'Example 1' });
+    for (; i < reasons.length; i++) {
+      await user.click(within(example).getByRole('button', { name: 'Run' }));
+      expect(await within(example).findByText(`This didn't run. ${reasons[i]} ${next[i]}`)).toBeInTheDocument();
+    }
+  });
+
   it('runs an io example in the terminal pane with typed input, and stops it on leaving', async () => {
     const user = userEvent.setup();
     const { api, course } = await mockWithCourse({ read: true, style: 'io' });
@@ -309,6 +327,25 @@ describe('background work that stopped', () => {
     expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
   });
 
+  it('says Docker stopped, with Check this computer and Try again, and no Check your agent', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse({ stalled: 'docker' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Docker stopped. Start Docker, then try again.');
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Check this computer', 'Try again']);
+    await user.click(within(alert).getByRole('button', { name: 'Check this computer' }));
+    expect(await screen.findByRole('heading', { name: 'Check this computer' })).toBeInTheDocument();
+  });
+
+  it('says the disk is full, with Try again and no Check your agent', async () => {
+    const { api } = await mockWithCourse({ stalled: 'disk' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Not enough disk space. Free some space on this computer, then try again.');
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
+  });
+
   it('names a plan limit', async () => {
     const { api } = await mockWithCourse({ stalled: 'plan-limit' });
     renderApp({ to: 'learn' }, api);
@@ -433,6 +470,25 @@ describe('lessons', () => {
     await user.click(await screen.findByRole('button', { name: 'Read useState' }));
     await screen.findByRole('heading', { name: 'useState', level: 1 });
     expect(screen.queryByText('Old course note')).not.toBeInTheDocument();
+  });
+
+  it('reopens a lesson with its saved note at once, while reads are slow (an activity being written)', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+    await screen.findByRole('heading', { name: 'useState', level: 1 });
+    await user.click(screen.getByRole('button', { name: 'Add a note' }));
+    await user.type(screen.getByRole('textbox', { name: 'My note' }), 'Kept note');
+    // From here on, lesson reads don't answer, as when background work keeps Codemm busy: the save's own re-read too.
+    api.lesson = () => new Promise(() => {});
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Kept note')).toBeInTheDocument();
+    // Away and back, as a learner would.
+    await user.click(screen.getByRole('button', { name: 'Learn' }));
+    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    await user.click(await screen.findByRole('button', { name: 'Read useState' }));
+    expect(screen.getByRole('heading', { name: 'useState', level: 1 })).toBeInTheDocument();
+    expect(screen.getByText('Kept note')).toBeInTheDocument();
   });
 
   it('shows a saved note after reopening, even if an older read finishes later', async () => {

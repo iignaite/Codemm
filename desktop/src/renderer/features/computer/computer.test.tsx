@@ -86,8 +86,9 @@ describe('check this computer', () => {
     expect(within(installed).getByRole('link', { name: 'Install it myself' })).toHaveAttribute('href', 'https://docs.docker.com/desktop/setup/install/mac-install/');
     await user.click(within(installed).getByRole('button', { name: 'Install Docker' }));
     expect(await within(installed).findByRole('progressbar', { name: 'Downloading Docker Desktop' })).toBeInTheDocument();
-    expect(within(installed).getByText('Installing')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('Installing Docker Desktop.');
+    // Said once: the row's title and Emm's fill with its text, with no state word beside it and no footer under it.
+    expect(within(installed).queryByText('Installing')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(/^$/);
     expect(await screen.findByText(/Checking it's from Docker/)).toBeInTheDocument();
     expect(await screen.findByText(/accept Docker's terms in its window/)).toBeInTheDocument();
     expect(await screen.findByText('This computer is ready.')).toBeInTheDocument();

@@ -15,8 +15,15 @@ export function assertId(kind: string, value: string): void {
   }
 }
 
-/** How a path may appear in messages: anything under tests/hidden/ is never echoed. */
-export const describePath = (path: string) => (/^tests\/hidden(\/|$)/i.test(path) ? "a file under tests/hidden/" : `"${path}"`);
+/**
+ * How a path may appear in messages: anything under tests/hidden/ or mutants/ (hidden material) is never echoed. A
+ * malformed path ("./tests/hidden/x", "tests//hidden/x", "a\\..\\mutants\\x") is matched by its parts, wherever they are.
+ */
+export const describePath = (path: string) => {
+  const parts = path.split(/[\\/\0]+/).filter((p) => p !== "" && p !== ".").join("/");
+  const hidden = /(?:^|\/)(tests\/hidden|mutants)(\/|$)/i.exec(parts);
+  return hidden ? `a file under ${hidden[1]!.toLowerCase()}/` : `"${path}"`;
+};
 
 export function assertRelativePath(path: string): void {
   const parts = path.split("/");

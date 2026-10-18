@@ -106,11 +106,14 @@ function loadExercise(ws: string, slug?: string, bound?: string) {
 }
 
 export async function getExercise(ws: string, slug?: string, bound?: string) {
-  const { course, config, record, files, track, rel } = loadExercise(ws, slug, bound);
+  const { course, record, files, track, rel } = loadExercise(ws, slug, bound);
   store.materialize(ws, rel, learnerFiles(record, files, track));
-  // Record assistance before the exercise becomes current, so edits are never allowed without the evidence.
-  if (config.assist) await store.withLock(store.courseLockPath(course.course), async () => noteAssistLocked(course.course, record.slug));
-  await store.updateWorkspace(ws, (c) => (c.course === course.course ? { ...c, current: record.slug } : c));
+  // Record assistance before the exercise becomes current, so edits are never allowed without the evidence. Both
+  // happen under the workspace lock, reading assistance as it is then, so a concurrent setAssist can't be missed.
+  await store.updateWorkspace(ws, async (c) => {
+    if (c.assist) await store.withLock(store.courseLockPath(course.course), async () => noteAssistLocked(course.course, record.slug));
+    return c.course === course.course ? { ...c, current: record.slug } : c;
+  });
   const visible = subMap(files, "tests/visible");
   return {
     course: course.course,
@@ -252,6 +255,9 @@ export async function checkExercise(ws: string, slug?: string, bound?: string, o
   const { course, config, record, files, track, src, tests } = await judge(ws, slug, true, bound, onProgress);
   const unedited = track.files.every((f) => src[f] === files[`starter/${f}`]);
   const passed = tests.filter((t) => t.status === "pass").length;
+  // Only move "current" if the workspace still points at the course that was checked. This write can fail (a full
+  // disk), so it goes first and the attempt is recorded last: a failed workspace update never leaves a counted attempt.
+  await store.updateWorkspace(ws, (c) => (c.course === course.course ? { ...c, current: record.slug } : c));
   await store.withLock(store.courseLockPath(course.course), async () => {
     if (config.assist) noteAssistLocked(course.course, record.slug);
     if (unedited) return;
@@ -261,7 +267,5 @@ export async function checkExercise(ws: string, slug?: string, bound?: string, o
       concepts: record.concepts, difficulty: record.difficulty, passed, total: tests.length, assisted,
     });
   });
-  // Only move "current" if the workspace still points at the course that was checked.
-  await store.updateWorkspace(ws, (c) => (c.course === course.course ? { ...c, current: record.slug } : c));
   return unedited ? present(record.slug, tests, false, "unedited starter, not recorded") : present(record.slug, tests, true);
 }

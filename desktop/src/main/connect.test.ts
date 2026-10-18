@@ -10,7 +10,7 @@ function lookup(over: Partial<Lookup> = {}): Lookup {
   return {
     find: (bin) => (bin === 'cursor-agent' ? null : { path: `/bin/${bin}`, js: false }),
     signedIn: async () => true,
-    version: async (id) => ({ claude: '2.1.283', codex: '0.157.0', cursor: null })[id],
+    version: async (id) => ({ claude: '2.1.283', codex: '1.0.0', cursor: null })[id],
     ...over,
   };
 }
@@ -18,11 +18,6 @@ function lookup(over: Partial<Lookup> = {}): Lookup {
 const state = () => desktopState(tempDir('codemm-connect-'));
 
 describe('connect (§3.1, §3.3)', () => {
-  it('names the command that signs each agent in', async () => {
-    const agents = await connector(lookup(), state()).agents();
-    expect(agents.map((a) => a.signIn)).toEqual(['claude auth login', 'codex login', 'cursor-agent login']);
-  });
-
   it('checks a signed-out agent again on the next look, and connects the one the learner tried once signed in', async () => {
     let ok = false;
     const c = connector(lookup({ signedIn: async () => ok }), state());
@@ -113,7 +108,7 @@ describe('connect (§3.1, §3.3)', () => {
     await c.connect('claude');
     expect(await c.chosen()).toMatchObject({ id: 'claude', exe: { path: '/bin/claude' } });
     signedIn = false;
-    expect(await c.recheck('claude', { path: '/bin/claude', js: false })).toBe(false);
+    expect(await c.recheck('claude')).toBe(false);
     await expect(c.chosen()).rejects.toThrow(SIGNED_OUT);
   });
 
@@ -200,16 +195,51 @@ describe('connect (§3.1, §3.3)', () => {
       expect([ran, t.signIns]).toEqual([[], []]);
       // Nor do jobs, even for the agent chosen before.
       await expect(c.chosen()).rejects.toThrow(NO_AGENT);
-      // Any failed install leaves nothing Codemm checked: nothing of it runs, and Try again installs again.
-      t.status.set('codex', { phase: 'failed', problem: 'failed' });
+      // Once Codemm starts installing an agent, nothing of it runs until an install is done: any failed attempt keeps it
+      // blocked, whatever the problem and whichever agent, even a retry that failed offline after the check rejected it.
+      t.status.set('claude', { phase: 'failed', problem: 'offline' });
+      t.installedAfter.push('claude');
+      for (const [id, problem] of [['codex', 'failed'], ['codex', 'offline'], ['codex', 'disk'], ['claude', 'failed']] as const) {
+        t.status.set(id, { phase: 'failed', problem });
+        expect((await c.agents()).find((a) => a.id === id)!.state).toBe('missing');
+        expect(await c.connect(id)).toMatchObject({ state: 'missing' });
+      }
+      expect(ran).toEqual([]);
+      // Try again installs again.
+      await c.install('codex');
+      await c.install('claude');
+      expect(t.installs).toEqual(['codex', 'claude']);
+      // A finished install is the learner's to use.
+      t.status.set('codex', { phase: 'done' });
+      expect((await c.agents()).find((a) => a.id === 'codex')!.state).not.toBe('missing');
+    });
+
+    it("a running job's sign-in check runs nothing while Codemm is installing its agent again", async () => {
+      const t = setup(['codex']);
+      const ran: string[] = [];
+      const c = connector(lookup({ find: found(t.installedAfter), signedIn: async (id) => (ran.push(`signed-in ${id}`), true) }), state(), t.s);
+      await c.connect('codex');
+      await c.chosen();
+      ran.length = 0;
+      for (const install of [{ phase: 'checking' }, { phase: 'failed', problem: 'offline' }] as AgentInstall[]) {
+        t.status.set('codex', install);
+        expect(await c.recheck('codex')).toBe(false);
+      }
+      expect(ran).toEqual([]);
+      t.status.set('codex', { phase: 'done' });
+      expect(await c.recheck('codex')).toBe(true);
+    });
+
+    it('checks the agent again before each command it runs, so a reinstall that starts meanwhile runs nothing of it', async () => {
+      const t = setup(['codex']);
+      const st = state();
+      st.update((s) => ({ ...s, agent: 'codex' }));
+      const ran: string[] = [];
+      // The learner's binary goes and Codemm starts installing it again while --version runs.
+      const version = async () => (t.status.set('codex', { phase: 'checking' }), '0.157.0');
+      const c = connector(lookup({ find: found(t.installedAfter), version, signedIn: async (id) => (ran.push(`signed-in ${id}`), true) }), st, t.s);
       expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('missing');
       expect(ran).toEqual([]);
-      await c.install('codex');
-      expect(t.installs).toEqual(['codex']);
-      // A failed Claude Code install ran nothing unchecked: one the learner then installs by hand is theirs.
-      t.installedAfter.push('claude');
-      t.status.set('claude', { phase: 'failed', problem: 'offline' });
-      expect((await c.agents()).find((a) => a.id === 'claude')!.state).not.toBe('missing');
     });
 
     it('signing in again never marks a signed-in agent signed out', async () => {

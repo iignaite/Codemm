@@ -19,12 +19,33 @@ describe("tutor instructions (AGENTS.md section)", () => {
     expect(AGENTS_SECTION).toMatch(/Only `save_track` and `save_exercise` go through the `codemm-author` subagent/);
   });
 
+  it("tells a track author its pass probe must pass within a third of time_ms", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) expect(text).toMatch(/pass probe must also pass within a third of `time_ms`/);
+  });
+
+  it("tells a track author to COPY its scripts from the track's files, not write them in the Dockerfile", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).toMatch(/put any script or config the track needs in the track's own files and \`COPY\` it/i);
+      expect(text).toMatch(/never create files inside the Dockerfile with heredocs or long \`echo\` chains/i);
+    }
+  });
+
   it("shows how a roadmap pins its track", () => {
     expect(AGENTS_SECTION).toMatch(/exactly as `list_tracks` shows it/);
   });
 });
 
 describe("author instructions (codemm-author subagent)", () => {
+  it("tells a unit track to find its tests in $TESTS and never hide its runner's failure, without naming a language", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).toMatch(/find the test files in `\$TESTS`/);
+      expect(text).toMatch(/Never hide the runner's own failure, such as finding no test files: a report that lists no tests fails/);
+      // Exiting 0 with a report is required, so the rule can't also forbid what does that.
+      expect(text).not.toMatch(/\|\| true/);
+      expect(text).toMatch(/a report that lists no tests fails/);
+    }
+  });
+
   it("names every tool the judge's driver needs in a track image, and no other", () => {
     const line = AUTHOR_AGENT.split("\n").find((l) => l.startsWith("- The image must have"))!;
     const named = [...line.replace(/, and must not.*/, "").matchAll(/`([a-z]+)`/g)].map((m) => m[1]);

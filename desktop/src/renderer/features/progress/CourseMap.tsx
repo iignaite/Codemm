@@ -119,8 +119,7 @@ function UsageCard({ usage }: { usage: Usage }) {
           </>
         )}
       </dl>
-      {/* No promise about charges: Codemm can't tell a plan from an API key. */}
-      {total.costUsd > 0 && <p className="quiet-text">Claude's own estimate. On a Claude plan, this counts toward the plan's usage.</p>}
+      {/* The row says it's Claude's estimate, and nothing more: Codemm can't tell a plan from an API key. */}
     </section>
   );
 }

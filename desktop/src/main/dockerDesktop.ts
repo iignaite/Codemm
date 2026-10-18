@@ -36,9 +36,13 @@ const GiB = 1024 ** 3;
 /** After Codemm opens or installs Docker, how long a silent Docker counts as starting (computer.ts uses the same). */
 export const STARTING_MS = 3 * 60_000;
 const MAC_APP = '/Applications/Docker.app';
-/** Apple's checks by absolute path: a codesign or spctl earlier on PATH can't answer for them. */
+/** Apple's own tools by absolute path: one earlier on PATH can't stand in for them. */
 const CODESIGN = '/usr/bin/codesign';
 const SPCTL = '/usr/sbin/spctl';
+const HDIUTIL = '/usr/bin/hdiutil';
+const DITTO = '/usr/bin/ditto';
+const MV = '/bin/mv';
+const OPEN = '/usr/bin/open';
 /** Docker, Inc's Apple Developer team. */
 const DOCKER_TEAM = /^TeamIdentifier=9BNSXJN65R$/m;
 const WIN_DESKTOP = 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe';
@@ -95,9 +99,9 @@ export function dockerDesktop(d: DesktopDeps) {
   async function placeApp(app: string) {
     const staging = `/Applications/.codemm-docker-${randomBytes(4).toString('hex')}`;
     try {
-      if (!ok(await d.run('ditto', [app, path.join(staging, 'Docker.app')]))) throw new Stop('manual');
+      if (!ok(await d.run(DITTO, [app, path.join(staging, 'Docker.app')]))) throw new Stop('manual');
       // Someone else installed Docker meanwhile: keep theirs.
-      if (!d.exists(MAC_APP) && !ok(await d.run('mv', [path.join(staging, 'Docker.app'), MAC_APP]))) throw new Stop('manual');
+      if (!d.exists(MAC_APP) && !ok(await d.run(MV, [path.join(staging, 'Docker.app'), MAC_APP]))) throw new Stop('manual');
     } finally {
       quietly(staging);
     }
@@ -109,7 +113,7 @@ export function dockerDesktop(d: DesktopDeps) {
     const app = path.join(mnt, 'Docker.app');
     await fetchTo(`https://desktop.docker.com/mac/main/${chip}/Docker.dmg`, dmg, dir, 4 * GiB);
     status = { phase: 'checking' };
-    if (!ok(await d.run('hdiutil', ['attach', '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mnt, dmg]))) throw new Stop('failed');
+    if (!ok(await d.run(HDIUTIL, ['attach', '-nobrowse', '-readonly', '-noautoopen', '-mountpoint', mnt, dmg]))) throw new Stop('failed');
     let manual = false;
     try {
       const signed =
@@ -123,9 +127,9 @@ export function dockerDesktop(d: DesktopDeps) {
       manual = e instanceof Stop && e.problem === 'manual';
       throw e;
     } finally {
-      await d.run('hdiutil', ['detach', mnt, '-quiet']);
+      await d.run(HDIUTIL, ['detach', mnt, '-quiet']);
       // Finder shows the download; the learner drags Docker to Applications, as Docker's own steps say.
-      if (manual) await d.run('open', [dmg]);
+      if (manual) await d.run(OPEN, [dmg]);
     }
   }
 
@@ -145,7 +149,7 @@ export function dockerDesktop(d: DesktopDeps) {
   /** Opens Docker Desktop; rejects if it can't. */
   async function openApp(app: string) {
     if (d.platform === 'darwin') {
-      if (!ok(await d.run('open', ['-a', app]))) throw new Stop('failed');
+      if (!ok(await d.run(OPEN, ['-a', app]))) throw new Stop('failed');
     } else if (d.platform === 'win32') {
       await d.launch(WIN_DESKTOP, []);
     }

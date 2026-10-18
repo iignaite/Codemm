@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { Button } from './Button';
 import { Dialog } from './Dialog';
+import { NoteEditor } from '../features/lessons/NoteEditor';
 import { Rail } from './Rail';
 
 describe('Dialog', () => {
@@ -64,5 +65,28 @@ describe('Rail', () => {
     await userEvent.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'Why?{Enter}');
     expect(onAsk).toHaveBeenCalledWith('Why?');
     expect(screen.getByRole('textbox', { name: 'Ask Codemm' })).toHaveValue('');
+  });
+
+  it('keeps a question within its limit, and says so', async () => {
+    const user = userEvent.setup();
+    render(<Rail messages={[]} onAsk={vi.fn()} />);
+    const ask = screen.getByRole('textbox', { name: 'Ask Codemm' });
+    await user.click(ask);
+    await user.paste('q'.repeat(2500));
+    expect(ask).toHaveValue('q'.repeat(2000));
+    expect(screen.getByText('Up to 2,000 characters.')).toBeInTheDocument();
+  });
+});
+
+describe('NoteEditor', () => {
+  it('keeps a note within its limit, and says so', async () => {
+    const user = userEvent.setup();
+    render(<NoteEditor note={'n'.repeat(19_990)} onSave={vi.fn()} onCancel={vi.fn()} />);
+    const note = screen.getByRole('textbox', { name: 'My note' });
+    expect(screen.queryByText('Up to 20,000 characters.')).not.toBeInTheDocument();
+    await user.click(note);
+    await user.paste('m'.repeat(50));
+    expect((note as HTMLTextAreaElement).value).toHaveLength(20_000);
+    expect(screen.getByText('Up to 20,000 characters.')).toBeInTheDocument();
   });
 });

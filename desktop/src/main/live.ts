@@ -36,7 +36,7 @@ import { asNotCounted } from './notCounted';
 import { programs } from './programs';
 import type { desktopState } from './state';
 import type { usageStore } from './usage';
-import { activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
+import { HELD_BACK, activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
 
 export interface LiveDeps {
   core: CoreApp;
@@ -70,9 +70,9 @@ export interface Live extends CodemmApi {
 }
 
 /** Setup proposals per setup before the learner gets Stop or Try again (§3.2). */
-const PROPOSAL_BOUND = 3;
-const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
-/** Why background work stalled: an infrastructure failure is a plain failure the learner retries. */
+const PROPOSAL_BOUND = 5;
+const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, docker: AGENT_FAILED, disk: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
+/** Why background work stalled: Docker and the disk say so; another infrastructure failure is a plain one the learner retries. */
 const stallOf = (problem: JobProblem = 'failed'): NonNullable<CourseView['stalled']> => (problem === 'infra' ? 'failed' : problem);
 /** core store.ts's damaged-record errors: the learner repairs them; a retry can't (§5). */
 function repairable(e: unknown): unknown {
@@ -138,21 +138,35 @@ export function createLive(d: LiveDeps): Live {
     }
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
-  const roadmapShown = (r: CoreRoadmap): Roadmap => roadmapView(r, installed(r.track));
-  /** The activity the learner last opened: the workspace's current one is the draft's while a draft is active. */
-  let opened: string | undefined;
-  /** The hidden material of an activity: the one named, else the one the learner is on. */
-  const hidden = (activity?: string): string[] => {
-    const workspace = core.readWorkspace(ws);
-    const course = approved() ?? workspace.course;
-    const current = activity ?? opened ?? (workspace.course === course ? workspace.current : undefined);
-    if (!course || !current) return [];
+  /** A roadmap as shown. Its sources are agent text too, so one that quotes hidden material, or can't be checked, is dropped. */
+  const roadmapShown = (r: CoreRoadmap): Roadmap => {
+    const view = roadmapView(r, installed(r.track));
+    const filter = hidden();
+    return { ...view, sources: view.sources.filter((s) => shown(s.title, filter) === s.title && shown(s.url, filter) === s.url) };
+  };
+  /**
+   * The hidden lines of every exercise in a course (the approved one by default), to check agent text against (§2.2).
+   * Every exercise, not only the current one: the tutor can open any of them (get_exercise). Null when any can't be
+   * loaded: then nothing can be checked, so nothing goes out.
+   */
+  const hidden = (inCourse?: string): string[] | null => {
+    const course = inCourse ?? approved() ?? core.readWorkspace(ws).course;
+    if (!course) return [];
     try {
-      return hiddenLines(core.hiddenMaterial(course, current));
+      return hiddenLines(core.listExercises(ws, course).flatMap((e) => core.hiddenMaterial(course, e.exercise)));
     } catch {
-      return [];
+      return null;
     }
   };
+  /** Agent text as it may be shown: held back when it quotes hidden material, or when that can't be checked. */
+  const shown = (text: string, filter: string[] | null) => (filter ? filterReply(text, filter) : HELD_BACK);
+  /** The course whose hidden material a job's text is checked against: the one approved when the job starts. */
+  const protectedCourse = () => approved() ?? core.readWorkspace(ws).course;
+  /**
+   * Whether text may be shown, checked against that course's hidden material as it is when the text arrives: an
+   * exercise saved while a job runs counts too.
+   */
+  const safeIn = (course: string | undefined) => (text: string) => !course || shown(text, hidden(course)) === text;
 
   /** The roadmap not approved yet: the active course, unless it is the approved one. */
   function draft(): CoreRoadmap | null {
@@ -197,8 +211,7 @@ export function createLive(d: LiveDeps): Live {
       const began = Date.now();
       log('job-start', { kind, lane, agent: id });
       // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
-      const filter = hidden();
-      const tracker = jobTracker(kind, { concept, retry, shows: (text) => filterReply(text, filter) === text });
+      const tracker = jobTracker(kind, { concept, retry, shows: safeIn(protectedCourse()) });
       trackers.set(key, tracker);
       tellJob(tracker.snapshot());
       // An author's save runs the exercise gates in its server; the server names the running gate in this file.
@@ -225,7 +238,10 @@ export function createLive(d: LiveDeps): Live {
         signal: stop.signal,
         done,
         blocked: () => unstoppable,
-        signedIn: () => d.connect.recheck(id, exe),
+        signedIn: () => d.connect.recheck(id),
+        usable: () => d.connect.usable(id),
+        // A cancelled or stopped attempt's gate container is removed before a relaunch or the end (§5).
+        cleanup: () => core.cleanupLeftovers(),
         onEvent: (e) => {
           tracker.event(e);
           // A save that ended leaves its last gate in the file; the next save starts from none.
@@ -489,8 +505,7 @@ export function createLive(d: LiveDeps): Live {
         const course = courseId(goal.topic, Date.now());
         const reads: { title: string; url: string }[] = [];
         // The same backstop as tutor replies (§2.2): a page that shows hidden material is no source.
-        const filter = hidden();
-        const safe = (text: string) => filterReply(text, filter) === text;
+        const safe = safeIn(protectedCourse());
         const onSource = (source: { title: string; url: string }) => {
           if (safe(source.url)) reads.push({ title: source.title.slice(0, 120), url: source.url });
         };
@@ -514,17 +529,18 @@ export function createLive(d: LiveDeps): Live {
     async reviseRoadmap(concepts, request) {
       await saveConcepts(concepts);
       const course = core.getRoadmap(ws).course;
+      // Checked against the course approved when the change starts, with any exercise saved meanwhile.
+      const protect = protectedCourse();
       const { outcome, changed, after } = await roadmapJob(course, briefs.roadmap(request), (before) => (turn) => turn.ok || JSON.stringify(core.getRoadmap(ws, course)) !== before);
       schedule();
-      const filter = hidden();
-      return { roadmap: roadmapShown(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
+      const filter = protect ? hidden(protect) : [];
+      return { roadmap: roadmapShown(after), changed, text: outcome.text.map((t) => shown(t, filter)).join('\n\n') };
     },
 
     async approve(concepts) {
       await saveConcepts(concepts);
       const course = core.getRoadmap(ws).course;
       d.state.update((s) => ({ ...s, approved: course }));
-      opened = undefined;
       stalled = undefined;
       setup = { gateFailures: 0, installs: 0 };
       schedule();
@@ -556,48 +572,53 @@ export function createLive(d: LiveDeps): Live {
 
     async install(digest) {
       const ref = core.progress(ws, approved()).track;
-      const proposal = setup.approved?.digest === digest ? setup.approved : latestProposal(ref);
+      // This install's own setup: approving another course replaces `setup`, and this one must not touch that.
+      const mine = setup;
+      const proposal = mine.approved?.digest === digest ? mine.approved : latestProposal(ref);
       if (!proposal || proposal.digest !== digest) throw new SafeError('The setup changed. Look at it again.');
-      setup.approved = proposal;
-      setup.problem = undefined;
-      setup.installs++;
+      mine.approved = proposal;
+      mine.problem = undefined;
+      mine.installs++;
       // Codemm builds and checks the approved files: the setup's later stages (§4.11).
       const tracker = jobTracker('setup');
       trackers.set(`install:${ref}`, tracker);
       tracker.reach(1);
       tellJob(tracker.snapshot());
-      setup.installing = dockerReady()
-        .then(() =>
-          core.installProposal(ref, digest, (p) => {
-            // Counts only: the build's steps, then its checks.
-            if (p.phase === 'building') tracker.reach(1, { done: p.done, total: p.total });
-            else tracker.reach(2);
-            tellJob(tracker.snapshot());
-          }),
-        )
+      // Tracked and guarded like every container operation: quitting waits for it, its failure handling included, and
+      // one still waiting for Docker when quitting starts never runs.
+      mine.installing = tracked(whenDockerReady(() =>
+        core.installProposal(ref, digest, (p) => {
+          // Counts only: the build's steps, then its checks.
+          if (p.phase === 'building') tracker.reach(1, { done: p.done, total: p.total });
+          else tracker.reach(2);
+          tellJob(tracker.snapshot());
+        }),
+      )
         .then(() => {
-          setup.approved = undefined;
+          mine.approved = undefined;
         })
         .catch(async (e: Error) => {
+          // Quitting isn't a failed setup: nothing is recorded and the proposal stays.
+          if (stopping) return;
           // This computer's problems keep the proposal for Try again; nothing is recorded and no agent runs (§6.1).
           const kind = infraOf(e);
           log('setup-failed', { problem: kind ?? 'gates' });
           if (kind) {
-            setup.problem = kind;
+            mine.problem = kind;
             return;
           }
-          setup.approved = undefined;
-          setup.gateFailures++;
-          setup.lastGateProblem = e.message;
+          mine.approved = undefined;
+          mine.gateFailures++;
+          mine.lastGateProblem = e.message;
           // The next proposal is asked for only once this one is gone (it waits for the track lock).
           await core.dropProposal(ref).catch(() => undefined);
         })
         .finally(() => {
           trackers.delete(`install:${ref}`);
           tellJob({ ...tracker.snapshot(), ended: true });
-          setup.installing = undefined;
+          mine.installing = undefined;
           schedule();
-        });
+        }));
     },
 
     async retrySetup() {
@@ -632,7 +653,6 @@ export function createLive(d: LiveDeps): Live {
       const course = core.getRoadmap(ws, approved()).course;
       const slug = exerciseFor(concept, course);
       if (!slug) throw new SafeError('This activity isn’t ready yet.');
-      opened = slug;
       const exercise = await core.getExercise(ws, slug, course);
       return activityView(exercise, core.readLearnerFiles(ws, slug, course), concept);
     },
@@ -689,8 +709,9 @@ export function createLive(d: LiveDeps): Live {
       });
       tutorTurns = turn.catch(() => undefined);
       const outcome = await turn;
-      const filter = hidden('activityId' in place ? place.activityId : undefined);
-      return outcome.text.map((t) => ({ from: 'codemm' as const, text: filterReply(t, filter) }));
+      // Checked against this turn's course, whatever course is approved by now.
+      const filter = hidden(course);
+      return outcome.text.map((t) => ({ from: 'codemm' as const, text: shown(t, filter) }));
     },
 
     async skip(concept) {
@@ -706,7 +727,8 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async rebuild(ref) {
-      await core.rebuildTrack(ref);
+      // Tracked and guarded like the install, so quitting waits for it.
+      await whenDockerReady(() => core.rebuildTrack(ref));
     },
 
     // The course on screen: the approved one, as course() shows, not a draft being researched.

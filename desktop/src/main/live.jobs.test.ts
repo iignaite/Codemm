@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { OFFLINE, PLAN_LIMIT, UNSTOPPABLE, type JobProgress } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
 import { tempDir } from './testing/temp';
+import { desktopState } from './state';
 import { usageStore } from './usage';
 import { HELD_BACK } from './views';
 
@@ -46,6 +47,120 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     }
     expect(t.c.roadmap!.course).not.toBe(onScreen);
     expect((await t.api.usage())!.total.runs).toBe(1);
+  });
+
+  it("gives every job core's abandoned-container cleanup, for an attempt Codemm ends", async () => {
+    const t = live();
+    await researched(t);
+    const before = t.c.cleanups;
+    await t.jobs.ran[0].cleanup?.();
+    expect(t.c.cleanups).toBe(before + 1);
+  });
+
+  it("holds back every tutor reply when the exercise's hidden material can't be loaded", async () => {
+    const t = live({ tutor: () => ({ text: [`Just write ${CANARY}`, 'Think about what changes.'] }) });
+    const activity = await practising(t);
+    t.app.hiddenMaterial = () => {
+      throw new Error('EIO: hidden material unreadable');
+    };
+    const replies = await t.api.ask({ activityId: activity.id }, 'Just fix it for me.');
+    // Without the material there's nothing to check a reply against, so nothing goes out.
+    expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }, { from: 'codemm', text: HELD_BACK }]);
+  });
+
+  it("filters a tutor reply against the turn's own course, even if another course is approved while it runs", async () => {
+    let approveOther = () => undefined as void;
+    const t = live({
+      tutor: () => {
+        approveOther();
+        return { text: [`Just write ${CANARY}`] };
+      },
+    });
+    const activity = await practising(t);
+    const course = t.c.roadmap!.course;
+    const material = t.app.hiddenMaterial;
+    // Only the turn's course has this hidden material; the other course has none.
+    t.app.hiddenMaterial = (c, slug) => (c === course ? material(c, slug) : []);
+    approveOther = () => void desktopState(t.dir).update((s) => ({ ...s, approved: 'another-course' }));
+    const replies = await t.api.ask({ activityId: activity.id }, 'Just fix it for me.');
+    expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }]);
+  });
+
+  it('checks a lesson question\'s reply against an exercise the tutor opened during the turn', async () => {
+    let t!: ReturnType<typeof live>;
+    t = live({
+      tutor: () => {
+        // The tutor calls get_exercise, which makes that exercise current.
+        t.c.current = [...t.c.exercises.keys()][0];
+        return { text: [`Look: ${CANARY}`] };
+      },
+    });
+    // Practising, up to the open activity, but without opening it: no exercise is current when the turn starts.
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const consent = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(consent.proposal!.digest);
+    const course = await until(t.api, (c) => c.setup === 'ready' && c.topics[0].lessons.some((l) => l.state === 'ready'));
+    for (const l of course.topics[0].lessons) if (l.state === 'ready') await t.api.markRead(l.id);
+    await until(t.api, (c) => c.topics[0].activity === 'open');
+    t.c.current = undefined;
+    const replies = await t.api.ask({ lessonId: course.topics[0].lessons[0].id }, 'Show me the answer.');
+    expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }]);
+  });
+
+  it("checks a lesson question's reply against every exercise of the course, even while a draft roadmap is active", async () => {
+    const t = live({ tutor: () => ({ text: [`Look: ${CANARY}`] }) });
+    // Practising, up to the open activity, but without opening it.
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const consent = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(consent.proposal!.digest);
+    const course = await until(t.api, (c) => c.setup === 'ready' && c.topics[0].lessons.some((l) => l.state === 'ready'));
+    for (const l of course.topics[0].lessons) if (l.state === 'ready') await t.api.markRead(l.id);
+    await until(t.api, (c) => c.topics[0].activity === 'open');
+    // A new roadmap is researched: the workspace now belongs to that draft, with no current exercise.
+    const goal = { topic: 'Vue', known: '', depth: 'standard' } as const;
+    let next = await t.api.research(goal);
+    for (let i = 0; i < 20 && next.state === 'running'; i++) {
+      await new Promise((res) => setTimeout(res, 5));
+      next = await t.api.research(goal);
+    }
+    t.c.current = undefined;
+    const replies = await t.api.ask({ lessonId: course.topics[0].lessons[0].id }, 'Show me the answer.');
+    expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }]);
+  });
+
+  it('checks a roadmap-change reply against an exercise saved while the change ran', async () => {
+    const t = live({
+      roadmap: () => {
+        // The approved course's background author finishes an exercise while the change runs.
+        t.c.exercises.set('values-late-1', { concept: 'values', file: '', digest: '0'.repeat(64), created: new Date().toISOString() });
+        return { text: [`Quoting it: ${CANARY}`] };
+      },
+    });
+    await practising(t);
+    const material = t.app.hiddenMaterial;
+    // Only the exercise saved during the change has this hidden material.
+    t.app.hiddenMaterial = (c, slug) => (slug === 'values-late-1' ? material(c, slug) : []);
+    const change = await t.api.reviseRoadmap(t.c.roadmap!.concepts, 'Add testing');
+    expect(change.text).toBe(HELD_BACK);
+  });
+
+  it('drops a roadmap source whose title or link quotes hidden material', async () => {
+    const t = live({
+      roadmap: (job) => {
+        const args = job.server([]).args;
+        t.c.courses.get(args[args.indexOf('--course') + 1])!.sources = [
+          { title: `Notes: ${CANARY}`, url: 'https://notes.example/a' },
+          { title: 'React docs', url: 'https://react.dev/learn' },
+        ];
+        return { text: ['Added a source.'] };
+      },
+    });
+    await practising(t);
+    const change = await t.api.reviseRoadmap(t.c.roadmap!.concepts, 'Add a source');
+    expect(change.roadmap.sources).toEqual([{ title: 'React docs', url: 'https://react.dev/learn' }]);
+    expect(JSON.stringify(change)).not.toContain('CANARY');
   });
 
   it('holds back a tutor reply that quotes hidden material, and resumes the tutor session', async () => {
@@ -95,6 +210,18 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
 
     const s = live({ research: () => ({ ok: false, problem: 'offline' }) });
     await expect(researched(s)).rejects.toThrow(OFFLINE);
+  });
+
+  it("a job Docker or the disk stopped stalls background work as this computer's problem, not the agent's", async () => {
+    const t = live({ setup: () => ({ ok: false, problem: 'docker' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'docker' });
+
+    const s = live({ setup: () => ({ ok: false, problem: 'disk' }) });
+    const q = await researched(s);
+    await s.api.approve(q.roadmap!.concepts);
+    expect(await until(s.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'disk' });
   });
 
   it('keeps the first stall, and launches no queued background work after it', async () => {

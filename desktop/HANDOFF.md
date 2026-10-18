@@ -192,7 +192,7 @@ It never records learner code, hidden data, briefs, tutor or agent text, or sign
   - polling stopped mid-install, and the course map never polled;
   - jobs could start during shutdown, a second Quit skipped the wait, and a running Check's containers escaped cleanup.
 
-**Leftover containers:** Codemm removes containers whose owner process is gone (`cleanupLeftovers` in `scripts/core-entry.ts`) at startup and on quit. Quitting first stops every job and waits for running Checks and Try its. Containers from a build still running at quit, or from a crash, go at the next start.
+**Leftover containers:** Codemm removes containers whose owner process is gone (`cleanupLeftovers` in `scripts/core-entry.ts`) at startup, on quit, and after each attempt Codemm ends, before the job relaunches or finishes. Quitting first stops every job and waits for running Checks, Try its, track installs and rebuilds. Containers from a crash go at the next start.
 
 ## Decisions
 

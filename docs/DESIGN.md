@@ -4,7 +4,7 @@ Status: revised after two Astra design reviews (§13). The longer illustrated de
 
 ## 1. What Codemm is
 
-Codemm is an open-source, local-first harness for graded coding practice. It is a **wrapper that ships no languages**. The learner's own coding agent (Claude Code, Codex or Cursor, on the learner's own plan) writes everything:
+Codemm is an open-source, local-first harness for graded coding practice. It is a **wrapper that ships no languages**. The learner's own coding agent (Claude Code, Codex or Cursor, with the learner's own account) writes everything:
 
 - the environment for a language or framework (a **track**),
 - the **roadmap** (a concept graph),
@@ -133,7 +133,7 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
   - hidden tests, and unit tests (whose runner reports at the end), report their phase once with `total` 0, so nothing per hidden test, not even timing, leaves;
   - a listener that throws is dropped, and the check goes on.
   Code in the container could print extra frames, but that can only move progress, never a grade.
-- **Disclosure.** Visible results include messages and program output. Hidden results include only an index and a status (`{ name: "hidden #2", index: 2, status }`, built in one place, `grading.redact`): no messages, output or names leave Codemm, in tool output, CLI output or gate diagnostics.
+- **Disclosure.** Visible results include messages and program output. Hidden results include only an index and a status (`{ name: "hidden #2", index: 2, status }`, built in one place, `grading.redact`): no messages, output or names leave Codemm, in tool output, CLI output or gate diagnostics. The reference is hidden code too, so its gate diagnostics carry no build output, errors or test messages (§6). That costs authors detail by design: in the desktop an author job has only Codemm's tools and can't build the reference itself, so each reference failure says which phase and which visible tests failed, and what to check.
 
 ### 4.3 Host-owned sandbox settings
 
@@ -157,12 +157,13 @@ Other ceilings:
 
 | What happened | Result | Recorded as an attempt |
 |---|---|---|
-| A case times out (the driver's `timeout`), crashes, exits non-zero or prints more than 64 KB | that test is `error` | yes |
+| A case times out (the driver's watchdog, with `timeout` as a backstop), crashes, exits non-zero or prints more than 64 KB | that test is `error` | yes |
 | Learner code fails to build | every test is `error` | yes |
 | The 4 MB stream cap is hit | every test in that set is `error` ("output limit exceeded") | yes |
 | The memory limit kills the driver instead of the program: the container exits 137 and the runtime recorded an `oom` event for it | every test in that set is `error` ("memory limit exceeded") | yes |
 | The host deadline for the whole set passes, the runtime is missing or stops during the run, the container is killed from outside (any other non-zero exit), or the image is missing or changed | the command fails with an infrastructure error | no |
 - **Memory:** every track or learner command first raises its own `oom_score_adj`, so the kernel kills the program rather than the driver, and that case is an `error`. If the driver dies anyway, the runtime's `oom` event tells a memory kill from an outside one. The runtime can miss that event when a container exits quickly, and then the check counts as an infrastructure failure: nothing is recorded, never a wrong attempt.
+- **Why a case was killed:** both kinds of `timeout` exit 137 on a time-out, as a memory kill does, so the exit code can't say which. So a watchdog beside each case (and the unit runner) enforces the limit, as Run's does: it marks the time-out, then `kill -9 -1` stops everything but the driver, and the result says "took longer than N ms". `timeout` backs it up a second later. A 137 without that mark says "ran out of memory (memory_mb N)" when the runtime recorded an `oom` event for the container, else "was killed". The wording never changes the grade.
 - **Volumes:** images that declare `VOLUME` are rejected at install.
 
 **Run (interactive).** `runInteractive` runs the learner's io program once, for the app's Run button. It is never graded or recorded.
@@ -171,7 +172,7 @@ Other ceilings:
 - **Driver:** the build, if the track has one (60 s), then the run command, with stdout and stderr streamed as they come.
 - **How it ended:** the driver writes short markers to stderr when each stage starts and how it ended, then exits 0. The host strips the markers from what the learner sees. The first start marker of each stage is reported once, with that stage's limit, so the app can count down.
   - An end marker means the driver finished, so the program's own exit code and output are reported as they are, even when they look like Docker's.
-  - **Time limits:** 120 s for the run, because a person is typing, and 60 s for the build. Each stage runs in the foreground, keeping stdin, with a watchdog beside it. At the limit the watchdog writes a timeout marker, then `kill -9 -1` stops everything but the driver, which stays PID 1. A timeout is therefore the driver's own statement: it is never read from an exit code or guessed from timing, and it doesn't depend on which `timeout` tool the image has. The watchdog fires only after `sleep` succeeds; if it can't, the host deadline stops the run. Grading checks the image has `sleep`, so installed tracks have it.
+  - **Time limits:** 120 s for the run, because a person is typing, and 60 s for the build. Each stage runs in the foreground, keeping stdin, with a watchdog beside it. At the limit the watchdog writes a timeout marker, then `kill -9 -1` stops everything but the driver, which stays PID 1. A timeout is therefore the driver's own statement: it is never read from an exit code or guessed from timing, and it doesn't depend on which `timeout` tool the image has. The watchdog fires only after `sleep` succeeds; if it can't, the host deadline stops the run. Grading checks the image has `sleep`, so installed tracks have it. No shell reports the kill ("Killed"): a shell writes that on the stderr it gave the killed command, so the program takes the real stderr back itself while the driver's goes to `/dev/null`, and the app's own "time's up" is the only word on it.
   - **Memory:** a stage that ends with 137 and didn't time out is checked against the runtime's memory-kill events, so a program killed for memory says so even though the driver went on.
   - No end marker means Codemm stopped it (the learner, the host deadline or the 4 MB cap), the runtime killed it for memory, or Docker failed. Only that last case is an infrastructure failure.
   - A program could forge markers, but only about its own unrecorded run.
@@ -243,14 +244,14 @@ tests/visible/...            io: NN.in only · unit: test files
 tests/hidden/...
 ```
 
-A failure goes back to the caller with the failing gate and capped output. Hidden inputs and expected outputs never appear in diagnostics returned to tools.
+A failure goes back to the caller with the failing gate and capped output. Hidden inputs and expected outputs never appear in diagnostics returned to tools. Neither does anything the reference or a mutant printed, since building or running them runs hidden code: a reference failure names its phase, exit codes and statuses: visible tests by name (io cases only by the inputs the author gave), hidden ones by number, and a failed build by the track's build command and what to check. A track gate's failure shows the last lines of what the track's own build or probes printed (track files only, never an exercise's), and that output never sets the failure's kind.
 
 **Track gates:**
 1. The files are valid, each style's pass probe and probe tests total at most 64 KB (authors receive them as the track's example), and `id@version` is either new or identical to the installed one, in which case the install is a no-op.
 2. The image builds and declares no volumes.
 3. For each style, the pass probe passes everything.
 4. For each style, the fail probe gets at least one `fail` and no `error`.
-5. The pass probe gives identical results twice.
+5. The pass probe passes again with a third of the time limit, as every exercise's reference must (gate 3 below), and gives identical results. A track that fails here is told to raise `limits.time_ms` or `limits.memory_mb`.
 
 **Roadmap gate:** the schema and §5 rules hold, there are no unknown prerequisites, and there are no cycles (Kahn's algorithm).
 

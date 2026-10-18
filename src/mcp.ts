@@ -4,7 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import * as app from "./app.js";
 import { CodemmError } from "./errors.js";
-import { assertId } from "./files.js";
+import { assertId, type FileMap, validateFileMap } from "./files.js";
 
 type Result = { content: { type: "text"; text: string }[]; isError?: boolean };
 
@@ -21,7 +21,14 @@ async function respond(work: () => unknown): Promise<Result> {
   }
 }
 
-const files = z.record(z.string(), z.string()).describe('File map: { "relative/path": "file contents" }');
+// Values are checked in the handler, not by the schema: the SDK's own validation error names the offending key, which
+// can be a hidden test or a mutant. validateFileMap reports it through describePath instead.
+const files = z.record(z.string(), z.unknown()).describe('File map: { "relative/path": "file contents as text" }');
+/** A file map from the agent, checked with Codemm's own (redacted) diagnostics. */
+const fileMap = (f: Record<string, unknown>): FileMap => {
+  validateFileMap(f as FileMap);
+  return f as FileMap;
+};
 const slug = z.string().optional().describe("Exercise id. Defaults to the current exercise.");
 const lessonId = z.string().describe("Lesson id");
 
@@ -72,7 +79,7 @@ export function createServer(ws: string, version: string, { course, tools, deskt
             "Codemm then runs the probes with the network off and installs the track only if every gate passes; otherwise it returns what failed.",
           inputSchema: { files },
         },
-    ({ files: f }) => respond(() => (desktop ? app.proposeTrack(f) : app.saveTrack(f))),
+    ({ files: f }) => respond(() => (desktop ? app.proposeTrack(fileMap(f)) : app.saveTrack(fileMap(f)))),
   );
 
   if (want("save_roadmap")) server.registerTool(
@@ -111,7 +118,7 @@ export function createServer(ws: string, version: string, { course, tools, deskt
         "Codemm runs every gate and stores it only if all pass. Returns only the exercise id; report nothing else to the tutor.",
       inputSchema: { files },
     },
-    ({ files: f }) => respond(() => app.saveExercise(ws, f, course, progress ? app.gateProgressTo(progress) : undefined)),
+    ({ files: f }) => respond(() => app.saveExercise(ws, fileMap(f), course, progress ? app.gateProgressTo(progress) : undefined)),
   );
 
   if (want("get_exercise")) server.registerTool("get_exercise", { description: "Show an exercise to the learner: statement, the file(s) to edit, visible tests and hint.", inputSchema: { slug } }, ({ slug: s }) =>

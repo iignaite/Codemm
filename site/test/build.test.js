@@ -40,11 +40,22 @@ test('the site is static and collects no personal data', () => {
     assert.doesNotMatch(page, /<form|<input|<textarea|speed-insights|gtag|googletagmanager|cookie/i);
     assert.deepEqual(page.match(/_vercel\/[a-z-]+\/script\.js/g), ['_vercel/insights/script.js']);
     assert.doesNotMatch(page, /<script(?![^>]*\b(src=|type="application\/ld\+json"))|\son[a-z]+=|style="/);
-    // No third-party logos: the agents appear as plain text only.
-    assert.equal(files.some((f) => f.includes('agents')), false);
-    assert.match(page, />Claude Code<\/button>/);
+    // The agents' logos, by the owner's choice, each named for screen readers, and the
+    // footer still says they're trademarks of their owners.
+    for (const [name, file] of [['Claude Code', 'claude'], ['Codex', 'codex'], ['Cursor', 'cursor']]) {
+      assert.ok(files.includes(join('img', 'agents', `${file}.svg`)), file);
+      // lobe-icons is MIT: its notice ships with the copies.
+      assert.match(readFileSync(join(out, 'img', 'agents', 'LICENSE-lobe-icons.txt'), 'utf8'), /Copyright \(c\) 2023 LobeHub[\s\S]*Permission is hereby granted/);
+      assert.match(page, new RegExp(`aria-label="${name}"><img src="/img/agents/${file}\\.svg" alt=""`));
+    }
     assert.match(page, /Codemm isn't affiliated with or endorsed by them\./);
     assert.match(page, /provided as is, without warranty/);
+    // Say only what Codemm checks: exercises against their tests, which must reject the
+    // incorrect versions the agent wrote. Lessons aren't checked, and nothing is "proven".
+    assert.doesNotMatch(page, /\bprove[ns]?\b|\bproof that\b|every broken|own plan|guarantee/i);
+    assert.match(page, /checks them against their tests/);
+    assert.match(page, /reject the incorrect versions your agent wrote/);
+    assert.match(page, /with your own account/);
     // The design rules allow no dots: no dotted or dashed strokes or borders.
     const css = readFileSync(join(out, 'styles.css'), 'utf8');
     assert.doesNotMatch(css, /stroke-dasharray|\b(dotted|dashed)\b/);

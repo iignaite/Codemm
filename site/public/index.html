@@ -57,7 +57,7 @@
     <section class="hero wrap" aria-labelledby="title">
       <div class="hero-text">
         <h1 id="title">Supercharge your learning with Codemm.</h1>
-        <p class="lead">Lessons and exercises from your own coding agent, proven and graded by Codemm. Free and open source, for Mac and Windows.</p>
+        <p class="lead">Your own coding agent writes the exercises. Codemm checks them against their tests and grades your code.</p>
 
         <div class="download hero-download" id="get" data-download>
           <a class="btn primary big" href="https://github.com/iignaite/Codemm/releases">
@@ -65,21 +65,25 @@
             <span class="btn-detail">From GitHub Releases</span>
           </a>
         </div>
-        <p class="source">Works with Claude Code, Codex or Cursor, on your own plan.</p>
       </div>
 
-      <div class="orbit">
-        <div class="orbit-glow" aria-hidden="true"></div>
-        <div class="orbit-scene">
-          <svg class="orbit-ring" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><ellipse cx="50" cy="50" rx="49" ry="49"/></svg>
-          <div class="core-wrap">
-            <svg class="emm" viewBox="0 0 200 170" width="200" height="170" aria-hidden="true">
+      <div class="walk">
+        <div class="walk-glow" aria-hidden="true"></div>
+        <div class="walk-scene">
+          <div class="ground" aria-hidden="true"></div>
+          <svg class="emm" viewBox="0 0 200 170" width="200" height="170" aria-hidden="true">
           <path d="M60 108 C 34 106, 20 128, 28 146 C 36 162, 62 160, 64 144 C 66 132, 50 128, 46 138" fill="none" class="d-s" stroke-width="13" stroke-linecap="round"/>
-          <path d="M82 124 L 76 142" class="d-s" stroke-width="11" stroke-linecap="round"/>
-          <path d="M120 126 L 126 142" class="d-s" stroke-width="11" stroke-linecap="round"/>
+          <path d="M82 124 L 76 142" class="d-s leg leg-a" stroke-width="11" stroke-linecap="round"/>
+          <path d="M120 126 L 126 142" class="d-s leg leg-b" stroke-width="11" stroke-linecap="round"/>
           <ellipse cx="98" cy="106" rx="46" ry="30" class="b"/>
           <path d="M58 114 Q 98 144 140 114 Q 98 127 58 114 Z" class="be"/>
           <path d="M82 82 Q 89 98 82 114 M100 78 Q 108 96 100 116 M118 82 Q 125 98 118 114" fill="none" class="s" stroke-width="5" stroke-linecap="round"/>
+          <!-- Codemm's mark, carried on Emm's back: it keeps its own colors whatever Emm eats. -->
+          <g class="mark" transform="rotate(-10 89 63)">
+            <defs><linearGradient id="emm-mark" x1="0" y1="53" x2="0" y2="73" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#3DDB6C"/><stop offset="1" stop-color="#17B04B"/></linearGradient></defs>
+            <rect x="72" y="46" width="34" height="34" rx="9" fill="#fff" stroke="#0E2754" stroke-opacity=".12" stroke-width="1.5"/>
+            <polyline points="97.7,53 81.5,63 97.7,73" fill="none" stroke="url(#emm-mark)" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>
+          </g>
           <path d="M118 70 C 124 40, 176 32, 192 68 C 202 92, 196 118, 172 124 C 150 130, 124 122, 118 98 Z" class="b"/>
           <path d="M121 70 C 126 46, 150 32, 172 40" fill="none" class="d-s" stroke-width="6" stroke-linecap="round"/>
           <circle cx="158" cy="82" r="21" class="d-f"/>
@@ -94,14 +98,13 @@
             <text class="zz zz-2" x="190" y="26" font-size="26" font-weight="700" fill="#AFC0DD">Z</text>
           </g>
           <circle cx="146" cy="110" r="5" fill="#FF8FA3" opacity=".75"/>
-          <path d="M140 122 L 146 142" class="d-s" stroke-width="11" stroke-linecap="round"/>
-          <path d="M96 132 L 92 142" class="d-s" stroke-width="11" stroke-linecap="round"/>
+          <path d="M140 122 L 146 142" class="d-s leg leg-a" stroke-width="11" stroke-linecap="round"/>
+          <path d="M96 132 L 92 142" class="d-s leg leg-b" stroke-width="11" stroke-linecap="round"/>
             </svg>
-            <a class="core" href="#get" aria-label="Get Codemm"><img src="/favicon.svg" alt="" width="72" height="72"></a>
-          </div>
-          <button class="agent" type="button" data-agent="0">Claude Code</button>
-          <button class="agent" type="button" data-agent="1">Codex</button>
-          <button class="agent" type="button" data-agent="2">Cursor</button>
+          <div class="tongue" aria-hidden="true" hidden></div>
+          <button class="agent" type="button" data-agent="0" aria-label="Claude Code"><img src="/img/agents/claude.svg" alt="" width="44" height="44"></button>
+          <button class="agent" type="button" data-agent="1" aria-label="Codex"><img src="/img/agents/codex.svg" alt="" width="44" height="44"></button>
+          <button class="agent" type="button" data-agent="2" aria-label="Cursor"><img src="/img/agents/cursor.svg" alt="" width="40" height="40"></button>
         </div>
         <button class="motion" type="button" aria-pressed="false" aria-label="Pause animation" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-pause" d="M8 5v14M16 5v14"/><path class="i-play" d="M7 5l12 7-12 7z"/></svg>
@@ -173,11 +176,11 @@
 
     <section class="proof" aria-labelledby="proof">
       <div class="wrap">
-        <h2 id="proof" class="center-title">Every exercise is proven before you see it.</h2>
+        <h2 id="proof" class="center-title">Every exercise is checked before you see it.</h2>
         <ul class="proof-list">
           <li>The reference solution passes.</li>
           <li>The starter code fails.</li>
-          <li>The tests catch every broken version.</li>
+          <li>The tests reject the incorrect versions your agent wrote.</li>
         </ul>
         <p class="proof-note">Your code is graded in a sandbox, with the network off.</p>
       </div>
@@ -198,7 +201,7 @@
           </li>
           <li>
             <h3>A coding agent</h3>
-            <p>Claude Code, Codex or Cursor, signed in, on your own plan. You choose the model.</p>
+            <p>Claude Code, Codex or Cursor, signed in with your own account. You choose the model.</p>
           </li>
         </ul>
       </div>
@@ -208,7 +211,7 @@
       <div class="wrap final-in">
         <img class="final-mark" src="/favicon.svg" alt="" width="64" height="64">
         <h2 id="final">Start learning with Codemm.</h2>
-        <p class="center-lead">Codemm launches your agent, on your own plan, with the model you choose. It never calls a model API, and never reads, stores or asks for your credentials.</p>
+        <p class="center-lead">Codemm launches your agent, with your own account and the model you choose. It never calls a model API, and never reads, stores or asks for your credentials.</p>
         <div class="download" data-download>
           <a class="btn primary big" href="https://github.com/iignaite/Codemm/releases">
             <span class="btn-label">Download</span>
