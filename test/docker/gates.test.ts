@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type FileMap, readFileMap } from "../../src/files.js";
+import { type FileMap, readFileMap, subMap } from "../../src/files.js";
 import { verifyExercise, verifyTrack } from "../../src/gates.js";
 import { type CourseRecord, parseRoadmapYaml, type TrackRecord } from "../../src/schemas.js";
 import { dockerUp, FIXTURES, fixtureTrack } from "./helpers.js";
@@ -56,6 +56,16 @@ describe.runIf(dockerUp)("gates (Docker)", () => {
       ioTrack ??= record(await verifyTrack(fixtureTrack("shell-io").files));
     });
     const verify = (files: FileMap) => verifyExercise(ioTrack, course("shell-io"), files, new Set());
+
+    it("rejects an exercise that an earlier exercise's solution already passes, and accepts one it fails", async () => {
+      const files = { ...exercise("io-max"), "exercise.yaml": exercise("io-max")["exercise.yaml"]!.replace("max-of-line", "max-again") };
+      const same = [{ slug: "max-of-line", style: "io" as const, solution: subMap(exercise("io-max"), "solution") }];
+      await expect(verifyExercise(ioTrack, course("shell-io"), files, new Set(), undefined, same)).rejects.toThrow(
+        /Gate "new task" failed: the solution to "max-of-line" already passes every test of this exercise/,
+      );
+      const different = [{ slug: "zero-start", style: "io" as const, solution: subMap(exercise("io-max"), "mutants/zero-start") }];
+      await expect(verifyExercise(ioTrack, course("shell-io"), files, new Set(), undefined, different)).resolves.toMatchObject({ slug: "max-again" });
+    });
 
     it("accepts a good exercise and writes every expected output from the reference", async () => {
       const r = await verify(exercise("io-max"));

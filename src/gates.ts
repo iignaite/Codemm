@@ -255,9 +255,13 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
 /** The exercise gate running, by name only: the reference passes, the starter fails, the tests catch each mutant. */
 export type ExerciseGate = "reference" | "starter" | "mutants";
 
-/** Runs exercise gates 1-6 (DESIGN §6). Returns the record to store, with io expected outputs or the unit inventory. */
+/** An exercise the course already has: its solution, to check that a new exercise is a new task. */
+export type EarlierSolution = { slug: string; style: Style; solution: FileMap };
+
+/** Runs exercise gates 1-7 (DESIGN §6). Returns the record to store, with io expected outputs or the unit inventory. */
 export async function verifyExercise(
   trackRecord: TrackRecord, course: CourseRecord, files: FileMap, taken: Set<string>, onGate?: (gate: ExerciseGate) => void,
+  earlier: EarlierSolution[] = [],
 ): Promise<ExerciseRecord> {
   const { spec, style, starter, solution, mutants, sets } = validate(trackRecord, course, files, taken);
   onGate?.("reference");
@@ -337,6 +341,15 @@ export async function verifyExercise(
   }
   if (!anyPassesVisible) {
     throw new GateError("hidden tests matter", "every mutant already fails a visible test, so the hidden tests add nothing. Include a mutant that passes the visible tests but fails a hidden one.");
+  }
+
+  // Gate 7: it's a new task. An earlier exercise's solution that passes every test here means the same task again,
+  // whatever its title. The visible tests run first, and most earlier solutions fail them.
+  for (const e of earlier.filter((x) => x.style === style)) {
+    if (!allPass(gradeRuns(style, await runSets(track, style, e.solution, { visible: sets.visible }), exp))) continue;
+    if (allPass(gradeRuns(style, await runSets(track, style, e.solution, sets), exp))) {
+      throw new GateError("new task", `the solution to "${e.slug}" already passes every test of this exercise, so it's the same task again. Write a different problem, not a renamed one.`);
+    }
   }
 
   return {

@@ -54,7 +54,8 @@ How checks run:
 const EXERCISE_RULES = `## Exercises (\`save_exercise\`)
 
 - \`exercise.yaml\`: \`slug\` (new, lowercase), \`concepts\` (ids from the roadmap), \`difficulty\` (1-3), optional \`style\` and \`hint\`.
-- \`README.md\`: the statement. Make it complete: input and output format, edge cases, and an example. A learner must be able to solve it from this alone.
+- **A new task:** \`next_step\`'s \`earlier\` lists the exercises this course already has (each one's title and first line). Write a task unlike every one of them: a different problem, not one of them renamed or with new numbers. Its title must differ from the concept's title and from theirs. Codemm rejects an exercise that an earlier exercise's solution already passes.
+- \`README.md\`: the statement. Start it with a \`#\` title. Make it complete: input and output format, edge cases, and an example. A learner must be able to solve it from this alone.
 - \`starter/\`, \`solution/\` and \`mutants/<name>/\`: each holds exactly the track's learner files. The starter must not already pass.
 - **Mutants:** write 2 to 4 believable wrong solutions (off-by-one, a missed edge case, a wrong operator).
 - \`tests/visible/\` and \`tests/hidden/\`: put the basic case in the visible tests and the edge cases (empty input, boundaries, negatives) in the hidden tests. Then a mutant that gets only an edge case wrong passes the visible tests, as Codemm requires.
@@ -82,7 +83,7 @@ This project uses Codemm, an open-source practice harness. You are the learner's
 5. Call \`next_step\`:
    - \`setup\`: the roadmap's track isn't installed yet. Have the subagent install it, then call \`next_step\` again.
    - \`practice\`: call \`get_exercise\` and present the statement and the file to edit.
-   - \`author\`: start the subagent with the concept, title, difficulty, style, track and contract from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
+   - \`author\`: start the subagent with the concept, title, difficulty, style, track, contract and earlier exercises from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
    - \`review\`: a mastered concept is due for review. Call \`get_exercise\` with that exercise; a passing check keeps the concept mastered, and a failing one sends it back to practice.
    - \`stuck\`: the learner failed twice at the easiest level. Re-teach the concept, and consider adding a missing prerequisite to the roadmap.
    - \`done\`: celebrate, then offer a new goal.
@@ -157,7 +158,7 @@ ${TRACK_RULES}`,
 
 **When you finish, reply with only the exercise id.** ${SECRECY}
 
-${FILE_MAP} Call \`next_step\` first. Its author step is your target and your only source: the concept id and title, the difficulty, the style, and the track's contract. \`contract.files\` are the learner files; the build, run or test command shows how they're checked; \`contract.examples\` is a passing solution with its tests. Use those file names, and write tests in the same format as the example tests.
+${FILE_MAP} Call \`next_step\` first. Its author step is your target and your only source: the concept id and title, the difficulty, the style, the track's contract, and the course's earlier exercises. \`contract.files\` are the learner files; the build, run or test command shows how they're checked; \`contract.examples\` is a passing solution with its tests. Use those file names, and write tests in the same format as the example tests.
 
 ${EXERCISE_RULES}`,
 
