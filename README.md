@@ -22,7 +22,7 @@
 
 ## What is Codemm
 
-Codemm is an open-source app for learning to code by practice. Your own coding agent (Claude Code or Codex, on your own plan) writes the lessons and exercises. Codemm proves each exercise works, grades your code in a sandbox, and tracks what you've mastered.
+Codemm is an open-source app for learning to code by practice. Your own coding agent (Claude Code or Codex, with your own account) writes the lessons and exercises. Codemm proves each exercise works, grades your code in a sandbox, and tracks what you've mastered.
 
 Codemm launches your agent; it never calls a model API, and it never reads, stores or asks for credentials. It ships no languages: your agent sets up each language or framework the first time you need it, and Codemm checks that it works.
 
