@@ -37,7 +37,7 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
   const { files, edit, save } = useLearnerFiles(activity, onReloaded);
   const topic = course.topics.find((t) => t.id === activity.concept);
   const terminal = useRef<TerminalHandle>(null);
-  const program = useRun(activity.id, activity.run, terminal, save, fail);
+  const program = useRun((run) => api.runProgram(activity.id, run), activity.run, terminal, save, fail);
   // The pane appears with the first Run and stays.
   const [ran, setRan] = useState(false);
   const busy = shown.kind === 'busy' || program.running;
