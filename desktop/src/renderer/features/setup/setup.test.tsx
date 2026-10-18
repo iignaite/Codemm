@@ -68,3 +68,22 @@ describe('install what is missing', () => {
     expect(within(agent).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
 });
+
+describe('a look that fails after one worked', () => {
+  it('keeps what is missing on screen when a later look fails, says so, and Try again looks again', async () => {
+    const user = userEvent.setup();
+    const api = mac('no-docker');
+    const computer = api.computer.bind(api);
+    let failing = false;
+    api.computer = () => (failing ? Promise.reject(new Error('codemm:offline')) : computer());
+    renderApp({ to: 'setup' }, api);
+    expect(await screen.findByRole('listitem', { name: 'Docker Desktop' })).toBeInTheDocument();
+    failing = true;
+    window.dispatchEvent(new Event('focus'));
+    expect(await screen.findByText(/Codemm couldn't refresh this/)).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('listitem', { name: 'Docker Desktop' })).toBeInTheDocument();
+    failing = false;
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByText(/Codemm couldn't refresh this/)).not.toBeInTheDocument());
+  });
+});
