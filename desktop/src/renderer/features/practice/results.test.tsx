@@ -37,6 +37,13 @@ describe('Results with real core result shapes', () => {
     expect(results()).toHaveTextContent('found Count: 0');
   });
 
+  it('promises no outcome when every test passed but the topic is not mastered yet', () => {
+    const passed: CoreCheckView = { ...core, passed: 3, tests: core.tests.map((t) => ({ name: t.name, status: 'pass' as const })) };
+    render(<Results shown={{ kind: 'check', result: checkView(passed, { stuck: false, mastered: false, later: true }), keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(results()).toHaveTextContent('Keep practicing State.');
+    expect(results()).not.toHaveTextContent('masters');
+  });
+
   it('shows expected next to found after Try it', () => {
     render(<Results shown={{ kind: 'try', result: tryView(core) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
     expect(results()).toHaveTextContent('expected Count: 1');
