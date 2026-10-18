@@ -25,14 +25,19 @@ export type AgentEvent =
  */
 export type ResearchStep = { kind: 'search'; query: string } | { kind: 'read'; url: string; href?: string } | { kind: 'step'; label: string };
 
-const STEP_LABELS: Record<string, string> = {
+/** Codemm's own tools, as the step each job shows (§4.11). Fixed text: nothing from a tool's arguments or result. */
+export const STEP_LABELS: Record<string, string> = {
   list_tracks: 'Checking the installed tracks',
   save_roadmap: 'Saving the roadmap',
   get_roadmap: 'Reading the roadmap',
-  save_track: 'Preparing the setup',
+  save_track: 'Proposing the setup',
   save_lesson: 'Saving the lesson',
-  save_exercise: 'Saving the activity',
+  save_exercise: 'Codemm is checking the exercise',
   next_step: 'Checking the next step',
+  progress: 'Checking your progress',
+  get_exercise: 'Reading the activity',
+  get_lesson: 'Reading the lesson',
+  mark_lesson_read: 'Noting the lesson as read',
 };
 
 const searchOf = (query: unknown): ResearchStep[] =>

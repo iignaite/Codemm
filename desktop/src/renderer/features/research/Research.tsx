@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
-import type { Goal, ResearchProgress } from '../../../shared/api';
+import { useEffect } from 'react';
+import type { Goal, JobStep } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
 import { Failed } from '../../app/Shell';
+import { useJob } from '../../app/useJob';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
@@ -12,9 +13,10 @@ export function Research({ goal }: { goal: Goal }) {
   const api = useApi();
   const { go } = useRouter();
   const { data, error, reload } = useLoad(() => api.research(goal), [goal], (r) => r.state !== 'running');
-  // What the agent is looking at, the latest first (§4.9).
-  const [steps, setSteps] = useState<ResearchProgress[]>([]);
-  useEffect(() => api.onResearchProgress((step) => setSteps((s) => [step, ...s])), [api]);
+  // What the agent is looking at, the latest first (§4.9, §4.11).
+  const job = useJob((p) => p.kind === 'research', []);
+  const steps = job?.progress.steps ?? [];
+  const count = job?.progress.count ?? 0;
 
   useEffect(() => {
     if (data?.state === 'done' && data.roadmap) go({ to: 'course', roadmap: data.roadmap });
@@ -44,11 +46,11 @@ export function Research({ goal }: { goal: Goal }) {
       {steps.length > 0 && (
         <section className="looking" aria-label="Research progress">
           <ol aria-label="What Codemm is looking at">
-            {steps.slice(0, 8).map((step, i) => (
-              <li key={steps.length - i} style={{ opacity: Math.max(0.35, 1 - i * 0.12) }}>{say(step)}</li>
+            {steps.map((step, i) => (
+              <li key={count - i} style={{ opacity: Math.max(0.35, 1 - i * 0.12) }}>{say(step)}</li>
             ))}
           </ol>
-          <span className="soon">{steps.length === 1 ? '1 step' : `${steps.length} steps`}</span>
+          <span className="soon">{count === 1 ? '1 step' : `${count} steps`}</span>
         </section>
       )}
       <section className="card research" aria-labelledby="path" aria-busy="true">
@@ -61,4 +63,4 @@ export function Research({ goal }: { goal: Goal }) {
   );
 }
 
-const say = (step: ResearchProgress) => (step.kind === 'search' ? `Searching ${step.query}` : step.kind === 'read' ? `Reading ${step.url}` : step.label);
+export const say = (step: JobStep) => (step.kind === 'search' ? `Searching ${step.query}` : step.kind === 'read' ? `Reading ${step.url}` : step.label);

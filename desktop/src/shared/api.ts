@@ -303,8 +303,10 @@ export interface CodemmApi {
   chooseModel(agent: AgentId, model: string): Promise<Agent>;
   /** Hears progress while Try it or Check runs; returns a function that stops listening. An event, not a call. */
   onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
-  /** Hears what research is looking at while it runs; returns a function that stops listening. An event, not a call. */
-  onResearchProgress(listener: (progress: ResearchProgress) => void): () => void;
+  /** Hears every agent job's progress while it runs; returns a function that stops listening. An event, not a call. */
+  onJobProgress(listener: (progress: JobProgress) => void): () => void;
+  /** The jobs running now, for a screen that opens while one runs; onJobProgress follows them. */
+  jobProgress(): Promise<JobProgress[]>;
   /** Hears what Run's programs print; returns a function that stops listening. An event, not a call. */
   onRunOutput(listener: (output: RunOutput) => void): () => void;
   computer(): Promise<Computer>;
@@ -368,14 +370,43 @@ export interface CodemmApi {
   rebuild(trackRef: string): Promise<void>;
 }
 
-/** What the research job is looking at: a search, an https page (host and path) or one of Codemm's steps. */
-export type ResearchProgress = { kind: 'search'; query: string } | { kind: 'read'; url: string } | { kind: 'step'; label: string };
+/** One thing a job did: a web search, an https page (host and path) or one of Codemm's steps (§4.11). */
+export type JobStep = { kind: 'search'; query: string } | { kind: 'read'; url: string } | { kind: 'step'; label: string };
+
+/** The agent jobs (§3.2): research, a roadmap change, setup, a lesson, an activity (author) and a tutor turn. */
+export type JobKind = 'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor';
+
+/**
+ * A running job's progress (§4.11): its stage (an index into JOB_STAGES[kind]), its latest steps and how long it has
+ * run. Never a file path, a file's contents, a hidden test or anything else from Codemm's records.
+ */
+export interface JobProgress {
+  /** This run of the job, an opaque id: a new run starts fresh. */
+  job: string;
+  kind: JobKind;
+  /** The topic a lesson or author job writes for. */
+  concept?: string;
+  stage: number;
+  /** The latest steps, newest first, at most 8. */
+  steps: JobStep[];
+  /** How many steps so far. */
+  count: number;
+  /** "Trying again": attempt 2 of 3 after a failed save, or 2 of 2 after a relaunch. */
+  retry?: { attempt: number; of: number };
+  /** False while one of Codemm's own tools runs: then the agent is waiting, not thinking. */
+  thinking: boolean;
+  /** Since the job started, and since its last event, when this was sent. */
+  elapsedMs: number;
+  idleMs: number;
+  /** The job ended: screens stop showing it. */
+  ended?: true;
+}
 
 /** What the preload script exposes as `window.codemm`. */
 export interface Bridge {
   invoke(method: string, args: unknown[]): Promise<unknown>;
-  /** Events main sends, to the app window only: check progress, research progress, and Run's output (to the window that started it). */
+  /** Events main sends, to the app window only: check progress, job progress, and Run's output (to the window that started it). */
   onCheckProgress(listener: (progress: CheckProgress) => void): () => void;
-  onResearchProgress(listener: (progress: ResearchProgress) => void): () => void;
+  onJobProgress(listener: (progress: JobProgress) => void): () => void;
   onRunOutput(listener: (output: RunOutput) => void): () => void;
 }
