@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { trackImageTag } from "../../src/store.ts";
 import { builtImages, cleanupPlan, homeTagPrefix, OWNER_LABEL, recordingCli, type Snapshot } from "../lib/docker.ts";
+import { tempDir } from "../../test/temp.ts";
 
 const snap = (tags: Record<string, string>, ids: string[]): Snapshot => ({ tags: new Map(Object.entries(tags)), ids: new Set(ids) });
 const built = (...ids: string[]) => new Set(ids);
@@ -37,7 +37,7 @@ describe("cleanupPlan", () => {
   });
 
   it("uses the same home prefix as Codemm's own tags", () => {
-    const home = mkdtempSync(join(tmpdir(), "codemm-home-"));
+    const home = tempDir("codemm-home-");
     process.env.CODEMM_HOME = home;
     expect(trackImageTag("c", 1).startsWith(homeTagPrefix(home))).toBe(true);
   });
@@ -45,7 +45,7 @@ describe("cleanupPlan", () => {
 
 describe("recordingCli", () => {
   const setup = () => {
-    const dir = mkdtempSync(join(tmpdir(), "codemm bench-cli-"));
+    const dir = tempDir("codemm bench-cli-");
     const fake = join(dir, "fake docker");
     // A fake docker that prints its arguments and, like docker, writes the --iidfile.
     writeFileSync(fake, '#!/bin/sh\nprintf "%s\\n" "$@"\nwhile [ $# -gt 0 ]; do [ "$1" = --iidfile ] && printf "sha256:new" > "$2"; shift; done\n');

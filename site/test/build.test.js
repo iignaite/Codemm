@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build, siteUrl } from '../build.mjs';
@@ -19,21 +19,47 @@ test('the build fills in every absolute URL', () => {
     assert.equal(html.includes('%SITE_URL%'), false);
     assert.match(html, /<meta property="og:image" content="https:\/\/codemm\.example\.org\/og\.png">/);
     assert.ok(readFileSync(join(out, 'release.js'), 'utf8').length > 0);
-    // Without its script, the form must never submit the email in a URL.
-    assert.match(html, /<form class="gate" id="get" method="post" action="\/api\/subscribe"/);
-    assert.match(html, /id="gate-submit" type="submit" disabled>/);
-    for (const page of ['index.html', 'downloads.html', 'unsubscribe.html']) {
-      assert.doesNotMatch(readFileSync(join(out, page), 'utf8'), /<script(?![^>]*\b(src=|type="application\/ld\+json"))|\son[a-z]+=|style="/, page);
-    }
-    // The unsubscribe page keeps its token in the address, so it loads no analytics.
-    assert.doesNotMatch(readFileSync(join(out, 'unsubscribe.html'), 'utf8'), /_vercel\/insights/);
-    // On the downloads page, analytics loads after the script that strips the token from the address.
-    const dl = readFileSync(join(out, 'downloads.html'), 'utf8');
-    assert.ok(dl.indexOf('/downloads.js') < dl.indexOf('/_vercel/insights/script.js'));
     assert.match(readFileSync(join(out, 'sitemap.xml'), 'utf8'), /<loc>https:\/\/codemm\.example\.org\/<\/loc>/);
     assert.match(readFileSync(join(out, 'robots.txt'), 'utf8'), /Sitemap: https:\/\/codemm\.example\.org\/sitemap\.xml/);
     assert.match(html, /"@type":"SoftwareApplication".*"url":"https:\/\/codemm\.example\.org\/"/);
   } finally {
     rmSync(join(out, '..'), { recursive: true, force: true });
   }
+});
+
+test('the site is static and collects no personal data', () => {
+  const out = join(mkdtempSync(join(tmpdir(), 'codemm-site-')), 'dist');
+  try {
+    build(out, {});
+    const files = readdirSync(out, { recursive: true }).map(String);
+    const html = files.filter((f) => f.endsWith('.html'));
+    assert.deepEqual(html, ['index.html']);
+    const page = readFileSync(join(out, 'index.html'), 'utf8');
+    // No forms or inputs, no inline code, and no tracking beyond Vercel Web Analytics
+    // (cookieless, aggregate page views). No Speed Insights or other trackers.
+    assert.doesNotMatch(page, /<form|<input|<textarea|speed-insights|gtag|googletagmanager|cookie/i);
+    assert.deepEqual(page.match(/_vercel\/[a-z-]+\/script\.js/g), ['_vercel/insights/script.js']);
+    assert.doesNotMatch(page, /<script(?![^>]*\b(src=|type="application\/ld\+json"))|\son[a-z]+=|style="/);
+    // No third-party logos: the agents appear as plain text only.
+    assert.equal(files.some((f) => f.includes('agents')), false);
+    assert.match(page, />Claude Code<\/button>/);
+    assert.match(page, /Codemm isn't affiliated with or endorsed by them\./);
+    assert.match(page, /provided as is, without warranty/);
+  } finally {
+    rmSync(join(out, '..'), { recursive: true, force: true });
+  }
+});
+
+test('Vercel serves files only, with a CSP that reaches only this site and GitHub', () => {
+  const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+  assert.equal(config.functions, undefined);
+  assert.equal(existsSync(new URL('../api', import.meta.url)), false);
+  const csp = config.headers[0].headers.find((h) => h.key === 'Content-Security-Policy').value;
+  assert.match(csp, /default-src 'none'/);
+  assert.match(csp, /script-src 'self';/);
+  assert.match(csp, /connect-src 'self' https:\/\/api\.github\.com;/);
+  assert.match(csp, /form-action 'none'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(pkg.dependencies, undefined);
 });

@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { saveExercise, saveTrack } from "../src/app.js";
 import { assertId, assertPortablePaths, readFileMap, validateFileMap } from "../src/files.js";
+import { tempDir } from "./temp.js";
 
 describe("assertId", () => {
   it.each(["c", "react", "python3", "c.loops", "sum-evens_2"])("accepts %s", (id) => {
@@ -60,15 +60,15 @@ describe("portable author input", () => {
   });
 
   it("is enforced when a track or an exercise is saved, before anything runs", async () => {
-    process.env.CODEMM_HOME = mkdtempSync(join(tmpdir(), "codemm-home-"));
+    process.env.CODEMM_HOME = tempDir("codemm-home-");
     await expect(saveTrack({ "track.yaml": "id: x\n", "run.sh:x": "" })).rejects.toThrow(/Invalid path/);
-    await expect(saveExercise(mkdtempSync(join(tmpdir(), "codemm-ws-")), { "exercise.yaml": "", "notes.": "" })).rejects.toThrow(/Invalid path/);
+    await expect(saveExercise(tempDir("codemm-ws-"), { "exercise.yaml": "", "notes.": "" })).rejects.toThrow(/Invalid path/);
   });
 });
 
 describe("readFileMap", () => {
   it("reads a directory tree into a file map", () => {
-    const dir = mkdtempSync(join(tmpdir(), "codemm-files-"));
+    const dir = tempDir("codemm-files-");
     mkdirSync(join(dir, "solution"));
     writeFileSync(join(dir, "README.md"), "hi");
     writeFileSync(join(dir, "solution", "main.c"), "x");
@@ -77,26 +77,26 @@ describe("readFileMap", () => {
 
   // Windows has no FIFOs (Git for Windows' mkfifo makes a plain file).
   it.skipIf(process.platform === "win32")("refuses FIFOs and other special files without reading them", () => {
-    const dir = mkdtempSync(join(tmpdir(), "codemm-files-"));
+    const dir = tempDir("codemm-files-");
     execFileSync("mkfifo", [join(dir, "pipe")]);
     expect(() => readFileMap(dir)).toThrow(/regular file/i);
   });
 
   it("stops at the limits while walking instead of reading everything first", () => {
-    const dir = mkdtempSync(join(tmpdir(), "codemm-files-"));
+    const dir = tempDir("codemm-files-");
     writeFileSync(join(dir, "big"), Buffer.alloc(2_000_000));
     expect(() => readFileMap(dir)).toThrow(/1 MB/);
   });
 
   it("can leave out generated records so they don't count against author limits", () => {
-    const dir = mkdtempSync(join(tmpdir(), "codemm-files-"));
+    const dir = tempDir("codemm-files-");
     writeFileSync(join(dir, "exercise.json"), "x".repeat(2_000_000));
     writeFileSync(join(dir, "README.md"), "hi");
     expect(readFileMap(dir, ["exercise.json"])).toEqual({ "README.md": "hi" });
   });
 
   it("refuses symlinks so input can't point outside its folder", () => {
-    const dir = mkdtempSync(join(tmpdir(), "codemm-files-"));
+    const dir = tempDir("codemm-files-");
     symlinkSync("/etc/hosts", join(dir, "hosts"));
     expect(() => readFileMap(dir)).toThrow(/symlink/i);
   });

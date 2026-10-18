@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import * as app from "../../src/app.js";
 import { cli } from "../../src/sandbox.js";
 import { dockerUp, fixtureTrack } from "./helpers.js";
+import { tempDir } from "../temp.js";
 
 /** Two Codemm homes on one Docker, both installing the same id@version with different files. */
 describe.runIf(dockerUp)("two Codemm homes (Docker)", () => {
@@ -24,8 +24,8 @@ describe.runIf(dockerUp)("two Codemm homes (Docker)", () => {
   };
 
   it("keep their own tags, so neither home's image is left untagged by the other", async () => {
-    const a = await install(mkdtempSync(join(tmpdir(), "codemm-home-")), "home-a");
-    const b = await install(mkdtempSync(join(tmpdir(), "codemm-home-")), "home-b");
+    const a = await install(tempDir("codemm-home-"), "home-a");
+    const b = await install(tempDir("codemm-home-"), "home-b");
     expect(a.image).not.toBe(b.image);
     expect(a.imageId).not.toBe(b.imageId);
     const tagged = async (tag: string) => (await cli(["image", "inspect", "--format", "{{.Id}}", tag])).output.trim();

@@ -1,5 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
@@ -9,13 +8,14 @@ import { sandboxArgs } from "../src/sandbox.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import * as store from "../src/store.js";
 import { fakeDocker, posix } from "./fake-docker.js";
+import { tempDir } from "./temp.js";
 
 /** Run: the learner's io program, interactively, in the sandbox. Never recorded. */
 
 const fixtures = join(import.meta.dirname, "fixtures");
 
 beforeEach(() => {
-  vi.stubEnv("CODEMM_HOME", mkdtempSync(join(tmpdir(), "codemm-home-")));
+  vi.stubEnv("CODEMM_HOME", tempDir("codemm-home-"));
 });
 
 afterEach(() => {
@@ -154,7 +154,7 @@ describe.runIf(posix)("interactive run", () => {
   it("leaves no temporary folder behind, whatever happens", async () => {
     const ws = await installedExercise();
     // A temp folder of its own: other test runs on the machine make codemm-run- folders too.
-    const own = mkdtempSync(join(tmpdir(), "codemm-test-tmp-"));
+    const own = tempDir("codemm-test-tmp-");
     for (const name of ["TMPDIR", "TMP", "TEMP"]) vi.stubEnv(name, own);
     const runs = () => readdirSync(own).filter((f) => f.startsWith("codemm-run-"));
     fakeDocker("interactive");
@@ -179,7 +179,7 @@ describe.runIf(posix)("interactive run", () => {
 
 /** A workspace whose io exercise is installed (with a fake image) and edited. */
 async function installedExercise(): Promise<string> {
-  const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+  const ws = tempDir("codemm-ws-");
   const track = readFileMap(join(fixtures, "tracks", "shell-io"));
   store.commitFolder(store.trackDir("shell-io@1"), track, {
     "track.json": { format_version: 1, ...parseTrackYaml(track["track.yaml"]!), image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
