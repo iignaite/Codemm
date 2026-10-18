@@ -16,7 +16,7 @@ import { Button } from '../ui/Button';
 import { ApiContext } from './api';
 import { SAY, problemOf } from './errors';
 import { RouterContext, type Route, type Router } from './router';
-import { WithSide } from './Shell';
+import { WithSide } from './Sidebar';
 
 function Screen({ route }: { route: Route }) {
   switch (route.to) {

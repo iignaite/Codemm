@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import type { RunResult } from '../../../shared/api';
-import { useApi } from '../../app/api';
-import type { TerminalHandle } from '../../ui/Terminal';
+import type { RunResult } from '../../shared/api';
+import type { TerminalHandle } from '../ui/Terminal';
+import { useApi } from './api';
 
 /** "2 minutes", "1 minute", "45 seconds", "1 second". */
 function duration(ms: number): string {
@@ -33,9 +33,18 @@ function ending(r: RunResult, limits: Record<'build' | 'run', number>): [string,
 /**
  * Run (§4.10): a program in the terminal pane, with typed input, counting down its time limit: the learner's
  * (runProgram) or a lesson example (runExampleLive), which `begin` starts. Never recorded. Only this run's output is
- * shown, and leaving the screen stops it. `command`, when known, heads the output.
+ * shown, and leaving the screen stops it. `command`, when known, heads the output; `save` runs first (the learner's
+ * pending edits).
  */
-export function useRun(begin: (run: string) => Promise<RunResult>, command: string | undefined, terminal: RefObject<TerminalHandle | null>, save: () => Promise<void>, fail: (e: unknown) => void) {
+export interface RunOptions {
+  begin: (run: string) => Promise<RunResult>;
+  terminal: RefObject<TerminalHandle | null>;
+  fail: (e: unknown) => void;
+  command?: string;
+  save?: () => Promise<void>;
+}
+
+export function useRun({ begin, terminal, fail, command, save = async () => undefined }: RunOptions) {
   const api = useApi();
   const [run, setRun] = useState<string>();
   // Input is on once the program has started: before that, main has nothing to send it to.
@@ -76,8 +85,10 @@ export function useRun(begin: (run: string) => Promise<RunResult>, command: stri
         limits[o.started] = o.limitMs;
         setReady(true);
         setStatus(o.started === 'build' ? 'Building' : undefined);
-        setNow(Date.now());
-        setDeadline(o.started === 'run' ? Date.now() + o.limitMs : undefined);
+        // One reading of the clock: two could straddle a millisecond and show a second too many.
+        const at = Date.now();
+        setNow(at);
+        setDeadline(o.started === 'run' ? at + o.limitMs : undefined);
       } else terminal.current?.write(o.text, o.stream);
     });
     const session = { id, cancelled: false, off };

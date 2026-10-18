@@ -21,6 +21,8 @@ export const AGENT_FAILED = 'codemm:agent-failed';
 export const REPAIR = 'codemm:repair';
 /** A cancel the agent's process group survived: "Codemm couldn't stop your agent" (§3.1). */
 export const UNSTOPPABLE = 'codemm:unstoppable';
+/** Why a check wasn't counted when a track's image is missing or changed: the fix is under Tracks, not this computer (§5). */
+export const REBUILD = 'This environment needs a rebuild. Rebuild it under Tracks.';
 /** A learner file changed outside Codemm since the editor loaded it (§4.5). */
 export const CHANGED = 'codemm:changed';
 

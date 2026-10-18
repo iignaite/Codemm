@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { CodemmError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
-import { type CaseFrames, frameProgress, gradeIo, gradeUnit, parseFrames, type RawBuild, type RawCase, type TestResult, type TestSet } from "./grading.js";
+import { type CaseFrames, type Expectation, frameProgress, gradeRuns, type IoRun, parseFrames, type RawCase, type Runs, type TestResult, type TestSet, type UnitRun } from "./grading.js";
 import { runSandboxed, runtimeDown, startHelp, startSandboxed } from "./sandbox.js";
 
 /** What the judge needs from an installed track. */
@@ -19,9 +19,6 @@ export type JudgeTrack = {
 /** `onCase` hands over each io case as it finishes: pass it only for visible tests. */
 export type RunOptions = { timeMs?: number; deadlineMs?: number; onProgress?: (milestone: "built" | number) => void; onCase?: (c: CaseFrames) => void };
 
-/** `flooded` and `outOfMemory` mean the program got the whole container killed, so every test in the set is an error. */
-export type IoRun = { build?: RawBuild; cases: RawCase[]; flooded: boolean; outOfMemory?: boolean };
-export type UnitRun = { report: { exit: number; body: string; log: string }; flooded: boolean; outOfMemory?: boolean };
 
 const BUILD_SECONDS = 60;
 const SLACK_MS = 30_000;
@@ -294,18 +291,25 @@ export async function runUnit(track: JudgeTrack, src: FileMap, tests: FileMap, o
   return { report: { exit: report?.exit ?? -1, body: report?.body ?? "", log: log?.body ?? "" }, flooded, ...(outOfMemory ? { outOfMemory } : {}) };
 }
 
-const FLOODED = "Output limit exceeded: the program printed more than 4 MB.";
-const OUT_OF_MEMORY = "Memory limit exceeded: the program used more memory than the track allows.";
-const killedBy = (run: { flooded: boolean; outOfMemory?: boolean }) => (run.flooded ? FLOODED : run.outOfMemory ? OUT_OF_MEMORY : undefined);
-
-export function gradeIoRun(run: IoRun, expected: Record<string, string>): TestResult[] {
-  const killed = killedBy(run);
-  if (killed) return Object.keys(expected).map((name) => ({ set: name.startsWith("hidden/") ? "hidden" : "visible", name, status: "error", message: killed }));
-  return gradeIo(run.cases, expected, run.build);
+/** Runs each given test set, visible first, each in its own container. `onSet` is told as a set starts and may return its options (progress). */
+export async function runSets(
+  track: JudgeTrack, style: "io" | "unit", src: FileMap, sets: Partial<Record<TestSet, FileMap>>,
+  opts: { timeMs?: number; onSet?: (set: TestSet) => RunOptions | void } = {},
+): Promise<Runs> {
+  const runs: Runs = {};
+  for (const set of ["visible", "hidden"] as const) {
+    const tests = sets[set];
+    if (!tests) continue;
+    const o: RunOptions = { ...(opts.timeMs === undefined ? {} : { timeMs: opts.timeMs }), ...opts.onSet?.(set) };
+    runs[set] = style === "io" ? await runIo(track, set, src, tests, o) : await runUnit(track, src, tests, o);
+  }
+  return runs;
 }
 
-export function gradeUnitRun(set: TestSet, run: UnitRun, inventory?: string[]): TestResult[] {
-  const killed = killedBy(run);
-  if (killed) return (inventory ?? ["report"]).map((n) => ({ set, name: `${set}/${n}`, status: "error", message: killed }));
-  return gradeUnit(set, run.report, inventory);
+/** Runs the given test sets and grades them. */
+export async function judgeSets(
+  track: JudgeTrack, style: "io" | "unit", src: FileMap, sets: Partial<Record<TestSet, FileMap>>, exp: Expectation,
+  opts: { timeMs?: number; onSet?: (set: TestSet) => RunOptions | void } = {},
+): Promise<TestResult[]> {
+  return gradeRuns(style, await runSets(track, style, src, sets, opts), exp);
 }
