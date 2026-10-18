@@ -175,10 +175,13 @@ async function openExercise(): Promise<string> {
     const ex = join(courses, c, 'exercises');
     return existsSync(ex) ? readdirSync(ex).map((s) => join(ex, s)) : [];
   });
-  const titled = all.find((d) => {
-    const readme = join(d, 'README.md');
-    return existsSync(readme) && readFileSync(readme, 'utf8').split('\n')[0].replace(/^#\s*/, '').trim() === title;
-  });
+  // Titles can repeat across a course: the newest exercise with this title is the open one.
+  const titled = all
+    .filter((d) => {
+      const readme = join(d, 'README.md');
+      return existsSync(readme) && readFileSync(readme, 'utf8').split('\n')[0].replace(/^#\s*/, '').trim() === title;
+    })
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
   return titled ?? newestExercise();
 }
 
