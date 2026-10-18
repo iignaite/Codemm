@@ -457,8 +457,8 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 - **Docker stopping mid-session.** A check or setup that loses Docker fails as an infrastructure failure, records nothing, and opens this screen.
 - **Docker's slow first start.** Setup and checks started while Docker is starting (in the 3 minutes after Codemm opened or installed it) wait for the daemon before failing, and record nothing. With a stopped Docker they fail at once as not counted.
 - **Install what's missing** (`features/setup/Setup.tsx`). On a first run with Docker not installed, or no agent installed, Welcome's one primary action is **Install what's missing**.
-  - Its screen lists what will be installed, with each maker's terms and the agent to install (Claude Code by default, or Codex). Nothing downloads until the learner clicks Install what's missing.
-  - It then runs the Docker install and the agent install side by side, each showing its progress and result.
+  - Its screen lists what will be installed (Docker Desktop says "Not installed"), with each maker's terms and the agent to install (Claude Code by default, or Codex). The terms line names no price. Nothing downloads until the learner clicks Install what's missing.
+  - It then runs the Docker install and the agent install side by side, each showing its progress and result. If Docker's 3 minutes to start end with Docker still stopped, Docker's card shows Check this computer's step instead, with Open Docker Desktop and Check now.
   - The learner then sees Docker's terms window, then the agent's sign-in (enabled once Docker's install has handed over to Docker), in that order.
   - Once Docker is ready and the agent is connected, Codemm moves on to the goal.
   - Install Docker (below), each agent's Install and Get it myself, and "Do it myself" stay for doing it one at a time.
