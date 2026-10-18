@@ -200,13 +200,13 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     const cleaned = last.ended && job.cleanup ? await job.cleanup().then(() => true, () => false) : true;
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };
     if (job.signal?.aborted) break;
-    // Its container may still run, so no relaunch joins it.
-    if (!cleaned) return { ok: false, problem: 'infra', text: last.text };
     if (last.error && PLAN_LIMIT.test(last.error)) return { ok: false, problem: 'plan-limit', text: last.text };
     if (last.infra === 'offline' || (last.error && OFFLINE.test(last.error))) return { ok: false, problem: 'offline', text: last.text };
     if (last.infra === 'server' || last.infra === 'tool') return { ok: false, problem: 'infra', text: last.text };
     if (!(await job.signedIn())) return { ok: false, problem: 'signed-out', text: last.text };
     if (last.infra === 'unstarted') return { ok: false, problem: 'infra', text: last.text };
+    // Its container may still run, so no relaunch joins it.
+    if (!cleaned) return { ok: false, problem: 'infra', text: last.text };
   }
   return { ok: false, problem: 'failed', session: last?.session, text: last?.text ?? [] };
 }
