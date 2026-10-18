@@ -222,6 +222,8 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 - **The consent dialog.**
   - Text: "Set up React on this computer?" and "Setup runs code your agent wrote, with internet access. Graded runs are offline.", with Not now or Set up.
   - Details shows the Dockerfile and track.yaml, the 10-minute build limit, and the fact that builds have no memory or CPU limit.
+  - The topic page opens it. A lesson offers it as a "Set up React" banner, so reading never waits for consent.
+  - A setup failure shows above the topic's lessons, which stay readable.
 - **Retries.**
   - **Build failure from the learner's machine.** If a build fails because the machine is offline or out of disk space (§6.1), nothing is recorded and no agent runs. Try again re-installs the same proposal, which needs no new consent because the digest is unchanged.
   - **Gate failure.** If the gates fail, a new setup job gets the gate diagnostics, which hold no learner secrets, and proposes again within the bound in §3.2. A new proposal has new contents, so it asks again: "Codemm has another way to set up React." with Stop or Set up.

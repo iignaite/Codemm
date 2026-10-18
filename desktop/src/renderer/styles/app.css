@@ -126,6 +126,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 /* ---------- Lessons ---------- */
 .topic-page { width: 620px; display: flex; flex-direction: column; gap: 18px; }
 .topic-page .card { padding: 4px 22px; }
+.topic-page .card.panel { width: auto; padding: 28px; }
 .ws { flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr) 340px; }
 .ws.lesson { grid-template-columns: 270px minmax(0, 1fr) 340px; }
 .stmt { min-width: 0; padding: 28px; display: flex; flex-direction: column; gap: 18px; background: #fff; border-right: 1px solid var(--line); overflow: auto; }
