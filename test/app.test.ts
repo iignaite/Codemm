@@ -186,6 +186,27 @@ describe("error kinds", () => {
   });
 });
 
+describe("assistance", () => {
+  it("records assistance on the exercise that ends up current, even when opening one races turning it on", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    addExercise("shell", "e1", "sh.basics");
+    addExercise("shell", "e2", "sh.basics");
+    await app.getExercise(ws, "e1");
+    // Hold the course lock, so turning assistance on has to wait for it while e2 is opened.
+    let release!: () => void;
+    const held = store.withLock(store.courseLockPath("shell"), () => new Promise<void>((r) => (release = r)));
+    const assisting = app.setAssist(ws, true);
+    await new Promise((r) => setTimeout(r, 50));
+    const opening = app.getExercise(ws, "e2");
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    await Promise.all([held, assisting, opening]);
+    expect(store.readWorkspace(ws)).toMatchObject({ current: "e2", assist: true });
+    expect(store.readEvents("shell").filter((e) => e.kind === "assist").map((e) => (e as { exercise: string }).exercise)).toContain("e2");
+  });
+});
+
 describe("lessons", () => {
   const lesson = (id: string, concept = "sh.basics") => ({ id, concept, title: `About ${id}`, markdown: `# ${id}\n\nText.` });
 

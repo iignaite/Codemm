@@ -106,11 +106,14 @@ function loadExercise(ws: string, slug?: string, bound?: string) {
 }
 
 export async function getExercise(ws: string, slug?: string, bound?: string) {
-  const { course, config, record, files, track, rel } = loadExercise(ws, slug, bound);
+  const { course, record, files, track, rel } = loadExercise(ws, slug, bound);
   store.materialize(ws, rel, learnerFiles(record, files, track));
-  // Record assistance before the exercise becomes current, so edits are never allowed without the evidence.
-  if (config.assist) await store.withLock(store.courseLockPath(course.course), async () => noteAssistLocked(course.course, record.slug));
-  await store.updateWorkspace(ws, (c) => (c.course === course.course ? { ...c, current: record.slug } : c));
+  // Record assistance before the exercise becomes current, so edits are never allowed without the evidence. Both
+  // happen under the workspace lock, reading assistance as it is then, so a concurrent setAssist can't be missed.
+  await store.updateWorkspace(ws, async (c) => {
+    if (c.assist) await store.withLock(store.courseLockPath(course.course), async () => noteAssistLocked(course.course, record.slug));
+    return c.course === course.course ? { ...c, current: record.slug } : c;
+  });
   const visible = subMap(files, "tests/visible");
   return {
     course: course.course,
