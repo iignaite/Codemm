@@ -164,7 +164,15 @@ describe("error kinds", () => {
     expect(() => app.nextStep(ws)).toThrow(expect.objectContaining({ kind: "no-course", message: expect.stringMatching(/No course in this workspace yet/) }));
   });
 
-  // The fake docker is a shell script, so this one runs where a shell does.
+  // The fake docker is a shell script, so these run where a shell does.
+  it.runIf(posix)("calls a Docker failure while inspecting the image a Docker problem, not a missing image", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    addExercise("shell", "e1", "sh.basics");
+    fakeDocker("inspect-fails");
+    await expect(app.testExercise(ws, "e1")).rejects.toMatchObject({ kind: "docker" });
+  });
+
   it.runIf(posix)("names a missing track image", async () => {
     installFake();
     await app.saveRoadmap(ws, "shell", roadmap());
