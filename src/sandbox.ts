@@ -303,11 +303,10 @@ export function buildProblem(log: string): BuildProblem | undefined {
   const offline = /temporary failure (?:in name resolution|resolving)|could not resolve (?:host|proxy)|no such host|network is unreachable|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)/i;
   const line = log.split("\n").find((l) => offline.test(l));
   if (line) {
-    return {
-      kind: "offline",
-      message: `The track build couldn't reach the network (${line.trim().slice(0, 300)}), so nothing was installed. ` +
-        `Docker may be offline, or a VPN, proxy or firewall may be blocking it. ${NOT_THE_TRACK} once the connection works.`,
-    };
+    const message = `The track build couldn't reach the network (${line.trim().slice(0, 300)}), so nothing was installed. ` +
+      `Docker may be offline, or a VPN, proxy or firewall may be blocking it. ${NOT_THE_TRACK} once the connection works.`;
+    // The line can name a disk problem too, which the desktop has always read first.
+    return { kind: infraKind(message) ?? "offline", message };
   }
   // Anything else is a gate failure, whose kind still shows Docker's own problems (a credential helper, a lost daemon).
   return undefined;

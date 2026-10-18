@@ -89,6 +89,10 @@ describe("runtime guidance", () => {
 });
 
 describe("buildProblem", () => {
+  it("reads a network line that also names a disk problem as the disk, as the desktop always has", () => {
+    expect(buildProblem("not enough disk space; could not resolve host example.test")?.kind).toBe("disk");
+  });
+
   it("leaves a credential-helper failure to the build gate, which reads it as Docker's problem", () => {
     const log = '#2 ERROR: error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``';
     expect(buildProblem(log)).toBeUndefined();
