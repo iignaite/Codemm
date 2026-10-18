@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { OFFLINE, PLAN_LIMIT, UNSTOPPABLE, type JobProgress } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
 import { tempDir } from './testing/temp';
+import { desktopState } from './state';
 import { usageStore } from './usage';
 import { HELD_BACK } from './views';
 
@@ -46,6 +47,35 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     }
     expect(t.c.roadmap!.course).not.toBe(onScreen);
     expect((await t.api.usage())!.total.runs).toBe(1);
+  });
+
+  it("holds back every tutor reply when the exercise's hidden material can't be loaded", async () => {
+    const t = live({ tutor: () => ({ text: [`Just write ${CANARY}`, 'Think about what changes.'] }) });
+    const activity = await practising(t);
+    t.app.hiddenMaterial = () => {
+      throw new Error('EIO: hidden material unreadable');
+    };
+    const replies = await t.api.ask({ activityId: activity.id }, 'Just fix it for me.');
+    // Without the material there's nothing to check a reply against, so nothing goes out.
+    expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }, { from: 'codemm', text: HELD_BACK }]);
+  });
+
+  it("filters a tutor reply against the turn's own course, even if another course is approved while it runs", async () => {
+    let approveOther = () => undefined as void;
+    const t = live({
+      tutor: () => {
+        approveOther();
+        return { text: [`Just write ${CANARY}`] };
+      },
+    });
+    const activity = await practising(t);
+    const course = t.c.roadmap!.course;
+    const material = t.app.hiddenMaterial;
+    // Only the turn's course has this hidden material; the other course has none.
+    t.app.hiddenMaterial = (c, slug) => (c === course ? material(c, slug) : []);
+    approveOther = () => void desktopState(t.dir).update((s) => ({ ...s, approved: 'another-course' }));
+    const replies = await t.api.ask({ activityId: activity.id }, 'Just fix it for me.');
+    expect(replies).toEqual([{ from: 'codemm', text: HELD_BACK }]);
   });
 
   it('holds back a tutor reply that quotes hidden material, and resumes the tutor session', async () => {

@@ -36,7 +36,7 @@ import { asNotCounted } from './notCounted';
 import { programs } from './programs';
 import type { desktopState } from './state';
 import type { usageStore } from './usage';
-import { activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
+import { HELD_BACK, activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
 
 export interface LiveDeps {
   core: CoreApp;
@@ -142,17 +142,23 @@ export function createLive(d: LiveDeps): Live {
   /** The activity the learner last opened: the workspace's current one is the draft's while a draft is active. */
   let opened: string | undefined;
   /** The hidden material of an activity: the one named, else the one the learner is on. */
-  const hidden = (activity?: string): string[] => {
+  /**
+   * The hidden lines of an activity (the one the learner is on by default) in a course (the approved one by default),
+   * to check agent text against (§2.2). Null when they can't be loaded: then nothing is checked, so nothing goes out.
+   */
+  const hidden = (activity?: string, inCourse?: string): string[] | null => {
     const workspace = core.readWorkspace(ws);
-    const course = approved() ?? workspace.course;
+    const course = inCourse ?? approved() ?? workspace.course;
     const current = activity ?? opened ?? (workspace.course === course ? workspace.current : undefined);
     if (!course || !current) return [];
     try {
       return hiddenLines(core.hiddenMaterial(course, current));
     } catch {
-      return [];
+      return null;
     }
   };
+  /** Agent text as it may be shown: held back when it quotes hidden material, or when that can't be checked. */
+  const shown = (text: string, filter: string[] | null) => (filter ? filterReply(text, filter) : HELD_BACK);
 
   /** The roadmap not approved yet: the active course, unless it is the approved one. */
   function draft(): CoreRoadmap | null {
@@ -198,7 +204,7 @@ export function createLive(d: LiveDeps): Live {
       log('job-start', { kind, lane, agent: id });
       // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
       const filter = hidden();
-      const tracker = jobTracker(kind, { concept, retry, shows: (text) => filterReply(text, filter) === text });
+      const tracker = jobTracker(kind, { concept, retry, shows: (text) => shown(text, filter) === text });
       trackers.set(key, tracker);
       tellJob(tracker.snapshot());
       // An author's save runs the exercise gates in its server; the server names the running gate in this file.
@@ -490,7 +496,7 @@ export function createLive(d: LiveDeps): Live {
         const reads: { title: string; url: string }[] = [];
         // The same backstop as tutor replies (§2.2): a page that shows hidden material is no source.
         const filter = hidden();
-        const safe = (text: string) => filterReply(text, filter) === text;
+        const safe = (text: string) => shown(text, filter) === text;
         const onSource = (source: { title: string; url: string }) => {
           if (safe(source.url)) reads.push({ title: source.title.slice(0, 120), url: source.url });
         };
@@ -514,10 +520,11 @@ export function createLive(d: LiveDeps): Live {
     async reviseRoadmap(concepts, request) {
       await saveConcepts(concepts);
       const course = core.getRoadmap(ws).course;
+      // What's hidden now, before the job: the course or exercise may change while it runs.
+      const filter = hidden();
       const { outcome, changed, after } = await roadmapJob(course, briefs.roadmap(request), (before) => (turn) => turn.ok || JSON.stringify(core.getRoadmap(ws, course)) !== before);
       schedule();
-      const filter = hidden();
-      return { roadmap: roadmapShown(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
+      return { roadmap: roadmapShown(after), changed, text: outcome.text.map((t) => shown(t, filter)).join('\n\n') };
     },
 
     async approve(concepts) {
@@ -681,6 +688,9 @@ export function createLive(d: LiveDeps): Live {
       const where = 'lessonId' in place ? `the lesson "${place.lessonId}" (get_lesson)` : `the activity "${place.activityId}" (get_exercise)`;
       // The learner's own code goes to their own agent; nothing hidden does.
       const files = 'activityId' in place ? Object.fromEntries(Object.entries(core.readLearnerFiles(ws, place.activityId, course)).map(([path, f]) => [path, f.text])) : undefined;
+      // What's hidden for this turn's course and activity, read before the turn: another course may be approved,
+      // or another activity opened, while it runs.
+      const filter = hidden('activityId' in place ? place.activityId : undefined, course);
       // Each question is its own turn, after the one before, so it resumes the session that turn left (§3.2).
       const turn = tutorTurns.then(async () => {
         const outcome = await foreground(`tutor:${key}:${++tutorTurnCount}`, 'tutor', briefs.tutor(where, text, files), course, (t) => t.ok, d.state.read().sessions[key]);
@@ -689,8 +699,7 @@ export function createLive(d: LiveDeps): Live {
       });
       tutorTurns = turn.catch(() => undefined);
       const outcome = await turn;
-      const filter = hidden('activityId' in place ? place.activityId : undefined);
-      return outcome.text.map((t) => ({ from: 'codemm' as const, text: filterReply(t, filter) }));
+      return outcome.text.map((t) => ({ from: 'codemm' as const, text: shown(t, filter) }));
     },
 
     async skip(concept) {
