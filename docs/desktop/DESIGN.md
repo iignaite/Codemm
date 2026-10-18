@@ -410,7 +410,7 @@ Every long step shows its live progress, so the learner always knows where it is
 - **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs). It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs.
   - Only tutor sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor session (a crashed turn can report 0) and adds only the rise.
   - One app process owns userData, as with `desktop.json`: two instances writing at the same moment could lose one report.
-- **Screen:** the course map's side column shows a small Usage card for the approved course, once an agent has run for it: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. It's read again whenever the map reads the course. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so with a cost it says only "Claude's own estimate." It says nothing about billing.
+- **Screen:** the course map's side column shows a small Usage card for the approved course, once an agent has run for it: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. It's read again whenever the map reads the course. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so the cost's label, "Claude's estimate", is all it says: nothing about billing.
 
 ## 5. Failure states
 
