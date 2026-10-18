@@ -332,7 +332,7 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 - **Desktop.**
   - `runProgram(activityId, run)` resolves when the program ends, with `ran` (exit, stage, timed out, stopped, flooded, out of memory) or `not-run` (a Docker problem, in Check's words).
   - `runExampleLive(lessonId, index, run)` is the same for a lesson's io example (core `runExampleLive`, which checks the example against the track it was saved with).
-  - `sendRunInput(run, text)` and `stopRun(run)` act on either. One write is at most 64 KB, as core takes, and at most 4 programs run at once.
+  - `sendRunInput(run, text)` and `stopRun(run)` act on either. A run stopped while Docker is starting ends at once, frees its place and never starts. One write is at most 64 KB, as core takes, and at most 4 programs run at once.
   - Output travels on the one-way `codemm:run-output` event as `{ run, stream, text }`, or `{ run, started, limitMs }` when a stage starts. The preload exposes it as `onRunOutput`, and `invoke('onRunOutput')` is refused.
   - **Window-bound** (`main/runs.ts`). A run belongs to the window that started it, from the call until it settles. The run id is the start call's last argument. Only that window hears its output; input or Stop from another window does nothing; closing the window stops it; quitting stops every run.
 - **The pane** (`renderer/ui/Terminal.tsx`, shared with lesson examples).

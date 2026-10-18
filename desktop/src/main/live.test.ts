@@ -77,8 +77,10 @@ describe('live CodemmApi', () => {
     const ran = t.api.runProgram(id, 'run-1');
     await t.api.stopRun('run-1');
     expect(await ran).toMatchObject({ kind: 'ran', stopped: true });
+    // Stopped before it started, so it never reached core.
+    expect(t.c.runs).toEqual([]);
     const again = t.api.runProgram(id, 'run-2');
-    await vi.waitFor(() => expect(t.c.runs).toHaveLength(2));
+    await vi.waitFor(() => expect(t.c.runs).toHaveLength(1));
     await t.api.stopRun('run-2');
     expect(await again).toMatchObject({ kind: 'ran', stopped: true });
   });
@@ -570,6 +572,27 @@ describe('live CodemmApi', () => {
     open();
     await check;
     expect(t.c.checks).toEqual([activity.id]);
+  });
+
+  it('a Run stopped while Docker is starting ends at once, frees its place, and never starts', async () => {
+    let open: () => void = () => {};
+    const started = new Promise<void>((r) => (open = r));
+    let ready = async () => {};
+    const t = live({}, { dockerReady: () => ready() });
+    await practising(t);
+    t.c.lessons.push({ id: 'ex', concept: 'values', title: 'Run it', markdown: '', notes: '', examples: [{ 'main.c': 'int main(){}' }], style: 'io' });
+    ready = () => started;
+    const runs = ['run-1', 'run-2', 'run-3', 'run-4'].map((run) => t.api.runExampleLive('ex', 1, run));
+    for (const run of ['run-1', 'run-2', 'run-3', 'run-4']) await t.api.stopRun(run);
+    for (const run of runs) expect(await run).toMatchObject({ kind: 'ran', stopped: true });
+    // Their places are free again.
+    const fifth = t.api.runExampleLive('ex', 1, 'run-5');
+    open();
+    await vi.waitFor(() => expect(t.c.runs).toEqual(['ex#1']));
+    await t.api.stopRun('run-5');
+    expect(await fifth).toMatchObject({ kind: 'ran', stopped: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.c.runs).toEqual(['ex#1']);
   });
 
   it("says Codemm's records need a repair, with core's guidance, when a record is damaged", async () => {
