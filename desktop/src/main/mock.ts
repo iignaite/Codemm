@@ -27,6 +27,7 @@ import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type 
   type DockerInstall,
 } from '../shared/api';
 import { modelChoices, modelFor } from '../shared/models';
+import { AGENT_INFO } from './connect';
 import { addTopic } from '../shared/roadmap';
 
 type Docker = 'missing' | 'stopped' | 'starting' | 'windows-containers' | 'no-sandbox' | 'ready';
@@ -128,11 +129,10 @@ const DOCKER_DOWN: Record<Exclude<Docker, 'ready'>, string> = {
   'no-sandbox': "Codemm couldn't confirm the sandbox.",
 };
 
-const AGENTS: Omit<Agent, 'state' | 'untested'>[] = [
-  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', signIn: 'claude auth login', canInstall: true, models: modelChoices('claude'), model: modelFor('claude'), experimental: false },
-  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', signIn: 'codex login', canInstall: true, models: modelChoices('codex'), model: modelFor('codex'), experimental: false },
-  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', signIn: 'cursor-agent login', canInstall: false, models: modelChoices('cursor'), model: modelFor('cursor'), experimental: true },
-];
+/** The connect screen's agents, as the connector describes them; Codemm installs Claude Code and Codex. */
+const AGENTS: Omit<Agent, 'state' | 'untested'>[] = (Object.keys(AGENT_INFO) as AgentId[]).map((id) => ({
+  id, ...AGENT_INFO[id], canInstall: id !== 'cursor', models: modelChoices(id), model: modelFor(id),
+}));
 
 const TOPICS: [string, string[]][] = [
   ['JavaScript basics', []],
