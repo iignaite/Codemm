@@ -25,6 +25,8 @@ export type UnitRun = { report: { exit: number; body: string; log: string }; flo
 
 const BUILD_SECONDS = 60;
 const SLACK_MS = 30_000;
+/** What the driver needs in a track image besides `sh`. The track rules name them too (templates.ts). */
+export const DRIVER_TOOLS = ["timeout", "sleep", "head", "wc", "cat", "basename"];
 /** `timeout` and `sleep` take seconds; busybox and coreutils both accept decimals. */
 const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
 
@@ -36,7 +38,7 @@ const seconds = (ms: number) => Math.max(0.1, ms / 1000).toFixed(3);
 // Shell functions share variables, so emit() keeps its own (size) apart from the loop's case name (n).
 const EMIT = `OOM='{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || :; '
 emit() { size=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$size"; cat "$4"; }
-for u in timeout sleep head wc cat basename; do command -v "$u" >/dev/null 2>&1 || { echo "the image has no '$u'" > /tmp/m; emit fatal tools 1 /tmp/m; exit 0; }; done`;
+for u in ${DRIVER_TOOLS.join(" ")}; do command -v "$u" >/dev/null 2>&1 || { echo "the image has no '$u'" > /tmp/m; emit fatal tools 1 /tmp/m; exit 0; }; done`;
 
 const IO_DRIVER = `${EMIT}
 if [ -n "\${CODEMM_BUILD:-}" ]; then
@@ -100,7 +102,7 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.");
     }
     // Never echo a fatal frame's body: code in the container could forge one (DESIGN §4.2).
-    if (frames.some((f) => f.kind === "fatal")) throw new CodemmError("The track image is missing a tool Codemm needs (sh, timeout, sleep, head, wc, cat or basename).");
+    if (frames.some((f) => f.kind === "fatal")) throw new CodemmError(`The track image is missing a tool Codemm needs: sh, ${DRIVER_TOOLS.join(", ")}.`);
     return { frames, flooded: result.flooded };
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DRIVER_TOOLS } from "../src/judge.js";
 import { TOOL_NAMES } from "../src/mcp.js";
 import { AGENTS_SECTION, AUTHOR_AGENT, JOB_BRIEFS, JOB_TOOLS, type JobKind } from "../src/templates.js";
 
@@ -25,6 +26,12 @@ describe("tutor instructions (AGENTS.md section)", () => {
 });
 
 describe("author instructions (codemm-author subagent)", () => {
+  it("names every tool the judge's driver needs in a track image, and no other", () => {
+    const line = AUTHOR_AGENT.split("\n").find((l) => l.startsWith("- The image must have"))!;
+    const named = [...line.replace(/, and must not.*/, "").matchAll(/`([a-z]+)`/g)].map((m) => m[1]);
+    expect(named).toEqual(["sh", ...DRIVER_TOOLS]);
+  });
+
   it("never asks for an invented image digest", () => {
     expect(AUTHOR_AGENT).toMatch(/never make one up/i);
   });
