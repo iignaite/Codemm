@@ -240,18 +240,20 @@ async function removeContainer(name: string): Promise<boolean> {
   return false;
 }
 
-/** Runs the container CLI for housekeeping (build, inspect, remove). Not for untrusted code. */
-export function cli(args: string[], timeoutMs = 60_000): Promise<{ exit: number; output: string }> {
+/** Runs the container CLI for housekeeping (build, inspect, remove). Not for untrusted code. `onOutput` hears each chunk as it comes. */
+export function cli(args: string[], timeoutMs = 60_000, onOutput?: (text: string, stream: "stdout" | "stderr") => void): Promise<{ exit: number; output: string }> {
   const bin = containerCli();
   return new Promise((resolve) => {
     const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
-    const keep = (b: Buffer) => {
-      output += b.toString("utf8");
+    const keep = (stream: "stdout" | "stderr") => (b: Buffer) => {
+      const text = b.toString("utf8");
+      output += text;
       if (output.length > 200_000) output = output.slice(-100_000);
+      onOutput?.(text, stream);
     };
-    child.stdout.on("data", keep);
-    child.stderr.on("data", keep);
+    child.stdout.on("data", keep("stdout"));
+    child.stderr.on("data", keep("stderr"));
     let settled = false;
     const settle = (result: { exit: number; output: string }) => {
       if (settled) return;
@@ -303,18 +305,56 @@ export function buildProblem(log: string): string | undefined {
 /** A track build is killed after 10 minutes (DESIGN §4.4). */
 export const BUILD_TIMEOUT_MS = 600_000;
 
+export type BuildStep = { done: number; total: number };
+
+/**
+ * A build output line's step, as counts only: BuildKit's `#5 [2/7] RUN …` (or `[stage 2/7]`), the legacy builder's
+ * `Step 2/7 :` and Podman's `STEP 2/7:`. Anything else, the step's own text included, reads as nothing.
+ */
+export function buildStep(line: string): BuildStep | undefined {
+  // BuildKit pads the counter (`[ 2/10]`, `[builder  2/10]`); Podman names the stage (`[2/2] STEP 3/4:`).
+  const m = /^(?:#\d+ \[(?:\S+\s+)?\s*(\d+)\/(\d+)\]|Step (\d+)\/(\d+) :|(?:\[\d+\/\d+\] )?STEP (\d+)\/(\d+):)/.exec(line);
+  if (!m) return undefined;
+  const done = Number(m[1] ?? m[3] ?? m[5]);
+  const total = Number(m[2] ?? m[4] ?? m[6]);
+  return done >= 1 && done <= total ? { done, total } : undefined;
+}
+
+/** Splits streamed output into lines per stream and reports each new build step. A listener that throws is dropped. */
+function stepReader(listener: (step: BuildStep) => void) {
+  let heard: ((step: BuildStep) => void) | undefined = listener;
+  const pending = { stdout: "", stderr: "" };
+  let last = "";
+  return (text: string, stream: "stdout" | "stderr") => {
+    const lines = (pending[stream] + text).split("\n");
+    pending[stream] = lines.pop()!.slice(-1000);
+    for (const line of lines) {
+      const step = buildStep(line.trim());
+      if (!step || `${step.done}/${step.total}` === last) continue;
+      last = `${step.done}/${step.total}`;
+      try {
+        heard?.(step);
+      } catch {
+        heard = undefined;
+      }
+    }
+  };
+}
+
 /**
  * Builds a track image from a staged folder. Networked; this is the separate trust boundary in DESIGN §4.4.
  * `imageId` is the image this build produced (`--iidfile`), so another build of the same tag in the meantime can't
  * swap it. `problem` is set when the build failed for a reason outside the track (runtime, network or disk).
  */
-export async function buildImage(contextDir: string, tag: string, timeoutMs = BUILD_TIMEOUT_MS): Promise<{ ok: boolean; log: string; imageId?: string; problem?: string }> {
+export async function buildImage(
+  contextDir: string, tag: string, timeoutMs = BUILD_TIMEOUT_MS, onStep?: (step: BuildStep) => void,
+): Promise<{ ok: boolean; log: string; imageId?: string; problem?: string }> {
   const out = mkdtempSync(join(tmpdir(), "codemm-iid-"));
   try {
     const args = ["build", "-t", tag, "--iidfile", join(out, "iid")];
     if (containerCli() === "docker") args.push("--progress", "plain");
     args.push(contextDir);
-    const r = await cli(args, timeoutMs);
+    const r = await cli(args, timeoutMs, onStep && stepReader(onStep));
     const log = r.output.slice(-8000);
     const imageId = existsSync(join(out, "iid")) ? readFileSync(join(out, "iid"), "utf8").trim() : "";
     if (r.exit === 0 && imageId) return { ok: true, log, imageId };
