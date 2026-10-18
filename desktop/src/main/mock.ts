@@ -74,6 +74,7 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'setup-gates': { setupProblem: 'gates' },
   'no-agent': { agents: { claude: 'missing', codex: 'missing', cursor: 'missing' } },
   'nothing-installed': { docker: 'missing', agents: { claude: 'missing', codex: 'missing', cursor: 'missing' } },
+  'nothing-installed-offline': { docker: 'missing', agents: { claude: 'missing', codex: 'missing', cursor: 'missing' }, agentInstallProblem: 'offline' },
   'agent-install-offline': { agents: { claude: 'missing', codex: 'missing', cursor: 'missing' }, agentInstallProblem: 'offline' },
   'signed-out': { agents: { claude: 'signed-out', codex: 'signed-out', cursor: 'missing' } },
   'sign-in-expires': { later: { after: 'approve', set: { agentProblem: 'signed-out' } } },

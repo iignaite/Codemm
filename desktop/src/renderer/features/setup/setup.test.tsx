@@ -55,4 +55,13 @@ describe('install what is missing', () => {
     expect(await screen.findByRole('button', { name: 'Connect an agent' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: "Install what's missing" })).not.toBeInTheDocument();
   });
+
+  it('says why the agent install stopped, with Try again, beside Docker\'s own progress', async () => {
+    const user = userEvent.setup();
+    renderApp({ to: 'setup' }, mac('nothing-installed-offline'));
+    await user.click(await screen.findByRole('button', { name: "Install what's missing" }));
+    const agent = screen.getByRole('listitem', { name: 'Agent' });
+    expect(await within(agent).findByRole('alert', {}, { timeout: 4000 })).toHaveTextContent("You're offline. Connect to the internet, then try again.");
+    expect(within(agent).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
 });

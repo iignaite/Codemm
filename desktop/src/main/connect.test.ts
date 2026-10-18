@@ -95,6 +95,16 @@ describe('connect (§3.1, §3.3)', () => {
     expect((await c.agents()).find((a) => a.id === 'codex')?.state).toBe('connected');
   });
 
+  it('a failed connect runs the sign-in check once, not again for the same answer', async () => {
+    let checks = 0;
+    const c = connector(lookup({ signedIn: async () => (checks++, false) }), state());
+    expect(await c.connect('codex')).toMatchObject({ state: 'signed-out' });
+    expect(checks).toBe(1);
+    // The next look checks again, so signing in elsewhere shows up.
+    await c.agents();
+    expect(checks).toBe(2);
+  });
+
   it('the chosen agent is ready only while it is installed and signed in', async () => {
     let signedIn = true;
     const s = state();
@@ -163,6 +173,12 @@ describe('connect (§3.1, §3.3)', () => {
       const t = setup();
       let signedIn = false;
       const c = connector(lookup({ find: found(t.installedAfter), signedIn: async () => signedIn }), state(), t.s);
+      let checks = 0;
+      const counted = connector(lookup({ find: found(t.installedAfter), signedIn: async () => (checks++, signedIn) }), state(), t.s);
+      await counted.install('codex');
+      expect((await counted.agents()).find((a) => a.id === 'codex')!.state).toBe('signed-out');
+      // Checked once when the install is first seen, not twice in the same look.
+      expect(checks).toBe(1);
       await c.install('codex');
       expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('signed-out');
       await c.signIn('codex');

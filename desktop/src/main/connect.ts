@@ -38,6 +38,8 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
   const versions = new Map<AgentId, string | null>();
   /** The agent the learner last tried to connect: once it's signed in, it connects. */
   let tried: AgentId | undefined;
+  /** Agents whose sign-in was just checked: the view that follows uses that answer instead of asking again. */
+  const justChecked = new Set<AgentId>();
 
   /**
    * The agent's CLI, unless Codemm is installing it or installed something it couldn't verify: a rejected binary, or
@@ -64,12 +66,13 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
         const ok = await lookup.signedIn(id, exe);
         signedIn.set(id, ok);
         if (ok) state.update((s) => ({ ...s, agent: id }));
+        else justChecked.add(id);
       }
       const chosen = state.read().agent === id;
       // The agent chosen before: check its sign-in once this launch, so a relaunch doesn't ask to connect again.
       if (chosen && !signedIn.has(id)) signedIn.set(id, await lookup.signedIn(id, exe));
       // Signed out: check again on every look, so signing in from a terminal shows when the learner comes back.
-      if (signedIn.get(id) === false && (await lookup.signedIn(id, exe))) {
+      if (signedIn.get(id) === false && !justChecked.delete(id) && (await lookup.signedIn(id, exe))) {
         signedIn.set(id, true);
         if (tried === id) state.update((s) => ({ ...s, agent: id }));
       }
@@ -113,6 +116,7 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
         const ok = await lookup.signedIn(id, exe);
         signedIn.set(id, ok);
         if (ok) state.update((s) => ({ ...s, agent: id }));
+        else justChecked.add(id);
       }
       return view(id);
     },
