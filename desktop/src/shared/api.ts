@@ -301,6 +301,24 @@ export type CheckResult =
 /** Try it: visible tests only, never recorded. */
 export type TryResult = { kind: 'ran'; passed: number; total: number; tests: TestView[] } | { kind: 'not-counted'; reason: string };
 
+/** What the agent CLIs reported using (§4.12). `costUsd` is Claude's own estimate; Codex and Cursor report none. */
+export interface UsageTotals {
+  input: number;
+  output: number;
+  cachedInput: number;
+  costUsd: number;
+  runs: number;
+}
+
+/** A course's usage per job kind, and in total. */
+export interface CourseUsage {
+  kinds: Partial<Record<'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor', UsageTotals>>;
+  total: UsageTotals;
+}
+
+/** The course on screen's usage. */
+export type Usage = CourseUsage;
+
 /**
  * A new version (DESIGN §7.2). `available`: an unsigned build, with the release's page. `downloading`, then
  * `ready`: a signed build, which offers Restart to update.
@@ -401,6 +419,8 @@ export interface CodemmApi {
 
   rebuild(trackRef: string): Promise<void>;
 
+  /** What the agent CLIs reported using for the current course (§4.12); null without a course. */
+  usage(): Promise<Usage | null>;
   /** Whether a new version is out (§7.2). */
   update(): Promise<UpdateStatus>;
   /** Quits and installs a downloaded update: a signed build whose update is `ready`. */

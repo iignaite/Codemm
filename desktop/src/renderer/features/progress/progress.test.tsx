@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { CodemmApi } from '../../../shared/api';
@@ -158,5 +158,47 @@ describe('course map', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Track python@3 offers unit, not style "io".');
     expect(alert).not.toHaveTextContent("Couldn't reach Codemm.");
+  });
+});
+
+describe('usage', () => {
+  const usage = (over: Partial<NonNullable<Awaited<ReturnType<CodemmApi['usage']>>>> = {}) => ({
+    kinds: {},
+    total: { input: 182_400, output: 12_300, cachedInput: 90_000, costUsd: 0.4231, runs: 6 },
+    ...over,
+  });
+
+  it("shows the course's tokens, and Claude's cost as its own estimate, which a plan counts toward its usage", async () => {
+    const { api } = await mockWithCourse();
+    api.usage = async () => usage();
+    renderApp({ to: 'learn' }, api);
+    const section = await screen.findByRole('region', { name: 'Usage' });
+    expect(section).toHaveTextContent('Tokens in182,400');
+    expect(section).toHaveTextContent('Tokens out12,300');
+    expect(section).toHaveTextContent("Claude's estimate$0.42");
+    expect(section).toHaveTextContent("Claude's own estimate. On a Claude plan, this counts toward the plan's usage.");
+    // No promise about charges: Codemm can't tell a plan from an API key.
+    expect(section).not.toHaveTextContent('charge');
+  });
+
+  it('shows no cost when none was reported, and refreshes as jobs finish', async () => {
+    const { api } = await mockWithCourse();
+    let total = { input: 10, output: 2, cachedInput: 0, costUsd: 0, runs: 1 };
+    api.usage = async () => usage({ total });
+    renderApp({ to: 'learn' }, api);
+    const section = await screen.findByRole('region', { name: 'Usage' });
+    expect(section).not.toHaveTextContent('estimate');
+    // Whenever the map reads the course again (here: the window regains focus), it reads usage too.
+    total = { ...total, input: 500, runs: 2 };
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() => expect(section).toHaveTextContent('Tokens in500'));
+  });
+
+  it('is hidden until an agent has run for the course', async () => {
+    const { api } = await mockWithCourse();
+    api.usage = async () => usage({ total: { input: 0, output: 0, cachedInput: 0, costUsd: 0, runs: 0 } });
+    renderApp({ to: 'learn' }, api);
+    await screen.findByRole('list', { name: 'Topics' });
+    expect(screen.queryByRole('region', { name: 'Usage' })).not.toBeInTheDocument();
   });
 });

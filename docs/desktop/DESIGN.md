@@ -397,6 +397,18 @@ Every long step shows its live progress, so the learner always knows where it is
   - The tutor rail: "Codemm is thinking…" and the turn's latest step.
 - **Mock.** `CODEMM_MOCK=slow-jobs` holds each stage over a few reads, so every state can be seen; `quiet-jobs` also shows the quiet line.
 
+### 4.12 Usage and cost
+
+- **Source:** only what the agent CLIs already print. Codemm never calls a model and never reads a credential.
+  - Claude Code's `result` line: tokens (input, cache writes, cache reads, output) and `total_cost_usd`, its own estimate.
+  - Codex's `turn.completed` usage: tokens, no cost.
+  - Cursor's `result` usage, when present: tokens, no cost.
+- **Parser:** the stream parsers in `agent/agents.ts` emit `{ type: 'usage', input, output, cachedInput?, costUsd? }`, where `input` counts every input token and `cachedInput` the ones read from cache. Jobs pass each report to `Job.onUsage` with its session.
+- **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs). It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs.
+  - Only tutor sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor session (a crashed turn can report 0) and adds only the rise.
+  - One app process owns userData, as with `desktop.json`: two instances writing at the same moment could lose one report.
+- **Screen:** the course map's side column shows a small Usage card for the approved course, once an agent has run for it: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. It's read again whenever the map reads the course. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so with a cost it says only: "Claude's own estimate. On a Claude plan, this counts toward the plan's usage." It makes no promise about charges.
+
 ## 5. Failure states
 
 Infrastructure failures record nothing. Learner-caused outcomes are graded as `error` and recorded (core §4.3, §7).
@@ -583,7 +595,7 @@ Work test-first. For each behavior, write a failing test, make it pass simply, t
 Cut from 1.0 by the owner's scope ledger:
 
 - **Lessons:** predict questions, and learner edits of lesson text. Notes stay. (Runnable examples are in 1.0: §4.3.)
-- **Usage:** recording agent usage and showing cost per topic. Lesson caching stays (§4.3).
+- **Usage:** cost per topic. Totals per course and job kind are in 1.0 (§4.12); lesson caching stays (§4.3).
 - The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
 - **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.8).
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.

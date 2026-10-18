@@ -7,6 +7,7 @@ import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
+import { StageFill } from '../../ui/StageFill';
 
 /** The only screen that names agents. Each one that can't run yet shows its next step. */
 export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
@@ -145,17 +146,9 @@ export function InstallProgress({ agent }: { agent: Agent }) {
   const install = agent.install;
   if (!install || install.phase === 'done') return null;
   if (install.phase === 'failed') return <p className="alert" role="alert">{PROBLEM[install.problem ?? 'failed'](agent)}</p>;
-  if (install.phase === 'downloading') {
-    const label = `Downloading ${agent.name}`;
-    const percent = Math.round((install.progress ?? 0) * 100);
-    return (
-      <div className="stack install" style={{ gap: 8 }}>
-        <span>{label} {percent}%</span>
-        <div className="bar" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
-          <i style={{ width: `${percent}%` }} />
-        </div>
-      </div>
-    );
-  }
-  return <div className="busy"><Status kind="run" size={18} />{install.phase === 'checking' ? `Checking it's from ${VENDOR[agent.id]}…` : `Installing ${agent.name}…`}</div>;
+  // Emm filling through the download (its real fraction), the check and the vendor's installer.
+  const stage = (['downloading', 'checking', 'installing'] as const).indexOf(install.phase);
+  const part = install.phase === 'downloading' ? (install.progress ?? 0) : 0;
+  const label = install.phase === 'downloading' ? `Downloading ${agent.name}` : install.phase === 'checking' ? `Checking it's from ${VENDOR[agent.id]}…` : `Installing ${agent.name}…`;
+  return <StageFill label={label} stages={3} stage={stage} part={part} text={install.phase === 'downloading' ? `${label} ${Math.round(part * 100)}%` : label} />;
 }

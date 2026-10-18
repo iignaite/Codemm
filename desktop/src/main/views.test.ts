@@ -77,14 +77,10 @@ describe('views (§2.2, D4)', () => {
   });
 
   it('holds back a tutor reply that quotes hidden material verbatim', () => {
-    const material = hiddenLines({
-      'solution/main.c': 'int main() {\n  printf("the hidden canary answer %d", 42);\n  return 0;\n}\n',
-      'tests/hidden/1.in': 'short\n',
-      'README.md': '# Not hidden\nprintf("the visible statement line is fine");\n',
-    }, { 'hidden/1': 'expected hidden output canary line' });
+    // Core picks the hidden texts (hiddenMaterial); the filter keeps their lines of 24 characters or more.
+    const material = hiddenLines(['int main() {\n  printf("the hidden canary answer %d", 42);\n  return 0;\n}\n', 'short\n', 'expected hidden output canary line']);
     expect(material).toContain('printf("the hidden canary answer %d", 42);');
     expect(material).not.toContain('short');
-    expect(material.some((l) => l.includes('visible statement'))).toBe(false);
     expect(filterReply('Try:\n```\n   printf("the hidden canary   answer %d", 42);\n```', material)).toBe(HELD_BACK);
     expect(filterReply('It should print expected hidden output canary line.', material)).toBe(HELD_BACK);
     expect(filterReply('Look at what you pass to printf.', material)).toBe('Look at what you pass to printf.');

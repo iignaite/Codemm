@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import type { CourseView, TopicView } from '../../../shared/api';
+import type { CourseView, TopicView, Usage } from '../../../shared/api';
+import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
 import { Failed, Stale, Stalled } from '../../app/Problems';
 import { useCourse } from '../../app/useCourse';
+import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
@@ -14,7 +16,10 @@ const STATE_LABEL = { mastered: 'Mastered', now: 'Now', later: 'Later' } as cons
 
 /** Lessons, then an activity, per topic, with mastery so far. */
 export function CourseMap() {
+  const api = useApi();
   const { data: course, error, stale, reload } = useCourse();
+  // Read again whenever the course is: jobs that finish while the map is open add to it.
+  const { data: usage } = useLoad(() => api.usage(), [course]);
   // A finished course celebrates first; View course opens its map again.
   const [viewing, setViewing] = useState(false);
   if (error) return <Failed error={error} retry={reload} />;
@@ -29,7 +34,7 @@ export function CourseMap() {
           {course.topics.map((t, i) => <MapItem key={t.id} topic={t} index={i} course={course} />)}
         </ol>
       </div>
-      <Aside course={course} />
+      <Aside course={course} usage={usage ?? null} />
       {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
       {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
@@ -72,7 +77,7 @@ function MapItem({ topic, index, course }: { topic: TopicView; index: number; co
   );
 }
 
-function Aside({ course }: { course: CourseView }) {
+function Aside({ course, usage }: { course: CourseView; usage: Usage | null }) {
   const started = course.topics.filter((t) => t.state !== 'later');
   return (
     <aside className="map-side">
@@ -88,6 +93,34 @@ function Aside({ course }: { course: CourseView }) {
           </div>
         ))}
       </section>
+      {usage && usage.total.runs > 0 && <UsageCard usage={usage} />}
     </aside>
+  );
+}
+
+const tokens = (n: number) => n.toLocaleString('en-US');
+const dollars = (n: number) => (n < 0.01 ? 'under $0.01' : `$${n.toFixed(2)}`);
+
+/** What the agent reported using for this course: tokens, and Claude's own cost estimate when it gave one (§4.12). */
+function UsageCard({ usage }: { usage: Usage }) {
+  const { total } = usage;
+  return (
+    <section className="card usage a-up" style={stagger(2)} aria-labelledby="usage-t">
+      <h2 className="h3" id="usage-t">Usage</h2>
+      <dl>
+        <dt>Tokens in</dt>
+        <dd>{tokens(total.input)}</dd>
+        <dt>Tokens out</dt>
+        <dd>{tokens(total.output)}</dd>
+        {total.costUsd > 0 && (
+          <>
+            <dt>Claude's estimate</dt>
+            <dd>{dollars(total.costUsd)}</dd>
+          </>
+        )}
+      </dl>
+      {/* No promise about charges: Codemm can't tell a plan from an API key. */}
+      {total.costUsd > 0 && <p className="quiet-text">Claude's own estimate. On a Claude plan, this counts toward the plan's usage.</p>}
+    </section>
   );
 }

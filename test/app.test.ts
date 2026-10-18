@@ -243,6 +243,24 @@ describe("lessons", () => {
   });
 });
 
+describe("hidden material", () => {
+  it("gives the reply filter an exercise's hidden texts only: solution, mutants, hidden tests and hidden expected outputs", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    store.commitFolder(store.exerciseDir("shell", "e1"), {
+      "README.md": "VISIBLE statement", "starter/main.sh": "VISIBLE starter", "tests/visible/01.in": "VISIBLE input",
+      "solution/main.sh": "HIDDEN solution", "mutants/m/main.sh": "HIDDEN mutant", "tests/hidden/01.in": "HIDDEN input",
+    }, {
+      "exercise.json": {
+        format_version: 1, slug: "e1", style: "io", concepts: ["sh.basics"], difficulty: 1, track: "shell-io@1", createdAt: new Date().toISOString(),
+        expected: { "visible/01": "VISIBLE expected", "hidden/01": "HIDDEN expected" },
+      },
+    });
+    const material = app.hiddenMaterial("shell", "e1");
+    expect([...material].sort()).toEqual(["HIDDEN expected", "HIDDEN input", "HIDDEN mutant", "HIDDEN solution"]);
+  });
+});
+
 describe("exercise list", () => {
   it("lists exercises with what a job's done check needs, and nothing hidden", async () => {
     installFake();

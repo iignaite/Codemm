@@ -9,6 +9,7 @@ import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { INSTALL } from '../computer/fixes';
 import { InstallProgress, running } from '../connect/Connect';
+import { DockerProgress } from '../computer/DockerProgress';
 
 /** Each agent's maker and terms, for the learner's go-ahead. */
 const TERMS: Partial<Record<AgentId, { vendor: string; url: string }>> = {
@@ -84,15 +85,13 @@ export function Setup() {
                 <p className="quiet-text">{INSTALL.terms} <a className="inline" href={INSTALL.termsUrl} target="_blank" rel="noreferrer">Read them</a></p>
               ) : data.computer.ready ? (
                 <span className="quiet-text">Ready</span>
-              ) : install?.phase === 'downloading' ? (
-                <Progress label={INSTALL.phase.downloading} fraction={install.progress ?? 0} />
               ) : install?.phase === 'failed' ? (
                 <div className="fix">
                   <p className="alert" role="alert">{INSTALL.problem[install.problem ?? 'failed']}</p>
                   {INSTALL.retry.has(install.problem) && <div className="actions"><Button onClick={() => act(() => api.installDocker())}>Try again</Button></div>}
                 </div>
               ) : (
-                <div className="busy"><Status kind="run" size={18} />{install?.phase === 'checking' ? INSTALL.phase.checking : install?.phase === 'installing' ? INSTALL.phase.installing[data.computer.platform] : INSTALL.phase.starting}</div>
+                <DockerProgress install={{ ...install, phase: install?.phase ?? 'starting' }} platform={data.computer.platform} />
               )}
             </li>
           )}
@@ -144,14 +143,3 @@ export function Setup() {
   );
 }
 
-function Progress({ label, fraction }: { label: string; fraction: number }) {
-  const percent = Math.round(fraction * 100);
-  return (
-    <div className="stack" style={{ gap: 8 }}>
-      <span>{label} {percent}%</span>
-      <div className="bar" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
-        <i style={{ width: `${percent}%` }} />
-      </div>
-    </div>
-  );
-}

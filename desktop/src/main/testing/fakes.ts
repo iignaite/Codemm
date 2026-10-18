@@ -110,17 +110,11 @@ export function fakeCore() {
   });
   const app: CoreApp = {
     JOB_BRIEFS,
-    doctor: async () => [],
+    networkIsolation: async () => ({ name: 'network isolation', ok: true, detail: 'blocked' }),
+    RUNTIME_INFO: ['info'],
+    runtimeStateOf: () => 'ready',
     readWorkspace: () => ({ course: c.roadmap?.course, current: c.current }),
-    readExercise: () => ({
-      record: { expected: { 'hidden/1': 'CANARY-EXPECTED-OUTPUT-LINE 42' } },
-      files: {
-        'solution/main.c': CANARY,
-        'mutants/off-by-one/main.c': 'printf("CANARY-MUTANT-LINE %d", count + 2);',
-        'tests/hidden/1.in': 'CANARY-HIDDEN-INPUT-LINE with enough length',
-        'README.md': '# Count',
-      },
-    }),
+    hiddenMaterial: () => [CANARY, 'printf("CANARY-MUTANT-LINE %d", count + 2);', 'CANARY-HIDDEN-INPUT-LINE with enough length', 'CANARY-EXPECTED-OUTPUT-LINE 42'],
     listTracks: () => c.tracks.map((track) => ({ track, styles: ['io'], files: ['main.c'] })),
     cleanupLeftovers: async () => void c.cleanups++,
     rebuildTrack: async () => ({}),

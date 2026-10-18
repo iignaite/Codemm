@@ -74,6 +74,8 @@ export interface Job {
   onRelaunch?: () => void;
   /** Hears each https page the agent read successfully, for the roadmap's sources. */
   onSource?: (source: { title: string; url: string }) => void;
+  /** What a run used, as its CLI reported it, with its session (§4.12). */
+  onUsage?: (usage: { input: number; output: number; cachedInput?: number; costUsd?: number; session?: string }) => void;
 }
 
 interface Attempt {
@@ -123,6 +125,10 @@ async function once(job: Job): Promise<Attempt> {
   const onEvent = (e: AgentEvent) => {
     started = true;
     if (e.type === 'session') session = e.id;
+    if (e.type === 'usage') {
+      const { type: _, ...used } = e;
+      job.onUsage?.({ ...used, ...(session ? { session } : {}) });
+    }
     if (e.type === 'text') text.push(e.text);
     if (e.type === 'done') done = e;
     job.onEvent?.(e);

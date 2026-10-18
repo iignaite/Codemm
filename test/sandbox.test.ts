@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GateError } from "../src/gates.js";
-import { buildProblem, buildStep, runtimeHelp, runtimeKind, runtimeProblem, sandboxArgs, startHelp } from "../src/sandbox.js";
+import { buildProblem, buildStep, runtimeHelp, runtimeKind, runtimeProblem, runtimeStateOf, sandboxArgs, startHelp } from "../src/sandbox.js";
 
 describe("sandboxArgs", () => {
   const args = sandboxArgs(
@@ -160,6 +160,16 @@ describe("runtimeKind", () => {
     expect(runtimeKind("docker: Error response from daemon: dial tcp: network is unreachable.")).toBe("offline");
     expect(runtimeKind("Error: could not resolve host registry-1.docker.io")).toBe("offline");
     expect(runtimeKind("docker: Error response from daemon: Conflict.")).toBe("docker");
+  });
+});
+
+describe("runtimeStateOf", () => {
+  it("reads the engine's answer as missing, down, Windows containers or ready, as the desktop's computer check shows it", () => {
+    expect(runtimeStateOf({ exit: -1, output: "spawn docker ENOENT" })).toBe("missing");
+    expect(runtimeStateOf({ exit: 0, output: "Cannot connect to the Docker daemon|\n" })).toBe("down");
+    expect(runtimeStateOf({ exit: 1, output: "" })).toBe("down");
+    expect(runtimeStateOf({ exit: 0, output: "27.4.0|windows\n" })).toBe("windows");
+    expect(runtimeStateOf({ exit: 0, output: "27.4.0|linux\n" })).toBe("ready");
   });
 });
 

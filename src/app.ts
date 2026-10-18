@@ -3,7 +3,8 @@ import { CodemmError } from "./errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./files.js";
 import { checkTrackFiles, type ExerciseGate, type TrackProgress, verifyExercise, verifyTrack } from "./gates.js";
 import { type CaseFrames, gradeIo, redact, type ShownResult, type Status, type TestResult, type TestSet } from "./grading.js";
-import { judgeSets, type ProgramOptions, type ProgramRun, runIo, runProgram, runUnit } from "./judge.js";
+import { judgeSets, runIo, runUnit } from "./judge.js";
+import { type ProgramOptions, type ProgramRun, runProgram } from "./program.js";
 import { type LearnerEvent, MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
 import { assertRuntime, cli as sandboxCli, inspectImage } from "./sandbox.js";
 import { assertNotes, type CourseRecord, type ExerciseRecord, parseLesson, parseRoadmapYaml, type TrackRecord } from "./schemas.js";
@@ -360,6 +361,18 @@ export function getLesson(ws: string, id: string, bound?: string) {
   const { record, markdown, notes, examples } = store.readLesson(activeCourse(ws, bound).course, id);
   // The style says how its examples run: io ones take typed input (runExampleLive), unit ones run as tests.
   return { id: record.id, concept: record.concept, title: record.title, markdown, notes, examples, ...(record.style ? { style: record.style } : {}) };
+}
+
+/**
+ * The texts no output may show: an exercise's solution, mutants, hidden tests and hidden expected outputs. Only for
+ * the desktop's reply filter, which holds back an agent reply that quotes them (desktop DESIGN §2.2).
+ */
+export function hiddenMaterial(course: string, slug: string): string[] {
+  const { record, files } = store.readExercise(course, slug);
+  return [
+    ...Object.entries(files).filter(([path]) => /^(solution|mutants|tests\/hidden)\//.test(path)).map(([, text]) => text),
+    ...Object.entries(record.expected ?? {}).filter(([name]) => name.startsWith("hidden/")).map(([, text]) => text),
+  ];
 }
 
 export function listLessons(ws: string, bound?: string) {
