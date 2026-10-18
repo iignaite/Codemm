@@ -42,6 +42,8 @@ export function fakeCore() {
       return {};
     },
     checks: [] as string[],
+    /** Exercises Run started. */
+    runs: [] as string[],
     down: false,
   };
   const next = (): CoreNextStep => {
@@ -95,7 +97,7 @@ export function fakeCore() {
     }),
     getExercise: async (_ws, slug) => {
       c.current = slug;
-      return { course: c.roadmap!.course, exercise: slug!, path: '/Users/me/Codemm/exercises/x', style: 'io', concepts: [c.exercises.get(slug!)!.concept], difficulty: 1, files: ['main.c'], statement: '# Count up\n\nPrint one.', visibleTests: [{ name: 'prints one', input: '', expected: '1' }] };
+      return { course: c.roadmap!.course, exercise: slug!, path: '/Users/me/Codemm/exercises/x', style: 'io', concepts: [c.exercises.get(slug!)!.concept], difficulty: 1, files: ['main.c'], statement: '# Count up\n\nPrint one.', visibleTests: [{ name: 'prints one', input: '', expected: '1' }], run: './main' };
     },
     testExercise: async (_ws, slug, _bound, onProgress) => {
       if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
@@ -121,6 +123,25 @@ export function fakeCore() {
     installProposal: (ref, digest) => c.install(ref, digest),
     dropProposal: async () => void (c.proposals = []),
     getLesson: (_ws, id) => ({ examples: [], ...c.lessons.find((l) => l.id === id)! }),
+    // Run: asks for a name and greets it; stops when killed.
+    runInteractive: async (_ws, slug, _bound, output, options) => {
+      if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
+      c.runs.push(slug!);
+      let end!: (r: { exit: number; stage?: 'run'; timedOut: boolean; flooded: boolean; stopped?: boolean }) => void;
+      const done = new Promise<{ exit: number; stage?: 'run'; timedOut: boolean; flooded: boolean; stopped?: boolean }>((resolve) => (end = resolve));
+      options?.onStart?.('run', 120_000);
+      output('name? ', 'stdout');
+      return {
+        write: (text) => {
+          output(`hello ${text.trim()}\n`, 'stdout');
+          output('a warning\n', 'stderr');
+          end({ exit: 0, stage: 'run', timedOut: false, flooded: false });
+          return true;
+        },
+        kill: () => end({ exit: 137, timedOut: false, flooded: false, stopped: true }),
+        done,
+      };
+    },
     runExample: async (_ws, id, index) => {
       if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
       const files = c.lessons.find((l) => l.id === id)?.examples?.[index - 1];

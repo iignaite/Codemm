@@ -11,6 +11,7 @@ import {
   UNSTOPPABLE,
   type CheckProgress,
   type ResearchProgress,
+  type RunOutput,
   type CodemmApi,
   type Computer,
   type Concept,
@@ -25,7 +26,7 @@ import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type Job
 import type { connector } from './connect';
 import { infra } from './core/failures';
 import { errorFields, SafeError } from './errors';
-import type { CoreApp, CoreProgress, CoreRoadmap } from './core/types';
+import type { CoreApp, CoreProgramRun, CoreProgress, CoreRoadmap } from './core/types';
 import { courseView, currentConcept, type Setup } from './courseView';
 import { noLog, type Log } from './log';
 import type { desktopState } from './state';
@@ -66,6 +67,9 @@ const NOT_COUNTED: Record<'docker' | 'disk' | 'offline', string> = {
 };
 
 /** An infrastructure failure during Try it or Check isn't counted (§5). */
+/** Run's programs at once, across windows: each holds a container. */
+const MAX_PROGRAMS = 4;
+
 function notCounted(error: unknown): string | null {
   const message = error instanceof Error ? error.message : String(error);
   if (/image for .* is missing or changed/i.test(message)) return 'This environment needs a rebuild. Rebuild it under Tracks.';
@@ -332,6 +336,11 @@ export function createLive(d: LiveDeps): Live {
   const progressListeners = new Set<(p: CheckProgress) => void>();
   const progressOf = (run?: string) => ({ phase, done, total }: CheckProgress) => progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
 
+  // Run's programs, by run id (§4.10). What they print goes to whoever listens; main sends it to the window that started each.
+  const programs = new Map<string, { program?: CoreProgramRun; stopped: boolean }>();
+  const runListeners = new Set<(o: RunOutput) => void>();
+  const tell = (o: RunOutput) => runListeners.forEach((l) => l(o));
+
   // Research progress goes to whoever listens (main sends it to the app window): searches, page hosts and paths, steps.
   const researchListeners = new Set<(p: ResearchProgress) => void>();
   /** Research jobs that ended but whose sources aren't saved yet. */
@@ -355,6 +364,10 @@ export function createLive(d: LiveDeps): Live {
     onResearchProgress(listener) {
       researchListeners.add(listener);
       return () => void researchListeners.delete(listener);
+    },
+    onRunOutput(listener) {
+      runListeners.add(listener);
+      return () => void runListeners.delete(listener);
     },
     async agents() {
       const agents = await d.connect.agents();
@@ -556,6 +569,39 @@ export function createLive(d: LiveDeps): Live {
       }
     },
 
+    async runProgram(activityId, run) {
+      if (programs.has(run)) throw new SafeError('Bad input');
+      if (programs.size >= MAX_PROGRAMS) throw new SafeError('Too many programs are running. Stop one, then try again.');
+      const entry: { program?: CoreProgramRun; stopped: boolean } = { stopped: false };
+      programs.set(run, entry);
+      try {
+        const program = await whenDockerReady(() =>
+          core.runInteractive(ws, activityId, undefined, (text, stream) => tell({ run, stream, text }), { onStart: (stage, limitMs) => tell({ run, started: stage, limitMs }) }),
+        );
+        entry.program = program;
+        // Stopped while it was starting.
+        if (entry.stopped) program.kill();
+        const r = await program.done;
+        return { kind: 'ran', exit: r.exit, ...(r.stage ? { stage: r.stage } : {}), timedOut: r.timedOut, stopped: r.stopped ?? false, flooded: r.flooded, outOfMemory: r.outOfMemory ?? false };
+      } catch (e) {
+        const reason = notCounted(e);
+        if (reason) {
+          log('not-counted', { run: 'program', reason });
+          return { kind: 'not-run', reason };
+        }
+        throw e;
+      } finally {
+        programs.delete(run);
+      }
+    },
+    sendRunInput: async (run, text) => programs.get(run)?.program?.write(text) ?? false,
+    async stopRun(run) {
+      const entry = programs.get(run);
+      if (!entry) return;
+      entry.stopped = true;
+      entry.program?.kill();
+    },
+
     async check(activityId, run) {
       try {
         const view = await whenDockerReady(() => core.checkExercise(ws, activityId, undefined, progressOf(run)));
@@ -611,6 +657,10 @@ export function createLive(d: LiveDeps): Live {
     async stop() {
       stopping = true;
       log('quit', { jobs: running.size, runs: runs.size });
+      for (const entry of programs.values()) {
+        entry.stopped = true;
+        entry.program?.kill();
+      }
       await cancel(() => true);
       await Promise.all([...runs].map((r) => r.catch(() => undefined)));
       await core.cleanupLeftovers().catch(() => undefined);
@@ -618,7 +668,7 @@ export function createLive(d: LiveDeps): Live {
   };
   // Every call: a damaged record says so, with core's guidance. (onCheckProgress subscribes; it isn't a call.)
   for (const name of Object.keys(api) as (keyof Live)[]) {
-    if (name === 'onCheckProgress' || name === 'onResearchProgress') continue;
+    if (name === 'onCheckProgress' || name === 'onResearchProgress' || name === 'onRunOutput') continue;
     const call = api[name] as (...args: unknown[]) => Promise<unknown>;
     (api as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => call.apply(api, args).catch((e: unknown) => Promise.reject(repairable(e)));
   }

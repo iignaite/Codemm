@@ -44,6 +44,24 @@ describe.runIf(posix)("interactive run", () => {
     expect(store.readEvents("shell")).toEqual([]);
   });
 
+  it("says when each stage starts, with its time limit", async () => {
+    const ws = await installedExercise();
+    fakeDocker("interactive");
+    const starts: string[] = [];
+    const run = await app.runInteractive(ws, undefined, undefined, () => undefined, { limitMs: 5_000, onStart: (stage, limitMs) => starts.push(`${stage} ${limitMs}`) });
+    run.write("Ada\n");
+    await run.done;
+    expect(starts).toEqual(["run 5000"]);
+    fakeDocker("buildtimesout");
+    await (await app.runInteractive(ws, undefined, undefined, () => undefined, { buildLimitMs: 2_000, onStart: (stage, limitMs) => starts.push(`${stage} ${limitMs}`) })).done;
+    expect(starts).toEqual(["run 5000", "build 2000"]);
+  });
+
+  it("names the run command for an io exercise, so the app can show it", async () => {
+    const ws = await installedExercise();
+    expect(await app.getExercise(ws, "max-of-line")).toMatchObject({ style: "io", run: "sh main.sh" });
+  });
+
   it("stops the program when asked", async () => {
     const ws = await installedExercise();
     fakeDocker("waits");

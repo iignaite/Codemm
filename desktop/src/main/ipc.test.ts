@@ -6,7 +6,7 @@ import { dispatch } from './ipc';
 const echo = new Proxy({} as CodemmApi, { get: (_t, method) => async (...args: unknown[]) => ({ method, args }) });
 
 const concepts = [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }];
-const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgress'>, unknown[]> = {
+const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgress' | 'onRunOutput'>, unknown[]> = {
   agents: [],
   connect: ['claude'],
   chooseModel: ['claude', 'opus'],
@@ -27,6 +27,9 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgr
   tryIt: ['values-easy-1', 'run-1'],
   runExample: ['values-1', 2],
   check: ['values-easy-1', 'run-1'],
+  runProgram: ['values-easy-1', 'run-1'],
+  sendRunInput: ['run-1', 'Ada\n'],
+  stopRun: ['run-1'],
   ask: [{ activityId: 'values-easy-1' }, 'Why?'],
   skip: ['values'],
   easier: ['values'],
@@ -60,6 +63,12 @@ describe('dispatch', () => {
     expect(() => dispatch(echo, 'ask', [{ lessonId: 'a', activityId: 'b' }, 'Why?'])).toThrow('Bad input');
     expect(() => dispatch(echo, 'install', ['not-a-digest'])).toThrow('Bad input');
     for (const n of [0, 6, 1.5, '1', -1]) expect(() => dispatch(echo, 'runExample', ['values-1', n])).toThrow('Bad input');
+    // Run: a run id is required, and one write of typed input is at most 64 KB, as core takes.
+    expect(() => dispatch(echo, 'runProgram', ['values-easy-1'])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'runProgram', ['values-easy-1', 'Run 1'])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'sendRunInput', ['run-1', 'x'.repeat(64 * 1024 + 1)])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'sendRunInput', ['run-1', 7])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'stopRun', ['../x'])).toThrow('Bad input');
   });
 
   it('rejects goals and roadmaps with the wrong shape', () => {

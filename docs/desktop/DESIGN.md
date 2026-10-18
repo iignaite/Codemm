@@ -29,7 +29,7 @@ Status: trimmed to the owner-approved 1.0 scope (the scope ledger, 17 Oct 2026),
   2. Approve the roadmap, ask for changes, or edit it: rename, reorder, add or remove topics.
   3. Give one consent before setup.
   4. Read lessons, which are static text, and take notes.
-  5. Do the activity: edit, Try it, Check, and see the results.
+  5. Do the activity: edit, Run (io), Try it, Check, and see the results.
   6. Ask the tutor, behind the reply filter.
   7. Skip honestly, and see progress and completion.
 - **Failure states**, including the environment failures in §6.1.
@@ -76,7 +76,7 @@ desktop/
 ### 2.1 Renderer security
 
 - **Window settings.** Windows set `contextIsolation: true`, `sandbox: true` and `nodeIntegration: false`, and load the app's own `app://codemm` origin.
-- **CSP.** `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`. The page can make no remote request, including for images.
+- **CSP.** `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`. The page can make no remote request, including for images. The terminal pane works within it (§4.10).
 - **Markdown.** Lessons and agent text are rendered with raw HTML stripped:
   - An image with a remote URL renders as a plain link.
   - Links keep only `https:` URLs.
@@ -310,6 +310,23 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 - **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
 - **Showing.** The roadmap and course-edit screens show a quiet "Sources" list. Each link opens only after a click, in the system browser, through main's `shell.openExternal`, and main accepts only https links. Nothing loads inside the app window.
 
+### 4.10 Run and the terminal pane
+
+- **Toolbar.** An io activity reads **Run · Try it · Check**. A unit activity has no Run: its track has no run command. Only Check is graded.
+- **Core.** `runInteractive` runs the learner's program through `src/sandbox.ts` only (core §4.3 "Run"). It uses the full flag set plus `-i`, network none, only the learner's files, a 60 s build and a 120 s run. It reports when each stage starts, with that stage's limit, and records nothing. `get_exercise` names the run command for io.
+- **Desktop.**
+  - `runProgram(activityId, run)` resolves when the program ends, with `ran` (exit, stage, timed out, stopped, flooded, out of memory) or `not-run` (a Docker problem, in Check's words).
+  - `sendRunInput(run, text)` and `stopRun(run)` act on it. One write is at most 64 KB, as core takes, and at most 4 programs run at once.
+  - Output travels on the one-way `codemm:run-output` event as `{ run, stream, text }`, or `{ run, started, limitMs }` when a stage starts. The preload exposes it as `onRunOutput`, and `invoke('onRunOutput')` is refused.
+  - **Window-bound** (`main/runs.ts`). A run belongs to the window that started it, from the call until it settles. Only that window hears its output; input or Stop from another window does nothing; closing the window stops it; quitting stops every run.
+- **The pane** (`renderer/ui/Terminal.tsx`, shared with lesson examples).
+  - A dark, monospace xterm.js screen (MIT) headed "Terminal", with a status on the right: "Building", "1:52 left" or "Time's up". It shows the command after a `$` prompt, keeps ANSI colors, and shows stderr in the error color. Every palette color reaches AA on the pane's navy.
+  - The program reads a pipe, not a terminal, so the pane is a line editor: it echoes typing, honors Backspace, and sends each line with its newline. Tab and Shift+Tab always move focus, so the pane never traps the keyboard.
+  - A visually hidden log mirrors the plain text (the last 20,000 characters) for screen readers, and the input is named for its pane.
+  - **CSP.** xterm.js writes its layout into `<style>` elements, which `style-src 'self'` blocks. The CSP stays as it is; the pane copies only its own style elements' rules into constructed stylesheets, which the CSP doesn't govern.
+- **Renderer.** The pane appears with the first Run, between the editor and the results, and focus moves into it. Run turns into Stop on the same button, so focus stays put. Codemm's last line says how the program ended, for example "Exited with code 0." or "Time's up. The program was stopped after 2 minutes." Leaving the screen stops the program.
+- **Next.** Try it and Check printing each visible test into the pane as it finishes, with hidden tests as an index and a status only.
+
 ## 5. Failure states
 
 Infrastructure failures record nothing. Learner-caused outcomes are graded as `error` and recorded (core §4.3, §7).
@@ -417,7 +434,7 @@ Each item is verified by an automated test unless marked *journey* or *release*.
 | D8 | **Roadmap.** `get_roadmap` round-trips. Rename, add, move and remove keep ids. A move is refused when a topic would come before one it requires, and a remove is refused for a required topic or one used by an exercise, event or lesson. An uninstalled track gives `setup`. The track can change until the course has exercises, and the change cancels the old track's jobs and proposals. Adding a prerequisite to a stuck concept records `retry`. |
 | D9 | **Lessons.** Save, get and notes work, and writes are locked, atomic and versioned. `get_lesson` records nothing; only `mark_lesson_read` records a read. The `lesson` field on `practice` and `author` steps is `null`, the earliest unread id, or absent, as §4.3 says. Reopening a saved lesson or activity starts no agent process. |
 | D10 | **Skip.** Skip defers without changing mastery and never satisfies a prerequisite. With every candidate deferred, the earliest is chosen. `done` needs every concept mastered. After `retry`, a concept that was stuck isn't stuck, and its mastery is unchanged. |
-| D11 | **Activity.** A save with a stale digest is refused, and one through a symlinked path is refused. Try it records nothing. Check of edited files that completes grading records one attempt; core §7's exceptions hold, so a check of unchanged starter files or an infrastructure failure records nothing. Tutor turns launch with no edit tools. |
+| D11 | **Activity.** A save with a stale digest is refused, and one through a symlinked path is refused. Run and Try it record nothing. Check of edited files that completes grading records one attempt; core §7's exceptions hold, so a check of unchanged starter files or an infrastructure failure records nothing. Tutor turns launch with no edit tools. |
 | D12 | **Jobs.** `codemm mcp --tools a,b` lists and accepts only `a` and `b`, and `--course` scopes course tools. Switching courses during an author job doesn't redirect its save. Done checks read records created after the job started, and a job whose save committed before a crash isn't relaunched. An author job is cancelled after 3 failed saves. Every job stops at its deadline, and a failed job is relaunched at most once. Cancelling during a check leaves no owned container behind. |
 | D13 | **Check this computer and the environment matrix.** With the fake Docker and fake agent, each case shows its message and records nothing: missing Docker; not running; still starting (the starting message for 3 minutes, then the fix); Windows containers; stopping mid-check; offline during setup; low disk during setup; no agent; signed out; plan limit. Offline, low disk and plan limit spend no agent retry. For the Docker cases, fixing the fake makes the screen pass on its own within one re-check, and repeated focus events never start a second check. The setup cases recover through Try again on the same proposal, and the agent cases through the connect screen. |
 | D14 | **Failure states.** Each row in §5 maps to a tested screen state. |

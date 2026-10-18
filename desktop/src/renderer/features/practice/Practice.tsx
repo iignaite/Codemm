@@ -8,9 +8,11 @@ import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Markdown } from '../../ui/Markdown';
 import { Rail } from '../../ui/Rail';
+import { Terminal, type TerminalHandle } from '../../ui/Terminal';
 import { Editor } from './Editor';
 import { Results, type Shown } from './Results';
 import { useLearnerFiles } from './useLearnerFiles';
+import { useRun } from './useRun';
 
 export function Practice({ concept }: { concept: string }) {
   const api = useApi();
@@ -20,7 +22,10 @@ export function Practice({ concept }: { concept: string }) {
   return <><Sidebar slim /><Workspace {...data} /></>;
 }
 
-/** Statement, editor and results, with Codemm beside them. Only Check is graded; the learner edits, Codemm explains. */
+/**
+ * Statement, editor, terminal and results, with Codemm beside them. Only Check is graded; Run and Try it never are.
+ * The learner edits, Codemm explains.
+ */
 function Workspace({ activity, course }: { activity: Activity; course: CourseView }) {
   const api = useApi();
   const { go, fail } = useRouter();
@@ -31,7 +36,11 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
   const onReloaded = useCallback(() => add({ from: 'codemm', text: 'This file changed outside Codemm, so it was reloaded.' }), [add]);
   const { files, edit, save } = useLearnerFiles(activity, onReloaded);
   const topic = course.topics.find((t) => t.id === activity.concept);
-  const busy = shown.kind === 'busy';
+  const terminal = useRef<TerminalHandle>(null);
+  const program = useRun(activity.id, activity.run, terminal, save, fail);
+  // The pane appears with the first Run and stays.
+  const [ran, setRan] = useState(false);
+  const busy = shown.kind === 'busy' || program.running;
   // Codemm reads the saved files, so pending edits are saved before each question.
   const ask = (text: string) => chat.ask(text, save);
 
@@ -101,10 +110,17 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
           onOpen={setOpen}
           onChange={(text) => edit(open, text)}
           tools={<>
+            {/* One button that turns into Stop, so keyboard focus stays on it. */}
+            {activity.run && (
+              <Button variant="ghost" disabled={busy && !program.running} onClick={program.running ? program.stop : () => (setRan(true), void program.start())}>
+                {program.running ? 'Stop' : 'Run'}
+              </Button>
+            )}
             <Button variant="ghost" disabled={busy} onClick={tryIt}>Try it</Button>
             <Button disabled={busy} onClick={check}>Check</Button>
           </>}
         />
+        {activity.run && ran && <Terminal ref={terminal} label={`Terminal for ${activity.title}`} status={program.status} onInput={program.input} />}
         <Results shown={shown} name={course.track} topic={topic?.title ?? ''} visibleTests={activity.visibleTests} ways={ways} />
       </div>
       <Rail messages={chat.messages} onAsk={ask} busy={chat.busy} name={course.track}>

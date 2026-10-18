@@ -220,8 +220,34 @@ describe('mock: environment', () => {
   });
 
   it('names every scenario, and rejects unknown ones', () => {
-    expect(Object.keys(SCENARIOS)).toHaveLength(13);
+    expect(Object.keys(SCENARIOS)).toHaveLength(15);
     expect(scenario(undefined)).toEqual({});
     expect(() => scenario('nope')).toThrow('Unknown mock scenario');
+  });
+});
+
+describe('mock: Run', () => {
+  it('runs an io activity\'s program with typed input and says when its time is up', async () => {
+    const { api, activity } = await practising({ style: 'io', runLimitMs: 50 });
+    expect(activity.run).toBe('python3 main.py');
+    const heard: unknown[] = [];
+    api.onRunOutput((o) => heard.push(o));
+    const ran = api.runProgram(activity.id, 'run-1');
+    expect(await api.sendRunInput('run-1', 'Ada\n')).toBe(true);
+    expect(await ran).toMatchObject({ kind: 'ran', exit: 0, timedOut: false });
+    expect(heard).toEqual([
+      { run: 'run-1', started: 'run', limitMs: 50 },
+      { run: 'run-1', stream: 'stdout', text: "What's your name? " },
+      { run: 'run-1', stream: 'stdout', text: 'Hello, Ada!\n' },
+    ]);
+    expect(await api.runProgram(activity.id, 'run-2')).toMatchObject({ kind: 'ran', timedOut: true });
+    const stopped = api.runProgram(activity.id, 'run-3');
+    await api.stopRun('run-3');
+    expect(await stopped).toMatchObject({ kind: 'ran', stopped: true });
+  });
+
+  it('has no Run for a unit activity', async () => {
+    const { activity } = await practising();
+    expect(activity.run).toBeUndefined();
   });
 });

@@ -63,7 +63,7 @@ async function masterEverything(page: Page) {
   });
 }
 
-async function toActivity(page: Page) {
+async function toActivity(page: Page, title = 'Click Counter') {
   await toRoadmap(page);
   await button(page, 'Approve').click();
   await page.getByRole('dialog').getByRole('button', { name: 'Set up', exact: true }).click();
@@ -71,7 +71,7 @@ async function toActivity(page: Page) {
   await button(page, 'Read What javascript basics is').click();
   await button(page, 'Next').click();
   await button(page, 'Next').click();
-  await expect(heading(page, 'Click Counter')).toBeVisible();
+  await expect(heading(page, title)).toBeVisible();
 }
 
 async function toRoadmap(page: Page) {
@@ -372,5 +372,30 @@ test('the journey works with the keyboard alone', async () => {
   await press(page, 'Continue');
   await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();
   });
+  await app.close();
+});
+
+// Run (§4.10): the terminal pane passes WCAG AA while a program runs and after its time is up, and works by keyboard.
+test('the terminal pane passes WCAG AA checks and works with the keyboard alone', async () => {
+  test.setTimeout(120_000);
+  const { app, page } = await launch('run-time-up');
+  await toActivity(page, 'Greet by name');
+  const log = page.getByRole('log', { name: 'Terminal for Greet by name, as text' });
+  await press(page, 'Run');
+  await expect(log).toHaveText(/What's your name\? $/);
+  // Focus moves into the pane, so typing goes to the program.
+  await expect(page.getByRole('textbox', { name: 'Terminal for Greet by name input' })).toBeFocused();
+  await expect(page.getByRole('region', { name: 'Terminal for Greet by name' })).toContainText('left');
+  await audit(page, 'terminal, running');
+  await page.screenshot({ path: process.env.CODEMM_SCREENSHOT ?? test.info().outputPath('terminal.png') });
+  await page.keyboard.type('Ada');
+  await page.keyboard.press('Enter');
+  await expect(log).toContainText('Hello, Ada!');
+  await expect(log).toContainText('Exited with code 0.');
+
+  await press(page, 'Run');
+  await expect(log).toContainText("Time's up. The program was stopped after 3 seconds.", { timeout: 10_000 });
+  await expect(page.getByRole('region', { name: 'Terminal for Greet by name' })).toContainText("Time's up");
+  await audit(page, 'terminal, time up');
   await app.close();
 });
