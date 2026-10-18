@@ -12,6 +12,8 @@ import { JobBar } from '../../ui/JobBar';
 import { stagger } from '../../ui/motion';
 import { TopicItem } from './TopicItem';
 import { ExternalLink } from '../../ui/ExternalLink';
+import { Limit } from '../../ui/Limit';
+import { LIMITS } from '../../../shared/limits';
 
 /** Rename, reorder, add or remove topics, or ask Codemm for changes. Then approve (§4.2). */
 export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
@@ -126,9 +128,10 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
           Add a topic
         </button>
         <form className="composer a-up" style={{ ...stagger(1, 100), marginTop: 10 }} onSubmit={ask}>
-          <Field aria-label="Ask Codemm for changes" placeholder="Ask Codemm for changes" value={request} disabled={asking} onChange={(e) => setRequest(e.target.value)} />
+          <Field aria-label="Ask Codemm for changes" placeholder="Ask Codemm for changes" value={request} maxLength={LIMITS.words} disabled={asking} onChange={(e) => setRequest(e.target.value)} />
           <Button type="submit" variant="ghost" size="lg" disabled={!request.trim() || asking}>Apply</Button>
         </form>
+        <Limit value={request} max={LIMITS.words} />
         {/* A typed request is applied or cleared first, so approving never drops it. */}
         <div className="actions approve a-up" style={stagger(2, 100)}>
           <Button size="lg" disabled={concepts.length === 0 || editing !== undefined || adding || asking || request.trim() !== ''} onClick={approve}>Approve</Button>

@@ -8,6 +8,8 @@ import { Emm } from '../../ui/Emm';
 import { Field } from '../../ui/Field';
 import { stagger } from '../../ui/motion';
 import { Banner } from '../../ui/Banner';
+import { Limit } from '../../ui/Limit';
+import { LIMITS } from '../../../shared/limits';
 
 const DEPTHS: [Depth, string][] = [
   ['overview', 'Overview'],
@@ -38,10 +40,12 @@ export function Goal() {
       <form className="stack wide goal-form" onSubmit={start}>
         <h1 className="h1 a-up" id="goal-q">What do you want to learn?</h1>
         <div className="goal-box a-up" style={stagger(1)}>
-          <input aria-labelledby="goal-q" value={topic} onChange={(e) => setTopic(e.target.value)} autoFocus />
+          <input aria-labelledby="goal-q" value={topic} maxLength={LIMITS.topic} onChange={(e) => setTopic(e.target.value)} autoFocus />
           <Button type="submit" disabled={!goal}>Start</Button>
         </div>
-        <Field className="a-up" style={stagger(2)} aria-label="What you already know (optional)" placeholder="What you already know (optional)" value={known} onChange={(e) => setKnown(e.target.value)} />
+        <Limit value={topic} max={LIMITS.topic} />
+        <Field className="a-up" style={stagger(2)} aria-label="What you already know (optional)" placeholder="What you already know (optional)" value={known} maxLength={LIMITS.known} onChange={(e) => setKnown(e.target.value)} />
+        <Limit value={known} max={LIMITS.known} />
         <div className="depth a-up" style={stagger(3)} role="radiogroup" aria-labelledby="depth-q">
           <span className="depth-q" id="depth-q">How deep</span>
           {DEPTHS.map(([id, label]) => (
