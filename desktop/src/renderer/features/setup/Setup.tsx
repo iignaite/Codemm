@@ -112,11 +112,11 @@ export function Setup() {
             <li className="card check a-up" style={stagger(3)} aria-label="Agent">
               <div className="check-head">
                 {agent?.state === 'connected' && <Status kind="ok" size={24} />}
-                <b>{agent ? agent.name : 'Your agent'}</b>
+                <b id="agent-t">{agent ? agent.name : 'Your agent'}</b>
               </div>
               {!wanted ? (
                 <>
-                  <div className="depth" role="radiogroup" aria-label="Which agent">
+                  <div className="depth" role="radiogroup" aria-labelledby="agent-t">
                     {choices.map((a) => (
                       <label key={a.id} className={`opt${choice === a.id ? ' on' : ''}`}>
                         <input type="radio" name="agent" value={a.id} checked={choice === a.id} onChange={() => setChoice(a.id)} />
