@@ -130,12 +130,13 @@ describe('setup progress while a proposing agent ends its turn', () => {
     api.course = async () => ({ ...real, setup: 'installing' as const });
     renderApp({ to: 'topic', topicId: TOPIC }, api);
     await screen.findByRole('heading', { name: 'JavaScript basics' });
+    // The screen subscribes again once it knows setup is installing.
+    await waitFor(() => expect(screen.getByText('Setting up React', { exact: false })).toBeInTheDocument());
     const at = (job: string, stage: number, ended?: true): JobProgress => ({ job, kind: 'setup', stage, steps: [], count: 0, thinking: false, elapsedMs: 0, idleMs: 0, ...(ended ? { ended } : {}) });
     act(() => hear(at('install', 1)));
     act(() => hear(at('proposal', 0)));
     act(() => hear(at('proposal', 0, true)));
-    const bar = screen.getByRole('group', { name: 'Setting up React' });
-    expect(within(bar).getByRole('listitem', { current: 'step' })).toHaveTextContent('Building');
+    await waitFor(() => expect(within(screen.getByRole('group', { name: 'Setting up React' })).getByRole('listitem', { current: 'step' })).toHaveTextContent('Building'));
   });
 });
 
