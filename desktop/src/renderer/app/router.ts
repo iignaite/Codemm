@@ -4,7 +4,8 @@ import type { Goal, Roadmap } from '../../shared/api';
 export type Route =
   | { to: 'welcome' }
   | { to: 'connect'; then?: Route }
-  | { to: 'computer'; then: Route }
+  /** `fromConnect`: the check on the way in from Connect, which moves on by itself when the computer is ready. */
+  | { to: 'computer'; then: Route; fromConnect?: true }
   | { to: 'setup' }
   | { to: 'goal' }
   | { to: 'research'; goal: Goal }

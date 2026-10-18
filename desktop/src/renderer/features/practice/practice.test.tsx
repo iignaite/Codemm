@@ -284,8 +284,8 @@ describe('practice', () => {
     expect(claude).toHaveTextContent('Sign in to Claude Code, then try again.');
     await user.click(within(claude).getByRole('button', { name: 'Try again' }));
     await within(claude).findByText('Connected');
+    // A ready computer passes by itself.
     await user.click(screen.getByRole('button', { name: 'Continue' }));
-    await user.click(await screen.findByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
   });
 

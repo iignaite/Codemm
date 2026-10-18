@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Agent, AgentId, AgentInstall } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
@@ -9,7 +9,7 @@ import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 
 /** The only screen that names agents. Each one that can't run yet shows its next step. */
-export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
+export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
   const api = useApi();
   const { go, fail } = useRouter();
   // Coming back to the window looks again: an agent installed or signed in meanwhile shows up. An install is
@@ -21,7 +21,15 @@ export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
   // The agent the learner is installing or signing in: once it's connected, Codemm moves on by itself.
   const [following, setFollowing] = useState<AgentId>();
   const list = agents ?? data;
-  const next: Route = { to: 'computer', then };
+  // The only supported agent installed is the learner's choice already: its sign-in check runs at once, once.
+  const picked = useRef(false);
+  useEffect(() => {
+    if (!data || picked.current) return;
+    picked.current = true;
+    const installed = data.filter((a) => a.state !== 'missing' && !a.experimental);
+    if (installed.length === 1 && installed[0].state === 'not-connected' && !data.some((a) => a.state === 'connected')) void connect(installed[0].id);
+  }, [data]);
+  const next: Route = { to: 'computer', then, fromConnect: true };
   useEffect(() => {
     if (following && list?.find((a) => a.id === following)?.state === 'connected') go(next);
   }, [following, list]);

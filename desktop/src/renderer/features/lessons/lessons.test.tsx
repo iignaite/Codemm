@@ -4,7 +4,7 @@ vi.mock('@xterm/addon-fit', () => import('../../testing/xterm'));
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { JobProgress } from '../../../shared/api';
+import type { CodemmApi, JobProgress } from '../../../shared/api';
 import { xterm } from '../../testing/xterm';
 import { scenario, type MockOptions } from '../../../main/mock';
 import { mockWithCourse, mockWithRoadmap, renderApp } from '../../test-utils';
@@ -225,6 +225,59 @@ describe('topic page and setup consent', () => {
     expect(within(alert).getByRole('heading', { name: "Couldn't set up React" })).toBeInTheDocument();
     await user.click(within(alert).getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('dialog', { name: 'Codemm has another way to set up React.' })).toBeInTheDocument();
+  });
+});
+
+describe('setup actions run once (a double click)', () => {
+  /** Wraps one api call so it waits until released, counting calls. */
+  function hold<K extends 'install' | 'retrySetup' | 'retryJobs'>(api: CodemmApi, method: K) {
+    const calls: unknown[][] = [];
+    let release!: () => void;
+    const real = api[method] as (...a: unknown[]) => Promise<void>;
+    (api as unknown as Record<string, unknown>)[method] = (...args: unknown[]) => (calls.push(args), new Promise<void>((done) => (release = () => done(real.apply(api, args)))));
+    return { calls, release: () => release() };
+  }
+
+  it("the consent's Set up installs once, and waits while it starts", async () => {
+    const user = userEvent.setup();
+    const { api } = await approved();
+    const install = hold(api, 'install');
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const dialog = await screen.findByRole('dialog', { name: 'Set up React on this computer?' });
+    const setUp = within(dialog).getByRole('button', { name: 'Set up' });
+    await user.dblClick(setUp);
+    expect(install.calls).toHaveLength(1);
+    expect(setUp).toBeDisabled();
+    install.release();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(install.calls).toHaveLength(1);
+  });
+
+  it("a failed setup's Try again retries once", async () => {
+    const user = userEvent.setup();
+    const { api } = await approved(scenario('setup-gates'));
+    const retry = hold(api, 'retrySetup');
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
+    const panel = await screen.findByRole('alert');
+    const again = await within(panel).findByRole('button', { name: 'Try again' });
+    await user.dblClick(again);
+    expect(retry.calls).toHaveLength(1);
+    expect(again).toBeDisabled();
+    retry.release();
+  });
+
+  it("stalled work's Try again starts it once", async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse({ stalled: 'failed' });
+    const retry = hold(api, 'retryJobs');
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    const again = within(alert).getByRole('button', { name: 'Try again' });
+    await user.dblClick(again);
+    expect(retry.calls).toHaveLength(1);
+    expect(again).toBeDisabled();
+    retry.release();
   });
 });
 

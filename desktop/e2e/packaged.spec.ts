@@ -47,8 +47,8 @@ test('packaged: welcome, bundled MCP server and a JavaScript agent, with no Node
   const page = await app.firstWindow();
   await expect(page.getByRole('heading', { name: 'Learn anything.' })).toBeVisible();
   await page.getByRole('button', { name: 'Connect an agent', exact: true }).click();
+  // The only agent installed: Codemm runs its sign-in check at once, without a click.
   const claude = page.getByRole('listitem', { name: 'Claude Code' });
-  await claude.getByRole('button', { name: 'Connect' }).click();
   await expect(claude.getByText('Connected')).toBeVisible();
   await expect(page.getByText('never-shown@example.com')).toHaveCount(0);
 

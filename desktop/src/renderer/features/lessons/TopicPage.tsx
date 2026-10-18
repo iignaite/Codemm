@@ -2,6 +2,7 @@ import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
 import { Failed, Stalled } from '../../app/Problems';
+import { useBusy } from '../../app/useBusy';
 import { useJob } from '../../app/useJob';
 import { useCourse } from '../../app/useCourse';
 import { Button } from '../../ui/Button';
@@ -102,21 +103,24 @@ function SetupFailed({ course, topicId, onRetry }: { course: CourseView; topicId
     gates: { title: `Couldn't set up ${course.track}`, text: 'Try again, or stop and pick something else.' },
   }[problem];
 
-  async function retry() {
-    try {
-      if (problem !== 'gates' && course.proposal) await api.install(course.proposal.digest);
-      else await api.retrySetup();
-      onRetry();
-    } catch (e) {
-      fail(e);
-    }
-  }
+  // Try again runs once: a double click starts one retry.
+  const retrying = useBusy();
+  const retry = () =>
+    retrying.guard(async () => {
+      try {
+        if (problem !== 'gates' && course.proposal) await api.install(course.proposal.digest);
+        else await api.retrySetup();
+        onRetry();
+      } catch (e) {
+        fail(e);
+      }
+    });
 
   return (
     <Panel art={<Emm mood="think" width={150} name={course.track} perch />} title={say.title} level={2} text={say.text}>
       {problem === 'gates' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'goal' })}>Stop</Button>}
       {problem === 'docker' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'computer', then: { to: 'topic', topicId } })}>Check this computer</Button>}
-      <Button size="lg" onClick={retry}>Try again</Button>
+      <Button size="lg" disabled={retrying.busy} onClick={retry}>Try again</Button>
     </Panel>
   );
 }

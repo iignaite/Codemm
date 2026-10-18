@@ -14,11 +14,8 @@ test('connect, computer check, goal, course, lesson and practice', async () => {
 
   await button('Connect an agent').click();
   await page.getByRole('listitem', { name: 'Claude Code' }).getByRole('button', { name: 'Connect' }).click();
+  // Three clicks: a computer that is ready at the first check passes by itself.
   await button('Continue').click();
-  await expect(heading('Check this computer')).toBeVisible();
-  await expect(page.getByText('This computer is ready.')).toBeVisible();
-  await button('Continue').click();
-  await button('Start learning').click();
 
   await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('React');
   await page.getByRole('textbox', { name: 'What you already know (optional)' }).fill('Python');
@@ -78,7 +75,7 @@ test('no Docker: Install Docker, a link to do it by hand, and a re-check', async
   await expect(installed.getByRole('link', { name: 'Install it myself' })).toBeVisible();
   await expect(page.getByRole('status')).toHaveText("Docker isn't installed yet. Checking again every few seconds.");
   await page.getByRole('button', { name: 'Later', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Ready when you are.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'What do you want to learn?' })).toBeVisible();
   await app.close();
 });
 
