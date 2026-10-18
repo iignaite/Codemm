@@ -110,7 +110,14 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await audit(page, 'setup consent');
   await consent.getByText('Details').click();
   await audit(page, 'setup consent, details');
+  // Not now: a lesson offers setup without blocking the reading.
+  await consent.getByRole('button', { name: 'Not now', exact: true }).click();
+  await button(page, 'Read What javascript basics is').click();
+  await expect(button(page, 'Set up React')).toBeVisible();
+  await audit(page, 'lesson, setup waiting');
+  await button(page, 'Set up React').click();
   await consent.getByRole('button', { name: 'Set up', exact: true }).click();
+  await button(page, 'Previous').click();
   await expect(button(page, 'Read useState')).toBeVisible({ timeout: 15_000 });
   await audit(page, 'topic');
   await button(page, 'Read What javascript basics is').click();
