@@ -1,86 +1,76 @@
-// The email gate on the landing page.
-const MIN_MS = 3200; // the server refuses a submit sooner than 3 s after the form token
+// Download buttons: the newest published GitHub release, the installer for this
+// computer first. Before a release is published, "Coming soon".
+import { detectPlatform, pickRelease, downloads } from './release.js';
 
-const form = document.getElementById('get');
-const input = document.getElementById('email');
-const button = document.getElementById('gate-submit');
-const status = document.getElementById('gate-status');
+const REPO = 'https://github.com/iignaite/Codemm';
+const API = 'https://api.github.com/repos/iignaite/Codemm/releases?per_page=30';
+const CACHE = 'codemm-releases';
+const FRESH_MS = 10 * 60 * 1000;
 
-let state = { token: null, issued: 0, available: null };
+const readCache = () => {
+  try { return JSON.parse(sessionStorage.getItem(CACHE)); } catch { return null; }
+};
 
-async function loadForm() {
+/** The release list, or null if GitHub can't be reached and nothing is cached. */
+async function loadReleases() {
+  const cached = readCache();
+  if (cached && Date.now() - cached.at < FRESH_MS) return cached.releases;
   try {
-    const res = await fetch('/api/form', { cache: 'no-store' });
-    if (!res.ok) throw new Error();
-    const data = await res.json();
-    state = { token: data.token, issued: Date.now(), available: data.available };
-    if (data.available === false) {
-      document.getElementById('gate-note').textContent = 'The beta is on its way. We\'ll email you when it\'s out; unsubscribe anytime.';
-      button.textContent = 'Notify me';
-    }
+    const res = await fetch(API, { signal: AbortSignal.timeout(8000), referrerPolicy: 'no-referrer', credentials: 'omit' });
+    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+    const releases = await res.json();
+    try { sessionStorage.setItem(CACHE, JSON.stringify({ at: Date.now(), releases })); } catch {}
+    return releases;
   } catch {
-    state.token = null;
+    return cached?.releases ?? null;
   }
 }
 
-const say = (text, kind) => {
-  status.textContent = text;
-  status.className = `gate-status ${kind ?? ''}`;
+async function platform() {
+  const ua = navigator.userAgentData;
+  let architecture = '';
+  try { architecture = (await ua?.getHighEntropyValues(['architecture']))?.architecture ?? ''; } catch {}
+  return detectPlatform({ userAgent: navigator.userAgent, maxTouchPoints: navigator.maxTouchPoints, uaPlatform: ua?.platform, architecture });
+}
+
+const el = (tag, props = {}, ...children) => {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children);
+  return node;
 };
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// Only ever link to GitHub.
+const safe = (url) => (typeof url === 'string' && url.startsWith('https://github.com/') ? url : `${REPO}/releases`);
 
-form.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  if (!input.checkValidity()) {
-    input.setAttribute('aria-invalid', 'true');
-    say('Enter a valid email address.', 'error');
-    input.focus();
-    return;
+function content(d) {
+  if (d.status === 'soon') {
+    return [el('div', { className: 'soon' },
+      el('p', { className: 'soon-title' }, 'Coming soon'),
+      el('p', { className: 'note' }, 'The first beta is on its way. The source is already on GitHub.'),
+      el('a', { className: 'btn secondary', href: REPO }, 'Codemm on GitHub'))];
   }
-  input.removeAttribute('aria-invalid');
-  if (!state.token) await loadForm();
-  if (!state.token) return say('Couldn\'t reach Codemm. Check your connection and try again.', 'error');
-
-  button.disabled = true;
-  say('One moment.');
-  try {
-    await wait(Math.max(0, state.issued + MIN_MS - Date.now()));
-    const res = await fetch('/api/subscribe', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: input.value, token: state.token, company: form.elements.company.value }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      if (res.status === 400) await loadForm();
-      if (res.status === 400 && /valid email/.test(data.error ?? '')) input.setAttribute('aria-invalid', 'true');
-      return say(data.error ?? 'Something went wrong. Try again.', 'error');
-    }
-    if (state.available === false) {
-      form.classList.add('done');
-      return say('You\'re on the list. We\'ll email you when the beta is out.', 'ok');
-    }
-    // The token travels in the fragment, which never reaches a server or a Referer header.
-    location.assign(`/downloads#${new URLSearchParams({ d: data.download })}`);
-  } catch {
-    say('Couldn\'t reach Codemm. Check your connection and try again.', 'error');
-  } finally {
-    button.disabled = false;
+  const parts = [];
+  if (d.primary) {
+    parts.push(el('a', { className: 'btn primary big', href: safe(d.primary.url) },
+      el('span', { className: 'btn-label' }, d.primary.label),
+      el('span', { className: 'btn-detail' }, d.primary.detail)));
+  } else {
+    parts.push(el('p', { className: 'desktop-only' }, 'Codemm is a desktop app for a Mac or a Windows PC.'));
   }
-});
-
-input.addEventListener('input', () => {
-  if (input.hasAttribute('aria-invalid') && input.checkValidity()) {
-    input.removeAttribute('aria-invalid');
-    say('');
+  const version = el('p', { className: 'version' }, 'Version ', el('code', {}, d.version));
+  if (d.beta) version.append(el('span', { className: 'pill' }, 'Beta'));
+  parts.push(version);
+  if (d.others.length) {
+    const others = el('p', { className: 'others' }, el('span', {}, d.primary ? 'Also for' : 'Download for'));
+    for (const o of d.others) others.append(el('a', { href: safe(o.url) }, o.name));
+    parts.push(others);
   }
-});
+  return parts;
+}
 
-// Links to #get land on the form ready to type.
-document.addEventListener('click', (e) => {
-  if (e.target.closest('a[href="#get"]')) setTimeout(() => input.focus({ preventScroll: true }), 400);
-});
-
-// The button stays disabled until this handler is attached, so the form never submits natively.
-button.disabled = false;
-loadForm();
+const [releases, p] = await Promise.all([loadReleases(), platform()]);
+// GitHub unreachable: keep the static link to the Releases page.
+if (releases) {
+  const d = downloads(pickRelease(releases), p);
+  for (const box of document.querySelectorAll('[data-download]')) box.replaceChildren(...content(d));
+  for (const note of document.querySelectorAll('[data-beta]')) note.hidden = !d.beta;
+}

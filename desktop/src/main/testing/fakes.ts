@@ -1,7 +1,5 @@
 // Test fakes for the live CodemmApi: an in-memory core with the shapes and
 // rules the desktop relies on, and agent jobs that act like their agents.
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CodemmApi, CourseView } from '../../shared/api';
 import type { Job, JobOutcome } from '../agent/jobs';
@@ -11,10 +9,12 @@ import type { CoreApp, CoreCheckView, CoreNextStep, CoreProgramRun } from '../co
 import { createLive, type LiveDeps } from '../live';
 import { createLog } from '../log';
 import { desktopState } from '../state';
+import { tempDir } from './temp';
 
 export const CANARY = 'printf("CANARY-SOLUTION-LINE %d", count + 1);';
 
-/** An in-memory core with the shapes and rules the desktop relies on. */
+type FakeRoadmap = { course: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[]; sources?: { title: string; url: string }[] };
+
 const DOCKER_DOWN = "The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.";
 
 /** A program that asks for a name and greets it; stops when killed. */
@@ -35,9 +35,20 @@ function greeter(output: (text: string, stream: 'stdout' | 'stderr') => void, op
   };
 }
 
+/** An in-memory core with the shapes and rules the desktop relies on. */
 export function fakeCore() {
   const c = {
-    roadmap: null as null | { course: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[]; sources?: { title: string; url: string }[] },
+    /** Every saved course, and the workspace's active one, as core keeps them. */
+    courses: new Map<string, FakeRoadmap>(),
+    active: undefined as string | undefined,
+    /** The active course's roadmap. Saving one makes it active, as core's saveRoadmap does. */
+    get roadmap(): FakeRoadmap | null {
+      return (this.active && this.courses.get(this.active)) || null;
+    },
+    set roadmap(r: FakeRoadmap | null) {
+      if (r) this.courses.set(r.course, r);
+      this.active = r?.course;
+    },
     tracks: [] as string[],
     proposals: [] as { track: string; digest: string; created: string; files: Record<string, string> }[],
     lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string; examples?: Record<string, string>[]; style?: 'io' | 'unit' }[],
@@ -66,8 +77,14 @@ export function fakeCore() {
     runs: [] as string[],
     down: false,
   };
-  const next = (): CoreNextStep => {
-    const r = c.roadmap!;
+  /** A bound call's course, else the active one (core's activeCourse). */
+  const roadmapOf = (bound?: string) => {
+    const r = bound ? c.courses.get(bound) : c.roadmap;
+    if (!r) throw new Error(bound ? `Course "${bound}" is missing from /home.` : 'No course in this workspace yet.');
+    return r;
+  };
+  const next = (bound?: string): CoreNextStep => {
+    const r = roadmapOf(bound);
     if (!c.tracks.includes(r.track)) return { kind: 'setup', track: r.track };
     if (c.review) return { kind: 'review', concept: c.review.concept, difficulty: c.wanted, exercise: c.review.exercise };
     if (c.reviewWithout) return { kind: 'author', concept: c.reviewWithout, difficulty: c.wanted, review: true };
@@ -108,24 +125,31 @@ export function fakeCore() {
       c.roadmap = { course, ...parsed };
       return { course };
     },
-    progress: (_ws, bound) => (c.bound.push(bound), {
-      course: c.roadmap!.course,
-      goal: c.roadmap!.goal,
-      track: c.roadmap!.track,
-      concepts: c.roadmap!.concepts.map((x) => ({ ...x, mastery: c.mastered.has(x.id) ? 1 : 0.5, mastered: c.mastered.has(x.id), attempts: 0, stuck: c.stuck === x.id })),
-      next: next(),
-    }),
-    getExercise: async (_ws, slug) => {
-      c.current = slug;
-      return { course: c.roadmap!.course, exercise: slug!, path: '/Users/me/Codemm/exercises/x', style: 'io', concepts: [c.exercises.get(slug!)!.concept], difficulty: 1, files: ['main.c'], statement: '# Count up\n\nPrint one.', visibleTests: [{ name: 'prints one', input: '', expected: '1' }], run: './main' };
+    progress: (_ws, bound) => {
+      c.bound.push(bound);
+      const r = roadmapOf(bound);
+      return {
+        course: r.course,
+        goal: r.goal,
+        track: r.track,
+        concepts: r.concepts.map((x) => ({ ...x, mastery: c.mastered.has(x.id) ? 1 : 0.5, mastered: c.mastered.has(x.id), attempts: 0, stuck: c.stuck === x.id })),
+        next: next(bound),
+      };
     },
-    testExercise: async (_ws, slug, _bound, onProgress) => {
+    getExercise: async (_ws, slug, bound) => {
+      c.bound.push(bound);
+      c.current = slug;
+      return { course: roadmapOf(bound).course, exercise: slug!, path: '/Users/me/Codemm/exercises/x', style: 'io', concepts: [c.exercises.get(slug!)!.concept], difficulty: 1, files: ['main.c'], statement: '# Count up\n\nPrint one.', visibleTests: [{ name: 'prints one', input: '', expected: '1' }], run: './main' };
+    },
+    testExercise: async (_ws, slug, bound, onProgress) => {
+      c.bound.push(bound);
       if (c.down) throw new Error(DOCKER_DOWN);
       onProgress?.({ phase: 'visible', done: 1, total: 1 });
       onProgress?.({ phase: 'visible', done: 1, total: 1, test: { name: 'visible/01', status: 'fail', message: 'Output differs from the expected output.', actual: '0\n' } });
       return view(slug!, 1, false);
     },
-    checkExercise: async (_ws, slug, _bound, onProgress) => {
+    checkExercise: async (_ws, slug, bound, onProgress) => {
+      c.bound.push(bound);
       if (c.down) throw new Error(DOCKER_DOWN);
       onProgress?.({ phase: 'visible', done: 1, total: 1 });
       // A hidden event never carries a test, even if core sent one.
@@ -135,18 +159,16 @@ export function fakeCore() {
       if (done) c.mastered.add(c.exercises.get(slug!)!.concept);
       return view(slug!, done ? 2 : 1, true);
     },
-    skip: async () => undefined,
+    skip: async (_ws, _concept, bound) => void c.bound.push(bound),
     assertRuntime: async () => undefined,
-    getRoadmap: () => {
-      if (!c.roadmap) throw new Error('No course in this workspace yet.');
-      return c.roadmap;
-    },
+    getRoadmap: (_ws, bound) => roadmapOf(bound),
     listProposals: () => c.proposals,
     installProposal: (ref, digest) => c.install(ref, digest),
     dropProposal: async () => void (c.proposals = []),
-    getLesson: (_ws, id) => ({ examples: [], ...c.lessons.find((l) => l.id === id)! }),
+    getLesson: (_ws, id, bound) => (c.bound.push(bound), { examples: [], ...c.lessons.find((l) => l.id === id)! }),
     // Run: asks for a name and greets it; stops when killed.
-    runInteractive: async (_ws, slug, _bound, output, options) => {
+    runInteractive: async (_ws, slug, bound, output, options) => {
+      c.bound.push(bound);
       if (c.down) throw new Error(DOCKER_DOWN);
       c.runs.push(slug!);
       return greeter(output, options);
@@ -156,7 +178,8 @@ export function fakeCore() {
       c.runs.push(`${id}#${index}`);
       return greeter(output, options);
     },
-    runExample: async (_ws, id, index) => {
+    runExample: async (_ws, id, index, bound) => {
+      c.bound.push(bound);
       if (c.down) throw new Error(DOCKER_DOWN);
       const files = c.lessons.find((l) => l.id === id)?.examples?.[index - 1];
       if (!files) throw new Error(`Lesson "${id}" has no example ${index}.`);
@@ -167,10 +190,11 @@ export function fakeCore() {
       c.bound.push(bound);
       return c.lessons.map((l) => ({ id: l.id, concept: l.concept, title: l.title, read: c.reads.has(l.id) }));
     },
-    saveNotes: async (_ws, id, text) => void (c.lessons.find((l) => l.id === id)!.notes = text),
-    markLessonRead: async (_ws, id) => void c.reads.add(id),
-    readLearnerFiles: (_ws, slug) => ({ 'main.c': { text: c.exercises.get(slug)!.file, digest: c.exercises.get(slug)!.digest } }),
-    writeLearnerFile: async (_ws, slug, _path, text, digest) => {
+    saveNotes: async (_ws, id, text, bound) => void (c.bound.push(bound), (c.lessons.find((l) => l.id === id)!.notes = text)),
+    markLessonRead: async (_ws, id, bound) => void (c.bound.push(bound), c.reads.add(id)),
+    readLearnerFiles: (_ws, slug, bound) => (c.bound.push(bound), { 'main.c': { text: c.exercises.get(slug)!.file, digest: c.exercises.get(slug)!.digest } }),
+    writeLearnerFile: async (_ws, slug, _path, text, digest, bound) => {
+      c.bound.push(bound);
       const ex = c.exercises.get(slug)!;
       if (ex.digest !== digest) throw new Error('Changed outside Codemm since it was loaded.');
       ex.file = text;
@@ -193,8 +217,10 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
       c.roadmap = { course: args[args.indexOf('--course') + 1], goal: 'React', track: 'react@1', style: 'io', concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }] };
       return {};
     },
-    roadmap: () => {
-      c.roadmap!.concepts.push({ id: 'testing', title: 'Testing', requires: [] });
+    roadmap: (job) => {
+      // Changes the course its server is bound to.
+      const args = job.server([]).args;
+      c.courses.get(args[args.indexOf('--course') + 1])!.concepts.push({ id: 'testing', title: 'Testing', requires: [] });
       return { text: ['Added Testing.'] };
     },
     setup: () => {
@@ -227,7 +253,7 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
 export function live(over: Partial<Record<Job['kind'], Act>> = {}, deps: Partial<LiveDeps> = {}) {
   const { c, app } = fakeCore();
   const jobs = fakeJobs(c, over);
-  const dir = mkdtempSync(join(tmpdir(), 'codemm-live-'));
+  const dir = tempDir('codemm-live-');
   const state = desktopState(dir);
   const lookup = { find: (bin: string) => ({ path: `/bin/${bin}`, js: false }), signedIn: async () => true, version: async () => '2.1.283' };
   const connect = connector(lookup, state);

@@ -196,6 +196,30 @@ describe('topic page and setup consent', () => {
     }
   });
 
+  it('keeps the lesson list beside a failed setup', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved(scenario('offline-setup'));
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("You're offline.");
+    expect(screen.getByRole('heading', { name: 'JavaScript basics' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Read What javascript basics is' })).toBeInTheDocument();
+  });
+
+  it('offers setup from a lesson without blocking the reading', async () => {
+    const user = userEvent.setup();
+    const { api } = await approved();
+    let course = (await api.course())!;
+    while (course.setup !== 'consent' || course.topics[0].lessons[0].state !== 'ready') course = (await api.course())!;
+    renderApp({ to: 'lesson', lessonId: course.topics[0].lessons[0].id }, api);
+    expect(await screen.findByRole('heading', { name: 'What javascript basics is' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Set up React' }));
+    await user.click(within(await screen.findByRole('dialog', { name: 'Set up React on this computer?' })).getByRole('button', { name: 'Set up' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Set up React' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('says when Docker stopped during setup, and offers Check this computer', async () => {
     const user = userEvent.setup();
     const { api } = await approved({ setupProblem: 'docker' });

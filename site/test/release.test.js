@@ -110,3 +110,10 @@ test('a release missing the matching installer offers what it has', () => {
   assert.equal(d.primary, null);
   assert.deepEqual(d.others.map((o) => o.id), ['win-x64']);
 });
+
+test('every download button is the release asset itself, so GitHub counts each download', () => {
+  const r = release('v1.0.0');
+  const d = downloads(r, { os: 'mac', arch: null });
+  const urls = [d.primary.url, ...d.others.map((o) => o.url)];
+  assert.deepEqual(urls.sort(), r.assets.map((a) => a.browser_download_url).sort());
+});

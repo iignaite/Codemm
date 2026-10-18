@@ -15,6 +15,7 @@ import { Rail } from '../../ui/Rail';
 import { Example } from './Example';
 import { NoteEditor } from './NoteEditor';
 import { Outline } from './Outline';
+import { SetupOffer } from './SetupConsent';
 
 function neighbours(topic: TopicView, lessonId: string): { prev: Route; next: (course: CourseView) => Route } {
   const at = topic.lessons.findIndex((l) => l.id === lessonId);
@@ -102,6 +103,8 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
     <div className="ws lesson">
       <Outline topic={topic} current={lesson.id} />
       <main className="reader">
+        {/* Setup waits for the learner's OK; reading doesn't wait for setup (§4.1). */}
+        <SetupOffer course={course} banner onChange={onSaved} />
         <div className="head">
           <h1 className="h1 a-up">{lesson.title}</h1>
           {!editing && (
