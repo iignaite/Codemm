@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { activityView, checkView, HELD_BACK, hiddenLines, filterReply, tryView } from './views';
+import { activityView, checkView, exampleRunView, HELD_BACK, hiddenLines, filterReply, lessonView, tryView } from './views';
 
 const core = {
   exercise: 'state-easy-1',
@@ -43,6 +43,16 @@ describe('views (§2.2, D4)', () => {
   it('never forwards a hidden result even if core named it differently', () => {
     const view = checkView({ ...core, tests: [{ name: 'hidden #1', status: 'fail', message: 'secret', actual: 'secret' }] }, { stuck: false, mastered: false, later: true });
     expect(JSON.stringify(view)).not.toContain('secret');
+  });
+
+  it('builds a lesson from named fields only, so nothing core adds later reaches the window', () => {
+    const lesson = { id: 'l1', concept: 'values', title: 'Values', markdown: '# Values', notes: 'mine', examples: [{ 'main.py': 'print(1)' }], style: 'io' as const, solution: 'SECRET' };
+    expect(lessonView(lesson)).toEqual({ id: 'l1', concept: 'values', title: 'Values', markdown: '# Values', notes: 'mine', examples: [{ files: [{ path: 'main.py', text: 'print(1)' }] }], style: 'io' });
+    expect(lessonView({ ...lesson, style: undefined })).not.toHaveProperty('style');
+  });
+
+  it("builds an example's run from named fields only", () => {
+    expect(exampleRunView({ exit: 0, output: '1\n', errors: '', path: '/Users/me/x' } as never)).toEqual({ kind: 'ran', exit: 0, output: '1\n', errors: '' });
   });
 
   it('Try it shows visible results only', () => {
