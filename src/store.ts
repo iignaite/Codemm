@@ -453,10 +453,13 @@ function workspaceLock(ws: string): string {
 /** Serializes changes Codemm makes to one workspace (codemm.json, host setup). */
 export const withWorkspaceLock = <T>(ws: string, work: () => Promise<T>) => withLock(workspaceLock(ws), work);
 
-/** Read-modify-write of codemm.json, serialized across processes. */
-export async function updateWorkspace(ws: string, change: (config: WorkspaceConfig) => WorkspaceConfig): Promise<WorkspaceConfig> {
+/**
+ * Read-modify-write of codemm.json, serialized across processes. `change` may take the course lock (workspace, then
+ * course: nothing takes them the other way round) to record something that must agree with the change.
+ */
+export async function updateWorkspace(ws: string, change: (config: WorkspaceConfig) => WorkspaceConfig | Promise<WorkspaceConfig>): Promise<WorkspaceConfig> {
   return withWorkspaceLock(ws, async () => {
-    const next = change(readWorkspace(ws));
+    const next = await change(readWorkspace(ws));
     writeJsonAtomic(workspaceFile(ws), next);
     return next;
   });

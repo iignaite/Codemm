@@ -108,6 +108,13 @@ describe.runIf(posix)("installing a track", () => {
     expect(failure.kind).not.toBe("disk");
   });
 
+  it("calls a Docker failure while inspecting the built image a Docker problem, not a gate failure", async () => {
+    fakeDocker("inspect-fails");
+    const failure = app.saveTrack(track());
+    await expect(failure).rejects.toMatchObject({ name: "CodemmError", kind: "docker" });
+    await expect(failure).rejects.not.toThrow(/Gate/);
+  });
+
   it("reports a setup's build steps, then its checks, as phases and counts only", async () => {
     fakeDocker("builds");
     await app.proposeTrack(track());
