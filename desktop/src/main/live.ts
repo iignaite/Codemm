@@ -3,7 +3,6 @@
 // bridge; everything returned goes through views.ts.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { isSafeLink } from './links';
 import {
   AGENT_FAILED,
   CHANGED,
@@ -38,7 +37,7 @@ import { courseView, currentConcept, otherReady, type Setup } from './courseView
 import { noLog, type Log } from './log';
 import type { desktopState } from './state';
 import type { usageStore } from './usage';
-import { activityView, checkView, filterReply, hiddenLines, tryView } from './views';
+import { activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
 
 export interface LiveDeps {
   core: CoreApp;
@@ -156,12 +155,7 @@ export function createLive(d: LiveDeps): Live {
     }
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
-  const trackName = (ref: string) => ref.split('@')[0];
-  const roadmapView = (r: CoreRoadmap): Roadmap => ({
-    goal: r.goal, track: trackName(r.track), installed: installed(r.track), concepts: r.concepts.map((c) => ({ id: c.id, title: c.title, requires: [...c.requires] })),
-    // Core accepts only https sources; main checks again before anything reaches the window (§2.1).
-    sources: (r.sources ?? []).filter((s) => isSafeLink(s.url)).map((s) => ({ title: s.title, url: s.url })),
-  });
+  const roadmapShown = (r: CoreRoadmap): Roadmap => roadmapView(r, installed(r.track));
   /** The activity the learner last opened: the workspace's current one is the draft's while a draft is active. */
   let opened: string | undefined;
   /** The hidden material of an activity: the one named, else the one the learner is on. */
@@ -547,7 +541,7 @@ export function createLive(d: LiveDeps): Live {
           if (outcome.problem && outcome.problem !== 'failed' && outcome.problem !== 'infra') throw problemError(outcome.problem);
           return { state: 'failed' };
         }
-        return { state: 'done', roadmap: roadmapView(core.getRoadmap(ws)) };
+        return { state: 'done', roadmap: roadmapShown(core.getRoadmap(ws)) };
       }
       if (!running.has(key) && !finishing.has(key)) {
         await d.connect.chosen();
@@ -583,7 +577,7 @@ export function createLive(d: LiveDeps): Live {
       const { outcome, changed, after } = await roadmapJob(course, briefs.roadmap(request), (before) => (turn) => turn.ok || JSON.stringify(core.getRoadmap(ws, course)) !== before);
       schedule();
       const filter = hidden();
-      return { roadmap: roadmapView(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
+      return { roadmap: roadmapShown(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
     },
 
     async approve(concepts) {
@@ -598,7 +592,7 @@ export function createLive(d: LiveDeps): Live {
 
     async draft() {
       const roadmap = draft();
-      return roadmap && roadmapView(roadmap);
+      return roadmap && roadmapShown(roadmap);
     },
 
     async saveDraft(concepts) {
@@ -678,13 +672,12 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async lesson(id) {
-      const { examples, ...lesson } = core.getLesson(ws, id, approved());
-      return { ...lesson, examples: examples.map((files) => ({ files: Object.entries(files).map(([path, text]) => ({ path, text })) })) };
+      return lessonView(core.getLesson(ws, id, approved()));
     },
 
     async runExample(lessonId, index) {
       try {
-        return { kind: 'ran', ...(await whenDockerReady(() => core.runExample(ws, lessonId, index, approved()))) };
+        return exampleRunView(await whenDockerReady(() => core.runExample(ws, lessonId, index, approved())));
       } catch (e) {
         const reason = notCounted(e);
         if (reason) {
