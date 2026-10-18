@@ -149,6 +149,17 @@ describe('updates', () => {
       expect(await verifyWindowsSignature(['Codemm'], file, signed('CN=Codemm', 2))).toMatch(/isn't validly signed/);
     });
 
+    it('reads quoted and escaped parts as one value, so text inside them never passes for the publisher', async () => {
+      const spoof = 'CN=Someone Else, OU="Other, CN=Codemm, O=Codemm, C=PH, X=tail", C=PH';
+      expect(await verifyWindowsSignature(['CN=Codemm, O=Codemm, C=PH'], file, signed(spoof))).toMatch(/signed by someone else/);
+      expect(await verifyWindowsSignature(['Codemm'], file, signed(spoof))).toMatch(/signed by someone else/);
+      expect(await verifyWindowsSignature(['Codemm'], file, signed('CN=Some\\, Codemm, O=X'))).toMatch(/signed by someone else/);
+      // A real name with a quoted comma still matches, and a key the publisher names must appear once.
+      expect(await verifyWindowsSignature(['CN=Codemm, O="Codemm, Inc."'], file, signed('CN=Codemm, O="Codemm, Inc.", C=PH'))).toBeNull();
+      expect(await verifyWindowsSignature(['Codemm'], file, signed('CN=Codemm, CN=Other'))).toMatch(/signed by someone else/);
+      expect(await verifyWindowsSignature(['Codemm'], file, signed('CN="Codemm'))).toMatch(/signed by someone else/);
+    });
+
     it("rejects the update when the check can't run or its answer can't be read", async () => {
       const blocked = async () => {
         throw new Error('powershell is disabled by policy');

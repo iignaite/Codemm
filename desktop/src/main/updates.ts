@@ -84,21 +84,59 @@ export function downloaded(doneOn: Pick<NodeJS.EventEmitter, 'once' | 'off'>, er
 /** Runs a program and gives its stdout. */
 type Exec = (file: string, args: string[], env: NodeJS.ProcessEnv) => Promise<string>;
 
-/** A distinguished name's parts, such as CN and O, by key. */
-function dn(name: string): Map<string, string> {
-  return new Map(
-    name.split(/,\s*(?=[A-Za-z.]+=)/).map((part) => {
-      const at = part.indexOf('=');
-      return [part.slice(0, at).trim().toUpperCase(), part.slice(at + 1).trim().replace(/^"(.*)"$/, '$1')] as [string, string];
-    }),
-  );
+/**
+ * A distinguished name's parts by key, each with every value it has (a key may repeat, such as OU). A quoted value
+ * keeps its commas, and a backslash escapes the next character. Null when it can't be read whole.
+ */
+function dn(name: string): Map<string, string[]> | null {
+  const parts = new Map<string, string[]>();
+  let i = 0;
+  const skipSpaces = () => {
+    while (name[i] === ' ') i++;
+  };
+  skipSpaces();
+  while (i < name.length) {
+    const eq = name.indexOf('=', i);
+    if (eq < 0) return null;
+    const key = name.slice(i, eq).trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9.-]*$/.test(key)) return null;
+    i = eq + 1;
+    skipSpaces();
+    let value = '';
+    if (name[i] === '"') {
+      i++;
+      while (i < name.length && name[i] !== '"') {
+        if (name[i] === '\\') i++;
+        value += name[i++] ?? '';
+      }
+      if (name[i] !== '"') return null;
+      i++;
+      skipSpaces();
+    } else {
+      while (i < name.length && name[i] !== ',') {
+        if (name[i] === '\\') i++;
+        value += name[i++] ?? '';
+      }
+      value = value.trim();
+    }
+    if (i < name.length && name[i] !== ',') return null;
+    parts.set(key, [...(parts.get(key) ?? []), value]);
+    i++;
+    skipSpaces();
+  }
+  return parts.size ? parts : null;
 }
 
-/** A publisher given by name matches the signer's CN; one given as a full name must match every part it names. */
+/**
+ * A publisher given by name matches a signer whose one CN is that name. One given as a full name matches when every
+ * key it names appears once in the signer's name, with that value.
+ */
 function signedBy(subject: string, publisher: string): boolean {
   const signer = dn(subject);
-  if (!publisher.includes('=')) return signer.get('CN') === publisher;
-  return [...dn(publisher)].every(([key, value]) => signer.get(key) === value);
+  const once = (key: string, value: string) => signer?.get(key)?.length === 1 && signer.get(key)![0] === value;
+  if (!publisher.includes('=')) return once('CN', publisher);
+  const wanted = dn(publisher);
+  return wanted !== null && [...wanted].every(([key, values]) => values.length === 1 && once(key, values[0]));
 }
 
 /**
