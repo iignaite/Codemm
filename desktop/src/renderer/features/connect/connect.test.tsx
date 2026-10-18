@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createMock, scenario } from '../../../main/mock';
@@ -158,5 +158,24 @@ describe('a relaunch', () => {
     expect(screen.getByText('Connected')).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: 'Passed' })).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('Claude Code');
+  });
+});
+
+describe('a look that fails after one worked', () => {
+  it('keeps the agents on screen when a later look fails, says so, and Try again looks again', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    const agents = api.agents.bind(api);
+    let failing = false;
+    api.agents = () => (failing ? Promise.reject(new Error('codemm:offline')) : agents());
+    renderApp({ to: 'connect' }, api);
+    expect(await screen.findByRole('listitem', { name: 'Claude Code' })).toBeInTheDocument();
+    failing = true;
+    window.dispatchEvent(new Event('focus'));
+    expect(await screen.findByText(/Codemm couldn't refresh this/)).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('listitem', { name: 'Claude Code' })).toBeInTheDocument();
+    failing = false;
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByText(/Codemm couldn't refresh this/)).not.toBeInTheDocument());
   });
 });

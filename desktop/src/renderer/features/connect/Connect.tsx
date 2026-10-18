@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Agent, AgentId, AgentInstall } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
-import { Failed } from '../../app/Problems';
+import { Failed, Stale } from '../../app/Problems';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
@@ -16,7 +16,7 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
   const { go, fail } = useRouter();
   // Coming back to the window looks again: an agent installed or signed in meanwhile shows up. An install is
   // followed until it ends.
-  const { data, error, reload } = useLoad(() => api.agents(), [], { settled: (as) => !as.some((a) => running(a.install)), onFocus: true });
+  const { data, error, stale, reload } = useLoad(() => api.agents(), [], { settled: (as) => !as.some((a) => running(a.install)), onFocus: true });
   const [agents, setAgents] = useState<Agent[]>();
   useEffect(() => setAgents(undefined), [data]);
   const [busy, setBusy] = useState<string>();
@@ -127,6 +127,7 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
           <Button size="lg" disabled={!list.some((a) => a.state === 'connected')} onClick={() => go(next)}>Continue</Button>
         </div>
       </div>
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }

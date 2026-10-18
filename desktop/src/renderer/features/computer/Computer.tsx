@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { Computer as ComputerView, ComputerCheck, DockerInstall, Platform } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
-import { Failed } from '../../app/Problems';
+import { Failed, Stale } from '../../app/Problems';
 import { timing, useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
@@ -21,7 +21,7 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
   // check starts, before React re-renders with `loading`, so a focus in between can't start a second one.
   const checking = useRef(false);
   const last = useRef<ComputerView | undefined>(undefined);
-  const { data, error, loading, reload } = useLoad(
+  const { data, error, stale, loading, reload } = useLoad(
     async () => {
       checking.current = true;
       try {
@@ -104,6 +104,7 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
           )}
         </div>
       </div>
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }
