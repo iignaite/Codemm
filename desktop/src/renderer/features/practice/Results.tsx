@@ -4,6 +4,7 @@ import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { Busy } from '../../ui/Busy';
+import { testName } from './paneReport';
 
 export type Shown =
   | { kind: 'idle' }
@@ -160,9 +161,6 @@ function Progress({ phase, done, total }: CheckProgress) {
     </div>
   );
 }
-
-/** The core names visible results "visible/<name>"; the exercise names its tests "<name>". */
-const testName = (name: string): string => name.replace(/^visible\//, '');
 
 /** Visible results, with what was expected next to what was found. */
 function TestLines({ tests, visibleTests }: { tests: TestView[]; visibleTests: VisibleTest[] }) {
