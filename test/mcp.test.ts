@@ -218,6 +218,15 @@ describe.runIf(posix)("reference-gate diagnostics through save_exercise", () => 
     expect(message).not.toContain("CANARY");
   });
 
+  it("a container that dies at start after the code wrote to stderr is described without that output", async () => {
+    await install("io");
+    const { call } = await connect();
+    fakeDocker("leaks-start");
+    const message = await failure(call, withCanary(readFileMap(join(fixtures, "exercises", "io-max"))));
+    expect(message).toMatch(/container couldn't start/);
+    expect(message).not.toContain("CANARY");
+  });
+
   it("a unit reference that fails is described by test and status, without its messages", async () => {
     await install("unit");
     const { call } = await connect();

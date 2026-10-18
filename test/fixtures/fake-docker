@@ -85,6 +85,11 @@ case "$1" in
     fi
     # leaks-build / leaks: a run that prints the source it was given, as a compiler error or a traceback does.
     # leaks-build fails the build; leaks fails each io case (source on stderr) and each unit test (source as the message).
+    # leaks-start: code writes the source to stderr before any frame, then the runtime fails with exit 125.
+    if [ "$FAKE_DOCKER" = leaks-start ]; then
+      for a in "$@"; do case "$a" in *target=/work/src,*) src="${a#*source=}"; src="${src%%,target=*}" ;; esac; done
+      /bin/cat "$src"/* >&2; exit 125
+    fi
     if [ "$FAKE_DOCKER" = leaks-build ] || [ "$FAKE_DOCKER" = leaks ]; then
       tests=""; src=""; build=""
       for a in "$@"; do case "$a" in *target=/work/tests,*) tests="${a#*source=}"; tests="${tests%%,target=*}" ;; *target=/work/src,*) src="${a#*source=}"; src="${src%%,target=*}" ;; CODEMM_BUILD=*) build=1 ;; esac; done
