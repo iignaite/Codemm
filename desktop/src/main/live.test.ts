@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { CHANGED, OFFLINE, PLAN_LIMIT, REPAIR, UNSTOPPABLE, type JobProgress } from '../shared/api';
-import { CANARY, live, practising, researched, until } from './testing/fakes';
+import { CANARY, coreError, live, practising, researched, until } from './testing/fakes';
 import { tempDir } from './testing/temp';
 import { usageStore } from './usage';
 import { HELD_BACK } from './views';
@@ -234,7 +234,7 @@ describe('live CodemmApi', () => {
     const { proposal } = await until(t.api, (c) => c.setup === 'consent');
     const install = t.c.install;
     t.c.install = async () => {
-      throw new Error('Could not resolve host: registry.npmjs.org');
+      throw coreError("The track build couldn't reach the network (Could not resolve host: registry.npmjs.org).", 'offline');
     };
     await t.api.install(proposal!.digest);
     // The failed view keeps the approved proposal, so Try again builds the same files.
@@ -274,6 +274,44 @@ describe('live CodemmApi', () => {
     expect(t.c.checks).toEqual([]);
     await t.api.saveFile(activity.id, 'main.c', 'count + 1', activity.files[0].digest);
     expect(await t.api.check(activity.id)).toMatchObject({ kind: 'graded', passed: 2, mastered: true, tests: [{ hidden: false }, { hidden: true, index: 1, status: 'pass' }] });
+  });
+
+  it("classifies core's failures by their kind, whatever the wording, and plain text alone not at all", async () => {
+    const t = live();
+    const activity = await practising(t);
+    const core = (message: string, kind?: string) => Object.assign(new Error(message), { name: 'CodemmError', ...(kind ? { kind } : {}) });
+    const check = t.app.checkExercise;
+    t.app.checkExercise = async () => { throw core('Some new wording', 'disk'); };
+    expect(await t.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: 'Docker ran out of disk space.' });
+    t.app.checkExercise = async () => { throw core('Reworded too', 'image-missing'); };
+    expect(await t.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: expect.stringMatching(/rebuild/i) });
+    // A write that ran out of space on this computer, before core could say so.
+    t.app.checkExercise = async () => { throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' }); };
+    expect(await t.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: 'Docker ran out of disk space.' });
+    // Core's wording without its kind is not this computer's problem: it isn't hidden as "not counted".
+    t.app.checkExercise = async () => { throw core("The container runtime isn't running."); };
+    await expect(t.api.check(activity.id)).rejects.toThrow(/container runtime/);
+    t.app.checkExercise = check;
+
+    const save = t.app.writeLearnerFile;
+    t.app.writeLearnerFile = async () => { throw core('Reload the file.', 'changed'); };
+    await expect(t.api.saveFile(activity.id, 'main.c', 'x', activity.files[0].digest)).rejects.toThrow(CHANGED);
+    t.app.writeLearnerFile = save;
+
+    const progress = t.app.progress;
+    t.app.progress = () => { throw core('A record needs fixing.', 'damaged'); };
+    await expect(t.api.course()).rejects.toMatchObject({ message: `${REPAIR}\nA record needs fixing.` });
+    t.app.progress = progress;
+  });
+
+  it('a setup that fails on this computer keeps its proposal, by kind', async () => {
+    const t = live();
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    t.c.install = async () => { throw Object.assign(new Error('Docker could not finish.'), { name: 'CodemmError', kind: 'offline' }); };
+    await t.api.install(proposal!.digest);
+    expect(await until(t.api, (c) => c.setup === 'failed')).toMatchObject({ setupProblem: 'offline', proposal: { digest: proposal!.digest } });
   });
 
   it('a Docker failure is not counted, for Check and for Try it', async () => {
@@ -366,7 +404,7 @@ describe('live CodemmApi', () => {
     const { proposal } = await until(t.api, (c) => c.setup === 'consent');
     const install = t.c.install;
     t.c.install = async () => {
-      throw new Error("The container runtime isn't running. Start Docker Desktop, then retry.");
+      throw coreError("The container runtime isn't running. Start Docker Desktop, then retry.", 'docker');
     };
     await t.api.install(proposal!.digest);
     expect(await until(t.api, (c) => c.setup === 'failed')).toMatchObject({ setupProblem: 'docker', proposal: { digest: proposal!.digest } });
@@ -377,7 +415,7 @@ describe('live CodemmApi', () => {
     const s = live();
     const activity = await practising(s);
     s.app.checkExercise = async () => {
-      throw new Error("The container runtime stopped during the run, so it wasn't counted. Start Docker Desktop.");
+      throw coreError("The container runtime stopped during the run, so it wasn't counted. Start Docker Desktop.", 'docker');
     };
     expect(await s.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: "Docker isn't running." });
   });
@@ -799,14 +837,14 @@ describe('live CodemmApi', () => {
     const t = live();
     await practising(t);
     const guidance = "Codemm's record /h/courses/react/course.json is damaged. Restore it from a backup, or remove that track, course or exercise.";
-    const damaged = Object.assign(new Error(guidance), { name: 'CodemmError' });
+    const damaged = coreError(guidance, 'damaged');
     t.app.progress = () => {
       throw damaged;
     };
     const failure = await t.api.course().catch((e: Error) => e);
     expect(failure).toMatchObject({ name: 'CodemmError', message: `${REPAIR}\n${guidance}` });
     t.app.progress = () => {
-      throw Object.assign(new Error('The learning log /h/courses/react/events.jsonl has an invalid entry on line 3. Fix or remove that line, then retry.'), { name: 'CodemmError' });
+      throw coreError('The learning log /h/courses/react/events.jsonl has an invalid entry on line 3. Fix or remove that line, then retry.', 'damaged');
     };
     await expect(t.api.check('values-easy-1')).rejects.toThrow(/^codemm:repair\nThe learning log/);
   });
@@ -887,11 +925,11 @@ describe('live CodemmApi', () => {
     const t = live();
     await practising(t);
     t.app.getRoadmap = () => {
-      throw Object.assign(new Error("Codemm's record /h/courses/react/course.json is damaged. Restore it from a backup, or remove that track, course or exercise."), { name: 'CodemmError' });
+      throw coreError("Codemm's record /h/courses/react/course.json is damaged. Restore it from a backup, or remove that track, course or exercise.", 'damaged');
     };
     await expect(t.api.course()).rejects.toThrow(/^codemm:repair\nCodemm's record/);
     t.app.getRoadmap = () => {
-      throw Object.assign(new Error('No course in this workspace yet. Ask your agent to plan a roadmap (save_roadmap).'), { name: 'CodemmError' });
+      throw coreError('No course in this workspace yet. Ask your agent to plan a roadmap (save_roadmap).', 'no-course');
     };
     expect(await t.api.course()).toBeNull();
   });

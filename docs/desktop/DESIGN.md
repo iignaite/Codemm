@@ -473,6 +473,7 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
   - **Disk.** Before building, `installProposal` checks that the volume holding `$CODEMM_HOME` has at least 5 GB free, failing with "Not enough disk space".
   - **Build output.** A failed build whose output matches a known offline or disk-full marker (for example "no space left on device", "could not resolve host" or "network is unreachable") is an infrastructure failure. Any other failed build is a gate failure.
   - **Try again** re-installs the same proposal (§4.1).
+  - **How the desktop tells.** Core's errors carry a `kind` (no-course, image-missing, damaged, changed, docker, disk, offline; core `src/errors.ts`), and the desktop acts on it, not on the wording (`core/failures.ts`). A native out-of-space error (`ENOSPC`) counts as disk. Only core messages an agent relays over MCP, which carry no kind, are read as text.
 - **Agent problems.**
   - No agent found and signed out go to the connect screen.
   - A plan limit is recognized from the agent's `done` error, by known per-agent limit markers ("usage limit", "rate limit", HTTP 429). A plan limit is never relaunched and spends no retry. An unrecognized error is a generic failure.
