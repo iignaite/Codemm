@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node build.mjs",
     "dev": "node scripts/dev.mjs",
-    "deploy": "npm test && vercel deploy --prod --scope gael55xs-projects",
+    "deploy": "npm test && npx --yes vercel@53.3.2 deploy --prod --scope gael55xs-projects",
     "test": "node --test 'test/*.test.js'"
   }
 }
