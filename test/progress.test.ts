@@ -53,7 +53,7 @@ describe.runIf(posix)("check progress", () => {
     const ws = await installedExercise();
     fakeDocker("killed");
     const seen: CheckProgress[] = [];
-    await expect(app.checkExercise(ws, undefined, undefined, (p) => seen.push(p))).rejects.toThrow(/wasn't counted/);
+    await expect(app.checkExercise(ws, undefined, undefined, (p) => seen.push(p))).rejects.toMatchObject({ kind: "docker", message: expect.stringMatching(/wasn't counted/) });
     expect(seen.length).toBeGreaterThan(0);
     expect(store.readEvents("shell")).toEqual([]);
   });

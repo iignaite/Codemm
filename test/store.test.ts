@@ -138,7 +138,7 @@ describe("corrupted records", () => {
     const dir = join(home, "courses", "demo", "exercises", "x");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "exercise.json"), JSON.stringify({ format_version: 1, slug: "x", expected: { "hidden/SECRET_TEST_NAME": 5 } }));
-    expect(() => listExercises("demo")).toThrow(/exercise\.json/);
+    expect(() => listExercises("demo")).toThrow(expect.objectContaining({ kind: "damaged", message: expect.stringMatching(/exercise\.json/) }));
     expect(() => listExercises("demo")).not.toThrow(/SECRET_TEST_NAME/);
   });
 });
@@ -159,7 +159,7 @@ describe("generated records", () => {
 
 describe("assertFreeSpace", () => {
   it("refuses when the volume has less free space than setup needs", () => {
-    expect(() => assertFreeSpace(home, Number.MAX_SAFE_INTEGER)).toThrow(/Not enough disk space/);
+    expect(() => assertFreeSpace(home, Number.MAX_SAFE_INTEGER)).toThrow(expect.objectContaining({ kind: "disk", message: expect.stringMatching(/Not enough disk space/) }));
     expect(() => assertFreeSpace(home, 1)).not.toThrow();
   });
 });

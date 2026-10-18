@@ -28,12 +28,15 @@ case "$1" in
       disk-full) echo "ERROR: failed to solve: failed to copy files: write /var/lib/docker/tmp/layer: no space left on device" >&2 ;;
     esac
     exit 1 ;;
-  image) echo "sha256:fake null" ;;
+  # no-image: the verified image is gone (pruned), so inspecting it fails.
+  image) [ "$FAKE_DOCKER" = no-image ] && exit 1; echo "sha256:fake null" ;;
   events) case "$FAKE_DOCKER" in oom|childoom) echo oom ;; esac ;;
   run)
     # Run scenarios act out the Run driver: its markers go to stderr, around the program's own output.
     # interactive: asks for a name and greets it. waits/ignores: run until killed (no end marker).
     m() { printf '\n@@codemm-run %s\n' "$*" >&2; }
+    # nospace: the container can't even start, because Docker's disk is full (a Run or a check alike).
+    [ "$FAKE_DOCKER" = nospace ] && { echo "docker: Error response from daemon: mkdir /var/lib/docker/overlay2/x: no space left on device." >&2; exit 125; }
     case "$FAKE_DOCKER" in
       interactive) m start run; printf 'name? '; read -r name; echo "hello $name"; echo "a warning" >&2; m end run 0; exit 0 ;;
       waits) m start run; while read -r line; do :; done; exit 0 ;;
