@@ -29,4 +29,22 @@ describe('a job whose agent could not be stopped', () => {
     expect(outcome).toMatchObject({ ok: false, problem: 'unstoppable' });
     expect(launches.count).toBe(1);
   });
+
+  it('says so at once, without waiting for a container cleanup', async () => {
+    // Live latches its no-more-agents guard on this outcome; a cleanup that waits on Docker must not delay it.
+    const cleanup = vi.fn(() => new Promise<void>(() => undefined));
+    const outcome = await runJob({
+      kind: 'lesson',
+      agent: 'claude',
+      exe: { path: '/bin/claude', js: false },
+      brief: 'Write.',
+      server: () => ({ command: '/app', args: [] }),
+      cwd: tmpdir(),
+      done: () => false,
+      signedIn: async () => true,
+      cleanup,
+    });
+    expect(outcome).toMatchObject({ ok: false, problem: 'unstoppable' });
+    expect(cleanup).not.toHaveBeenCalled();
+  });
 });

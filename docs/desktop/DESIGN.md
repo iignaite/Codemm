@@ -142,7 +142,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
   - On Windows: `taskkill /pid <pid> /t /f`, awaited.
   - A job that is already cancelled never starts.
   - If the group survives, or `taskkill` fails, the job fails with "Codemm couldn't stop your agent. Quit Codemm to stop it."
-  - After a cancel or crash, main runs the core's leftover-container cleanup (`doctor --fix`'s rule: only containers whose owner is gone).
+  - After an attempt Codemm ends (a cancel, the deadline, or a failure that stops the agent), the job awaits the core's leftover-container cleanup before it relaunches or finishes (`doctor --fix`'s rule: only containers whose owner is gone). If one is still there, the job isn't relaunched and fails as an infrastructure failure. An agent that survived its cancel is reported at once, before any cleanup. The app also runs it at start and when quitting, for a crash.
 - **Robustness.**
   - A stream line that is malformed or makes the parser throw is skipped.
   - A line over 1 MB is dropped before parsing.

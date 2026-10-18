@@ -69,6 +69,11 @@ export interface Job {
   usable?: () => boolean;
   /** Asked when a job fails for an unknown reason. */
   signedIn: () => Promise<boolean>;
+  /**
+   * Removes the containers of Codemm processes that are gone (core's removeAbandoned), after an attempt Codemm ended:
+   * a cancelled job's gate container would otherwise run on beside the next one (§5).
+   */
+  cleanup?: () => Promise<void>;
   deadlineMs?: number;
   /** Hears each of the agent's events, for the job's progress (§4.11). */
   onEvent?: (event: AgentEvent) => void;
@@ -87,6 +92,8 @@ interface Attempt {
   text: string[];
   /** A cancel the agent's process group survived (§3.1). */
   unstoppable: boolean;
+  /** Codemm ended the attempt (a cancel, the deadline, or a failure that stops it), so it may have left containers. */
+  ended: boolean;
   /** `server`: the Codemm server didn't start. `tool`: a Codemm tool hit Docker or disk; `offline`: the network. `unstarted`: the agent exited before it started. */
   infra?: 'server' | 'tool' | 'offline' | 'unstarted';
 }
@@ -109,7 +116,7 @@ function jobFolder(agentDir: string, agent: AgentId, files: NonNullable<Invocati
 
 async function once(job: Job): Promise<Attempt> {
   const cli = AGENT_CLIS[job.agent];
-  if (!cli.launch || !cli.parse) return { ok: false, error: 'This agent is experimental and can not run jobs yet.', text: [], unstoppable: false };
+  if (!cli.launch || !cli.parse) return { ok: false, error: 'This agent is experimental and can not run jobs yet.', text: [], unstoppable: false, ended: false };
   const spec = JOBS[job.kind];
   const deadlineMs = job.deadlineMs ?? spec.deadlineMs;
   const stop = new AbortController();
@@ -166,7 +173,7 @@ async function once(job: Job): Promise<Attempt> {
     if (!started && !result.cancelled && result.code !== 0) infra ??= 'unstarted';
     // A conversational success needs the agent's done event and a clean exit.
     const ok = !result.cancelled && result.code === 0 && done?.ok === true;
-    return { ok, error: done?.error, session, text, unstoppable: result.cancelled && result.stopped === false, infra };
+    return { ok, error: done?.error, session, text, unstoppable: result.cancelled && result.stopped === false, ended: result.cancelled, infra };
   } finally {
     clearTimeout(deadline);
     job.signal?.removeEventListener('abort', cancel);
@@ -175,7 +182,7 @@ async function once(job: Job): Promise<Attempt> {
 
 /**
  * Runs a job and checks it against core records. A failed job is relaunched at most once, never after
- * a plan limit, a sign-out or an infrastructure failure, never while its agent may still be running,
+ * a plan limit, a sign-out or an infrastructure failure, never while its agent or its container may still be running,
  * and never when its save landed anyway (a save can commit just before a crash).
  */
 export async function runJob(job: Job): Promise<JobOutcome> {
@@ -187,9 +194,14 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     if (job.usable?.() === false) return { ok: false, problem: 'signed-out', text: last?.text ?? [] };
     if (attempt > 0) job.onRelaunch?.();
     last = await once(job);
+    // Said at once: the caller stops every other agent on this, and a cleanup waiting on Docker must not delay it.
     if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
+    // Before a relaunch or the end, an attempt Codemm ended leaves no container behind.
+    const cleaned = last.ended && job.cleanup ? await job.cleanup().then(() => true, () => false) : true;
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };
     if (job.signal?.aborted) break;
+    // Its container may still run, so no relaunch joins it.
+    if (!cleaned) return { ok: false, problem: 'infra', text: last.text };
     if (last.error && PLAN_LIMIT.test(last.error)) return { ok: false, problem: 'plan-limit', text: last.text };
     if (last.infra === 'offline' || (last.error && OFFLINE.test(last.error))) return { ok: false, problem: 'offline', text: last.text };
     if (last.infra === 'server' || last.infra === 'tool') return { ok: false, problem: 'infra', text: last.text };
