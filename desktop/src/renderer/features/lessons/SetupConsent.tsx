@@ -6,6 +6,7 @@ import { useRouter } from '../../app/router';
 import { Button } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { Emm } from '../../ui/Emm';
+import { Banner } from '../../ui/Banner';
 
 /** The one consent before setup: exactly the files Codemm will build (§4.1). */
 type Props = { track: string; proposal: Proposal; error?: string; onClose: () => void; onSetUp: () => void };
@@ -66,7 +67,7 @@ export function SetupOffer({ course, banner = false, onChange }: { course: Cours
   const offer = <Button onClick={() => setOpen(true)}>Set up {course.track}</Button>;
   return (
     <>
-      {!open && (banner ? <div className="card info resume a-up"><span>{course.track} isn't set up yet.</span>{offer}</div> : <div className="a-up">{offer}</div>)}
+      {!open && (banner ? <Banner action={offer}>{course.track} isn't set up yet.</Banner> : <div className="a-up">{offer}</div>)}
       {open && <SetupConsent track={course.track} proposal={proposal} error={error} onClose={() => setOpen(false)} onSetUp={() => install(proposal.digest)} />}
     </>
   );

@@ -9,6 +9,7 @@ import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { EmmFill } from '../../ui/EmmFill';
 import { fillOf, JobBar, sayStep } from '../../ui/JobBar';
+import { Panel } from '../../ui/Panel';
 
 /** Codemm's agent researches the goal and writes a roadmap, which the learner then edits. */
 export function Research({ goal }: { goal: Goal }) {
@@ -28,14 +29,10 @@ export function Research({ goal }: { goal: Goal }) {
   if (data?.state === 'failed') {
     return (
       <main className="center">
-        <div className="card panel a-pop" role="alert">
-          <Emm mood="soft" width={130} />
-          <h1 className="h2">Codemm couldn't finish that.</h1>
-          <div className="actions">
-            <Button variant="ghost" size="lg" onClick={() => go({ to: 'connect', then: { to: 'research', goal } })}>Check your agent</Button>
-            <Button size="lg" onClick={reload}>Try again</Button>
-          </div>
-        </div>
+        <Panel art={<Emm mood="soft" width={130} />} title="Codemm couldn't finish that.">
+          <Button variant="ghost" size="lg" onClick={() => go({ to: 'connect', then: { to: 'research', goal } })}>Check your agent</Button>
+          <Button size="lg" onClick={reload}>Try again</Button>
+        </Panel>
       </main>
     );
   }

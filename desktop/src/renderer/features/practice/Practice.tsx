@@ -15,6 +15,7 @@ import { Editor } from './Editor';
 import { Results } from './Results';
 import { useAttempt } from './useAttempt';
 import { useLearnerFiles } from './useLearnerFiles';
+import { RunButton } from '../../ui/RunButton';
 
 export function Practice({ concept }: { concept: string }) {
   const api = useApi();
@@ -101,12 +102,7 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
           onOpen={setOpen}
           onChange={(text) => edit(open, text)}
           tools={<>
-            {/* One button that turns into Stop, so keyboard focus stays on it. */}
-            {activity.run && (
-              <Button variant="ghost" disabled={busy && !program.running} onClick={program.running ? program.stop : () => (setRan(true), setPaneFor('run'), void program.start())}>
-                {program.running ? 'Stop' : 'Run'}
-              </Button>
-            )}
+            {activity.run && <RunButton running={program.running} disabled={busy} onStop={program.stop} onRun={() => (setRan(true), setPaneFor('run'), void program.start())} />}
             <Button variant="ghost" disabled={busy} onClick={tryIt}>Try it</Button>
             <Button disabled={busy} onClick={check}>Check</Button>
           </>}
