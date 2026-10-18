@@ -133,6 +133,9 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .outline { gap: 6px; }
 .outline .h3 { padding: 0 14px 8px; }
 .outline .item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: none; border-radius: 10px; background: transparent; color: var(--faint); text-align: left; }
+/* Why a locked activity is locked, in words (the lock alone says nothing). */
+.locked { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.outline .locked { margin-top: -8px; padding: 0 14px 0 44px; }
 .outline .link { color: var(--ink); cursor: pointer; }
 .outline .link:hover { background: var(--soft); }
 .outline .link[aria-current="page"] { background: var(--green-soft); font-weight: 600; }
