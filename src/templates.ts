@@ -9,7 +9,7 @@ export const AGENTS_END = "<!-- codemm:end -->";
 const NO_SOLUTION = "Never give the learner a solution: not in their files under \`exercises/\`, and not in chat, even when they ask for it.";
 
 /** How to hint, from the bench (docs/bench/results.md). */
-const HINT = `give one hint: name the one thing that's missing or wrong, and ask one question that leads to the next step. Don't state the fix, write the code or list the steps. For example: "Your loop stops before the last item. Which index does the last item have?"`;
+const HINT = `give one hint: name the one thing that's missing or wrong, and ask one question that leads to the next step. Don't state the fix, write the code or list the steps. For example: "Your loop stops before the last item. Which index does the last item have?" Keep a plain tone: no praise or cheerleading ("Great!", "You're almost there!"); say what's right or wrong and the next step.`;
 
 const LESSON_FIRST =
   "On \`practice\` and \`author\`, a \`lesson\` field means teach first. If it is \`null\`, write a short lesson for the concept with \`save_lesson\`; if it is an id, read that lesson with \`get_lesson\`. Teach it, and call \`mark_lesson_read\` only after the learner says they've read it. Then call \`next_step\` again.";
