@@ -68,11 +68,11 @@ export function TopicItem({ index, count, title, editing, onEdit, onRename, onRe
       onDrop={onDrop}
     >
       <button ref={grip} className="ibtn" type="button" aria-label={`Move ${title}`} aria-haspopup="menu" aria-expanded={menu} disabled={count < 2 || !onMove} onClick={() => setMenu(!menu)}>
-        <Icon name="grip" color="#8492A9" size={17} />
+        <Icon name="grip" color="var(--ctl)" size={17} />
       </button>
       <span className="num" aria-hidden="true">{index + 1}</span>
       {editing ? (
-        <form style={{ flex: 1, display: 'flex', gap: 8 }} onSubmit={commit}>
+        <form className="rename" onSubmit={commit}>
           <input className="name" aria-label="Topic name" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
           <Button variant="text" type="submit">Done</Button>
         </form>
@@ -81,14 +81,14 @@ export function TopicItem({ index, count, title, editing, onEdit, onRename, onRe
           <span className="name">{title}</span>
           {onDeeper && (
             <button className="ibtn" type="button" aria-label={`Go deeper on ${title}`} title="Go deeper" onClick={onDeeper}>
-              <Icon name="layers" color="#5B6A84" size={17} />
+              <Icon name="layers" color="var(--faint)" size={17} />
             </button>
           )}
           <button className="ibtn" type="button" aria-label={`Rename ${title}`} onClick={onEdit}>
-            <Icon name="pencil" color="#5B6A84" size={17} />
+            <Icon name="pencil" color="var(--faint)" size={17} />
           </button>
           <button className="ibtn" type="button" aria-label={`Remove ${title}`} onClick={onRemove}>
-            <Icon name="x" color="#5B6A84" size={13} />
+            <Icon name="x" color="var(--faint)" size={13} />
           </button>
         </>
       )}

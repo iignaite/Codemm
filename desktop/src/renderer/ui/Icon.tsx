@@ -15,10 +15,11 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS;
 
+/** `color` is any CSS color, a token such as `var(--faint)` included: it's set in style, which SVG attributes can't. */
 export function Icon({ name, color = 'currentColor', size = 20 }: { name: IconName; color?: string; size?: number }) {
   const { w, d } = PATHS[name];
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" style={color === 'currentColor' ? undefined : { color }} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {d}
     </svg>
   );

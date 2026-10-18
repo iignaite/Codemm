@@ -38,7 +38,7 @@ export function Research({ goal }: { goal: Goal }) {
   }
   return (
     <main className="main page">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+      <div className="page-head">
         {/* While research runs, the heading's Emm is its progress, filling as it goes (§4.11). */}
         {job ? <EmmFill value={fillOf(job.progress)} width={110} dim={Boolean(job.progress.retry)} /> : <Emm mood="think" width={110} />}
         <h1 className="h1 a-up">Researching {goal.topic}</h1>

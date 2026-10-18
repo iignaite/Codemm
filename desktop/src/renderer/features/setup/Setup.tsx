@@ -71,7 +71,7 @@ export function Setup() {
   const install = data.computer.install;
   return (
     <main className="center">
-      <div className="stack" style={{ width: 620, gap: 22 }}>
+      <div className="stack wide setup-page">
         <h1 className="h1 a-up">Set up this computer</h1>
         <p className="sub a-up" style={stagger(1)}>Codemm installs what's missing, each from its maker.</p>
         <ul className="stack plain">
@@ -91,7 +91,8 @@ export function Setup() {
                   {INSTALL.retry.has(install.problem) && <div className="actions"><Button onClick={() => act(() => api.installDocker())}>Try again</Button></div>}
                 </div>
               ) : (
-                <DockerProgress install={{ ...install, phase: install?.phase ?? 'starting' }} platform={data.computer.platform} />
+                // Until Docker's first state arrives, its download is just starting: never "Opening Docker" yet.
+                <DockerProgress install={install ? { ...install, phase: install.phase } : { phase: 'downloading', progress: 0 }} platform={data.computer.platform} />
               )}
             </li>
           )}

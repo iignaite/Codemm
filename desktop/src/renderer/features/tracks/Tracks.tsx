@@ -41,7 +41,7 @@ export function Tracks() {
     <main className="main page">
       <h1 className="h2 a-up">Tracks</h1>
       {tracks.length > 0 && (
-        <ul className="track-grid" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        <ul className="track-grid plain">
           {tracks.map((t, i) => (
             <li key={t.ref} className="card track a-up" style={stagger(i + 1)} aria-label={t.name}>
               <Emm width={140} name={t.name} perch />

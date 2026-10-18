@@ -59,6 +59,17 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .row:first-child { border-top: none; }
 .row.off { color: var(--faint); }
 .stack { display: flex; flex-direction: column; gap: 12px; }
+/* Layout set by class, not inline: a column's spacing and width. */
+.stack.tight { gap: 8px; }
+.stack.snug { gap: 10px; }
+.stack.loose { gap: 14px; }
+.stack.wide { gap: 22px; }
+.fill { flex: 1; }
+.page-head { display: flex; align-items: center; gap: 20px; }
+.goal-form { width: 680px; }
+.setup-page { width: 620px; }
+.note-form { max-width: 600px; }
+.rename { flex: 1; display: flex; gap: 8px; }
 .actions { display: flex; align-items: center; gap: 10px; }
 .quiet-text { font-size: 14px; color: var(--muted); }
 .alert { color: var(--orange-ink); font-size: 14px; }
