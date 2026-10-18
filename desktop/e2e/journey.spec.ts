@@ -952,12 +952,26 @@ test(`journey: ${label}`, async () => {
         const busy = page.getByText(/^(Preparing setup for|Setting up) /);
         const approved: string[] = [];
         let idle = 0;
+        let setupRetries = 0;
         let relaunched = false;
         const deadline = Date.now() + 40 * MIN;
         while (idle < 5) {
           if (Date.now() > deadline) throw new Error(`Setup not done within 40 minutes (${approved.length} proposals approved)`);
           await waitingStates();
-          if (await visible(page.getByRole('alert'))) throw new Error(`Setup failed: ${(await page.getByRole('alert').innerText()).replace(/\s+/g, ' ')}`);
+          if (await visible(page.getByRole('alert'))) {
+            const why = (await page.getByRole('alert').innerText()).replace(/\s+/g, ' ');
+            // In the walkthrough, do what a learner would: Try again, twice at most.
+            const again = page.getByRole('alert').getByRole('button', { name: 'Try again' });
+            if (walkDir && setupRetries < 2 && (await visible(again))) {
+              setupRetries++;
+              note('setup-try-again', why);
+              await again.click();
+              idle = 0;
+              await page.waitForTimeout(2000);
+              continue;
+            }
+            throw new Error(`Setup failed: ${why}`);
+          }
           // The late-consent handler (waitingStates) may have just approved it: then the dialog is gone.
           const asked = (await visible(consent)) ? await consent.getByRole('heading').first().innerText({ timeout: 3000 }).catch(() => null) : null;
           if (asked) {
