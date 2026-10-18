@@ -1,47 +1,42 @@
-import { execFile } from "node:child_process";
 import { accessSync, constants, mkdirSync } from "node:fs";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
-import { promisify } from "node:util";
-import { assertRuntime, containerCli, ownedContainers, ownerGone, removeAbandoned, runSandboxed } from "./sandbox.js";
+import { assertRuntime, cli, containerCli, OWNER_LABEL, ownedContainers, ownerGone, removeAbandoned, runSandboxed } from "./sandbox.js";
 import { codemmHome } from "./store.js";
 
 /** A small, pinned utility image used only for the network self-test. */
 const PROBE_IMAGE = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc";
+/** The self-test's server: answers "pong" to every request on port 8080. */
+const PROBE_SERVER = "while true; do printf 'HTTP/1.0 200 OK\\r\\n\\r\\npong' | nc -l -p 8080; done";
 
 export type Check = { name: string; ok: boolean; detail: string };
 
+const firstLine = (text: string) => text.trim().split("\n")[0] ?? "";
+
 /**
- * Proves the sandbox blocks a host server that an ordinary container can reach.
+ * Proves the sandbox can't reach a server that an ordinary container can.
+ * The server runs in an ordinary container, not on the host, so the host's firewall never decides the result.
  * If the ordinary container can't reach it either, nothing is proven, and that's reported as a failure.
  */
 export async function networkIsolation(): Promise<Check> {
   const name = "network isolation";
-  const server = createServer((_req, res) => res.end("pong"));
-  await new Promise<void>((r) => server.listen(0, "0.0.0.0", () => r()));
-  const port = (server.address() as AddressInfo).port;
+  const server = await cli(["run", "-d", "--rm", "--label", OWNER_LABEL, "--label", `codemm.pid=${process.pid}`, PROBE_IMAGE, "sh", "-c", PROBE_SERVER], 120_000);
+  const id = server.output.trim().split("\n").pop() ?? "";
+  if (server.exit !== 0 || !id) return { name, ok: false, detail: `inconclusive: the test server's container failed (${firstLine(server.output)})` };
   try {
-    let control: { stdout: string };
-    try {
-      control = await promisify(execFile)(
-        containerCli(),
-        ["run", "--rm", "--add-host", "host.docker.internal:host-gateway", PROBE_IMAGE, "sh", "-c",
-          `ip=$(getent hosts host.docker.internal | cut -d' ' -f1); echo "$ip"; wget -q -T 5 -O- "http://$ip:${port}/"`],
-        { timeout: 120_000 },
-      );
-    } catch (e) {
-      return { name, ok: false, detail: `inconclusive: the comparison container failed (${(e as Error).message.split("\n")[0]})` };
+    const ip = (await cli(["inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", id])).output.trim();
+    const url = `http://${ip}:8080/`;
+    // A few tries, since the server's container may still be starting.
+    const control = await cli(["run", "--rm", PROBE_IMAGE, "sh", "-c", `for i in 1 2 3 4 5; do wget -q -T 2 -O- "${url}" && exit 0; sleep 1; done; exit 1`], 120_000);
+    if (control.output.trim() !== "pong") {
+      return { name, ok: false, detail: `inconclusive: an ordinary container couldn't reach the test server either, so isolation wasn't proven (${firstLine(control.output) || `exit ${control.exit}`})` };
     }
-    const [ip, body] = control.stdout.trim().split("\n");
-    if (body !== "pong") return { name, ok: false, detail: "inconclusive: an ordinary container couldn't reach the test server either, so isolation wasn't proven" };
     const sandboxed = await runSandboxed({
       image: PROBE_IMAGE, env: {}, mounts: [], memoryMb: 64, deadlineMs: 30_000,
-      script: `wget -q -T 5 -O- "http://${ip}:${port}/" && echo reached || echo blocked`,
+      script: `wget -q -T 5 -O- "${url}" && echo reached || echo blocked`,
     });
     const blocked = sandboxed.stdout.toString().trim() === "blocked";
-    return { name, ok: blocked, detail: blocked ? "the sandbox can't reach a host server that ordinary containers can" : "the sandbox reached the host network" };
+    return { name, ok: blocked, detail: blocked ? "the sandbox can't reach a server that ordinary containers can" : "the sandbox reached the network" };
   } finally {
-    server.close();
+    await cli(["rm", "-f", id]);
   }
 }
 
