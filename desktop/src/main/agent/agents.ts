@@ -25,14 +25,19 @@ export type AgentEvent =
  */
 export type ResearchStep = { kind: 'search'; query: string } | { kind: 'read'; url: string; href?: string } | { kind: 'step'; label: string };
 
-const STEP_LABELS: Record<string, string> = {
+/** Codemm's own tools, as the step each job shows (§4.11). Fixed text: nothing from a tool's arguments or result. */
+export const STEP_LABELS: Record<string, string> = {
   list_tracks: 'Checking the installed tracks',
   save_roadmap: 'Saving the roadmap',
   get_roadmap: 'Reading the roadmap',
-  save_track: 'Preparing the setup',
+  save_track: 'Proposing the setup',
   save_lesson: 'Saving the lesson',
-  save_exercise: 'Saving the activity',
+  save_exercise: 'Codemm is checking the exercise',
   next_step: 'Checking the next step',
+  progress: 'Checking your progress',
+  get_exercise: 'Reading the activity',
+  get_lesson: 'Reading the lesson',
+  mark_lesson_read: 'Noting the lesson as read',
 };
 
 const searchOf = (query: unknown): ResearchStep[] =>
@@ -184,13 +189,15 @@ const claude: AgentCli = {
 
 const codex: AgentCli = {
   bin: 'codex',
-  launch({ prompt, server, tools, model, resume, toolTimeoutSec }) {
+  launch({ prompt, server, tools, model, resume, web, toolTimeoutSec }) {
     // --ignore-user-config drops the learner's own MCP servers and plugins; sign-in still comes from CODEX_HOME.
     const args = ['exec', '--json', '--skip-git-repo-check', '--ignore-user-config'];
     // No command execution, host automation or subagents. Code mode stays: Codex calls MCP tools through it (§3.1).
     for (const feature of ['shell_tool', 'unified_exec', 'browser_use', 'computer_use', 'apps', 'multi_agent']) args.push('--disable', feature);
     for (const c of [
       'sandbox_mode="read-only"',
+      // Only research may search the web (§3.2). Codex 0.156 accepts disabled, cached, indexed or live.
+      ...(web ? [] : ['web_search="disabled"']),
       `mcp_servers.codemm.command=${toml(server.command)}`,
       `mcp_servers.codemm.args=${toml(server.args)}`,
       `mcp_servers.codemm.env=${toml(server.env ?? {})}`,

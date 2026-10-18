@@ -156,22 +156,31 @@ test('check progress reaches the page as phase and counts only', async () => {
     type P = { phase: string; done: number; total: number };
     const bridge = (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<any>; onCheckProgress(l: (p: P) => void): () => void } }).codemm;
     const events: P[] = [];
-    const stop = bridge.onCheckProgress((p) => events.push(p));
+    let hidden!: () => void;
+    const lastPhase = new Promise<void>((resolve) => (hidden = resolve));
+    const stop = bridge.onCheckProgress((p) => (events.push(p), p.phase === 'hidden' && hidden()));
     const call = (m: string, ...a: unknown[]) => bridge.invoke(m, a);
+    // Bounded: a state that never settles fails here instead of hanging the test.
+    const poll = async (read: () => Promise<any>, done: (v: any) => boolean, what: string) => {
+      for (let i = 0; i < 1000; i++) {
+        const v = await read();
+        if (done(v)) return v;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error(`${what} never settled`);
+    };
     await call('connect', 'claude');
     const goal = { topic: 'React', known: '', depth: 'standard' };
-    let r = await call('research', goal);
-    while (r.state === 'running') r = await call('research', goal);
+    const r = await poll(() => call('research', goal), (v) => v.state !== 'running', 'Research');
     await call('approve', r.roadmap.concepts);
-    let c = await call('course');
-    while (c.setup !== 'consent') c = await call('course');
+    let c = await poll(() => call('course'), (v) => v.setup === 'consent', 'Setup consent');
     await call('install', c.proposal.digest);
-    while (!(c.setup === 'ready' && c.topics[0].lessons.every((l: { state: string }) => l.state !== 'writing'))) c = await call('course');
+    c = await poll(() => call('course'), (v) => v.setup === 'ready' && v.topics[0].lessons.every((l: { state: string }) => l.state !== 'writing'), 'The course');
     for (const l of c.topics[0].lessons) await call('markRead', l.id);
     const { id } = await call('activity', c.topics[0].id);
     await call('check', id, 'e2e-run');
-    // Events travel apart from the call's reply, so the last ones can land just after it.
-    await new Promise((r) => setTimeout(r, 300));
+    // Events travel apart from the call's reply, so the last one can land just after it.
+    await lastPhase;
     stop();
     const asCall = await bridge.invoke('onCheckProgress', []).then(() => 'resolved', (e: Error) => e.message);
     return { events, asCall };
@@ -192,24 +201,35 @@ test('Run streams a program through the bridge, with typed input', async () => {
     type O = Record<string, unknown>;
     const bridge = (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<any>; onRunOutput(l: (o: O) => void): () => void } }).codemm;
     const call = (m: string, ...a: unknown[]) => bridge.invoke(m, a);
+    // Bounded: a state that never settles fails here instead of hanging the test.
+    const poll = async (read: () => Promise<any>, done: (v: any) => boolean, what: string) => {
+      for (let i = 0; i < 1000; i++) {
+        const v = await read();
+        if (done(v)) return v;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error(`${what} never settled`);
+    };
     await call('connect', 'claude');
     const goal = { topic: 'Python', known: '', depth: 'standard' };
-    let r = await call('research', goal);
-    while (r.state === 'running') r = await call('research', goal);
+    const r = await poll(() => call('research', goal), (v) => v.state !== 'running', 'Research');
     await call('approve', r.roadmap.concepts);
-    let c = await call('course');
-    while (c.setup !== 'consent') c = await call('course');
+    let c = await poll(() => call('course'), (v) => v.setup === 'consent', 'Setup consent');
     await call('install', c.proposal.digest);
-    while (!(c.setup === 'ready' && c.topics[0].lessons.every((l: { state: string }) => l.state !== 'writing'))) c = await call('course');
+    c = await poll(() => call('course'), (v) => v.setup === 'ready' && v.topics[0].lessons.every((l: { state: string }) => l.state !== 'writing'), 'The course');
     for (const l of c.topics[0].lessons) await call('markRead', l.id);
     const { id } = await call('activity', c.topics[0].id);
     const events: O[] = [];
-    const heard = new Promise<void>((resolve) => bridge.onRunOutput((o) => (events.push(o), events.length === 2 && resolve())));
+    const reached: Record<number, () => void> = {};
+    const reach = (n: number) => new Promise<void>((resolve) => (reached[n] = resolve));
+    const [prompted, greeted] = [reach(2), reach(3)];
+    bridge.onRunOutput((o) => (events.push(o), reached[events.length]?.()));
     const running = call('runProgram', id, 'e2e-run');
-    await heard;
+    await prompted;
     const taken = await call('sendRunInput', 'e2e-run', 'Ada\n');
     const result = await running;
-    await new Promise((r) => setTimeout(r, 300));
+    // Output travels apart from the call's reply, so the greeting can land just after it.
+    await greeted;
     const asCall = await bridge.invoke('onRunOutput', []).then(() => 'resolved', (e: Error) => e.message);
     return { events, result: { ...result, taken }, asCall };
   });

@@ -1,36 +1,10 @@
 import { act, render, screen } from '@testing-library/react';
 import { createRef } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { xterm } from '../testing/xterm';
 
-// jsdom can't lay out xterm.js, so a stand-in records what it was given; the real one runs in e2e.
-const xterm = vi.hoisted(() => ({ written: '' as string, type: (_data: string) => undefined as void, keys: (_e: { key: string }): boolean => true, options: {} as Record<string, unknown>, resets: 0 }));
-vi.mock('@xterm/xterm', () => ({
-  Terminal: class {
-    options: Record<string, unknown>;
-    constructor(options: Record<string, unknown>) {
-      this.options = options;
-      xterm.options = options;
-    }
-    loadAddon() {}
-    open() {}
-    write(text: string) {
-      xterm.written += text;
-    }
-    reset() {
-      xterm.resets++;
-    }
-    onData(listener: (data: string) => void) {
-      xterm.type = listener;
-      return { dispose() {} };
-    }
-    dispose() {}
-    focus() {}
-    attachCustomKeyEventHandler(handler: (e: { key: string }) => boolean) {
-      xterm.keys = handler;
-    }
-  },
-}));
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }));
+vi.mock('@xterm/xterm', () => import('../testing/xterm'));
+vi.mock('@xterm/addon-fit', () => import('../testing/xterm'));
 
 import { Terminal, type TerminalHandle } from './Terminal';
 

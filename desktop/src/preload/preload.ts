@@ -1,7 +1,7 @@
 // The renderer's only door to the main process: one invoke call on one
 // channel. The typed CodemmApi client is built on top of it in the renderer.
 import { contextBridge, ipcRenderer } from 'electron';
-import type { Bridge, FinishedTest } from '../shared/api';
+import type { Bridge, FinishedTest, JobProgress, JobStep } from '../shared/api';
 
 // Electron rejects a failed invoke as "Error invoking remote method 'codemm': Error: <message>".
 // The renderer gets <message> alone, so Codemm's codes (codemm:repair and the rest) match as sent.
@@ -29,16 +29,35 @@ const bridge: Bridge = {
     ipcRenderer.on('codemm:check-progress', forward);
     return () => void ipcRenderer.removeListener('codemm:check-progress', forward);
   },
-  // One-way: main sends what research is looking at. Only a capped query, a host and path, or a step label.
-  onResearchProgress: (listener) => {
+  // One-way: main sends each agent job's progress. Only its kind, stage, counts, times, and capped steps:
+  // a query, a host and path, or a step label.
+  onJobProgress: (listener) => {
     const text = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
-    const forward = (_event: unknown, p: { kind?: unknown; query?: unknown; url?: unknown; label?: unknown }) => {
-      if (p.kind === 'search') listener({ kind: 'search', query: text(p.query, 120) });
-      else if (p.kind === 'read') listener({ kind: 'read', url: text(p.url, 200) });
-      else if (p.kind === 'step') listener({ kind: 'step', label: text(p.label, 80) });
+    const count = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0);
+    const step = (s: { kind?: unknown; query?: unknown; url?: unknown; label?: unknown }): JobStep[] =>
+      s?.kind === 'search' ? [{ kind: 'search', query: text(s.query, 120) }]
+        : s?.kind === 'read' ? [{ kind: 'read', url: text(s.url, 200) }]
+          : s?.kind === 'step' ? [{ kind: 'step', label: text(s.label, 160) }] : [];
+    const kinds = ['research', 'roadmap', 'setup', 'lesson', 'author', 'tutor'];
+    const forward = (_event: unknown, p: Record<string, unknown>) => {
+      if (typeof p?.job !== 'string' || !kinds.includes(p.kind as string)) return;
+      const retry = p.retry as { attempt?: unknown; of?: unknown } | undefined;
+      listener({
+        job: text(p.job, 64),
+        kind: p.kind as JobProgress['kind'],
+        ...(typeof p.concept === 'string' ? { concept: text(p.concept, 64) } : {}),
+        stage: count(p.stage),
+        steps: (Array.isArray(p.steps) ? p.steps.slice(0, 8) : []).flatMap(step),
+        count: count(p.count),
+        ...(retry && typeof retry === 'object' ? { retry: { attempt: count(retry.attempt), of: count(retry.of) } } : {}),
+        thinking: p.thinking === true,
+        elapsedMs: count(p.elapsedMs),
+        idleMs: count(p.idleMs),
+        ...(p.ended === true ? { ended: true as const } : {}),
+      });
     };
-    ipcRenderer.on('codemm:research-progress', forward);
-    return () => void ipcRenderer.removeListener('codemm:research-progress', forward);
+    ipcRenderer.on('codemm:job-progress', forward);
+    return () => void ipcRenderer.removeListener('codemm:job-progress', forward);
   },
   // One-way: main sends what a Run's program printed, only to the window that started it, or a stage starting.
   onRunOutput: (listener) => {

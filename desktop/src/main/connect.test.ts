@@ -17,6 +17,22 @@ function lookup(over: Partial<Lookup> = {}): Lookup {
 const state = () => desktopState(tempDir('codemm-connect-'));
 
 describe('connect (§3.1, §3.3)', () => {
+  it('names the command that signs each agent in', async () => {
+    const agents = await connector(lookup(), state()).agents();
+    expect(agents.map((a) => a.signIn)).toEqual(['claude auth login', 'codex login', 'cursor-agent login']);
+  });
+
+  it('checks a signed-out agent again on the next look, and connects the one the learner tried once signed in', async () => {
+    let ok = false;
+    const c = connector(lookup({ signedIn: async () => ok }), state());
+    expect((await c.connect('codex')).state).toBe('signed-out');
+    expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('signed-out');
+    ok = true;
+    const agents = await c.agents();
+    expect(agents.map((a) => [a.id, a.state])).toEqual([['claude', 'not-connected'], ['codex', 'connected'], ['cursor', 'missing']]);
+    expect((await c.chosen()).id).toBe('codex');
+  });
+
   it('lists each agent: installed or not, tested version or not, recommended model and experimental', async () => {
     const agents = await connector(lookup(), state()).agents();
     expect(agents.map((a) => [a.id, a.state, a.untested, a.experimental])).toEqual([

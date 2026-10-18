@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { CHANGED, OFFLINE, PLAN_LIMIT, REPAIR, UNSTOPPABLE } from '../shared/api';
+import { CHANGED, OFFLINE, PLAN_LIMIT, REPAIR, UNSTOPPABLE, type JobProgress } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
 import { HELD_BACK } from './views';
 
@@ -114,6 +114,15 @@ describe('live CodemmApi', () => {
     const { id } = await practising(t);
     t.c.down = true;
     expect(await t.api.runProgram(id, 'run-1')).toEqual({ kind: 'not-run', reason: expect.stringMatching(/Docker/) });
+  });
+
+  it('says whether Come back later can move on: not when the stuck topic is the only one ready', async () => {
+    const t = live();
+    const { id } = await practising(t);
+    t.c.stuck = 'values';
+    expect(await t.api.check(id, 'run-1')).toMatchObject({ stuck: true, later: false });
+    t.c.roadmap!.concepts.push({ id: 'forms', title: 'Forms', requires: [] });
+    expect(await t.api.check(id, 'run-2')).toMatchObject({ stuck: true, later: true });
   });
 
   it('keeps the approved course while a new roadmap is a draft, and offers the draft to resume', async () => {
@@ -392,7 +401,7 @@ describe('live CodemmApi', () => {
   it('holds back research progress that shows hidden material, and caps source titles', async () => {
     const t = live({
       research: (job) => {
-        job.onProgress?.({ kind: 'search', query: `look up ${CANARY}` });
+        job.onEvent?.({ type: 'progress', step: { kind: 'search', query: `look up ${CANARY}` } });
         job.onSource?.({ title: 'x'.repeat(200), url: 'https://example.com/long' });
         const args = job.server([]).args;
         t.c.roadmap = { course: args[args.indexOf('--course') + 1], goal: 'React', track: 'react@1', style: 'io', concepts: [{ id: 'values', title: 'Values', requires: [] }] };
@@ -401,7 +410,7 @@ describe('live CodemmApi', () => {
     });
     t.c.current = 'solved';
     const heard: unknown[] = [];
-    t.api.onResearchProgress((p) => heard.push(p));
+    t.api.onJobProgress((p) => heard.push(p));
     const r = await researched(t);
     expect(JSON.stringify(heard)).not.toContain(CANARY);
     expect(r.roadmap!.sources[0]!.title).toHaveLength(120);
@@ -410,10 +419,10 @@ describe('live CodemmApi', () => {
   it('forwards what research looks at, then adds the pages it read to the roadmap sources', async () => {
     const t = live({
       research: (job) => {
-        job.onProgress?.({ kind: 'search', query: 'react roadmap 2026' });
-        job.onProgress?.({ kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react' });
+        job.onEvent?.({ type: 'progress', step: { kind: 'search', query: 'react roadmap 2026' } });
+        job.onEvent?.({ type: 'progress', step: { kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react' } });
         job.onSource?.({ title: 'roadmap.sh/react', url: 'https://roadmap.sh/react' });
-        job.onProgress?.({ kind: 'read', url: 'react.dev/learn', href: 'https://react.dev/learn' });
+        job.onEvent?.({ type: 'progress', step: { kind: 'read', url: 'react.dev/learn', href: 'https://react.dev/learn' } });
         job.onSource?.({ title: 'react.dev/learn', url: 'https://react.dev/learn' });
         const args = job.server([]).args;
         t.c.roadmap = {
@@ -423,12 +432,73 @@ describe('live CodemmApi', () => {
         return {};
       },
     });
-    const heard: unknown[] = [];
-    t.api.onResearchProgress((p) => heard.push(p));
+    const heard: JobProgress[] = [];
+    t.api.onJobProgress((p) => heard.push(p));
     const r = await researched(t);
-    expect(heard).toEqual([{ kind: 'search', query: 'react roadmap 2026' }, { kind: 'read', url: 'roadmap.sh/react' }, { kind: 'read', url: 'react.dev/learn' }]);
+    expect(heard.map((p) => p.kind)).toEqual(['research', 'research', 'research', 'research', 'research']);
+    expect(heard.at(-2)!.steps).toEqual([{ kind: 'read', url: 'react.dev/learn' }, { kind: 'read', url: 'roadmap.sh/react' }, { kind: 'search', query: 'react roadmap 2026' }]);
+    expect(heard.at(-1)).toMatchObject({ ended: true, stage: 1, count: 3 });
     // The agent's own source comes first; a page it read only once joins it.
     expect(r.roadmap!.sources).toEqual([{ title: 'React docs', url: 'https://react.dev/learn' }, { title: 'roadmap.sh/react', url: 'https://roadmap.sh/react' }]);
+  });
+
+  it('tells every job kind\'s progress on one channel, with its topic, and lists the jobs running now (§4.11)', async () => {
+    let during: JobProgress[] = [];
+    const t = live({
+      lesson: async (job) => {
+        job.onEvent?.({ type: 'session', id: 's1' });
+        job.onEvent?.({ type: 'tool_call', id: 'c1', name: 'codemm.save_lesson' });
+        job.onEvent?.({ type: 'progress', step: { kind: 'step', label: 'Saving the lesson' } });
+        during = await t.api.jobProgress();
+        const concept = t.c.roadmap!.concepts[0].id;
+        t.c.lessons.push({ id: `${concept}-1`, concept, title: 'About', markdown: '# About', notes: '' });
+        return {};
+      },
+    });
+    const heard: JobProgress[] = [];
+    t.api.onJobProgress((p) => heard.push(p));
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    await until(t.api, (c) => c.topics[0].lessons.some((l) => l.state === 'ready'));
+    const lesson = heard.filter((p) => p.kind === 'lesson');
+    expect(lesson.map((p) => [p.stage, p.ended ?? false])).toEqual([[0, false], [1, false], [2, false], [2, false], [2, true]]);
+    expect(lesson.every((p) => p.concept === 'values' && p.job === lesson[0].job)).toBe(true);
+    expect(lesson.at(-1)!.steps).toEqual([{ kind: 'step', label: 'Saving the lesson' }]);
+    expect(during.map((p) => p.kind)).toContain('lesson');
+    expect((await t.api.jobProgress()).map((p) => p.kind)).not.toContain('lesson');
+  });
+
+  it("shows a setup's install as Codemm's own stage, and another proposal as a retry", async () => {
+    const t = live();
+    const heard: JobProgress[] = [];
+    t.api.onJobProgress((p) => heard.push(p));
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const consent = await until(t.api, (c) => c.setup === 'consent');
+    t.c.install = async () => {
+      throw new Error('Gate 3 failed: the image has no test runner');
+    };
+    await t.api.install(consent.proposal!.digest);
+    await until(t.api, (c) => c.setup === 'consent');
+    const install = heard.find((p) => p.kind === 'setup' && p.stage === 1)!;
+    expect(install).toMatchObject({ thinking: false });
+    expect(heard.filter((p) => p.job === install.job).at(-1)!.ended).toBe(true);
+    expect(heard.filter((p) => p.kind === 'setup' && p.stage === 0).at(-1)!.retry).toEqual({ attempt: 2, of: 3 });
+  });
+
+  it('says when a failed job runs again', async () => {
+    const t = live(undefined, {
+      runJob: async (job) => {
+        job.onRelaunch?.();
+        return { ok: true, text: [] };
+      },
+    });
+    const heard: JobProgress[] = [];
+    t.api.onJobProgress((p) => heard.push(p));
+    await t.api.connect('claude');
+    await t.api.research({ topic: 'React', known: '', depth: 'standard' });
+    await vi.waitFor(() => expect(heard.at(-1)?.ended).toBe(true));
+    expect(heard[1]).toMatchObject({ kind: 'research', retry: { attempt: 2, of: 2 } });
   });
 
   it("shows a lesson's examples and runs one in core's sandbox; a stopped Docker means it didn't run", async () => {

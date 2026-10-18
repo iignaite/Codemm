@@ -2,7 +2,7 @@
 // development (CODEMM_MOCK). Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner replaced the starter's
 // placeholder, and reports hidden results as statuses only.
-import { type CheckProgress, type ResearchProgress, type RunOutput, type UpdateStatus, type RunResult,
+import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type RunOutput, type UpdateStatus, type RunResult,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
@@ -47,6 +47,13 @@ export interface MockOptions {
   runLimitMs?: number;
   /** What the update check says, to see the update notice. */
   update?: UpdateStatus;
+  /**
+   * Agent jobs take this many course reads per stage (and research per step), and calls such as a roadmap change
+   * take this many half seconds, so each staged progress state can be seen (§4.11). Without it, jobs finish at once.
+   */
+  slow?: number;
+  /** Every job has been quiet for over 90 seconds, so its "still working" line shows. */
+  quiet?: boolean;
   /** Changes the options after the first approval or check, to act out a mid-session failure. */
   later?: { after: 'approve' | 'check'; set: Partial<MockOptions> };
 }
@@ -70,6 +77,26 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'run-time-up': { style: 'io', runLimitMs: 3000 },
   'update-available': { update: { kind: 'available', version: '1.0.1', url: 'https://github.com/iignaite/Codemm/releases/tag/v1.0.1' } },
   'update-ready': { update: { kind: 'ready', version: '1.0.1' } },
+  'slow-jobs': { slow: 4 },
+  'quiet-jobs': { slow: 4, quiet: true },
+};
+
+const step = (label: string): JobStep => ({ kind: 'step', label });
+/** What each mock job reports, beat by beat, as a real one would (§4.11). `codemm`: Codemm's own tool is running. */
+type Beat = { stage: number; step?: JobStep; codemm?: true; retry?: JobProgress['retry'] };
+const BEATS: Record<Exclude<JobKind, 'research'> | 'install', Beat[]> = {
+  roadmap: [{ stage: 0 }, { stage: 1, step: step('Reading the roadmap') }, { stage: 2, step: step('Saving the roadmap'), codemm: true }],
+  setup: [{ stage: 0 }, { stage: 0, step: step('Checking the installed tracks') }, { stage: 0, step: step('Proposing the setup'), codemm: true }],
+  install: [{ stage: 1, codemm: true }, { stage: 2, codemm: true }],
+  lesson: [{ stage: 0 }, { stage: 1, step: step('Reading the roadmap') }, { stage: 2, step: step('Saving the lesson'), codemm: true }],
+  author: [
+    { stage: 0 },
+    { stage: 1, step: step('Writing the exercise') },
+    { stage: 2, step: step('Codemm is checking the exercise'), codemm: true },
+    { stage: 1, step: step('Writing the exercise'), retry: { attempt: 2, of: 3 } },
+    { stage: 2, step: step('Codemm is checking the exercise'), codemm: true, retry: { attempt: 2, of: 3 } },
+  ],
+  tutor: [{ stage: 0 }, { stage: 0, step: step('Reading the activity') }],
 };
 
 export function scenario(name: string | undefined): MockOptions {
@@ -87,9 +114,9 @@ const DOCKER_DOWN: Record<Exclude<Docker, 'ready'>, string> = {
 };
 
 const AGENTS: Omit<Agent, 'state' | 'untested'>[] = [
-  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', models: modelChoices('claude'), model: modelFor('claude'), experimental: false },
-  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', models: modelChoices('codex'), model: modelFor('codex'), experimental: false },
-  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', models: modelChoices('cursor'), model: modelFor('cursor'), experimental: true },
+  { id: 'claude', name: 'Claude Code', installUrl: 'https://code.claude.com/docs/en/setup', signIn: 'claude auth login', models: modelChoices('claude'), model: modelFor('claude'), experimental: false },
+  { id: 'codex', name: 'Codex', installUrl: 'https://developers.openai.com/codex/cli', signIn: 'codex login', models: modelChoices('codex'), model: modelFor('codex'), experimental: false },
+  { id: 'cursor', name: 'Cursor', installUrl: 'https://cursor.com/docs/cli/installation', signIn: 'cursor-agent login', models: modelChoices('cursor'), model: modelFor('cursor'), experimental: true },
 ];
 
 const TOPICS: [string, string[]][] = [
@@ -153,7 +180,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   const tracks: Track[] = [];
   const lessons = new Map<string, Lesson>();
   const activities = new Map<string, { activity: Activity; fails: number }>();
-  let research: { topic: string; calls: number } | null = null;
+  let research: { topic: string; calls: number; job: string; started: number } | null = null;
   /** The roadmap research wrote or the learner edited; a draft until approved. */
   let roadmap: Roadmap | null = null;
   let drafting = false;
@@ -250,7 +277,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
   function unlock(concept: string) {
     const topic = topicOf(concept);
-    if (topic.activity === 'passed' || course?.setup !== 'ready') return;
+    // An activity still being written opens once its author job ends (tick).
+    if (topic.activity === 'passed' || topic.activity === 'writing' || course?.setup !== 'ready') return;
     topic.activity = topic.lessons.every((l) => l.state === 'read') ? 'open' : 'locked';
   }
 
@@ -268,9 +296,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   // Background jobs advance one step each time the UI reads the course.
   function tick(c: CourseView) {
     if (c.setup === 'proposing') {
-      c.setup = 'consent';
-      c.proposal = { digest: digestOf(PROPOSAL_FILES.map((f) => f.text).join('')), retry: Boolean(c.proposal), files: PROPOSAL_FILES };
-    } else if (c.setup === 'installing') {
+      if (!busy('setup', 'setup')) {
+        c.setup = 'consent';
+        c.proposal = { digest: digestOf(PROPOSAL_FILES.map((f) => f.text).join('')), retry: Boolean(c.proposal), files: PROPOSAL_FILES };
+      }
+    } else if (c.setup === 'installing' && !busy('install', 'install')) {
       if (options.setupProblem) {
         c.setup = 'failed';
         c.setupProblem = options.setupProblem;
@@ -283,14 +313,65 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     const now = c.topics.find((t) => t.state === 'now');
     if (!now) return;
     const writing = now.lessons.find((l) => l.state === 'writing');
-    if (writing) writing.state = 'ready';
-    if (now.activity === 'writing' && c.setup === 'ready') now.activity = 'locked';
+    if (writing && !busy(`lesson:${now.id}`, 'lesson', now.id)) writing.state = 'ready';
+    if (now.activity === 'writing' && c.setup === 'ready' && !busy(`author:${now.id}`, 'author', now.id)) now.activity = 'locked';
     unlock(now.id);
   }
 
   // Progress as a real check reports it: each test, as counts only.
   const progressListeners = new Set<(p: CheckProgress) => void>();
-  const researchListeners = new Set<(p: ResearchProgress) => void>();
+  const jobListeners = new Set<(p: JobProgress) => void>();
+  /** The mock's running jobs, as their latest progress (§4.11). */
+  const jobs = new Map<string, JobProgress>();
+  const tellJob = (p: JobProgress) => {
+    if (p.ended) jobs.delete(p.job);
+    else jobs.set(p.job, p);
+    jobListeners.forEach((l) => l(p));
+  };
+  const quietMs = () => (options.quiet ? 95_000 : 0);
+  let jobCount = 0;
+  /** A mock job's report after `beats`, its steps newest first. */
+  function report(job: string, kind: JobKind, beats: Beat[], started: number, concept?: string): JobProgress {
+    const beat = beats.at(-1)!;
+    const steps = beats.flatMap((b) => (b.step ? [b.step] : [])).reverse().slice(0, 8);
+    return {
+      job, kind, ...(concept ? { concept } : {}), stage: beat.stage, steps, count: steps.length, ...(beat.retry ? { retry: beat.retry } : {}),
+      thinking: !beat.codemm, elapsedMs: Date.now() - started + quietMs(), idleMs: quietMs(),
+    };
+  }
+  /** Background jobs, by key: each moves one beat per `slow` course reads. */
+  const playing = new Map<string, { job: string; kind: JobKind; script: Beat[]; beat: number; reads: number; started: number; concept?: string }>();
+  /** True while the job keyed `key` still plays; false once it has ended, and its work can land. */
+  function busy(key: string, kind: keyof typeof BEATS, concept?: string): boolean {
+    let p = playing.get(key);
+    const jobKind: JobKind = kind === 'install' ? 'setup' : kind;
+    if (!p) {
+      p = { job: `mock-${++jobCount}`, kind: jobKind, script: BEATS[kind], beat: 0, reads: 0, started: Date.now(), concept };
+      playing.set(key, p);
+      tellJob(report(p.job, jobKind, p.script.slice(0, 1), p.started, concept));
+    }
+    if (options.slow && ++p.reads < options.slow) return true;
+    p.reads = 0;
+    // Without `slow`, the whole job plays now.
+    while (++p.beat < p.script.length) {
+      tellJob(report(p.job, jobKind, p.script.slice(0, p.beat + 1), p.started, concept));
+      if (options.slow) return true;
+    }
+    playing.delete(key);
+    tellJob({ ...report(p.job, jobKind, p.script, p.started, concept), ended: true });
+    return false;
+  }
+  /** A job a call waits for (a roadmap change, a tutor turn): it plays through, half a second per beat when slow. */
+  async function playThrough(kind: 'roadmap' | 'tutor') {
+    const job = `mock-${++jobCount}`;
+    const started = Date.now();
+    const script = BEATS[kind];
+    for (let i = 1; i <= script.length; i++) {
+      tellJob(report(job, kind, script.slice(0, i), started));
+      if (options.slow) await new Promise((r) => setTimeout(r, options.slow! * 500));
+    }
+    tellJob({ ...report(job, kind, script, started), ended: true });
+  }
   const runListeners = new Set<(o: RunOutput) => void>();
   const tell = (o: RunOutput) => runListeners.forEach((l) => l(o));
   /** Run's programs: each asks for a name and greets it. */
@@ -338,8 +419,16 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     });
   }
 
+  /** The agent the learner last tried to connect: once it's signed in, it connects. */
+  let tried: AgentId | undefined;
+
   return {
     async agents() {
+      // A signed-out agent is checked again on every look, as main does.
+      for (const a of agents.filter((x) => x.state === 'signed-out' && options.agents?.[x.id] !== 'signed-out')) {
+        a.state = tried === a.id ? 'connected' : 'not-connected';
+        if (a.state === 'connected') agents.filter((x) => x !== a && x.state === 'connected').forEach((x) => (x.state = 'not-connected'));
+      }
       return agents.map((a) => ({
         ...a,
         state: a.state === 'connected' && options.agentProblem === 'signed-out' ? 'signed-out' : a.state,
@@ -379,9 +468,13 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       programs.get(run)?.stop();
     },
 
-    onResearchProgress(listener) {
-      researchListeners.add(listener);
-      return () => void researchListeners.delete(listener);
+    onJobProgress(listener) {
+      jobListeners.add(listener);
+      return () => void jobListeners.delete(listener);
+    },
+
+    async jobProgress() {
+      return [...jobs.values()];
     },
 
     async chooseModel(id, model) {
@@ -394,6 +487,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     // Connecting runs the agent's sign-in check. Passing it also ends a
     // mid-session sign-out: the learner has signed in again.
     async connect(id) {
+      tried = id;
       const agent = agents.find((a) => a.id === id)!;
       if (agent.state !== 'missing') {
         agent.state = options.agents?.[id] === 'signed-out' ? 'signed-out' : 'connected';
@@ -442,12 +536,22 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async research(goal) {
       agentJob();
-      if (research?.topic !== goal.topic) research = { topic: goal.topic, calls: 0 };
-      if (++research.calls < 3) {
-        const step: ResearchProgress = research.calls === 1 ? { kind: 'search', query: `${goal.topic} roadmap` } : { kind: 'read', url: 'roadmap.sh/react' };
-        researchListeners.forEach((l) => l(step));
+      if (research?.topic !== goal.topic) research = { topic: goal.topic, calls: 0, job: `mock-${++jobCount}`, started: Date.now() };
+      // What research looks at, a step per call (per `slow` calls when slow): the last step saves.
+      const all: JobStep[] = [
+        { kind: 'search', query: `${goal.topic} roadmap` }, { kind: 'read', url: 'roadmap.sh/react' }, { kind: 'read', url: 'react.dev/learn' },
+        step('Checking the installed tracks'), step('Saving the roadmap'),
+      ];
+      const reported = (n: number): JobProgress => ({
+        job: research!.job, kind: 'research', stage: n === all.length ? 2 : 1, steps: all.slice(0, n).reverse(), count: n, thinking: n !== all.length,
+        elapsedMs: Date.now() - research!.started + quietMs(), idleMs: quietMs(),
+      });
+      const shown = options.slow ? all.length * options.slow : 2;
+      if (++research.calls <= shown) {
+        tellJob(reported(options.slow ? Math.ceil(research.calls / options.slow) : research.calls));
         return { state: 'running' };
       }
+      tellJob({ ...reported(all.length), ended: true });
       roadmap = {
         goal: goal.topic,
         track: goal.topic,
@@ -462,6 +566,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async reviseRoadmap(edited, request) {
       agentJob();
       if (!roadmap) throw new Error('No roadmap');
+      await playThrough('roadmap');
       roadmap = { ...roadmap, concepts: addTopic(edited, request) };
       return { roadmap: structuredClone(roadmap), changed: true, text: '' };
     },
@@ -593,11 +698,14 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         { hidden: true, index: 1, status: 'pass' },
         { hidden: true, index: 2, status: done ? 'pass' : 'fail' },
       ];
-      return { kind: 'graded', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests, recorded: !unedited, stuck: topic.stuck, mastered: topic.state === 'mastered' };
+      const requires = (id: string) => roadmap!.concepts.find((x) => x.id === id)?.requires ?? [];
+      const later = course!.topics.some((t) => t !== topic && t.state !== 'mastered' && requires(t.id).every((r) => topicOf(r).state === 'mastered'));
+      return { kind: 'graded', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests, recorded: !unedited, stuck: topic.stuck, mastered: topic.state === 'mastered', later };
     },
 
     async ask(place, text) {
       agentJob();
+      await playThrough('tutor');
       if ('lessonId' in place) {
         find(lessons, place.lessonId);
         return [{ from: 'codemm', text: 'Good question. Try it in the activity next.' }];
