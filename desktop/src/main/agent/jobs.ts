@@ -182,7 +182,7 @@ async function once(job: Job): Promise<Attempt> {
 
 /**
  * Runs a job and checks it against core records. A failed job is relaunched at most once, never after
- * a plan limit, a sign-out or an infrastructure failure, never while its agent may still be running,
+ * a plan limit, a sign-out or an infrastructure failure, never while its agent or its container may still be running,
  * and never when its save landed anyway (a save can commit just before a crash).
  */
 export async function runJob(job: Job): Promise<JobOutcome> {
@@ -194,11 +194,14 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     if (job.usable?.() === false) return { ok: false, problem: 'signed-out', text: last?.text ?? [] };
     if (attempt > 0) job.onRelaunch?.();
     last = await once(job);
-    // Before a relaunch or the end, an attempt Codemm ended leaves no container behind.
-    if (last.ended) await job.cleanup?.().catch(() => undefined);
+    // Said at once: the caller stops every other agent on this, and a cleanup waiting on Docker must not delay it.
     if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
+    // Before a relaunch or the end, an attempt Codemm ended leaves no container behind.
+    const cleaned = last.ended && job.cleanup ? await job.cleanup().then(() => true, () => false) : true;
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };
     if (job.signal?.aborted) break;
+    // Its container may still run, so no relaunch joins it.
+    if (!cleaned) return { ok: false, problem: 'infra', text: last.text };
     if (last.error && PLAN_LIMIT.test(last.error)) return { ok: false, problem: 'plan-limit', text: last.text };
     if (last.infra === 'offline' || (last.error && OFFLINE.test(last.error))) return { ok: false, problem: 'offline', text: last.text };
     if (last.infra === 'server' || last.infra === 'tool') return { ok: false, problem: 'infra', text: last.text };

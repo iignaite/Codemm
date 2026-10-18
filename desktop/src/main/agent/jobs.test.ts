@@ -258,6 +258,13 @@ describe('jobs (§3.2)', () => {
     expect(agent.runs()).toBe(1);
   });
 
+  it("never relaunches an ended attempt whose containers couldn't be removed", async () => {
+    const agent = fakeAgent([init], { hang: true });
+    const outcome = await runJob(job(agent.exe, { deadlineMs: 300, done: () => false, cleanup: async () => { throw new Error('Docker stopped.'); } }));
+    expect(outcome).toMatchObject({ ok: false, problem: 'infra' });
+    expect(agent.runs()).toBe(1);
+  });
+
   it('stops at its deadline', async () => {
     const agent = fakeAgent([init], { hang: true });
     expect(await runJob(job(agent.exe, { deadlineMs: 300, done: () => false }))).toMatchObject({ ok: false, problem: 'failed' });
