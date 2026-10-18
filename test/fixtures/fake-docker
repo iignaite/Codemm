@@ -43,6 +43,7 @@ case "$1" in
     case "$FAKE_DOCKER" in
       interactive) m start run; printf 'name? '; read -r name; echo "hello $name"; echo "a warning" >&2; m end run 0; exit 0 ;;
       waits) m start run; while read -r line; do :; done; exit 0 ;;
+      untileof) m start run; n=0; while read -r line; do n=$((n+1)); done; echo "read $n lines"; m end run 0; exit 0 ;;
       ignores) m start run; exec /bin/sleep 30 ;;
       exits124) m start run; m end run 124; exit 0 ;;
       euro) m start run; printf '\342'; /bin/sleep 0.2; printf '\202\254\n'; m end run 0; exit 0 ;;

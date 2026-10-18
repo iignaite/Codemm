@@ -15,7 +15,7 @@ function fake() {
   const start: StartProgram = async (output, { onStart }) => {
     onStart('run', 120_000);
     output('name? ', 'stdout');
-    return { write: (t) => (written.push(t), true), kill: () => end({ exit: 137, timedOut: false, flooded: false, stopped: true }), done };
+    return { write: (t) => (written.push(t), true), end: () => undefined, kill: () => end({ exit: 137, timedOut: false, flooded: false, stopped: true }), done };
   };
   return { start, end, written };
 }

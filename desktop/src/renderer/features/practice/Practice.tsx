@@ -117,7 +117,7 @@ function Workspace({ activity, course }: { activity: Activity; course: CourseVie
             <Button disabled={busy} onClick={check}>Check</Button>
           </>}
         />
-        {activity.run && ran && <Terminal ref={terminal} label={`Terminal for ${activity.title}`} status={paneFor === 'run' ? program.status : undefined} onInput={program.input} />}
+        {activity.run && ran && <Terminal ref={terminal} label={`Terminal for ${activity.title}`} status={paneFor === 'run' ? program.status : undefined} onInput={program.input} onEnd={program.end} />}
         <Results shown={shown} name={course.track} topic={topic?.title ?? ''} visibleTests={activity.visibleTests} ways={ways} />
       </div>
       <Rail messages={chat.messages} onAsk={ask} busy={chat.busy} answering={chat.answering} name={course.track}>

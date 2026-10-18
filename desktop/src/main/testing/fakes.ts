@@ -34,6 +34,8 @@ function greeter(output: (text: string, stream: 'stdout' | 'stderr') => void, op
       end({ exit: 0, stage: 'run', timedOut: false, flooded: false });
       return true;
     },
+    // End of input: the program asked for a name and got none.
+    end: () => end({ exit: 0, stage: 'run', timedOut: false, flooded: false }),
     kill: () => end({ exit: 137, timedOut: false, flooded: false, stopped: true }),
     done,
   };

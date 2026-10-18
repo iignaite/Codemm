@@ -514,6 +514,9 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       return greet(run);
     },
 
+    // The mock's programs read one line each, so there's no more input to end.
+    async endRunInput() {},
+
     async sendRunInput(run, text) {
       const program = programs.get(run);
       program?.input(text);

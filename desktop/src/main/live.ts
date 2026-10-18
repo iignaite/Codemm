@@ -677,6 +677,7 @@ export function createLive(d: LiveDeps): Live {
     runProgram: (activityId, run) => programRuns.start(run, (output, options) => core.runInteractive(ws, activityId, approved(), output, options)),
     runExampleLive: (lessonId, index, run) => programRuns.start(run, (output, options) => core.runExampleLive(ws, lessonId, index, approved(), output, options)),
     sendRunInput: (run, text) => programRuns.input(run, text),
+    endRunInput: (run) => programRuns.end(run),
     stopRun: (run) => programRuns.stop(run),
 
     async check(activityId, run) {
