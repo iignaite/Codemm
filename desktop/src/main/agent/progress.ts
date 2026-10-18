@@ -47,6 +47,9 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
   const reach = (n: number) => (stage = Math.max(stage, Math.min(n, last)));
 
   function step(s: JobStep & { href?: string }) {
+    // Only research may search the web (§3.2). Another job's agent may still do it (Codex has no switch for it), and
+    // its queries and pages could carry an exercise still being written, which the reply filter doesn't know yet.
+    if (s.kind !== 'step' && kind !== 'research') return;
     const shown: JobStep = s.kind === 'read' ? { kind: 'read', url: s.url } : s;
     const text = s.kind === 'search' ? s.query : s.kind === 'read' ? (s.href ?? s.url) : s.label;
     if (!shows(text)) return;

@@ -44,6 +44,8 @@ export interface Agent {
   name: string;
   state: AgentState;
   installUrl: string;
+  /** The command that signs the agent in, typed in a terminal (Codemm never signs in for the learner). */
+  signIn: string;
   /** The bench-tested models, from models.json; empty for an agent with no choice. */
   models: ModelChoice[];
   /** The model every job for this agent runs: the learner's choice, or the recommended one. */
@@ -272,6 +274,8 @@ export type CheckResult =
       recorded: boolean;
       stuck: boolean;
       mastered: boolean;
+      /** Another topic is ready, so "Come back later" moves on (§4.4). */
+      later: boolean;
     }
   /** An infrastructure failure: nothing was recorded. */
   | { kind: 'not-counted'; reason: string };

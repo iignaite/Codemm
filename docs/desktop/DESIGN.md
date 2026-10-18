@@ -151,12 +151,13 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 
 - Codemm never opens an agent's credential files or keychain entries.
 - Sign-in uses the agent's own status command. Only a yes or no leaves the bridge.
-- Signing in is the learner's job in their agent ("Not signed in. Sign in to Codex first." then Try again).
+- Signing in is the learner's job in their agent. A signed-out row says "Sign in to Codex, then try again." with the CLI's own sign-in command (`claude auth login`, `codex login`, `cursor-agent login`) to type in a terminal.
+- A signed-out agent is checked again on every look, and the connect screen looks again when the window regains focus. The agent the learner tried to connect connects once it is signed in.
 - The agent gets the app's environment unchanged (decision O1).
 
 **Finding and launching agents.**
 
-- GUI apps don't load shell profiles. The app looks on `PATH` and in the usual install folders, and on the connect screen the learner can pick the agent's executable.
+- GUI apps don't load shell profiles. The app looks on `PATH` and in the usual install folders, including where Node version managers put npm-installed CLIs: Volta, nvm (its default version first, then the newest) and fnm's default. On the connect screen the learner can pick the agent's executable.
 - A native executable runs directly.
 - A JavaScript entry point (a `#!/usr/bin/env node` launcher, like the npm-installed Codex) runs as `ELECTRON_RUN_AS_NODE=1 <app executable> <script>`, so no system Node is needed.
 - On Windows, an npm `.cmd` shim is never run, because that needs a shell. The app reads the script path from npm's fixed shim format and runs that script the same way.
@@ -192,7 +193,8 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 - **Stuck.**
   - "Reread the lesson" opens the lesson.
   - "Try an easier one" runs a roadmap-change job that adds a prerequisite topic. The stuck topic waits for it, then gets a fresh start (§4.2).
-  - "Come back later" is skip (§4.4).
+  - "Come back later" is skip (§4.4). It shows only when another topic is ready, since otherwise the same topic would come straight back.
+  - The failed results stay under these ways forward.
 
 ### 3.3 Agent CLI versions and the minimum model
 
@@ -265,7 +267,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - `null`: the concept has no lesson yet (write one first).
   - an id: the earliest unread lesson.
   - absent: every lesson for the concept has been read.
-  The activity stays locked, and the tutor teaches first, until the field is absent. The author job can still run in the background, because the step names the activity. Lessons never change mastery.
+  The activity stays locked, and the tutor teaches first, until the field is absent. The topic page and the lesson outline say why in words: "Opens after you finish the lessons". The author job can still run in the background, because the step names the activity. Lessons never change mastery.
 - **Not verified.** Lesson text is checked for structure only, and examples only for a clean run. Only activities are "checked before you see it".
 - **Run.** Each example block shows its files and a Run button, and the example runs in the sandbox, never on the host, recording nothing. An io example runs as an activity's Run does (§4.10): `runExampleLive` through IPC, in the terminal pane with typed input and a countdown, and Run turns into Stop. A unit example runs once as tests through `runExample`, showing the output and errors (capped). `lesson` names the examples' style. A Docker problem shows "This didn't run." with Check this computer.
 
@@ -354,7 +356,7 @@ Every long step shows its live progress, so the learner always knows where it is
 - **What a report holds** (`JobProgress` in `shared/api.ts`). It is a whole snapshot, so a later one replaces an earlier one.
   - An opaque id for this run of the job, its kind, and the topic for a lesson or author job.
   - The stage reached, an index into `JOB_STAGES` (`shared/progress.ts`).
-  - The latest 8 steps, newest first, and a count of all of them. Steps come from the stream parser (§4.9): searches, pages as host and path, and a fixed label per Codemm tool.
+  - The latest 8 steps, newest first, and a count of all of them. Steps come from the stream parser (§4.9): searches, pages as host and path, and a fixed label per Codemm tool. Searches and pages are shown for research only: another job's agent may still search (Codex has no switch for it), and what it looks up could carry an exercise still being written, which the reply filter doesn't know yet.
   - A retry: "Trying again (2 of 3)" after a failed save, within the bound in §3.2, or 2 of 2 when a failed job is relaunched.
   - A real fraction within the stage, where one exists: a setup's build steps, or which of the exercise's 3 gates runs.
   - Whether the agent is thinking, which is false while one of Codemm's own tools runs, and the time since the job started and since its last event.

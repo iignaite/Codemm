@@ -33,7 +33,7 @@ import type { connector } from './connect';
 import { infra } from './core/failures';
 import { errorFields, SafeError } from './errors';
 import type { CoreApp, CoreProgramRun, CoreProgress, CoreRoadmap } from './core/types';
-import { courseView, currentConcept, type Setup } from './courseView';
+import { courseView, currentConcept, otherReady, type Setup } from './courseView';
 import { noLog, type Log } from './log';
 import type { desktopState } from './state';
 import { activityView, checkView, filterReply, hiddenLines, tryView } from './views';
@@ -726,10 +726,11 @@ export function createLive(d: LiveDeps): Live {
         const course = approved();
         const view = await whenDockerReady(() => core.checkExercise(ws, activityId, course, progressOf(run)));
         const concepts = core.listExercises(ws, course).find((e) => e.exercise === activityId)?.concepts ?? [];
-        const state = core.progress(ws, course).concepts.find((c) => concepts.includes(c.id));
+        const progress = core.progress(ws, course);
+        const state = progress.concepts.find((c) => concepts.includes(c.id));
         // A graded check can move the course on: the next topic's lesson and activity.
         schedule();
-        return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false });
+        return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false, later: otherReady(progress, concepts) });
       } catch (e) {
         const reason = notCounted(e);
         if (reason) {

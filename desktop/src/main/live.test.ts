@@ -118,6 +118,15 @@ describe('live CodemmApi', () => {
     expect(await t.api.runProgram(id, 'run-1')).toEqual({ kind: 'not-run', reason: expect.stringMatching(/Docker/) });
   });
 
+  it('says whether Come back later can move on: not when the stuck topic is the only one ready', async () => {
+    const t = live();
+    const { id } = await practising(t);
+    t.c.stuck = 'values';
+    expect(await t.api.check(id, 'run-1')).toMatchObject({ stuck: true, later: false });
+    t.c.roadmap!.concepts.push({ id: 'forms', title: 'Forms', requires: [] });
+    expect(await t.api.check(id, 'run-2')).toMatchObject({ stuck: true, later: true });
+  });
+
   it('keeps the approved course while a new roadmap is a draft, and offers the draft to resume', async () => {
     const t = live();
     const { id } = await practising(t);
