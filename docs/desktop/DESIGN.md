@@ -151,12 +151,13 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 
 - Codemm never opens an agent's credential files or keychain entries.
 - Sign-in uses the agent's own status command. Only a yes or no leaves the bridge.
-- Signing in is the learner's job in their agent ("Not signed in. Sign in to Codex first." then Try again).
+- Signing in is the learner's job in their agent. A signed-out row says "Sign in to Codex, then try again." with the CLI's own sign-in command (`claude auth login`, `codex login`, `cursor-agent login`) to type in a terminal.
+- A signed-out agent is checked again on every look, and the connect screen looks again when the window regains focus. The agent the learner tried to connect connects once it is signed in.
 - The agent gets the app's environment unchanged (decision O1).
 
 **Finding and launching agents.**
 
-- GUI apps don't load shell profiles. The app looks on `PATH` and in the usual install folders, and on the connect screen the learner can pick the agent's executable.
+- GUI apps don't load shell profiles. The app looks on `PATH` and in the usual install folders, including where Node version managers put npm-installed CLIs: Volta, nvm (its default version first, then the newest) and fnm's default. On the connect screen the learner can pick the agent's executable.
 - A native executable runs directly.
 - A JavaScript entry point (a `#!/usr/bin/env node` launcher, like the npm-installed Codex) runs as `ELECTRON_RUN_AS_NODE=1 <app executable> <script>`, so no system Node is needed.
 - On Windows, an npm `.cmd` shim is never run, because that needs a shell. The app reads the script path from npm's fixed shim format and runs that script the same way.
