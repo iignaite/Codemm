@@ -112,7 +112,8 @@ function UsageCard({ usage }: { usage: Usage }) {
           </>
         )}
       </dl>
-      {total.costUsd > 0 && <p className="quiet-text">On a Claude subscription, this counts toward the plan's usage. It isn't a charge.</p>}
+      {/* No promise about charges: Codemm can't tell a plan from an API key. */}
+      {total.costUsd > 0 && <p className="quiet-text">Claude's own estimate. On a Claude plan, this counts toward the plan's usage.</p>}
     </section>
   );
 }
