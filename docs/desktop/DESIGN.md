@@ -222,6 +222,8 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 - **The consent dialog.**
   - Text: "Set up React on this computer?" and "Setup runs code your agent wrote, with internet access. Graded runs are offline.", with Not now or Set up.
   - Details shows the Dockerfile and track.yaml, the 10-minute build limit, and the fact that builds have no memory or CPU limit.
+  - The topic page opens it. A lesson offers it as a "Set up React" banner, so reading never waits for consent.
+  - A setup failure shows above the topic's lessons, which stay readable.
 - **Retries.**
   - **Build failure from the learner's machine.** If a build fails because the machine is offline or out of disk space (§6.1), nothing is recorded and no agent runs. Try again re-installs the same proposal, which needs no new consent because the digest is unchanged.
   - **Gate failure.** If the gates fail, a new setup job gets the gate diagnostics, which hold no learner secrets, and proposes again within the bound in §3.2. A new proposal has new contents, so it asks again: "Codemm has another way to set up React." with Stop or Set up.
@@ -235,6 +237,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - Re-saving may change `track` while the course has no exercises, so a failed setup can move to another track. Before that save, main cancels the old track's setup and author jobs and drops its proposals. Lessons stay, because they are static text.
   - `save_exercise`, `get_exercise` and `check` still need the installed track.
   - If the installed track doesn't offer the roadmap's style, `next_step` fails with "Edit the roadmap's style".
+- **A new roadmap is a draft.** Research saves a new course, which core makes the workspace's active one. The course the learner approved stays their course: main binds every learner read and call to it (core's `bound` course) until the learner approves another roadmap. The goal screen offers "Resume roadmap" for a draft, and the learner's edits to it are saved as they happen, so leaving or closing Codemm keeps them.
 - **Reading.** `get_roadmap` (tool) and `app.getRoadmap(ws)` return `{ course, goal, track, style, concepts: [{ id, title, requires }] }`.
 - **Editing in the app** builds a new roadmap and saves it through `app.saveRoadmap`, so core §5 rules apply:
   - Rename changes the title only; the id stays stable.

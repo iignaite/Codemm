@@ -150,7 +150,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   const lessons = new Map<string, Lesson>();
   const activities = new Map<string, { activity: Activity; fails: number }>();
   let research: { topic: string; calls: number } | null = null;
+  /** The roadmap research wrote or the learner edited; a draft until approved. */
   let roadmap: Roadmap | null = null;
+  let drafting = false;
+  /** The approved course's roadmap: it stays the course while a new roadmap is a draft (§4.2). */
+  let approved: Roadmap | null = null;
   let course: CourseView | null = null;
   let checks = 0;
   /** Concepts skipped since their last check (§4.4). */
@@ -249,7 +253,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   /** The next topic: not mastered, every prerequisite mastered, and a deferred one only if nothing else is ready (§4.4). */
   function advance() {
     const c = course!;
-    const requires = (id: string) => roadmap!.concepts.find((x) => x.id === id)?.requires ?? [];
+    const requires = (id: string) => approved!.concepts.find((x) => x.id === id)?.requires ?? [];
     const ready = c.topics.filter((t) => t.state !== 'mastered' && requires(t.id).every((r) => topicOf(r).state === 'mastered'));
     c.topics.filter((t) => t.state === 'now').forEach((t) => (t.state = 'later'));
     c.done = c.topics.every((t) => t.state === 'mastered');
@@ -460,6 +464,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         concepts: TOPICS.map(([title, requires]) => ({ id: slugOf(title), title, requires: [...requires] })),
         sources: [],
       };
+      drafting = true;
       return { state: 'done', roadmap: structuredClone(roadmap) };
     },
 
@@ -473,11 +478,22 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async approve(edited) {
       if (!roadmap) throw new Error('No roadmap');
       roadmap = { ...roadmap, concepts: structuredClone(edited) };
+      approved = structuredClone(roadmap);
+      drafting = false;
       lessons.clear();
       activities.clear();
       course = { goal: roadmap.goal, track: roadmap.track, setup: roadmap.installed ? 'ready' : 'proposing', done: false, topics: edited.map(addConcept) };
       advance();
       happen('approve');
+    },
+
+    async draft() {
+      return drafting && roadmap ? structuredClone(roadmap) : null;
+    },
+
+    async saveDraft(edited) {
+      if (!drafting || !roadmap) throw new Error('No roadmap to edit.');
+      roadmap = { ...roadmap, concepts: structuredClone(edited) };
     },
 
     async course() {
@@ -611,7 +627,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       const stuck = topicOf(concept);
       const added: Concept = { id: `${concept}-basics`, title: `${stuck.title}: first steps`, requires: [] };
       if (course!.topics.some((t) => t.id === added.id)) return;
-      const concepts = roadmap!.concepts;
+      const concepts = approved!.concepts;
       concepts.splice(concepts.findIndex((c) => c.id === concept), 0, added);
       concepts.find((c) => c.id === concept)!.requires.push(added.id);
       course!.topics.splice(course!.topics.indexOf(stuck), 0, addConcept(added));

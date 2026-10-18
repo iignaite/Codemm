@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
@@ -9,13 +8,14 @@ import { parseTrackYaml } from "../src/schemas.js";
 import type { LearnerEvent } from "../src/learner.js";
 import * as store from "../src/store.js";
 import { fakeDocker } from "./fake-docker.js";
+import { tempDir } from "./temp.js";
 
 /** Use cases that need no container runtime: tracks and exercises are written straight into the store. */
 
 let ws: string;
 beforeEach(() => {
-  vi.stubEnv("CODEMM_HOME", mkdtempSync(join(tmpdir(), "codemm-home-")));
-  ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+  vi.stubEnv("CODEMM_HOME", tempDir("codemm-home-"));
+  ws = tempDir("codemm-ws-");
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -271,7 +271,7 @@ describe("learner files", () => {
 
   it.runIf(process.platform !== "win32")("refuses to write through a symlink", async () => {
     app.readLearnerFiles(ws, "e1");
-    const outside = join(mkdtempSync(join(tmpdir(), "codemm-outside-")), "target.sh");
+    const outside = join(tempDir("codemm-outside-"), "target.sh");
     writeFileSync(outside, "echo todo\n");
     rmSync(file());
     symlinkSync(outside, file());

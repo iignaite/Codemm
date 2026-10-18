@@ -3,7 +3,7 @@
 // pass: Codemm's error codes, core's learner-safe CodemmError, and the
 // desktop's own SafeError. Everything else says INTERNAL, and the log gets
 // the error's kind and Node code, never its message.
-import { AGENT_FAILED, CHANGED, NO_AGENT, PLAN_LIMIT, SIGNED_OUT, UNSTOPPABLE } from '../shared/api';
+import { AGENT_FAILED, CHANGED, NO_AGENT, OFFLINE, PLAN_LIMIT, SIGNED_OUT, UNSTOPPABLE } from '../shared/api';
 import type { Fields } from './log';
 
 /** An error whose message the desktop wrote for the learner. */
@@ -12,7 +12,7 @@ export class SafeError extends Error {
 }
 
 export const INTERNAL = "That didn't work. Try again.";
-const CODES = [SIGNED_OUT, NO_AGENT, PLAN_LIMIT, AGENT_FAILED, CHANGED, UNSTOPPABLE];
+const CODES = [SIGNED_OUT, NO_AGENT, PLAN_LIMIT, OFFLINE, AGENT_FAILED, CHANGED, UNSTOPPABLE];
 
 const codeOf = (e: Error) => CODES.find((c) => e.message === c);
 const fromCore = (e: Error) => e.name === 'CodemmError';

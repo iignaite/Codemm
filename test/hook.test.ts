@@ -1,12 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { claudeHook } from "../src/hook.js";
+import { tempDir } from "./temp.js";
 
 let ws: string;
 beforeEach(() => {
-  ws = mkdtempSync(join(tmpdir(), "codemm-hook-"));
+  ws = tempDir("codemm-hook-");
 });
 const input = (tool: string, file: string) => JSON.stringify({ tool_name: tool, tool_input: tool === "NotebookEdit" ? { notebook_path: file } : { file_path: file } });
 const assist = (on: boolean) => writeFileSync(join(ws, "codemm.json"), JSON.stringify({ format_version: 1, assist: on }));
@@ -34,7 +35,7 @@ describe("claudeHook", () => {
   });
 
   it("sees through symlinked aliases of the workspace", () => {
-    const alias = join(mkdtempSync(join(tmpdir(), "codemm-alias-")), "ws");
+    const alias = join(tempDir("codemm-alias-"), "ws");
     symlinkSync(ws, alias);
     expect(claudeHook(ws, input("Edit", join(alias, "exercises/c/sum/main.c"))).exit).toBe(2);
     expect(claudeHook(alias, input("Edit", join(ws, "exercises/c/sum/main.c"))).exit).toBe(2);
@@ -57,7 +58,7 @@ describe("claudeHook", () => {
 
   it("doesn't mistake a different folder of another case for the same one", () => {
     // A case-sensitive disk can hold both "ws" and "WS": they are different folders.
-    const parent = mkdtempSync(join(tmpdir(), "codemm-case-"));
+    const parent = tempDir("codemm-case-");
     mkdirSync(join(parent, "ws"));
     mkdirSync(join(parent, "WS"), { recursive: true });
     const lower = join(parent, "ws");
@@ -65,7 +66,7 @@ describe("claudeHook", () => {
   });
 
   it("knows the disk ignores case even when the workspace's name has no letters", () => {
-    const digits = join(mkdtempSync(join(tmpdir(), "codemm-case-")), "123");
+    const digits = join(tempDir("codemm-case-"), "123");
     mkdirSync(digits);
     writeFileSync(join(digits, "codemm.json"), JSON.stringify({ format_version: 1, assist: false }));
     expect(claudeHook(digits, input("Edit", join(digits, "EXERCISES/c/main.c"))).exit).toBe(caseInsensitive ? 2 : 0);
