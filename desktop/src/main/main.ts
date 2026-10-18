@@ -35,7 +35,7 @@ const live = mock ? null : liveApi({ coreDir: app.isPackaged ? join(process.reso
 // Auto-update (§7.2): in an installed app, on GitHub Releases. In development only, CODEMM_UPDATE_FEED points the
 // check at a local feed instead, for tests; an installed app ignores it.
 const feed = app.isPackaged ? undefined : process.env.CODEMM_UPDATE_FEED;
-const updater = app.isPackaged || feed ? updates({ signed: signedBuild(), updater: electronUpdater(app.getVersion(), signedBuild(), feed), log }) : undefined;
+const updater = app.isPackaged || feed ? updates({ signed: signedBuild(), updater: electronUpdater(app.getVersion(), signedBuild(), feed), log, cleanup: () => shutdown() }) : undefined;
 const codemm: CodemmApi = withUpdates(live ?? devMock());
 
 /** Whether this build was signed: packaging.cjs records it in the packaged package.json. */
@@ -131,19 +131,20 @@ void app.whenReady().then(() => {
 });
 
 // Quitting first stops running agent jobs with their whole process groups and removes leftover containers (§5).
-// Every quit waits for that, however often the learner asks.
+// Every quit waits for that, however often the learner asks. Restart to update waits for it too, before the
+// installer starts (updates.ts).
 let stopping: Promise<void> | undefined;
 let stopped = false;
+function shutdown(): Promise<void> {
+  stopping ??= (live ? live.stop() : Promise.resolve()).catch(() => undefined).finally(() => {
+    stopped = true;
+  });
+  return stopping;
+}
 app.on('before-quit', (event) => {
   if (!live || stopped) return;
   event.preventDefault();
-  stopping ??= live
-    .stop()
-    .catch(() => undefined)
-    .finally(() => {
-      stopped = true;
-      app.quit();
-    });
+  void shutdown().then(() => app.quit());
 });
 
 app.on('window-all-closed', () => {

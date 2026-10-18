@@ -26,8 +26,27 @@ describe('updates', () => {
     f.finish();
     await tick();
     expect(u.status()).toEqual({ kind: 'ready', version: '1.2.0' });
-    u.restart();
+    await u.restart();
     expect(f.calls).toEqual(['check', 'download', 'install']);
+    u.stop();
+  });
+
+  it('installs only after Codemm has stopped its jobs and removed its containers', async () => {
+    const f = fake();
+    let finishCleanup!: () => void;
+    const cleanup = vi.fn(() => new Promise<void>((r) => (finishCleanup = r)));
+    const u = updates({ signed: true, updater: f.updater, cleanup });
+    u.start();
+    await tick();
+    f.finish();
+    await tick();
+    const restarting = u.restart();
+    await tick();
+    expect(cleanup).toHaveBeenCalled();
+    expect(f.calls).not.toContain('install');
+    finishCleanup();
+    await restarting;
+    expect(f.calls.at(-1)).toBe('install');
     u.stop();
   });
 
@@ -37,7 +56,7 @@ describe('updates', () => {
     u.start();
     await tick();
     expect(u.status()).toEqual({ kind: 'available', version: '1.2.0-beta.2', url: 'https://github.com/iignaite/Codemm/releases/tag/v1.2.0-beta.2' });
-    u.restart();
+    await u.restart();
     expect(f.calls).toEqual(['check']);
     u.stop();
   });

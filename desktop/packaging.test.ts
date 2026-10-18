@@ -80,6 +80,11 @@ describe('releaseTag', () => {
     expect(() => releaseTag('v1.0.0', { core: '1.0.0', desktop: '0.9.0' })).toThrow('The desktop package is 0.9.0, but the tag is v1.0.0.');
   });
 
+  it('takes only alpha and beta prereleases, the channels auto-update moves on to a stable release from', () => {
+    expect(releaseTag('v1.0.0-alpha.2', both('1.0.0-alpha.2'))).toEqual({ version: '1.0.0-alpha.2', prerelease: true });
+    for (const tag of ['v1.0.0-rc.1', 'v1.0.0-preview', 'v1.0.0-next.1']) expect(() => releaseTag(tag, both(tag.slice(1)))).toThrow(/alpha or beta/);
+  });
+
   it('refuses anything that is not a version tag', () => {
     for (const tag of ['1.0.0', 'v1.0', 'v1.0.0+build', 'vnext', 'v1.0.0-']) expect(() => releaseTag(tag, both(tag.slice(1)))).toThrow(/isn't a release tag/);
   });

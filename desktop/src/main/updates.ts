@@ -19,7 +19,11 @@ const VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$/;
 
 export const isPrerelease = (version: string) => version.includes('-');
 
-export function updates({ signed, updater, log = () => undefined }: { signed: boolean; updater: Updater; log?: Log }) {
+/**
+ * `cleanup` runs before an install: the installer may end the app the moment it starts, so Codemm's jobs and
+ * containers are stopped first, the same way quitting stops them.
+ */
+export function updates({ signed, updater, log = () => undefined, cleanup = async () => undefined }: { signed: boolean; updater: Updater; log?: Log; cleanup?: () => Promise<void> }) {
   let status: UpdateStatus = { kind: 'none' };
   let timer: ReturnType<typeof setInterval> | undefined;
 
@@ -48,9 +52,11 @@ export function updates({ signed, updater, log = () => undefined }: { signed: bo
     },
     stop: () => clearInterval(timer),
     status: () => status,
-    /** Quits and installs the downloaded version. Only a signed build that finished downloading has one. */
-    restart() {
-      if (status.kind === 'ready') updater.install();
+    /** Stops Codemm's work, then quits and installs the downloaded version. Only a signed, finished download. */
+    async restart() {
+      if (status.kind !== 'ready') return;
+      await cleanup();
+      updater.install();
     },
   };
 }

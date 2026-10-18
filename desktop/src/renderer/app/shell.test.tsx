@@ -25,6 +25,25 @@ describe('update notice', () => {
     expect(restart).toHaveBeenCalled();
   });
 
+  it('shows an update found later, without navigating, and announces it as a status', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const api = createMock();
+      let status: Awaited<ReturnType<typeof api.update>> = { kind: 'none' };
+      api.update = async () => status;
+      renderApp({ to: 'tracks' }, api);
+      const region = await within(sidebar()).findByRole('status', { name: 'Codemm updates' });
+      expect(region).toBeEmptyDOMElement();
+      status = { kind: 'downloading', version: '1.2.0' };
+      await vi.advanceTimersByTimeAsync(31_000);
+      status = { kind: 'ready', version: '1.2.0' };
+      await vi.advanceTimersByTimeAsync(31_000);
+      await vi.waitFor(() => expect(region).toHaveTextContent('Codemm 1.2.0 is ready.'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('says nothing while nothing is new, or while a signed build is still downloading', async () => {
     for (const update of [{ kind: 'none' as const }, { kind: 'downloading' as const, version: '1.2.0' }]) {
       const view = renderApp({ to: 'tracks' }, createMock({ update }));

@@ -441,8 +441,9 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 ### 7.2 Auto-update
 
 - **Where:** electron-updater 6.8.10 (MIT) on GitHub Releases. `packaging.cjs` sets `publish` to this repository, so each build carries an `app-update.yml`; the build itself never publishes (`--publish never`).
-- **When:** at start and every 6 hours, in an installed app only. A prerelease build sees prereleases; a stable build sees stable releases only (`allowPrerelease` follows the running version).
-- **Signed builds** download a new version in the background, then the sidebar offers **Restart to update**, which quits and installs it.
+- **When:** at start and every 6 hours, in an installed app only. A prerelease build sees prereleases; a stable build sees stable releases only (`allowPrerelease` follows the running version). Prereleases ship only as `alpha` or `beta` (`releaseTag` refuses others): electron-updater moves those channels on to the next stable release, but not a custom one such as `rc`.
+- **Notice:** one `role="status"` region at the foot of the sidebar, so a screen reader hears the news without a focus move. The renderer reads the status on each screen and every 30 seconds until there is something to show.
+- **Signed builds** download a new version in the background, then the sidebar offers **Restart to update**. It first stops Codemm's agent jobs and removes its containers, the same shutdown quitting waits for, and only then starts the installer, which may end the app at once.
 - **Unsigned builds** can't install one (macOS refuses an unsigned update), so they never download. The sidebar says "A new version is available." with a link to that release's page, which opens in the browser. A version goes into the link only if it looks like a release tag.
 - **Signed or not** is decided at build time: `packaging.cjs` records `codemm.signed` in the packaged `package.json`, from that platform's own signing settings.
 - **Release workflow:** it attaches the `latest*.yml` feeds (and any channel feeds, such as `beta-mac.yml`), the Mac zips that Squirrel.Mac updates from, and the blockmaps, beside the installers. The release stays a draft until the owner publishes it, so no app sees it before then.

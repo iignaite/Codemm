@@ -68,6 +68,8 @@ function packaging(env, platform = process.platform) {
 function releaseTag(tag, versions) {
   const m = /^v(\d+\.\d+\.\d+)(-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/.exec(tag);
   if (!m) throw new Error(`"${tag}" isn't a release tag (v1.2.3, or v1.2.3-beta.1 for a prerelease).`);
+  // Auto-update moves a prerelease on to the next stable release only from the alpha and beta channels (§7.2).
+  if (m[2] && !/^-(alpha|beta)(\.\d+)?$/.test(m[2])) throw new Error(`"${tag}" is a prerelease, but only alpha or beta prereleases ship (v1.2.3-beta.1).`);
   const version = tag.slice(1);
   for (const [name, v] of Object.entries(versions)) {
     if (v !== version) throw new Error(`The ${name} package is ${v}, but the tag is ${tag}.`);

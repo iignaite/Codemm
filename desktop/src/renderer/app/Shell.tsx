@@ -82,24 +82,25 @@ export function Sidebar({ slim = false }: { slim?: boolean }) {
 function UpdateNotice() {
   const api = useApi();
   const { route, fail } = useRouter();
-  const { data: update } = useLoad(() => api.update(), [route], (u) => u.kind !== 'downloading', 30_000);
-  if (update?.kind === 'available') {
-    return (
-      <div className="update">
-        <span>A new version is available.</span>
-        <a href={update.url} target="_blank" rel="noreferrer">Get Codemm {update.version}</a>
-      </div>
-    );
-  }
-  if (update?.kind === 'ready') {
-    return (
-      <div className="update">
-        <span>Codemm {update.version} is ready.</span>
-        <Button onClick={() => void api.restartToUpdate().catch(fail)}>Restart to update</Button>
-      </div>
-    );
-  }
-  return null;
+  // Read until there is something to say: main checks at start and every 6 hours, so news can come at any time.
+  const { data: update } = useLoad(() => api.update(), [route], (u) => u.kind === 'available' || u.kind === 'ready', 30_000);
+  // One status region stays in place, so a screen reader hears the news when it arrives, without a focus move.
+  return (
+    <div role="status" aria-label="Codemm updates" className={update?.kind === 'available' || update?.kind === 'ready' ? 'update' : undefined}>
+      {update?.kind === 'available' && (
+        <>
+          <span>A new version is available.</span>
+          <a href={update.url} target="_blank" rel="noreferrer">Get Codemm {update.version}</a>
+        </>
+      )}
+      {update?.kind === 'ready' && (
+        <>
+          <span>Codemm {update.version} is ready.</span>
+          <Button onClick={() => void api.restartToUpdate().catch(fail)}>Restart to update</Button>
+        </>
+      )}
+    </div>
+  );
 }
 
 /** A screen with the wide sidebar. */
