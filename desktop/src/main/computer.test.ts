@@ -89,10 +89,12 @@ describe('check this computer (§6.1, D13)', () => {
     expect(await states(computerCheck(probe({ startedAt: () => 0, sandbox: async () => FAIL }), 'darwin'))).toEqual(['ok', 'ok', 'problem:checking']);
   });
 
-  it('logs why the sandbox check failed, and nothing when it passes', async () => {
+  it('logs why the sandbox check failed, once per reason, and nothing when it passes', async () => {
     const logged: [string, Fields | undefined][] = [];
     const log = (event: string, fields?: Fields) => void logged.push([event, fields]);
-    await computerCheck(probe({ sandbox: async () => FAIL }), 'darwin', log)();
+    const failing = computerCheck(probe({ sandbox: async () => FAIL }), 'darwin', log);
+    await failing();
+    await failing();
     await computerCheck(probe(), 'darwin', log)();
     expect(logged).toEqual([['sandbox', { reason: FAIL.detail }]]);
   });

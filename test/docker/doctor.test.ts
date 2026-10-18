@@ -16,8 +16,8 @@ describe.runIf(dockerUp)("network isolation check", () => {
   });
 
   it("leaves no container behind", async () => {
-    const before = (await cli(["ps", "-aq", "--filter", `label=${OWNER_LABEL}`])).output.trim();
     await networkIsolation();
-    expect((await cli(["ps", "-aq", "--filter", `label=${OWNER_LABEL}`])).output.trim()).toBe(before);
+    const mine = await cli(["ps", "-aq", "--filter", `label=${OWNER_LABEL}`, "--filter", `label=codemm.pid=${process.pid}`]);
+    expect(mine.output.trim()).toBe("");
   });
 });

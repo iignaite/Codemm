@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { accessSync, constants, mkdirSync } from "node:fs";
 import { assertRuntime, cli, containerCli, OWNER_LABEL, ownedContainers, ownerGone, removeAbandoned, runSandboxed } from "./sandbox.js";
 import { codemmHome } from "./store.js";
@@ -18,14 +19,17 @@ const firstLine = (text: string) => text.trim().split("\n")[0] ?? "";
  */
 export async function networkIsolation(): Promise<Check> {
   const name = "network isolation";
-  const server = await cli(["run", "-d", "--rm", "--label", OWNER_LABEL, "--label", `codemm.pid=${process.pid}`, PROBE_IMAGE, "sh", "-c", PROBE_SERVER], 120_000);
-  const id = server.output.trim().split("\n").pop() ?? "";
-  if (server.exit !== 0 || !id) return { name, ok: false, detail: `inconclusive: the test server's container failed (${firstLine(server.output)})` };
+  // Named, so it's removed even when `run` times out before printing its id.
+  const server = `codemm-probe-${process.pid}-${randomBytes(4).toString("hex")}`;
   try {
-    const ip = (await cli(["inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", id])).output.trim();
+    const started = await cli(["run", "-d", "--rm", "--name", server, "--label", OWNER_LABEL, "--label", `codemm.pid=${process.pid}`, PROBE_IMAGE, "sh", "-c", PROBE_SERVER], 120_000);
+    if (started.exit !== 0) return { name, ok: false, detail: `inconclusive: the test server's container failed (${firstLine(started.output)})` };
+    const inspected = await cli(["inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", server]);
+    const ip = inspected.output.trim().split("\n").pop() ?? "";
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return { name, ok: false, detail: "inconclusive: the test server's container has no bridge IP" };
     const url = `http://${ip}:8080/`;
-    // A few tries, since the server's container may still be starting.
-    const control = await cli(["run", "--rm", PROBE_IMAGE, "sh", "-c", `for i in 1 2 3 4 5; do wget -q -T 2 -O- "${url}" && exit 0; sleep 1; done; exit 1`], 120_000);
+    // A few tries, since the server's container may still be starting; wget's errors stay out of the answer.
+    const control = await cli(["run", "--rm", PROBE_IMAGE, "sh", "-c", `for i in 1 2 3 4 5; do wget -q -T 2 -O- "${url}" 2>/dev/null && exit 0; sleep 1; done; exit 1`], 120_000);
     if (control.output.trim() !== "pong") {
       return { name, ok: false, detail: `inconclusive: an ordinary container couldn't reach the test server either, so isolation wasn't proven (${firstLine(control.output) || `exit ${control.exit}`})` };
     }
@@ -36,7 +40,7 @@ export async function networkIsolation(): Promise<Check> {
     const blocked = sandboxed.stdout.toString().trim() === "blocked";
     return { name, ok: blocked, detail: blocked ? "the sandbox can't reach a server that ordinary containers can" : "the sandbox reached the network" };
   } finally {
-    await cli(["rm", "-f", id]);
+    await cli(["rm", "-f", server]);
   }
 }
 

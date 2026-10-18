@@ -32,6 +32,7 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
   let sandboxOk = false;
   let down = false;
   let upAt: number | undefined;
+  let lastReason: string | undefined;
   const recent = (at: number | undefined) => at !== undefined && probe.now() - at <= STARTING_MS;
 
   async function failing(): Promise<{ at: number; detail?: ComputerCheck['detail'] } | null> {
@@ -45,7 +46,9 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
     if (!sandboxOk) {
       const sandbox = await probe.sandbox();
       sandboxOk = sandbox.ok;
-      if (!sandbox.ok) log('sandbox', { reason: sandbox.detail });
+      // Logged when the reason changes, not on every re-check.
+      if (!sandbox.ok && sandbox.detail !== lastReason) log('sandbox', { reason: sandbox.detail });
+      lastReason = sandbox.ok ? undefined : sandbox.detail;
     }
     if (sandboxOk) return null;
     return { at: 2, ...(recent(upAt) || recent(probe.startedAt?.()) ? { detail: 'checking' as const } : {}) };
