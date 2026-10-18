@@ -162,7 +162,7 @@ function Progress({ phase, done, total }: CheckProgress) {
   );
 }
 
-/** Visible results, with what was expected next to what was found. */
+/** Visible results: a wrong output with what was expected next to what was found, an error with its reason. */
 function TestLines({ tests, visibleTests }: { tests: TestView[]; visibleTests: VisibleTest[] }) {
   return (
     <>
@@ -174,7 +174,11 @@ function TestLines({ tests, visibleTests }: { tests: TestView[]; visibleTests: V
           <div className="tline a-up" key={t.name} style={stagger(i, 350)}>
             <Status kind={t.status === 'pass' ? 'ok' : 'fail'} />
             {name}
-            {t.status !== 'pass' && (t.actual !== undefined || t.message) && (
+            {/* An error says why the program stopped; only a wrong output compares expected and found. */}
+            {t.status === 'error' && t.message && (
+              <span className="cmp"><span className="f why">{t.message}</span></span>
+            )}
+            {t.status === 'fail' && (t.actual !== undefined || t.message) && (
               <span className="cmp">
                 {expected !== undefined && <span className="e">expected {expected}</span>}
                 {t.actual !== undefined ? <span className="f">found {t.actual}</span> : <span className="f">{t.message}</span>}
