@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { GateError } from "../src/gates.js";
 import { buildProblem, buildStep, runtimeHelp, runtimeKind, runtimeProblem, runtimeStateOf, sandboxArgs, startHelp } from "../src/sandbox.js";
 
 describe("sandboxArgs", () => {
@@ -88,12 +89,14 @@ describe("runtime guidance", () => {
 });
 
 describe("buildProblem", () => {
-  it("blames Docker, not the track, when its credential helper fails", () => {
-    const line = '#2 ERROR: error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``';
-    const problem = buildProblem(`#2 [internal] load metadata for docker.io/library/alpine:3.20\n${line}\n`);
-    expect(problem?.kind).toBe("docker");
-    expect(problem?.message).toMatch(/credentials.*not a problem with the track files/s);
-    expect(problem?.message).toContain("error getting credentials");
+  it("reads a network line that also names a disk problem as the disk, as the desktop always has", () => {
+    expect(buildProblem("not enough disk space; could not resolve host example.test")?.kind).toBe("disk");
+  });
+
+  it("leaves a credential-helper failure to the build gate, which reads it as Docker's problem", () => {
+    const log = '#2 ERROR: error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``';
+    expect(buildProblem(log)).toBeUndefined();
+    expect(new GateError("build", `the image didn't build:\n${log}`).kind).toBe("docker");
   });
 
   it.each([
@@ -151,8 +154,11 @@ describe("buildStep", () => {
 });
 
 describe("runtimeKind", () => {
-  it("reads a runtime's own failure as out of disk when it says so, and as Docker otherwise", () => {
+  it("reads a runtime's own failure as out of disk or offline when it says so, and as Docker otherwise", () => {
     expect(runtimeKind("docker: Error response from daemon: write /var/lib/docker/x: no space left on device.")).toBe("disk");
+    expect(runtimeKind("Error: not enough disk space")).toBe("disk");
+    expect(runtimeKind("docker: Error response from daemon: dial tcp: network is unreachable.")).toBe("offline");
+    expect(runtimeKind("Error: could not resolve host registry-1.docker.io")).toBe("offline");
     expect(runtimeKind("docker: Error response from daemon: Conflict.")).toBe("docker");
   });
 });
@@ -164,5 +170,17 @@ describe("runtimeStateOf", () => {
     expect(runtimeStateOf({ exit: 1, output: "" })).toBe("down");
     expect(runtimeStateOf({ exit: 0, output: "27.4.0|windows\n" })).toBe("windows");
     expect(runtimeStateOf({ exit: 0, output: "27.4.0|linux\n" })).toBe("ready");
+  });
+});
+
+describe("gate failures that are this computer's problem", () => {
+  it("carry the kind their details show, so setup keeps the proposal, and plain gate failures carry none", () => {
+    expect(new GateError("probe pass", "the io pass probe should pass every test:\n  01: error (write: no space left on device)").kind).toBe("disk");
+    expect(new GateError("build", "the image didn't build:\nfailed to create container runtime task").kind).toBe("docker");
+    expect(new GateError("build", "the image didn't build:\nCannot connect to the Docker daemon at unix:///var/run/docker.sock").kind).toBe("docker");
+    expect(new GateError("build", "the image didn't build:\nnot enough disk space").kind).toBe("disk");
+    expect(new GateError("build", "the image didn't build:\nDocker is running Windows containers").kind).toBe("docker");
+    expect(new GateError("build", "the image didn't build:\ncould not resolve host: deb.debian.org").kind).toBe("offline");
+    expect(new GateError("starter unsolved", "the unedited starter passes every test.").kind).toBeUndefined();
   });
 });

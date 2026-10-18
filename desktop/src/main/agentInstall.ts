@@ -10,6 +10,7 @@ import { join, posix, win32 } from 'node:path';
 import type { AgentId, AgentInstall } from '../shared/api';
 import type { Executable } from './agent/bridge';
 import { nodeDesktopDeps, OfflineError, type DesktopDeps } from './dockerDesktop';
+import { POWERSHELL } from './windows';
 
 export interface AgentInstallDeps extends DesktopDeps {
   readText(file: string): string;
@@ -25,7 +26,6 @@ const MiB = 1024 * KiB;
 const GiB = 1024 ** 3;
 /** System tools by absolute path: a tool earlier on PATH can't answer for them. */
 const CODESIGN = '/usr/bin/codesign';
-const POWERSHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
 /** The path arrives as $env:CODEMM_FILE, so nothing outside this text is ever parsed as PowerShell. */
 const SIGNATURE = '$s = Get-AuthenticodeSignature -LiteralPath $env:CODEMM_FILE; "$($s.Status)|$($s.SignerCertificate.Subject)"';
 const CLAUDE_RELEASES = 'https://downloads.claude.ai/claude-code-releases';

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CHANGED, NO_AGENT, PLAN_LIMIT, REBUILD, SIGNED_OUT, type CodemmApi, type CourseView, type JobProgress } from '../shared/api';
 import { isSafeLink } from './links';
+import { AGENT_INFO } from './connect';
 import { createMock, scenario, SCENARIOS, type MockOptions } from './mock';
 
 const goal = { topic: 'React', known: 'Python', depth: 'standard' as const };
@@ -58,6 +59,15 @@ describe('mock: installing an agent', () => {
   it('cannot install on Linux', async () => {
     const api = createMock({ ...scenario('no-agent'), platform: 'linux' });
     expect((await api.agents()).every((a) => !a.canInstall)).toBe(true);
+  });
+});
+
+describe('mock: agents', () => {
+  it('describes each agent exactly as the connect screen\'s connector does', async () => {
+    const agents = await createMock().agents();
+    expect(agents.map(({ id, name, installUrl, signIn, experimental }) => ({ id, name, installUrl, signIn, experimental }))).toEqual(
+      Object.entries(AGENT_INFO).map(([id, info]) => ({ id, ...info })),
+    );
   });
 });
 
@@ -295,7 +305,7 @@ describe('mock: environment', () => {
   });
 
   it('names every scenario, and rejects unknown ones', () => {
-    expect(Object.keys(SCENARIOS)).toHaveLength(23);
+    expect(Object.keys(SCENARIOS)).toHaveLength(25);
     expect(scenario(undefined)).toEqual({});
     expect(() => scenario('nope')).toThrow('Unknown mock scenario');
   });

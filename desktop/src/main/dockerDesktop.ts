@@ -9,6 +9,7 @@ import { join, posix, win32 } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { DockerInstall } from '../shared/api';
+import { POWERSHELL } from './windows';
 
 export interface DesktopDeps {
   platform: NodeJS.Platform;
@@ -41,7 +42,6 @@ const SPCTL = '/usr/sbin/spctl';
 /** Docker, Inc's Apple Developer team. */
 const DOCKER_TEAM = /^TeamIdentifier=9BNSXJN65R$/m;
 const WIN_DESKTOP = 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe';
-const POWERSHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
 /** The path arrives as $env:CODEMM_FILE, so nothing outside this text is ever parsed as PowerShell. */
 const SIGNATURE = '$s = Get-AuthenticodeSignature -LiteralPath $env:CODEMM_FILE; "$($s.Status)|$($s.SignerCertificate.Subject)"';
 /** Windows installer exit codes that mean "restart to finish". */
