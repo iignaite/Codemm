@@ -203,7 +203,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
   | Job | Deadline | Retry bound |
   |---|---|---|
   | Research | 10 min | — |
-  | Setup | 10 min per proposal, then core's 10 min build limit | 3 proposals per setup |
+  | Setup | 10 min per proposal, then core's 10 min build limit | 5 proposals per setup |
   | Lesson | 5 min | 3 failed `save_lesson` calls |
   | Author | 15 min | 3 failed `save_exercise` calls |
   | Tutor | 5 min | — |
