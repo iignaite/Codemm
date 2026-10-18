@@ -253,7 +253,7 @@ export async function checkExercise(ws: string, slug?: string, bound?: string, o
   const unedited = track.files.every((f) => src[f] === files[`starter/${f}`]);
   const passed = tests.filter((t) => t.status === "pass").length;
   // Only move "current" if the workspace still points at the course that was checked. This write can fail (a full
-  // disk), so it goes first: the attempt is recorded last, and a check that throws has recorded nothing (§7).
+  // disk), so it goes first and the attempt is recorded last: a failed workspace update never leaves a counted attempt.
   await store.updateWorkspace(ws, (c) => (c.course === course.course ? { ...c, current: record.slug } : c));
   await store.withLock(store.courseLockPath(course.course), async () => {
     if (config.assist) noteAssistLocked(course.course, record.slug);

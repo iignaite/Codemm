@@ -53,7 +53,8 @@ describe.runIf(posix)("check progress", () => {
   it.runIf(process.getuid?.() !== 0)("records nothing when the workspace can't be updated, so \"not counted\" stays true and a retry counts once", async () => {
     const ws = await installedExercise();
     fakeDocker("streams");
-    // The check grades; then codemm.json can't be written (a full disk behaves the same).
+    // A read-only workspace folder: grading still runs (it writes only inside exercises/), but codemm.json can't be
+    // written, as on a full disk.
     chmodSync(ws, 0o555);
     try {
       await expect(app.checkExercise(ws)).rejects.toThrow();
@@ -61,6 +62,9 @@ describe.runIf(posix)("check progress", () => {
       chmodSync(ws, 0o755);
     }
     expect(store.readEvents("shell")).toEqual([]);
+    // Once the disk is fine again, the retry is the one counted attempt.
+    await app.checkExercise(ws);
+    expect(store.readEvents("shell").filter((e) => e.kind === "check")).toHaveLength(1);
   });
 
   it("records nothing when Docker fails mid-check, whatever progress was reported", async () => {
