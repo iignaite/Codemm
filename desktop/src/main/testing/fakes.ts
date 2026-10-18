@@ -202,6 +202,7 @@ export function live(over: Partial<Record<Job['kind'], Act>> = {}, deps: Partial
     computer: async () => ({ platform: 'mac', checks: [], ready: true }),
     state,
     ws: '/Users/me/Codemm',
+    agentDir: '/userData/agents',
     server: (course, tools) => ({ command: '/app', args: ['core/cli.mjs', 'mcp', ...(course ? ['--course', course] : []), '--tools', tools.join(',')] }),
     runJob: jobs.runJob,
     log: createLog(dir),

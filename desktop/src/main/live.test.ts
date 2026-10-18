@@ -20,6 +20,8 @@ describe('live CodemmApi', () => {
     expect(course).toMatch(/^react-[a-z0-9]+$/);
     expect(job.server(['list_tracks', 'save_roadmap']).args).toEqual(['core/cli.mjs', 'mcp', '--course', course, '--tools', 'list_tracks,save_roadmap']);
     expect(job.brief).toContain(`Course id: ${course}`);
+    // Agents that read config from their working directory get Codemm's own folder, never the workspace.
+    expect([job.cwd, job.agentDir]).toEqual(['/Users/me/Codemm', '/userData/agents']);
   });
 
   it('runs every job with the chosen model: the recommended one until the learner picks another', async () => {
