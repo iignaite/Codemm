@@ -15,7 +15,7 @@ case "$1" in
     echo "#1 [internal] load build definition from Dockerfile"
     # builds: the build succeeds and writes its image ID where --iidfile says, as docker does.
     if [ "$FAKE_DOCKER" = no-iid ]; then exit 0; fi
-    if [ "$FAKE_DOCKER" = builds ]; then
+    if [ "$FAKE_DOCKER" = builds ] || [ "$FAKE_DOCKER" = notests ]; then
       echo "#2 [1/3] FROM docker.io/library/alpine:3.20"
       echo "#3 [2/3] RUN apk add bash"
       echo "#4 [3/3] COPY . /opt/track"
@@ -85,6 +85,14 @@ case "$1" in
     fi
     # leaks-build / leaks: a run that prints the source it was given, as a compiler error or a traceback does.
     # leaks-build fails the build; leaks fails each io case (source on stderr) and each unit test (source as the message).
+    # notests: a unit runner that finds no test files: an empty report, and the runner's own words in its log.
+    if [ "$FAKE_DOCKER" = notests ]; then
+      r='{"tests":[]}'
+      log=$(printf 'RUN  v3.2.7 /work\n%.0s' 1 2 3; printf 'No test files found, exiting with code 1')
+      printf '\n@@codemm report report 0 %s\n%s' "${#r}" "$r"
+      printf '\n@@codemm log log 1 %s\n%s' "${#log}" "$log"
+      exit 0
+    fi
     # leaks-start: code writes the source to stderr before any frame, then the runtime fails with exit 125.
     if [ "$FAKE_DOCKER" = leaks-start ]; then
       for a in "$@"; do case "$a" in *target=/work/src,*) src="${a#*source=}"; src="${src%%,target=*}" ;; esac; done

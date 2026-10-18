@@ -90,6 +90,12 @@ describe.runIf(posix)("installing a track", () => {
     expect(app.listTracks()).toEqual([]);
   });
 
+  it("shows the end of a probe's own output, so the agent can see why its test runner found nothing", async () => {
+    fakeDocker("notests");
+    const unit = readFileMap(join(import.meta.dirname, "fixtures", "tracks", "shell-unit"));
+    await expect(app.saveTrack(unit)).rejects.toThrow(/Gate "probe pass"[\s\S]*No test files found, exiting with code 1/);
+  });
+
   it("reports a setup's build steps, then its checks, as phases and counts only", async () => {
     fakeDocker("builds");
     await app.proposeTrack(track());

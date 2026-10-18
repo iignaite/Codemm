@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { type FileMap, subMap, validateFileMap, writeFileMap } from "./files.js";
-import { gradeRuns, type IoRun, redact, type TestResult } from "./grading.js";
+import { gradeRuns, type IoRun, redact, type Runs, type TestResult, type UnitRun } from "./grading.js";
 import { type JudgeTrack, runSets } from "./judge.js";
 import { buildImage, type BuildStep, infraKind, inspectImage } from "./sandbox.js";
 import {
@@ -44,6 +44,25 @@ const statuses = (tests: TestResult[]) => {
   let visible = 0;
   return redact(tests).map((t) => `  ${t.index === undefined ? `visible #${(visible += 1)}` : t.name}: ${t.status}`).join("\n");
 };
+
+/**
+ * The end of what a track's own run printed (its build, or a probe's test runner): the last 40 lines and 4 KB.
+ * Track gates show it so the agent can see why its track failed. Probes are track code the agent wrote, not
+ * exercise material; exercise gates never show what the reference printed.
+ */
+function tail(text: string): string {
+  const lines = text.trimEnd().split("\n").slice(-40).join("\n");
+  return lines.length > 4096 ? `…${lines.slice(-4096)}` : lines;
+}
+const printed = (text: string) => (text.trim() ? `\nIt printed (the end):\n${tail(text)}` : "");
+
+/** What a probe's run printed: a unit runner's own output, or io's build output and each case's errors. */
+function probeOutput(runs: Runs): string {
+  const unit = runs.visible as UnitRun;
+  if (unit && "report" in unit) return unit.report.log;
+  const io = runs.visible as IoRun;
+  return [io.build?.output ?? "", ...io.cases.map((c) => c.stderr)].filter((t) => t.trim()).join("\n");
+}
 
 const allPass = (tests: TestResult[]) => tests.length > 0 && tests.every((t) => t.status === "pass");
 
@@ -126,7 +145,7 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
     builtId = built.imageId ?? "";
     // Offline, out of disk or no runtime isn't the track's fault, so it's no gate failure.
     if (built.problem) throw new CodemmError(built.problem.message, built.problem.kind);
-    if (!built.ok) throw new GateError("build", `the image didn't build:\n${built.log}`);
+    if (!built.ok) throw new GateError("build", `the image didn't build.${printed(built.log)}`);
   } finally {
     rmSync(context, { recursive: true, force: true });
   }
@@ -140,11 +159,13 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
   onProgress?.({ phase: "checking" });
   for (const p of probes) {
     const exp = { expected: p.expected };
-    const pass1 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
-    if (!allPass(pass1)) throw new GateError("probe pass", `the ${p.style} pass probe should pass every test:\n${summarize(pass1)}`);
-    const failed = gradeRuns(p.style, await runSets(track, p.style, p.fail, { visible: p.inputs }), exp);
+    const passRuns = await runSets(track, p.style, p.pass, { visible: p.inputs });
+    const pass1 = gradeRuns(p.style, passRuns, exp);
+    if (!allPass(pass1)) throw new GateError("probe pass", `the ${p.style} pass probe should pass every test:\n${summarize(pass1)}${printed(probeOutput(passRuns))}`);
+    const failRuns = await runSets(track, p.style, p.fail, { visible: p.inputs });
+    const failed = gradeRuns(p.style, failRuns, exp);
     if (!failed.some((t) => t.status === "fail") || failed.some((t) => t.status === "error")) {
-      throw new GateError("probe fail", `the ${p.style} fail probe should fail at least one test without errors:\n${summarize(failed)}`);
+      throw new GateError("probe fail", `the ${p.style} fail probe should fail at least one test without errors:\n${summarize(failed)}${printed(probeOutput(failRuns))}`);
     }
     const pass2 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
     if (JSON.stringify(pass1) !== JSON.stringify(pass2)) throw new GateError("deterministic", `the ${p.style} pass probe gave different results on a second run.`);
