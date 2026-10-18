@@ -167,8 +167,23 @@ async function wrongAnswer(n: number) {
   await write(first, `${await page.getByRole('textbox', { name: first, exact: true }).inputValue()}\n${n % 2 ? '#' : '//'} not yet ${n}\n`);
 }
 
+/** The open activity's exercise: the one whose README title is the page's heading, else the newest. */
+async function openExercise(): Promise<string> {
+  const title = (await page.locator('h1').first().innerText()).trim();
+  const courses = join(dir!, 'home', 'courses');
+  const all = readdirSync(courses).flatMap((c) => {
+    const ex = join(courses, c, 'exercises');
+    return existsSync(ex) ? readdirSync(ex).map((s) => join(ex, s)) : [];
+  });
+  const titled = all.find((d) => {
+    const readme = join(d, 'README.md');
+    return existsSync(readme) && readFileSync(readme, 'utf8').split('\n')[0].replace(/^#\s*/, '').trim() === title;
+  });
+  return titled ?? newestExercise();
+}
+
 async function rightAnswer() {
-  const solution = join(newestExercise(), 'solution');
+  const solution = join(await openExercise(), 'solution');
   for (const path of await files()) if (existsSync(join(solution, path))) await write(path, readFileSync(join(solution, path), 'utf8'));
 }
 
