@@ -69,11 +69,11 @@ describe('course editor', () => {
     const { user } = await open();
     await user.click(screen.getByRole('button', { name: 'Move JSX' }));
     await user.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Move up' }));
-    expect(screen.getByRole('status')).toHaveTextContent('Needs JavaScript basics first');
+    expect(within(screen.getByRole('main')).getByRole('status')).toHaveTextContent('Needs JavaScript basics first');
     expect(names()).toEqual(['JavaScript basics', 'JSX', 'Lists and keys', 'Forms']);
 
     await user.click(screen.getByRole('button', { name: 'Remove JavaScript basics' }));
-    expect(screen.getByRole('status')).toHaveTextContent('JSX needs this topic');
+    expect(within(screen.getByRole('main')).getByRole('status')).toHaveTextContent('JSX needs this topic');
   });
 
   it('cannot approve while a topic is being renamed', async () => {

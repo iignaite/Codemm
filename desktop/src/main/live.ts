@@ -785,6 +785,10 @@ export function createLive(d: LiveDeps): Live {
       await core.rebuildTrack(ref);
     },
 
+    // Updates are main's (updates.ts), which answers these in place of live.
+    update: async () => ({ kind: 'none' }),
+    restartToUpdate: async () => undefined,
+
     async stop() {
       stopping = true;
       log('quit', { jobs: running.size, runs: runs.size });

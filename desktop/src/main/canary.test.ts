@@ -91,6 +91,8 @@ describe('the learner-safe boundary (D4)', () => {
       retryJobs: [],
       skip: ['values'],
       rebuild: ['react@1'],
+      update: [],
+      restartToUpdate: [],
       reviseRoadmap: [roadmap?.concepts ?? concepts, 'Add testing'],
       easier: ['state'],
       saveDraft: [concepts],
