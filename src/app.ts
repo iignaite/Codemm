@@ -526,8 +526,9 @@ function present(slug: string, tests: TestResult[], recorded: boolean, note?: st
 }
 
 /**
- * Progress through a check. io reports each visible test as it finishes; hidden tests, and unit tests (whose
- * runner reports at the end), report their phase once with `total` 0. Nothing about a test leaves but counts (DESIGN §4.2).
+ * Progress through a check. io reports each visible test as it finishes, with its result; hidden tests, and unit
+ * tests (whose runner reports at the end), report their phase once with `total` 0. Nothing about a hidden test
+ * leaves (DESIGN §4.2).
  */
 /** A visible test's result as it finishes: what Results shows for it. Hidden tests never have one. */
 export type VisibleTestResult = { name: string; status: Status; message?: string; actual?: string };
