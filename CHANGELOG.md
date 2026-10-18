@@ -1,6 +1,17 @@
 # Changelog
 
-## 1.0.0 (2026-10-17)
+## 1.0.0-beta.1 (unreleased)
+
+The first beta of the Codemm desktop app, built on the 1.0 core below. The installers are unsigned, so each needs one extra step to open: Open Anyway on macOS, and More info, then Run anyway, on Windows.
+
+- **The desktop app** for macOS (Apple silicon and Intel) and Windows (x64). It connects your agent, checks this computer, researches a roadmap you can edit, sets up the track, and takes you through lessons, activities and progress, with your agent as the tutor beside them.
+- **Installing what's missing.** When Claude Code, Codex or Docker isn't on the computer, the app can install it, then starts the agent's own sign-in.
+- **Live progress.** Every long step (research, setup, lessons, activities and checks) shows its stage and its latest step while it runs.
+- **Run in a terminal pane.** An io activity's program runs in the sandbox with typed input and a time limit, and nothing is recorded. Try it and Check print each visible test in the pane as it finishes; hidden tests show only an index and a status.
+- **Usage.** The course map shows the tokens your agent reported for the course, and Claude's own cost estimate when it gives one.
+- **Auto-update.** The app checks GitHub Releases at start and every 6 hours. An unsigned build says when a new version is out and links to it; a signed build downloads it and offers Restart to update.
+
+## 1.0.0 (unreleased)
 
 Codemm 1.0 is a rewrite. The v1 desktop app is replaced by a small, open-source harness that your own coding agent drives. See [docs/MIGRATION.md](docs/MIGRATION.md) for what this means for v1 users.
 
