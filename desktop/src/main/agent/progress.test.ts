@@ -102,6 +102,16 @@ describe('job progress (§4.11)', () => {
     expect(t.snapshot()).toMatchObject({ count: 1, steps: [{ kind: 'read', url: 'react.dev/learn' }] });
   });
 
+  it("shows web searches and pages for research only: another job's agent may still search (Codex)", () => {
+    for (const kind of ['author', 'lesson', 'tutor', 'setup', 'roadmap'] as const) {
+      const t = jobTracker(kind, { id: 'job-1' });
+      t.event({ type: 'progress', step: { kind: 'search', query: 'reverse a linked list solution' } });
+      t.event({ type: 'progress', step: { kind: 'read', url: 'example.com/answer', href: 'https://example.com/answer' } });
+      t.event({ type: 'progress', step: { kind: 'step', label: 'Saving the lesson' } });
+      expect(t.snapshot()).toMatchObject({ count: 1, steps: [{ kind: 'step', label: 'Saving the lesson' }] });
+    }
+  });
+
   it('a setup job stays on proposing; the build and its checks come later', () => {
     const t = jobTracker('setup', { id: 'job-1' });
     t.event({ type: 'session', id: 's1' });

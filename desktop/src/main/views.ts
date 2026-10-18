@@ -15,8 +15,8 @@ function testViews(tests: CoreCheckView['tests']): TestView[] {
   });
 }
 
-export function checkView(core: CoreCheckView, concept: { stuck: boolean; mastered: boolean }): CheckResult {
-  return { kind: 'graded', passed: core.passed, total: core.total, tests: testViews(core.tests), recorded: core.recorded, stuck: concept.stuck, mastered: concept.mastered };
+export function checkView(core: CoreCheckView, concept: { stuck: boolean; mastered: boolean; later: boolean }): CheckResult {
+  return { kind: 'graded', passed: core.passed, total: core.total, tests: testViews(core.tests), recorded: core.recorded, stuck: concept.stuck, mastered: concept.mastered, later: concept.later };
 }
 
 export function tryView(core: CoreCheckView): TryResult {

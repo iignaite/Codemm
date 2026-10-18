@@ -32,7 +32,7 @@ export const STEP_LABELS: Record<string, string> = {
   get_roadmap: 'Reading the roadmap',
   save_track: 'Proposing the setup',
   save_lesson: 'Saving the lesson',
-  save_exercise: 'Codemm is checking the exercise: the reference passes, the starter fails, the tests catch each broken version',
+  save_exercise: 'Codemm is checking the exercise',
   next_step: 'Checking the next step',
   progress: 'Checking your progress',
   get_exercise: 'Reading the activity',

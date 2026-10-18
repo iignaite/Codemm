@@ -41,6 +41,30 @@ describe('find (§3.1)', () => {
     expect(find('nothing-here', posix('', at('home')))).toBeNull();
   });
 
+  it('looks where Volta, nvm and fnm put the CLIs they install, nvm\'s default version first', () => {
+    const put = (at: (...p: string[]) => string, ...p: string[]) => {
+      mkdirSync(at(...p.slice(0, -1)), { recursive: true });
+      writeFileSync(at(...p), 'binary');
+      return at(...p);
+    };
+    const volta = tree();
+    put(volta.at, 'home', '.volta', 'bin', 'claude');
+    expect(find('claude', posix('', volta.at('home')))?.path).toBe(volta.at('home', '.volta', 'bin', 'claude'));
+
+    const nvm = tree();
+    put(nvm.at, 'home', '.nvm', 'versions', 'node', 'v20.11.0', 'bin', 'codex');
+    put(nvm.at, 'home', '.nvm', 'versions', 'node', 'v9.0.0', 'bin', 'codex');
+    // With no default alias, the newest version.
+    expect(find('codex', posix('', nvm.at('home')))?.path).toBe(nvm.at('home', '.nvm', 'versions', 'node', 'v20.11.0', 'bin', 'codex'));
+    mkdirSync(nvm.at('home', '.nvm', 'alias'));
+    writeFileSync(nvm.at('home', '.nvm', 'alias', 'default'), '9\n');
+    expect(find('codex', posix('', nvm.at('home')))?.path).toBe(nvm.at('home', '.nvm', 'versions', 'node', 'v9.0.0', 'bin', 'codex'));
+
+    const fnm = tree();
+    put(fnm.at, 'home', '.local', 'share', 'fnm', 'aliases', 'default', 'bin', 'codex');
+    expect(find('codex', posix('', fnm.at('home')))?.path).toBe(fnm.at('home', '.local', 'share', 'fnm', 'aliases', 'default', 'bin', 'codex'));
+  });
+
   it("reads an npm .cmd shim's script instead of running the shim", () => {
     const { at } = tree();
     mkdirSync(at('npm', 'node_modules', '@openai', 'codex', 'bin'), { recursive: true });

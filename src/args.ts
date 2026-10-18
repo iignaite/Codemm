@@ -14,7 +14,10 @@ export const COMMANDS: Record<string, Spec> = {
   assist: { args: [1, 1], options: ws, usage: "assist on|off" },
   tracks: { args: [0, 0], options: {}, usage: "tracks" },
   track: { args: [2, 2], options: {}, usage: "track add <folder> | track rebuild <id@version>" },
-  mcp: { args: [0, 0], options: { ...ws, course: "value", tools: "value", desktop: "flag" }, usage: "mcp [--workspace <dir>] [--course <course>] [--tools <a,b>] [--desktop]" },
+  mcp: {
+    args: [0, 0], options: { ...ws, course: "value", tools: "value", desktop: "flag", progress: "value" },
+    usage: "mcp [--workspace <dir>] [--course <course>] [--tools <a,b>] [--desktop] [--progress <file>]",
+  },
   hook: { args: [1, 1], options: ws, usage: "hook claude [--workspace <dir>]" },
   help: { args: [0, 0], options: {}, usage: "help" },
   version: { args: [0, 0], options: {}, usage: "--version" },

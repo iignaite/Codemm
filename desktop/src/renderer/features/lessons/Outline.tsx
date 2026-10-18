@@ -36,10 +36,13 @@ export function Outline({ topic, current }: { topic: TopicView; current: string 
           <Writing kind="author" concept={topic.id} label="Writing the activity" compact waiting={lessonWriting ? 'Waiting for the lesson' : undefined} />
         </div>
       ) : (
-        <span className="item">
-          <Icon name="code" color="#5B6A84" size={18} />
-          <span style={{ flex: 1 }}>Activity</span>
-        </span>
+        <>
+          <span className="item">
+            <Icon name="code" color="#5B6A84" size={18} />
+            <span style={{ flex: 1 }}>Activity</span>
+          </span>
+          {topic.activity === 'locked' && <span className="locked">Opens after you finish the lessons</span>}
+        </>
       )}
     </nav>
   );

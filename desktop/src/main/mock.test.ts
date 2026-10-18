@@ -107,7 +107,7 @@ describe('mock: practice', () => {
     await api.saveFile(activity.id, activity.files[0].path, '/* your code */ wrong', activity.files[0].digest);
     await api.check(activity.id);
     await api.check(activity.id);
-    expect(await api.check(activity.id)).toMatchObject({ stuck: true });
+    expect(await api.check(activity.id)).toMatchObject({ stuck: true, later: true });
     await api.easier(activity.concept);
     const course = (await api.course())!;
     expect(course.topics[0]).toMatchObject({ title: 'JavaScript basics: first steps', state: 'now' });
