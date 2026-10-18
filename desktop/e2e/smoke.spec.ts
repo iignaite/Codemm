@@ -23,7 +23,7 @@ test('connect, computer check, goal, course, lesson and practice', async () => {
   await button('Start learning').click();
 
   await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('React');
-  await page.getByRole('textbox', { name: 'I already know' }).fill('Python');
+  await page.getByRole('textbox', { name: 'What you already know (optional)' }).fill('Python');
   await button('Start').click();
   await expect(heading('Researching React')).toBeVisible();
 

@@ -104,9 +104,9 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     // One real failed attempt after an unrecorded starter check isn't "stuck".
     expect(app.progress(ws).concepts[0]).toMatchObject({ id: "sh.basics", stuck: false });
     expect(failed.tests.filter((t) => t.name.startsWith("hidden"))).toEqual([
-      { name: "hidden #1", status: "fail" },
-      { name: "hidden #2", status: "fail" },
-      { name: "hidden #3", status: "fail" },
+      { name: "hidden #1", index: 1, status: "fail" },
+      { name: "hidden #2", index: 2, status: "fail" },
+      { name: "hidden #3", index: 3, status: "fail" },
     ]);
 
     writeFileSync(file, exercise("io-max")["solution/main.sh"]!);

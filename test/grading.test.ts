@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { frameProgress, gradeIo, gradeIoRun, gradeRuns, gradeUnit, gradeUnitRun, normalizeOutput, parseFrames } from "../src/grading.js";
+import { frameProgress, gradeIo, gradeIoRun, gradeRuns, gradeUnit, gradeUnitRun, normalizeOutput, parseFrames, redact } from "../src/grading.js";
 
 describe("parseFrames", () => {
   it("reads length-framed records and ignores stray bytes", () => {
@@ -79,6 +79,24 @@ describe("gradeUnit", () => {
     const tests = gradeUnit("visible", raw, ["a"]);
     expect(tests).toHaveLength(1);
     expect(tests[0]).toMatchObject({ name: "visible/a", status: "error" });
+  });
+});
+
+describe("redact", () => {
+  it("shows visible results in full and hidden ones as an index and a status only", () => {
+    const shown = redact([
+      { set: "visible", name: "visible/01", status: "fail", message: "Output differs.", actual: "0\n" },
+      { set: "hidden", name: "hidden/edge", status: "fail", message: "secret", actual: "secret" },
+      { set: "visible", name: "visible/02", status: "pass", actual: "2\n" },
+      { set: "hidden", name: "hidden/other", status: "pass" },
+    ]);
+    expect(shown).toEqual([
+      { name: "visible/01", status: "fail", message: "Output differs.", actual: "0\n" },
+      { name: "hidden #1", index: 1, status: "fail" },
+      // A passing test's output adds nothing.
+      { name: "visible/02", status: "pass" },
+      { name: "hidden #2", index: 2, status: "pass" },
+    ]);
   });
 });
 

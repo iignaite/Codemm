@@ -41,7 +41,7 @@ export function Goal() {
           <input aria-labelledby="goal-q" value={topic} onChange={(e) => setTopic(e.target.value)} autoFocus />
           <Button type="submit" disabled={!goal}>Start</Button>
         </div>
-        <Field className="a-up" style={stagger(2)} aria-label="I already know" placeholder="I already know" value={known} onChange={(e) => setKnown(e.target.value)} />
+        <Field className="a-up" style={stagger(2)} aria-label="What you already know (optional)" placeholder="What you already know (optional)" value={known} onChange={(e) => setKnown(e.target.value)} />
         <div className="depth a-up" style={stagger(3)} role="radiogroup" aria-labelledby="depth-q">
           <span className="depth-q" id="depth-q">How deep</span>
           {DEPTHS.map(([id, label]) => (

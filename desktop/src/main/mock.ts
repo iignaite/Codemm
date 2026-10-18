@@ -8,6 +8,7 @@ import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type 
   NO_AGENT,
   OFFLINE,
   PLAN_LIMIT,
+  REBUILD,
   SIGNED_OUT,
   type Activity,
   type Agent,
@@ -35,6 +36,8 @@ export interface MockOptions {
   platform?: Platform;
   /** Agents that aren't installed, or whose sign-in check fails. */
   agents?: Partial<Record<AgentId, 'missing' | 'signed-out'>>;
+  /** The track's image is missing or changed: checks aren't counted until it's rebuilt. */
+  imageMissing?: boolean;
   /** Read on every call: agent jobs fail with this until it's cleared. */
   agentProblem?: 'signed-out' | 'plan-limit' | 'offline' | 'failed';
   untested?: boolean;
@@ -74,6 +77,7 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'plan-limit': { later: { after: 'approve', set: { agentProblem: 'plan-limit' } } },
   'untested-version': { untested: true },
   'io-track': { style: 'io' },
+  'image-missing': { imageMissing: true },
   'run-time-up': { style: 'io', runLimitMs: 3000 },
   'update-available': { update: { kind: 'available', version: '1.0.1', url: 'https://github.com/iignaite/Codemm/releases/tag/v1.0.1' } },
   'update-ready': { update: { kind: 'ready', version: '1.0.1' } },
@@ -201,7 +205,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   let install: DockerInstall | undefined;
   const INSTALL_STEPS: DockerInstall[] = [{ phase: 'downloading', progress: 0.6 }, { phase: 'checking' }, { phase: 'installing' }, { phase: 'starting' }];
   const docker = () => dockerNow ?? options.docker ?? 'ready';
-  const notCounted = () => ({ kind: 'not-counted' as const, reason: DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] });
+  const notCounted = () => ({ kind: 'not-counted' as const, reason: options.imageMissing ? REBUILD : DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] });
+  const counts = () => docker() === 'ready' && !options.imageMissing;
   const find = <T>(map: Map<string, T>, key: string): T => {
     const value = map.get(key);
     if (!value) throw new Error(`Unknown id: ${key}`);
@@ -663,7 +668,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async tryIt(activityId, run) {
       const { activity } = find(activities, activityId);
-      if (docker() !== 'ready') return notCounted();
+      if (!counts()) return notCounted();
       if (activity.run) {
         const tests = ioTests(run, activity);
         return { kind: 'ran', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests };
@@ -681,7 +686,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async check(activityId, run): Promise<CheckResult> {
       const record = find(activities, activityId);
-      if (docker() !== 'ready') return notCounted();
+      if (!counts()) return notCounted();
       if (++checks === 1) happen('check');
       if (!record.activity.run) progress(run, 'visible', 2);
       deferred.delete(record.activity.concept);

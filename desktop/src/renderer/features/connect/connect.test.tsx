@@ -22,6 +22,8 @@ describe('connect journey', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('heading', { name: 'Ready when you are.' })).toBeInTheDocument();
     expect(screen.getByText('Connected')).toBeInTheDocument();
+    // Read once: "Connected", not "Passed, Connected".
+    expect(screen.queryByRole('img', { name: 'Passed' })).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent('Claude Code');
     await user.click(screen.getByRole('button', { name: 'Start learning' }));
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();

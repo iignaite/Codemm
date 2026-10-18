@@ -38,7 +38,7 @@ export function containerCli(): string {
   for (const cli of ["docker", "podman"]) {
     if (spawnSync(cli, ["--version"], { stdio: "ignore" }).status === 0) return cli;
   }
-  throw new CodemmError(`No container runtime found. ${runtimeHelp()}`);
+  throw new CodemmError(`No container runtime found. ${runtimeHelp()}`, "docker");
 }
 
 /** What to install and start on this OS. Codemm needs an engine that runs Linux containers. */
@@ -283,25 +283,46 @@ export async function runtimeDown(): Promise<string | undefined> {
 
 export async function assertRuntime(): Promise<void> {
   const problem = await runtimeDown();
-  if (problem) throw new CodemmError(problem);
+  if (problem) throw new CodemmError(problem, "docker");
 }
 
 const NOT_THE_TRACK = "This is not a problem with the track files, so retry with the same files";
 
+/** A build failure that isn't the track's fault, and its kind. */
+export type BuildProblem = { message: string; kind: "docker" | "disk" | "offline" };
+
 /** Reads a failed build's output for causes outside the track: no network, or no disk space. */
-export function buildProblem(log: string): string | undefined {
+export function buildProblem(log: string): BuildProblem | undefined {
   if (/no space left on device/i.test(log)) {
-    return `Docker ran out of disk space while building the track, so nothing was installed. ${NOT_THE_TRACK} ` +
-      "after freeing space (`docker system prune` removes unused images and build cache).";
+    return {
+      kind: "disk",
+      message: `Docker ran out of disk space while building the track, so nothing was installed. ${NOT_THE_TRACK} ` +
+        "after freeing space (`docker system prune` removes unused images and build cache).",
+    };
+  }
+  // Docker's credential helper failing (a missing or locked keychain helper) is this computer's Docker problem.
+  const credentials = log.split("\n").find((l) => /error getting credentials/i.test(l));
+  if (credentials) {
+    return {
+      kind: "docker",
+      message: `Docker couldn't get registry credentials (${credentials.trim().slice(0, 300)}), so nothing was installed. ` +
+        `Fix Docker's credential helper (or sign in again in Docker Desktop). ${NOT_THE_TRACK} afterwards.`,
+    };
   }
   const offline = /temporary failure (?:in name resolution|resolving)|could not resolve (?:host|proxy)|no such host|network is unreachable|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)/i;
   const line = log.split("\n").find((l) => offline.test(l));
   if (line) {
-    return `The track build couldn't reach the network (${line.trim().slice(0, 300)}), so nothing was installed. ` +
-      `Docker may be offline, or a VPN, proxy or firewall may be blocking it. ${NOT_THE_TRACK} once the connection works.`;
+    return {
+      kind: "offline",
+      message: `The track build couldn't reach the network (${line.trim().slice(0, 300)}), so nothing was installed. ` +
+        `Docker may be offline, or a VPN, proxy or firewall may be blocking it. ${NOT_THE_TRACK} once the connection works.`,
+    };
   }
   return undefined;
 }
+
+/** The kind of a runtime's own failure, from its diagnostics: out of disk when it says so, else Docker. */
+export const runtimeKind = (text: string): "disk" | "docker" => (/no space left on device/i.test(text) ? "disk" : "docker");
 
 /** A track build is killed after 10 minutes (DESIGN §4.4). */
 export const BUILD_TIMEOUT_MS = 600_000;
@@ -349,7 +370,7 @@ function stepReader(listener: (step: BuildStep) => void) {
  */
 export async function buildImage(
   contextDir: string, tag: string, timeoutMs = BUILD_TIMEOUT_MS, onStep?: (step: BuildStep) => void,
-): Promise<{ ok: boolean; log: string; imageId?: string; problem?: string }> {
+): Promise<{ ok: boolean; log: string; imageId?: string; problem?: BuildProblem }> {
   const out = mkdtempSync(join(tmpdir(), "codemm-iid-"));
   try {
     const args = ["build", "-t", tag, "--iidfile", join(out, "iid")];
@@ -360,8 +381,9 @@ export async function buildImage(
     const imageId = existsSync(join(out, "iid")) ? readFileSync(join(out, "iid"), "utf8").trim() : "";
     if (r.exit === 0 && imageId) return { ok: true, log, imageId };
     // The build worked but the runtime didn't report its image: not the track's fault.
-    if (r.exit === 0) return { ok: false, log, problem: `The container runtime built the track but didn't report the image ID. ${NOT_THE_TRACK} after updating Docker.` };
-    const problem = (await runtimeDown()) ?? buildProblem(log);
+    if (r.exit === 0) return { ok: false, log, problem: { kind: "docker", message: `The container runtime built the track but didn't report the image ID. ${NOT_THE_TRACK} after updating Docker.` } };
+    const down = await runtimeDown();
+    const problem: BuildProblem | undefined = down ? { kind: "docker", message: down } : buildProblem(log);
     return { ok: false, log, ...(problem ? { problem } : {}) };
   } finally {
     rmSync(out, { recursive: true, force: true });
@@ -378,7 +400,7 @@ export async function inspectImage(tag: string): Promise<{ id: string; hasVolume
 /** Every container Codemm started, with the PID of the Codemm process that owns it. Throws if listing fails. */
 export async function ownedContainers(): Promise<{ id: string; pid: number }[]> {
   const r = await cli(["ps", "-a", "--filter", `label=${OWNER_LABEL}`, "--format", '{{.ID}} {{.Label "codemm.pid"}}']);
-  if (r.exit !== 0) throw new CodemmError(`Couldn't list Codemm's containers: ${r.output.trim().slice(0, 300)}`);
+  if (r.exit !== 0) throw new CodemmError(`Couldn't list Codemm's containers: ${r.output.trim().slice(0, 300)}`, runtimeKind(r.output));
   return r.output.split("\n").filter((l) => l.trim()).map((l) => {
     const [id, pid] = l.trim().split(/\s+/);
     return { id: id!, pid: Number(pid) || 0 };

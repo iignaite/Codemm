@@ -5,12 +5,13 @@
 import type { Activity, CheckResult, TestView, TryResult } from '../shared/api';
 import type { CoreCheckView, CoreExercise } from './core/types';
 
+// Core marks a hidden result with its index. The name check is only a backstop: it can hide more, never show more.
 const HIDDEN = /^hidden #(\d+)$/;
 
 function testViews(tests: CoreCheckView['tests']): TestView[] {
   return tests.map((t): TestView => {
-    const hidden = HIDDEN.exec(t.name);
-    if (hidden) return { hidden: true, index: Number(hidden[1]), status: t.status };
+    const named = HIDDEN.exec(t.name);
+    if (t.index !== undefined || named) return { hidden: true, index: t.index ?? Number(named![1]), status: t.status };
     return { hidden: false, name: t.name, status: t.status, ...(t.message ? { message: t.message } : {}), ...(t.actual !== undefined ? { actual: t.actual } : {}) };
   });
 }

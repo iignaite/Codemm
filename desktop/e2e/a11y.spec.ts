@@ -279,6 +279,17 @@ test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', 
   await app.close();
 });
 
+test('at 1280 px and narrower, the side columns narrow so the editor keeps its room', async () => {
+  const { app, page } = await launch();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1200, 800));
+  await toActivity(page);
+  const statement = await page.locator('.stmt').boundingBox();
+  const codemm = await page.getByRole('complementary', { name: 'Codemm' }).boundingBox();
+  expect(statement!.width).toBeLessThanOrEqual(281);
+  expect(codemm!.width).toBeLessThanOrEqual(281);
+  await app.close();
+});
+
 /** Elements Tab can stop on right now. */
 const focusables = (page: Page) =>
   page.evaluate(

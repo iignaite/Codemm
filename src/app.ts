@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "./files.js";
 import { checkTrackFiles, type ExerciseGate, type TrackProgress, verifyExercise, verifyTrack } from "./gates.js";
-import { type CaseFrames, gradeIo, type Status, type TestResult, type TestSet } from "./grading.js";
+import { type CaseFrames, gradeIo, redact, type ShownResult, type Status, type TestResult, type TestSet } from "./grading.js";
 import { judgeSets, type ProgramOptions, type ProgramRun, runIo, runProgram, runUnit } from "./judge.js";
 import { type LearnerEvent, MASTERED, nextStep as pickNext, replay, type Step } from "./learner.js";
 import { assertRuntime, cli as sandboxCli, inspectImage } from "./sandbox.js";
@@ -19,9 +19,9 @@ const learnerDir = (course: string, slug: string) => `exercises/${course}/${slug
 
 function activeCourse(ws: string, bound?: string): CourseRecord {
   const course = bound ?? store.readWorkspace(ws).course;
-  if (!course) throw new CodemmError("No course in this workspace yet. Ask your agent to plan a roadmap (save_roadmap).");
+  if (!course) throw new CodemmError("No course in this workspace yet. Ask your agent to plan a roadmap (save_roadmap).", "no-course");
   const record = store.readCourse(course);
-  if (!record) throw new CodemmError(`Course "${course}" is missing from ${store.codemmHome()}.`);
+  if (!record) throw new CodemmError(`Course "${course}" is missing from ${store.codemmHome()}.`, "no-course");
   return record;
 }
 
@@ -36,7 +36,7 @@ async function ensureImage(track: TrackRecord): Promise<void> {
   await assertRuntime();
   const info = await inspectImage(track.imageId);
   if (!info) {
-    throw new CodemmError(`The image for ${track.id}@${track.version} is missing or changed. Run \`codemm track rebuild ${track.id}@${track.version}\`, then retry.`);
+    throw new CodemmError(`The image for ${track.id}@${track.version} is missing or changed. Run \`codemm track rebuild ${track.id}@${track.version}\`, then retry.`, "image-missing");
   }
 }
 
@@ -176,6 +176,11 @@ export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exer
             changed.push(`${courseId}/${ex.slug}: results changed`);
           }
         } catch (e) {
+          // This computer's Docker, disk or network failing isn't the image behaving differently.
+          if (e instanceof CodemmError && (e.kind === "docker" || e.kind === "disk" || e.kind === "offline")) {
+            await sandboxCli(["image", "rm", candidate]);
+            throw e;
+          }
           changed.push(`${courseId}/${ex.slug}: ${(e as Error).message.split("\n")[0]}`);
         }
       }
@@ -543,24 +548,21 @@ export type CheckView = {
   exercise: string;
   passed: number;
   total: number;
-  tests: (Pick<TestResult, "name" | "status"> & Partial<Pick<TestResult, "message" | "actual">>)[];
+  /** Visible tests in full; hidden ones as `hidden #N`, with `index` N, and a status only. */
+  tests: ShownResult[];
   recorded: boolean;
   note?: string;
 };
 
 /** Visible results in full; hidden results reduced to an index and a status (DESIGN §4.2). */
 function present(slug: string, tests: TestResult[], recorded: boolean, note?: string): CheckView {
-  let hidden = 0;
   return {
     exercise: slug,
     passed: tests.filter((t) => t.status === "pass").length,
     total: tests.length,
     recorded,
     ...(note ? { note } : {}),
-    tests: tests.map((t) => {
-      if (t.set === "hidden") return { name: `hidden #${(hidden += 1)}`, status: t.status };
-      return { name: t.name, status: t.status, ...(t.message ? { message: t.message } : {}), ...(t.actual !== undefined && t.status !== "pass" ? { actual: t.actual } : {}) };
-    }),
+    tests: redact(tests),
   };
 }
 
