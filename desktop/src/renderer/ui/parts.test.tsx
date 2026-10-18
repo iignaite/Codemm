@@ -41,12 +41,23 @@ describe('shared parts', () => {
     const run = vi.fn();
     const stop = vi.fn();
     const { rerender } = render(<RunButton running={false} onRun={run} onStop={stop} />);
-    await userEvent.click(screen.getByRole('button', { name: 'Run' }));
+    const before = screen.getByRole('button', { name: 'Run' });
+    await userEvent.click(before);
     expect(run).toHaveBeenCalled();
+    expect(before).toHaveFocus();
     rerender(<RunButton running onRun={run} onStop={stop} disabled />);
     const button = screen.getByRole('button', { name: 'Stop' });
+    // The same element, still focused: Stop is never disabled.
+    expect(button).toBe(before);
+    expect(button).toHaveFocus();
     expect(button).toBeEnabled();
     await userEvent.click(button);
     expect(stop).toHaveBeenCalled();
+    // While Try it or Check runs, Run is disabled and starts nothing.
+    run.mockClear();
+    rerender(<RunButton running={false} onRun={run} onStop={stop} disabled />);
+    expect(screen.getByRole('button', { name: 'Run' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }));
+    expect(run).not.toHaveBeenCalled();
   });
 });
