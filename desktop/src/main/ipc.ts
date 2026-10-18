@@ -55,6 +55,8 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProg
   research: [goal],
   reviseRoadmap: [concepts, words],
   approve: [concepts],
+  draft: [],
+  saveDraft: [concepts],
   course: [],
   install: [digest],
   retrySetup: [],

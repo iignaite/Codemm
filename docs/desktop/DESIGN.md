@@ -235,6 +235,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - Re-saving may change `track` while the course has no exercises, so a failed setup can move to another track. Before that save, main cancels the old track's setup and author jobs and drops its proposals. Lessons stay, because they are static text.
   - `save_exercise`, `get_exercise` and `check` still need the installed track.
   - If the installed track doesn't offer the roadmap's style, `next_step` fails with "Edit the roadmap's style".
+- **A new roadmap is a draft.** Research saves a new course, which core makes the workspace's active one. The course the learner approved stays their course: main binds every learner read and call to it (core's `bound` course) until the learner approves another roadmap. The goal screen offers "Resume roadmap" for a draft, and the learner's edits to it are saved as they happen, so leaving or closing Codemm keeps them.
 - **Reading.** `get_roadmap` (tool) and `app.getRoadmap(ws)` return `{ course, goal, track, style, concepts: [{ id, title, requires }] }`.
 - **Editing in the app** builds a new roadmap and saves it through `app.saveRoadmap`, so core §5 rules apply:
   - Rename changes the title only; the id stays stable.

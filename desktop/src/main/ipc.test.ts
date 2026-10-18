@@ -17,6 +17,8 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgr
   research: [{ topic: 'React', known: 'Python', depth: 'standard' }],
   reviseRoadmap: [concepts, 'Add testing'],
   approve: [concepts],
+  draft: [],
+  saveDraft: [concepts],
   course: [],
   install: ['a'.repeat(64)],
   retrySetup: [],

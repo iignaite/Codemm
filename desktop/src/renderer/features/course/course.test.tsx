@@ -31,6 +31,12 @@ describe('roadmap sources', () => {
 });
 
 describe('course editor', () => {
+  it('saves each edit as it happens, so leaving keeps the draft', async () => {
+    const { api, user } = await open();
+    await user.click(screen.getByRole('button', { name: 'Remove Lists and keys' }));
+    await waitFor(async () => expect((await api.draft())!.concepts.map((c) => c.title)).toEqual(['JavaScript basics', 'JSX', 'Forms']));
+  });
+
   it('renames, removes, adds and reorders topics without dragging', async () => {
     const { user } = await open();
     await user.click(screen.getByRole('button', { name: 'Rename Forms' }));
