@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codemm: learn to code with your own coding agent</title>
+  <meta name="description" content="Your coding agent writes the exercises. Codemm proves they work, grades your code in a sandbox, and tracks what you've mastered. Open source, for macOS and Windows.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#F5F7FA" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0B1F44" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="%SITE_URL%/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Codemm">
+  <meta property="og:title" content="Codemm">
+  <meta property="og:description" content="Your coding agent writes the exercises. Codemm proves they work, grades your code in a sandbox, and tracks what you've mastered.">
+  <meta property="og:url" content="%SITE_URL%/">
+  <meta property="og:image" content="%SITE_URL%/og.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="Codemm. Your coding agent writes the exercises.">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.ico" sizes="32x32">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/schibsted-grotesk-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/atkinson-hyperlegible-next-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preconnect" href="https://api.github.com" crossorigin>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/main.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="logo" href="/">
+        <picture>
+          <source srcset="/img/codemm-logo-dark.svg" media="(prefers-color-scheme: dark)">
+          <img src="/img/codemm-logo.svg" alt="Codemm" width="132" height="24">
+        </picture>
+      </a>
+      <nav aria-label="Main">
+        <a class="hide-sm" href="#how">How it works</a>
+        <a class="hide-sm" href="#needs">Requirements</a>
+        <a href="https://github.com/iignaite/Codemm">GitHub</a>
+        <a class="nav-cta" href="#get">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="title">
+      <div class="wrap hero-text">
+        <h1 id="title">Your coding agent writes the exercises.</h1>
+        <p class="lead">Codemm proves they work, grades your code in a sandbox, and tracks what you've mastered.</p>
+        <div class="download" id="get" data-download>
+          <a class="btn primary" href="https://github.com/iignaite/Codemm/releases">
+            <span class="btn-label">Download</span>
+            <span class="btn-detail">From GitHub Releases</span>
+          </a>
+        </div>
+        <p class="agents">For Claude Code and Codex, on your own plan.</p>
+      </div>
+
+      <div class="wrap stage">
+        <div class="glow" aria-hidden="true"></div>
+        <figure class="frame tilt-hero">
+          <img src="/img/app-practice-960.webp" srcset="/img/app-practice-960.webp 960w, /img/app-practice-1920.webp 1920w" sizes="(min-width: 1180px) 1100px, 92vw" width="1440" height="860" alt="The Codemm app on an activity, Click Counter. The editor shows Counter.jsx. The results read 2 of 4 passed, with each visible test listed and the hidden tests shown only as passed or not yet.">
+        </figure>
+        <img class="emm-sit" src="/img/emm-sit.svg" alt="" width="200" height="170">
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="how">
+      <div class="wrap">
+        <h2 id="how" class="center-title">How it works</h2>
+
+        <div class="row">
+          <div class="row-text">
+            <span class="step" aria-hidden="true">1</span>
+            <h3>Connect your agent.</h3>
+            <p>Codemm checks this computer first: Docker installed, running, and the sandbox working.</p>
+          </div>
+          <figure class="frame tilt"><img src="/img/app-check-960.webp" srcset="/img/app-check-960.webp 960w, /img/app-check-1920.webp 1920w" sizes="(min-width: 900px) 600px, 92vw" width="1440" height="860" loading="lazy" alt="Check this computer: Docker is installed, Docker is running, and the sandbox works, each marked Ready."></figure>
+        </div>
+
+        <div class="row flip">
+          <div class="row-text">
+            <span class="step" aria-hidden="true">2</span>
+            <h3>Say what you want to learn.</h3>
+            <p>Any language or framework. Your agent drafts a roadmap. Rename, reorder, add or remove topics, then approve it.</p>
+          </div>
+          <figure class="frame tilt"><img src="/img/app-roadmap-960.webp" srcset="/img/app-roadmap-960.webp 960w, /img/app-roadmap-1920.webp 1920w" sizes="(min-width: 900px) 600px, 92vw" width="1440" height="860" loading="lazy" alt="A React roadmap with topics from JavaScript basics to Events, each one editable, and an Approve button."></figure>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <span class="step" aria-hidden="true">3</span>
+            <h3>Agree to setup once.</h3>
+            <p>Your agent proposes the environment for the language. Codemm shows you the files and builds exactly those, only after you agree.</p>
+          </div>
+          <figure class="frame tilt"><img src="/img/app-setup-960.webp" srcset="/img/app-setup-960.webp 960w, /img/app-setup-1920.webp 1920w" sizes="(min-width: 900px) 600px, 92vw" width="1440" height="860" loading="lazy" alt="A dialog asks: Set up React on this computer? Setup runs code your agent wrote, with internet access. Graded runs are offline."></figure>
+        </div>
+
+        <div class="row flip">
+          <div class="row-text">
+            <span class="step" aria-hidden="true">4</span>
+            <h3>Practice, then check.</h3>
+            <p>Read the lesson, write the code, and use Try it for the visible tests. Check grades every test and tracks what you've mastered.</p>
+          </div>
+          <figure class="frame tilt"><img src="/img/app-passed-960.webp" srcset="/img/app-passed-960.webp 960w, /img/app-passed-1920.webp 1920w" sizes="(min-width: 900px) 600px, 92vw" width="1440" height="860" loading="lazy" alt="The results read 4 of 4 passed. JavaScript basics mastered."></figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="proof" aria-labelledby="proof">
+      <div class="wrap">
+        <h2 id="proof" class="center-title">Every exercise is proven before you see it.</h2>
+        <ul class="proof-list">
+          <li><strong>The reference solution passes.</strong></li>
+          <li><strong>The starter code fails.</strong></li>
+          <li><strong>The tests catch every broken version.</strong></li>
+        </ul>
+        <p class="proof-note">Your code is graded in a sandbox, with the network off.</p>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="needs">
+      <div class="wrap">
+        <h2 id="needs" class="center-title">What you need</h2>
+        <p class="center-lead">The app includes everything else. No Node.js, npm or terminal.</p>
+        <ul class="needs">
+          <li>
+            <h3>A Mac or a Windows PC</h3>
+            <p>macOS on Apple Silicon or Intel, or Windows 11 (x64).</p>
+          </li>
+          <li>
+            <h3>Docker Desktop</h3>
+            <p>Installed and running. On Windows, use the WSL 2 backend with Linux containers.</p>
+          </li>
+          <li>
+            <h3>A coding agent</h3>
+            <p>Claude Code or Codex, installed and signed in. Cursor is experimental.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section final" aria-labelledby="final">
+      <div class="wrap final-in">
+        <img class="final-mark" src="/favicon.svg" alt="" width="72" height="72">
+        <h2 id="final">Start learning with Codemm.</h2>
+        <p class="center-lead">Open source. Codemm launches your agent; it never calls a model API, and never reads, stores or asks for your credentials.</p>
+        <div class="download" data-download>
+          <a class="btn primary" href="https://github.com/iignaite/Codemm/releases">
+            <span class="btn-label">Download</span>
+            <span class="btn-detail">From GitHub Releases</span>
+          </a>
+        </div>
+        <aside class="beta" id="first-launch" aria-labelledby="beta-title" data-beta hidden>
+          <h3 id="beta-title">Opening a beta build</h3>
+          <p>Beta builds aren't signed yet, so the first launch takes one extra step.</p>
+          <dl>
+            <dt>Mac</dt>
+            <dd>Open Codemm once, then choose System Settings, Privacy &amp; Security, Open Anyway.</dd>
+            <dt>Windows</dt>
+            <dd>In the SmartScreen prompt, choose More info, then Run anyway.</dd>
+          </dl>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <p>Codemm is open source under the <a href="https://github.com/iignaite/Codemm/blob/main/LICENSE">MIT License</a>.</p>
+      <nav aria-label="Footer">
+        <a href="https://github.com/iignaite/Codemm/blob/main/docs/README.md">Docs</a>
+        <a href="https://github.com/iignaite/Codemm/releases">Releases</a>
+        <a href="https://github.com/iignaite/Codemm">GitHub</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
