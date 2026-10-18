@@ -19,6 +19,9 @@ export type JudgeTrack = {
 export type RunOptions = { timeMs?: number; deadlineMs?: number; onProgress?: (milestone: "built" | number) => void; onCase?: (c: CaseFrames) => void };
 
 
+/** Why a check's container couldn't start, in words the desktop's text classification reads the same way. */
+const START_FAILURES = { disk: "Docker ran out of disk space", offline: "Docker couldn't reach the network", docker: "the runtime refused it" };
+
 export const BUILD_SECONDS = 60;
 const SLACK_MS = 30_000;
 /** What the driver needs in a track image besides `sh`. The track rules name them too (templates.ts). */
@@ -97,10 +100,11 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
     if (result.exit !== 0) {
       if (await runtimeDown()) throw new CodemmError(`The container runtime stopped during the run, so it wasn't counted. ${startHelp()}`, "docker");
       if (result.oomKilled) return { frames: [], flooded: false, outOfMemory: true };
-      // Exit 125 is the runtime's own failure. With no output, no code ran, so its stderr is the runtime's own too.
+      // Exit 125 is the runtime's own failure. Its stderr is read for the kind of failure but never shown: code that
+      // had already started can write there too, and a check runs hidden tests and hidden code.
       if (result.exit === 125 && result.stdout.length === 0) {
-        const shown = result.stderr.trim().slice(0, 500);
-        throw new CodemmError(`The container couldn't start: ${shown}`, runtimeKind(shown));
+        const kind = runtimeKind(result.stderr.trim().slice(0, 500));
+        throw new CodemmError(`The container couldn't start (${START_FAILURES[kind]}), so it wasn't counted. Run \`codemm doctor\`, then retry.`, kind);
       }
       if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.", "docker");
       throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.", "docker");

@@ -15,7 +15,7 @@ case "$1" in
     echo "#1 [internal] load build definition from Dockerfile"
     # builds: the build succeeds and writes its image ID where --iidfile says, as docker does.
     if [ "$FAKE_DOCKER" = no-iid ]; then exit 0; fi
-    if [ "$FAKE_DOCKER" = builds ] || [ "$FAKE_DOCKER" = unitoom ] || [ "$FAKE_DOCKER" = inspect-fails ]; then
+    if [ "$FAKE_DOCKER" = builds ] || [ "$FAKE_DOCKER" = notests ] || [ "$FAKE_DOCKER" = notests-disk ] || [ "$FAKE_DOCKER" = unitoom ] || [ "$FAKE_DOCKER" = inspect-fails ]; then
       echo "#2 [1/3] FROM docker.io/library/alpine:3.20"
       echo "#3 [2/3] RUN apk add bash"
       echo "#4 [3/3] COPY . /opt/track"
@@ -101,6 +101,46 @@ case "$1" in
         [ "$FAKE_DOCKER" = casekill ] && printf '\n@@codemm timeout %s 137 0\n' "$n"
       done
       if [ -z "$found" ]; then printf '\n@@codemm report report 137 0\n'; printf '\n@@codemm log log 137 6\nKilled'; fi
+      exit 0
+    fi
+    # leaks-build / leaks: a run that prints the source it was given, as a compiler error or a traceback does.
+    # leaks-build fails the build; leaks fails each io case (source on stderr) and each unit test (source as the message).
+    # notests: a unit runner that finds no test files: it exits 1 with an empty report, and its own words in its log.
+    # notests-disk: the same, but the runner's words mention a full disk (its own /tmp, not Docker's).
+    if [ "$FAKE_DOCKER" = notests ] || [ "$FAKE_DOCKER" = notests-disk ]; then
+      r='{"tests":[]}'
+      log=$(printf 'RUN  v3.2.7 /work\n%.0s' 1 2 3; printf 'No test files found, exiting with code 1')
+      [ "$FAKE_DOCKER" = notests-disk ] && log="write /tmp/cache: no space left on device"
+      printf '\n@@codemm report report 1 %s\n%s' "${#r}" "$r"
+      printf '\n@@codemm log log 1 %s\n%s' "${#log}" "$log"
+      exit 0
+    fi
+    # leaks-start: code writes the source to stderr before any frame, then the runtime fails with exit 125.
+    if [ "$FAKE_DOCKER" = leaks-start ]; then
+      for a in "$@"; do case "$a" in *target=/work/src,*) src="${a#*source=}"; src="${src%%,target=*}" ;; esac; done
+      /bin/cat "$src"/* >&2; exit 125
+    fi
+    if [ "$FAKE_DOCKER" = leaks-build ] || [ "$FAKE_DOCKER" = leaks ]; then
+      tests=""; src=""; build=""
+      for a in "$@"; do case "$a" in *target=/work/tests,*) tests="${a#*source=}"; tests="${tests%%,target=*}" ;; *target=/work/src,*) src="${a#*source=}"; src="${src%%,target=*}" ;; CODEMM_BUILD=*) build=1 ;; esac; done
+      text=$(/bin/cat "$src"/* | /usr/bin/tr -d '\n"\\') # ASCII, so its length is its size in bytes
+      if [ "$FAKE_DOCKER" = leaks-build ] && [ -n "$build" ]; then printf '\n@@codemm build build 1 %s\n%s' "${#text}" "$text"; exit 0; fi
+      if [ -n "$build" ]; then printf '\n@@codemm build build 0 0\n'; fi
+      found=""
+      for f in "$tests"/*.in; do
+        [ -e "$f" ] || continue
+        found=1
+        n="${f##*/}"; n="${n%.in}"
+        printf '\n@@codemm case %s 1 0\n' "$n"
+        printf '\n@@codemm stderr %s 1 %s\n%s' "$n" "${#text}" "$text"
+      done
+      # A case under a name no input has, as a forged frame would carry.
+      if [ -n "$found" ]; then printf '\n@@codemm case CANARY-CASE 1 0\n'; printf '\n@@codemm stderr CANARY-CASE 1 0\n'; fi
+      if [ -z "$found" ]; then
+        r="{\"tests\":[{\"name\":\"t\",\"status\":\"fail\",\"message\":\"$text\"}]}"
+        printf '\n@@codemm report report 0 %s\n%s' "${#r}" "$r"
+        printf '\n@@codemm log log 0 0\n'
+      fi
       exit 0
     fi
     # srcout: each io case prints the last line of the program's source, so programs that end alike grade alike.

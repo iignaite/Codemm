@@ -193,6 +193,56 @@ describe.runIf(posix)("hidden data through the tools", () => {
   });
 });
 
+describe.runIf(posix)("reference-gate diagnostics through save_exercise", () => {
+  const fixtures = join(import.meta.dirname, "fixtures");
+  const install = async (kind: "io" | "unit") => {
+    const track = readFileMap(join(fixtures, "tracks", `shell-${kind}`));
+    store.commitFolder(store.trackDir(`shell-${kind}@1`), track, {
+      "track.json": { format_version: 1, ...parseTrackYaml(track["track.yaml"]!), image: `codemm-track-shell-${kind}:1`, imageId: "sha256:fake", installedAt: new Date().toISOString() },
+    });
+    await app.saveRoadmap(ws, "shell", `goal: Shell\ntrack: shell-${kind}@1\nstyle: ${kind}\nconcepts:\n  - { id: sh.basics, title: Basics, requires: [] }\n  - { id: sh.loops, title: Loops, requires: [sh.basics] }\n`);
+  };
+  // The solution's source, in every solution file, so a run that prints its source would show it.
+  const withCanary = (files: Record<string, string>) =>
+    Object.fromEntries(Object.entries(files).map(([path, text]) => [path, path.startsWith("solution/") ? `CANARY-SOLUTION-LINE ${text}` : text]));
+  const failure = async (call: (name: string, args: Record<string, unknown>) => Promise<unknown>, files: Record<string, string>) =>
+    call("save_exercise", { files }).then(() => "saved", (e: Error) => e.message);
+
+  it.each([["leaks-build", /doesn't build/], ["leaks", /run every input/]] as const)("an io reference that fails (%s) is described without its output", async (scenario, reason) => {
+    await install("io");
+    const { call } = await connect();
+    fakeDocker(scenario);
+    const message = await failure(call, withCanary(readFileMap(join(fixtures, "exercises", "io-max"))));
+    expect(message).toMatch(/Gate "reference passes"/);
+    expect(message).toMatch(reason);
+    expect(message).not.toContain("CANARY");
+    // Actionable without the output: author jobs can't build anything themselves.
+    if (scenario === "leaks-build") expect(message).toMatch(/with the track's build command \(`sh -n main\.sh`\)/);
+    expect(message).not.toMatch(/yourself/);
+  });
+
+  it("a container that dies at start after the code wrote to stderr is described without that output", async () => {
+    await install("io");
+    const { call } = await connect();
+    fakeDocker("leaks-start");
+    const message = await failure(call, withCanary(readFileMap(join(fixtures, "exercises", "io-max"))));
+    expect(message).toMatch(/container couldn't start/);
+    expect(message).not.toContain("CANARY");
+  });
+
+  it("a unit reference that fails is described by test and status, without its messages", async () => {
+    await install("unit");
+    const { call } = await connect();
+    fakeDocker("leaks");
+    const message = await failure(call, withCanary(readFileMap(join(fixtures, "exercises", "unit-max"))));
+    expect(message).toMatch(/Gate "reference passes"/);
+    // Visible tests by name, so the agent knows which to fix; hidden ones only by number; no messages.
+    expect(message).toMatch(/visible\/t: fail/);
+    expect(message).toMatch(/hidden #1: fail/);
+    expect(message).not.toContain("CANARY");
+  });
+});
+
 describe.runIf(posix)("mutants in gate diagnostics", () => {
   const fixtures = join(import.meta.dirname, "fixtures");
   /** io-max with its zero-start mutant (which ends like the solution) in a folder whose name says what it does. */
