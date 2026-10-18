@@ -1,10 +1,10 @@
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { npm } from "./npm.js";
+import { tempDir } from "./temp.js";
 
 /** Cross-process lock tests run the built store, so each worker is a real separate process. */
 const root = join(import.meta.dirname, "..");
@@ -34,7 +34,7 @@ function runWorkers(n: number, lock: string, counter: string): Promise<number[]>
 
 describe("withLock across processes", () => {
   it("serializes concurrent writers", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "codemm-lock-"));
+    const dir = tempDir("codemm-lock-");
     const counter = join(dir, "n");
     writeFileSync(counter, "0");
     expect(await runWorkers(12, join(dir, "x.lock"), counter)).toEqual(Array(12).fill(0));
@@ -42,7 +42,7 @@ describe("withLock across processes", () => {
   });
 
   it("lets exactly one process at a time take over a stale lock", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "codemm-lock-"));
+    const dir = tempDir("codemm-lock-");
     const counter = join(dir, "n");
     const lock = join(dir, "x.lock");
     writeFileSync(counter, "0");

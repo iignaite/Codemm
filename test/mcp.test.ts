@@ -1,5 +1,3 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -9,14 +7,15 @@ import { readFileMap } from "../src/files.js";
 import { createServer, parseToolList, type ServerOptions, TOOL_NAMES } from "../src/mcp.js";
 import * as store from "../src/store.js";
 import { fakeDocker } from "./fake-docker.js";
+import { tempDir } from "./temp.js";
 
 /** The per-job server: `codemm mcp --tools`, `--course` and `--desktop`. */
 
 let ws: string;
 let client: Client | undefined;
 beforeEach(() => {
-  vi.stubEnv("CODEMM_HOME", mkdtempSync(join(tmpdir(), "codemm-home-")));
-  ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+  vi.stubEnv("CODEMM_HOME", tempDir("codemm-home-"));
+  ws = tempDir("codemm-ws-");
 });
 afterEach(async () => {
   await client?.close();
