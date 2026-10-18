@@ -52,7 +52,9 @@ const statuses = (tests: TestResult[]) => {
  */
 function tail(text: string): string {
   const lines = text.trimEnd().split("\n").slice(-40).join("\n");
-  return lines.length > 4096 ? `…${lines.slice(-4096)}` : lines;
+  const bytes = Buffer.from(lines);
+  // Cut by bytes, dropping a character the cut split.
+  return bytes.length > 4096 ? `…${bytes.subarray(-4096).toString("utf8").replace(/^\uFFFD+/, "")}` : lines;
 }
 const printed = (text: string) => (text.trim() ? `\nIt printed (the end):\n${tail(text)}` : "");
 
