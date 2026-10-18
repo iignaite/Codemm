@@ -3,30 +3,43 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { builtImages, cleanupPlan, OWNER_LABEL, recordingCli, type Snapshot } from "../lib/docker.ts";
+import { trackImageTag } from "../../src/store.ts";
+import { builtImages, cleanupPlan, homeTagPrefix, OWNER_LABEL, recordingCli, type Snapshot } from "../lib/docker.ts";
 
 const snap = (tags: Record<string, string>, ids: string[]): Snapshot => ({ tags: new Map(Object.entries(tags)), ids: new Set(ids) });
 const built = (...ids: string[]) => new Set(ids);
+const OWN = "codemm-track-9f8e7d6c-";
 
 describe("cleanupPlan", () => {
   it("removes the run's own images by ID, never by tag", () => {
     const before = snap({ "codemm-track-0a1b2c3d-c:1": "A" }, ["A"]);
     const after = snap({ "codemm-track-0a1b2c3d-c:1": "A", "codemm-track-9f8e7d6c-c:1": "N", "codemm-track-9f8e7d6c-d:1": "M" }, ["A", "N", "M"]);
-    expect(cleanupPlan(built("N", "M"), before, after)).toEqual([["rmi", "--no-prune", "N"], ["rmi", "--no-prune", "M"]]);
+    expect(cleanupPlan(built("N", "M"), before, after, OWN)).toEqual([["rmi", "--no-prune", "N"], ["rmi", "--no-prune", "M"]]);
   });
 
   it("never touches an image another session built, or one built FROM the run's image", () => {
     const after = snap({ "codemm-track-11112222-c:2": "X" }, ["X", "N"]);
-    expect(cleanupPlan(built("N"), snap({}, []), after)).toEqual([["rmi", "--no-prune", "N"]]);
+    expect(cleanupPlan(built("N"), snap({}, []), after, OWN)).toEqual([["rmi", "--no-prune", "N"]]);
   });
 
   it("never removes an image that existed before the run, or one already gone", () => {
-    expect(cleanupPlan(built("B", "G"), snap({}, ["B"]), snap({}, ["B"]))).toEqual([]);
+    expect(cleanupPlan(built("B", "G"), snap({}, ["B"]), snap({}, ["B"]), OWN)).toEqual([]);
   });
 
   it("keeps a run image that something other than Codemm tagged", () => {
     const after = snap({ "codemm-track-9f8e7d6c-c:1": "N", "someone/else:latest": "N" }, ["N"]);
-    expect(cleanupPlan(built("N"), snap({}, []), after)).toEqual([]);
+    expect(cleanupPlan(built("N"), snap({}, []), after, OWN)).toEqual([]);
+  });
+
+  it("keeps a run image that another Codemm home tagged too", () => {
+    const after = snap({ "codemm-track-9f8e7d6c-c:1": "N", "codemm-track-11112222-c:1": "N" }, ["N"]);
+    expect(cleanupPlan(built("N"), snap({}, []), after, OWN)).toEqual([]);
+  });
+
+  it("uses the same home prefix as Codemm's own tags", () => {
+    const home = mkdtempSync(join(tmpdir(), "codemm-home-"));
+    process.env.CODEMM_HOME = home;
+    expect(trackImageTag("c", 1).startsWith(homeTagPrefix(home))).toBe(true);
   });
 });
 

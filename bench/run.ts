@@ -163,7 +163,7 @@ try {
 } finally {
   ev = readEvidence(home, ws);
   try {
-    result.cleanup = cleanupImages(root, baseline);
+    result.cleanup = cleanupImages(root, baseline, home);
   } catch (e) {
     // Without a full picture of Docker's images nothing is removed; say so and clean up the rest.
     result.cleanup = [`skipped: ${(e as Error).message}`];

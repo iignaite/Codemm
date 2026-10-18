@@ -199,7 +199,7 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(await app.installProposal("shell-consent@1", digest)).toEqual({ installed: "shell-consent@1" });
     expect(app.listTracks().map((x) => x.track)).toContain("shell-consent@1");
     expect(app.listProposals()).toEqual([]);
-    await cli(["image", "rm", "-f", "codemm-track-shell-consent:1"]);
+    await cli(["image", "rm", "-f", trackImageTag("shell-consent", 1)]);
   });
 
   it("saves a bound author job's exercise to its own course, even if the learner switches mid-save", async () => {
