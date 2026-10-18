@@ -72,8 +72,8 @@ export interface Job {
   onProgress?: (step: ResearchStep) => void;
   /** Hears each https page the agent read successfully, for the roadmap's sources. */
   onSource?: (source: { title: string; url: string }) => void;
-  /** What a run used, as its CLI reported it, with its session and whether it counts toward a plan (§4.11). */
-  onUsage?: (usage: { input: number; output: number; cachedInput?: number; costUsd?: number; session?: string; plan?: boolean }) => void;
+  /** What a run used, as its CLI reported it, with its session (§4.11). */
+  onUsage?: (usage: { input: number; output: number; cachedInput?: number; costUsd?: number; session?: string }) => void;
 }
 
 interface Attempt {
@@ -115,7 +115,6 @@ async function once(job: Job): Promise<Attempt> {
   const saves = new Set<string>();
   let failedSaves = 0;
   let session: string | undefined;
-  let plan: boolean | undefined;
   let done: AgentEvent & { type: 'done' } | undefined;
   let started = false;
   let infra: Attempt['infra'];
@@ -123,13 +122,10 @@ async function once(job: Job): Promise<Attempt> {
   const reads = new Map<string, { title: string; url: string }>();
   const onEvent = (e: AgentEvent) => {
     started = true;
-    if (e.type === 'session') {
-      session = e.id;
-      if (e.plan !== undefined) plan = e.plan;
-    }
+    if (e.type === 'session') session = e.id;
     if (e.type === 'usage') {
       const { type: _, ...used } = e;
-      job.onUsage?.({ ...used, ...(session ? { session } : {}), ...(plan !== undefined ? { plan } : {}) });
+      job.onUsage?.({ ...used, ...(session ? { session } : {}) });
     }
     if (e.type === 'text') text.push(e.text);
     if (e.type === 'done') done = e;

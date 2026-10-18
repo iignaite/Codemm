@@ -20,7 +20,8 @@ function continueRoute(topic: TopicView): Route {
 export function CourseMap() {
   const api = useApi();
   const { data: course, error, reload } = useLoad(() => api.course(), [], settled, undefined, true);
-  const { data: usage } = useLoad(() => api.usage(), []);
+  // Read again whenever the course is: jobs that finish while the map is open add to it.
+  const { data: usage } = useLoad(() => api.usage(), [course]);
   if (error) return <Failed error={error} retry={reload} />;
   if (course === undefined) return null;
   if (course === null) return <Goal />;
@@ -114,7 +115,7 @@ function UsageCard({ usage }: { usage: Usage }) {
           </>
         )}
       </dl>
-      {usage.plan === true && total.costUsd > 0 && <p className="quiet-text">On your Claude plan, this counts toward the plan's usage. It isn't a charge.</p>}
+      {total.costUsd > 0 && <p className="quiet-text">On a Claude subscription, this counts toward the plan's usage. It isn't a charge.</p>}
     </section>
   );
 }

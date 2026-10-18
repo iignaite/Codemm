@@ -5,8 +5,7 @@
 import type { AgentId } from '../../shared/api';
 
 export type AgentEvent =
-  /** `plan`: Claude says whether the run counts toward a subscription plan (true) or an API key (false). */
-  | { type: 'session'; id: string; plan?: boolean }
+  | { type: 'session'; id: string }
   | { type: 'text'; text: string }
   | { type: 'tool_call'; id: string; name: string }
   /** A failed result keeps a little of its text, only to tell infrastructure failures apart (§6.1). */
@@ -172,8 +171,7 @@ const claude: AgentCli = {
     if (!e) return [];
     if (e.type === 'system' && e.subtype === 'init') {
       const failed = Array.isArray(e.mcp_servers) && e.mcp_servers.some((s: { name?: unknown; status?: unknown }) => s?.name === 'codemm' && s.status === 'failed');
-      const plan = str(e.apiKeySource) ? { plan: e.apiKeySource === 'none' } : {};
-      return [...(str(e.session_id) ? [{ type: 'session' as const, id: e.session_id, ...plan }] : []), ...(failed ? [{ type: 'server' as const, ok: false as const }] : [])];
+      return [...(str(e.session_id) ? [{ type: 'session' as const, id: e.session_id }] : []), ...(failed ? [{ type: 'server' as const, ok: false as const }] : [])];
     }
     if (e.type === 'result') {
       const ok = !e.is_error && e.subtype === 'success';

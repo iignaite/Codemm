@@ -9,12 +9,14 @@ import type { JobKind } from './agent/jobs';
 interface UsageFile {
   format_version: 1;
   courses: Record<string, Partial<Record<JobKind, UsageTotals>>>;
-  /** Whether the last Claude run counted toward a subscription plan (true) or an API key (false). */
-  plan?: boolean;
-  /** The last cost Claude reported per session: a resumed session's report covers the whole session. */
+  /**
+   * The highest cost Claude reported per tutor session. Only tutor sessions resume, and a resumed session's report
+   * covers the whole session so far, so only the rise counts.
+   */
   sessions: Record<string, number>;
 }
 
+/** Tutor sessions are one per course and agent; this only bounds a file that would otherwise only grow. */
 const MAX_SESSIONS = 100;
 const zero = (): UsageTotals => ({ input: 0, output: 0, cachedInput: 0, costUsd: 0, runs: 0 });
 const add = (a: UsageTotals, b: UsageTotals): UsageTotals => ({
@@ -46,14 +48,16 @@ export function usageStore(dir: string) {
 
   return {
     dir,
-    /** Adds one run's report. `session` lets a resumed Claude session's cost count only what's new. */
+    /** Adds one run's report. `session` lets a resumed tutor session's cost count only what's new. */
     record(course: string, kind: JobKind, u: { input: number; output: number; cachedInput?: number; costUsd?: number }, session?: string) {
       const data = read();
       let cost = u.costUsd ?? 0;
-      if (u.costUsd !== undefined && session) {
-        cost = Math.max(0, u.costUsd - (data.sessions[session] ?? 0));
+      if (u.costUsd !== undefined && session && kind === 'tutor') {
+        // A crashed turn can report 0: the baseline never goes down.
+        const before = data.sessions[session] ?? 0;
+        cost = Math.max(0, u.costUsd - before);
         delete data.sessions[session];
-        data.sessions[session] = Math.max(u.costUsd, cost);
+        data.sessions[session] = Math.max(before, u.costUsd);
         const ids = Object.keys(data.sessions);
         for (const id of ids.slice(0, Math.max(0, ids.length - MAX_SESSIONS))) delete data.sessions[id];
       }
@@ -61,11 +65,6 @@ export function usageStore(dir: string) {
       kinds[kind] = add(kinds[kind] ?? zero(), { input: u.input, output: u.output, cachedInput: u.cachedInput ?? 0, costUsd: cost, runs: 1 });
       write(data);
     },
-    notePlan(plan: boolean) {
-      const data = read();
-      if (data.plan !== plan) write({ ...data, plan });
-    },
-    plan: (): boolean | undefined => read().plan,
     course(course: string): CourseUsage {
       const kinds = read().courses[course] ?? {};
       return { kinds, total: Object.values(kinds).reduce(add, zero()) };

@@ -298,8 +298,8 @@ export interface CourseUsage {
   total: UsageTotals;
 }
 
-/** The current course's usage. `plan`: whether the last Claude run counted toward a subscription plan. */
-export type Usage = CourseUsage & { plan?: boolean };
+/** The course on screen's usage. */
+export type Usage = CourseUsage;
 
 export type Place = { lessonId: string } | { activityId: string };
 

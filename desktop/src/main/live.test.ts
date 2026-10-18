@@ -172,12 +172,12 @@ describe('live CodemmApi', () => {
     await expect(t.api.saveDraft(r.roadmap!.concepts)).rejects.toThrow('No roadmap to edit.');
   });
 
-  it("records what each job's agent reported, under its course and kind, and shows it with the plan", async () => {
+  it("records what each job's agent reported, under its course and kind, for the course on screen", async () => {
     const usage = usageStore(tempDir('codemm-usage-'));
     const t = live(
       {
         tutor: (job) => {
-          job.onUsage?.({ input: 100, output: 10, cachedInput: 50, costUsd: 0.2, session: 's9', plan: true });
+          job.onUsage?.({ input: 100, output: 10, cachedInput: 50, costUsd: 0.2, session: 's9' });
           return { ok: true, text: ['Look at line 3.'], session: 's9' };
         },
       },
@@ -187,8 +187,18 @@ describe('live CodemmApi', () => {
     const { id } = await practising(t);
     await t.api.ask({ activityId: id }, 'Why?');
     const shown = await t.api.usage();
-    expect(shown).toMatchObject({ plan: true, kinds: { tutor: { input: 100, output: 10, cachedInput: 50, costUsd: 0.2, runs: 1 } } });
+    expect(shown).toMatchObject({ kinds: { tutor: { input: 100, output: 10, cachedInput: 50, costUsd: 0.2, runs: 1 } } });
     expect(shown!.total.runs).toBe(1);
+    // Researching a new roadmap makes it the workspace's draft; the approved course, the one on screen, keeps its usage.
+    const onScreen = t.c.roadmap!.course;
+    const goal = { topic: 'Python', known: '', depth: 'standard' } as const;
+    let r = await t.api.research(goal);
+    for (let i = 0; i < 20 && r.state === 'running'; i++) {
+      await new Promise((res) => setTimeout(res, 5));
+      r = await t.api.research(goal);
+    }
+    expect(t.c.roadmap!.course).not.toBe(onScreen);
+    expect((await t.api.usage())!.total.runs).toBe(1);
   });
 
   it('saves edits, then asks for changes', async () => {

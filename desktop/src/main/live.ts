@@ -228,7 +228,7 @@ export function createLive(d: LiveDeps): Live {
         signedIn: () => d.connect.recheck(id, exe),
         onProgress,
         onSource,
-        onUsage: (u) => recordUsage(course, kind, id, u),
+        onUsage: (u) => recordUsage(course, kind, u),
       });
       if (outcome.problem === 'unstoppable') unstoppable = true;
       log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
@@ -368,11 +368,10 @@ export function createLive(d: LiveDeps): Live {
     progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total, ...(phase === 'visible' && test ? { test: finished(test) } : {}) }));
 
   /** What a job's agent reported using, under its course and kind (§4.11). Never stops the job. */
-  function recordUsage(course: string | undefined, kind: Job['kind'], agent: string, u: Parameters<NonNullable<Job['onUsage']>>[0]) {
+  function recordUsage(course: string | undefined, kind: Job['kind'], u: Parameters<NonNullable<Job['onUsage']>>[0]) {
     if (!d.usage || !course) return;
     try {
       d.usage.record(course, kind, u, u.session);
-      if (agent === 'claude' && u.plan !== undefined) d.usage.notePlan(u.plan);
     } catch (e) {
       log('usage-error', errorFields(e));
     }
@@ -735,11 +734,10 @@ export function createLive(d: LiveDeps): Live {
       await core.rebuildTrack(ref);
     },
 
+    // The course on screen: the approved one, as course() shows, not a draft being researched.
     async usage() {
-      const course = core.readWorkspace(ws).course;
-      if (!course || !d.usage) return null;
-      const plan = d.usage.plan();
-      return { ...d.usage.course(course), ...(plan !== undefined ? { plan } : {}) };
+      const course = approved();
+      return course && d.usage ? d.usage.course(course) : null;
     },
 
     async stop() {

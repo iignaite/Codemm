@@ -48,7 +48,7 @@ describe('research progress from the stream (one parser for both CLIs)', () => {
 describe('agent stream contracts (recorded fixtures, §3.3)', () => {
   it('claude: a recorded run becomes session, tool, text and done events', () => {
     expect(parseAll('claude', fixture('claude-list-tracks.jsonl'))).toEqual([
-      { type: 'session', id: 'f242da1d-dc70-4d6f-96da-1f92ecc2d720', plan: true },
+      { type: 'session', id: 'f242da1d-dc70-4d6f-96da-1f92ecc2d720' },
       { type: 'tool_call', id: 'toolu_01MvSVPGD77trQgd9hUqhwG3', name: 'ToolSearch' },
       { type: 'tool_result', id: 'toolu_01MvSVPGD77trQgd9hUqhwG3', error: false },
       { type: 'tool_call', id: 'toolu_01NfoeX7ahYrG2GZ1kmsnnnP', name: 'codemm.list_tracks' },
@@ -172,12 +172,6 @@ describe('agent stream contracts (recorded fixtures, §3.3)', () => {
     expect(AGENT_CLIS.claude.parse!(odd)).toEqual([{ type: 'usage', input: 0, output: 7, cachedInput: 0 }, { type: 'done', ok: true }]);
   });
 
-  it('claude: says whether the run counts toward a subscription plan (apiKeySource none) or an API key', () => {
-    const init = (source?: string) => JSON.stringify({ type: 'system', subtype: 'init', session_id: 's1', ...(source ? { apiKeySource: source } : {}) });
-    expect(AGENT_CLIS.claude.parse!(init('none'))).toEqual([{ type: 'session', id: 's1', plan: true }]);
-    expect(AGENT_CLIS.claude.parse!(init('ANTHROPIC_API_KEY'))).toEqual([{ type: 'session', id: 's1', plan: false }]);
-    expect(AGENT_CLIS.claude.parse!(init())).toEqual([{ type: 'session', id: 's1' }]);
-  });
 
   it('ignores blank, non-JSON, unknown and malformed lines', () => {
     const malformed = [

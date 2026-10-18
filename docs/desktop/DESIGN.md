@@ -351,12 +351,14 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 ### 4.11 Usage and cost
 
 - **Source:** only what the agent CLIs already print. Codemm never calls a model and never reads a credential.
-  - Claude Code's `result` line: tokens (input, cache writes, cache reads, output) and `total_cost_usd`, its own estimate. Its `init` line's `apiKeySource` says whether the run counts toward a subscription plan (`none`) or an API key.
+  - Claude Code's `result` line: tokens (input, cache writes, cache reads, output) and `total_cost_usd`, its own estimate.
   - Codex's `turn.completed` usage: tokens, no cost.
   - Cursor's `result` usage, when present: tokens, no cost.
-- **Parser:** the stream parsers in `agent/agents.ts` emit `{ type: 'usage', input, output, cachedInput?, costUsd? }`, where `input` counts every input token and `cachedInput` the ones read from cache. The session event gains an optional `plan`. Jobs pass each report to `Job.onUsage` with its session and plan.
-- **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs) and the last plan answer. It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs. Claude's cost on a resumed session covers the whole session so far, so the store keeps the last cost per session (at most 100) and adds only what's new.
-- **Screen:** the course map's side column shows a small Usage card once an agent has run for the course: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. When the last Claude run counted toward a plan, it says: "On your Claude plan, this counts toward the plan's usage. It isn't a charge."
+- **Parser:** the stream parsers in `agent/agents.ts` emit `{ type: 'usage', input, output, cachedInput?, costUsd? }`, where `input` counts every input token and `cachedInput` the ones read from cache. Jobs pass each report to `Job.onUsage` with its session.
+- **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs). It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs.
+  - Only tutor sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor session (a crashed turn can report 0) and adds only the rise.
+  - One app process owns userData, as with `desktop.json`: two instances writing at the same moment could lose one report.
+- **Screen:** the course map's side column shows a small Usage card for the approved course, once an agent has run for it: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. It's read again whenever the map reads the course. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so with a cost it says: "On a Claude subscription, this counts toward the plan's usage. It isn't a charge."
 
 ## 5. Failure states
 

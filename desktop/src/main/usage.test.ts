@@ -27,23 +27,24 @@ describe('usage store', () => {
     expect(usageStore(d).course('unknown')).toEqual({ kinds: {}, total: { input: 0, output: 0, cachedInput: 0, costUsd: 0, runs: 0 } });
   });
 
-  it("counts a resumed Claude session's cost once: its report covers the whole session so far", () => {
+  it("counts a resumed tutor session's cost once: Claude's report covers the whole session so far", async () => {
     const usage = usageStore(dir());
     usage.record('c', 'tutor', { input: 10, output: 1, costUsd: 0.261 }, 'sess');
     usage.record('c', 'tutor', { input: 10, output: 1, costUsd: 0.2746 }, 'sess');
     expect(usage.course('c').total.costUsd).toBeCloseTo(0.2746, 6);
-    // A lower total (a session that started over) adds nothing rather than going back.
-    usage.record('c', 'tutor', { input: 1, output: 1, costUsd: 0.1 }, 'sess');
-    expect(usage.course('c').total.costUsd).toBeCloseTo(0.2746, 6);
+    // A crashed turn can report 0; the next turn's total still counts only what's new.
+    usage.record('c', 'tutor', { input: 1, output: 1, costUsd: 0 }, 'sess');
+    usage.record('c', 'tutor', { input: 1, output: 1, costUsd: 0.3 }, 'sess');
+    expect(usage.course('c').total.costUsd).toBeCloseTo(0.3, 6);
   });
 
-  it('remembers whether the last Claude run counted toward a subscription plan', () => {
+  it('keeps baselines only for tutor sessions, the only ones resumed, so other jobs never push one out', () => {
     const usage = usageStore(dir());
-    expect(usage.plan()).toBeUndefined();
-    usage.notePlan(true);
-    expect(usage.plan()).toBe(true);
-    usage.notePlan(false);
-    expect(usageStore(usage.dir).plan()).toBe(false);
+    usage.record('c', 'tutor', { input: 0, output: 0, costUsd: 2 }, 'tutor-1');
+    for (let i = 0; i < 150; i++) usage.record('c', 'lesson', { input: 0, output: 0, costUsd: 0.01 }, `lesson-${i}`);
+    usage.record('c', 'tutor', { input: 0, output: 0, costUsd: 2.1 }, 'tutor-1');
+    expect(usage.course('c').kinds.tutor!.costUsd).toBeCloseTo(2.1, 6);
+    expect(Object.keys(JSON.parse(readFileSync(join(usage.dir, 'usage.json'), 'utf8')).sessions)).toEqual(['tutor-1']);
   });
 
   it('writes usage.json atomically with its format_version, and starts over from a file it cannot read', () => {
@@ -60,9 +61,4 @@ describe('usage store', () => {
     expect(usageStore(d).course('c').total.runs).toBe(1);
   });
 
-  it('keeps at most 100 sessions for cost', () => {
-    const usage = usageStore(dir());
-    for (let i = 0; i < 120; i++) usage.record('c', 'tutor', { input: 0, output: 0, costUsd: 0.01 }, `s${i}`);
-    expect(Object.keys(JSON.parse(readFileSync(join(usage.dir, 'usage.json'), 'utf8')).sessions)).toHaveLength(100);
-  });
 });
