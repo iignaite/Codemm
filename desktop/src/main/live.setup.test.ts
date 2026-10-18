@@ -105,6 +105,28 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     expect(t.c.proposals.map((p) => p.digest)).toContain(proposal!.digest);
   });
 
+  it("quitting waits for a failed install's proposal to go", async () => {
+    const t = live();
+    const drop = t.app.dropProposal;
+    let dropped!: () => void;
+    // Deleting the failed proposal waits for the track lock.
+    t.app.dropProposal = (ref) => new Promise((done) => (dropped = () => done(drop(ref))));
+    t.c.install = async () => {
+      throw new Error('Gate 2 failed: the reference solution fails its tests');
+    };
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(proposal!.digest);
+    await vi.waitFor(() => expect(dropped).toBeDefined());
+    let stopped = false;
+    const stopping = t.api.stop().then(() => (stopped = true));
+    await new Promise((res) => setTimeout(res, 20));
+    expect(stopped).toBe(false);
+    dropped();
+    await stopping;
+  });
+
   it('quitting waits for a track rebuild', async () => {
     const t = live();
     await practising(t);

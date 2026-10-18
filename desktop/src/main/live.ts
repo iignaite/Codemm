@@ -582,9 +582,9 @@ export function createLive(d: LiveDeps): Live {
       trackers.set(`install:${ref}`, tracker);
       tracker.reach(1);
       tellJob(tracker.snapshot());
-      // Tracked and guarded like every container operation: quitting waits for it, and one still waiting for Docker
-      // when quitting starts never runs.
-      mine.installing = whenDockerReady(() =>
+      // Tracked and guarded like every container operation: quitting waits for it, its failure handling included, and
+      // one still waiting for Docker when quitting starts never runs.
+      mine.installing = tracked(whenDockerReady(() =>
         core.installProposal(ref, digest, (p) => {
           // Counts only: the build's steps, then its checks.
           if (p.phase === 'building') tracker.reach(1, { done: p.done, total: p.total });
@@ -616,7 +616,7 @@ export function createLive(d: LiveDeps): Live {
           tellJob({ ...tracker.snapshot(), ended: true });
           mine.installing = undefined;
           schedule();
-        });
+        }));
     },
 
     async retrySetup() {
