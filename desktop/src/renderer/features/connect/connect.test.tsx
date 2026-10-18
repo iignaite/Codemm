@@ -16,6 +16,8 @@ describe('connect journey', () => {
     const claude = screen.getByRole('listitem', { name: 'Claude Code' });
     await user.click(within(claude).getByRole('button', { name: 'Connect' }));
     expect(await within(claude).findByText('Connected')).toBeInTheDocument();
+    // Read once: "Connected", not "Passed, Connected".
+    expect(within(claude).queryByRole('img', { name: 'Passed' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
