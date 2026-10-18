@@ -99,6 +99,22 @@ describe("frameProgress", () => {
     expect(milestones([...bytes].map((b) => Buffer.from([b])))).toEqual(["built", 1, 2]);
   });
 
+  it("hands over each finished case whole, with its stderr, however the output is split", () => {
+    const want = [
+      { name: "01", exit: 0, stdout: "@@codemm case 99 0 1\nx", stderr: "", big: false },
+      { name: "02", exit: 0, stdout: "", stderr: "oops", big: true },
+    ];
+    const cases = (chunks: Buffer[]) => {
+      const seen: unknown[] = [];
+      const feed = frameProgress(() => undefined, (c) => seen.push(c));
+      for (const c of chunks) feed(c);
+      return seen;
+    };
+    expect(cases([bytes])).toEqual(want);
+    for (let at = 1; at < bytes.length; at++) expect(cases([bytes.subarray(0, at), bytes.subarray(at)])).toEqual(want);
+    expect(cases([...bytes].map((b) => Buffer.from([b])))).toEqual(want);
+  });
+
   it("stays linear: 4 MB in 1 KB chunks", () => {
     const big = Buffer.from(Array.from({ length: 400 }, (_, i) => frame("case", String(i), "y".repeat(10_000))).join(""));
     const chunks = Array.from({ length: Math.ceil(big.length / 1024) }, (_, i) => big.subarray(i * 1024, (i + 1) * 1024));
