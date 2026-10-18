@@ -1,6 +1,7 @@
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { CodemmApi, JobProgress } from '../../../shared/api';
 import { xterm } from '../../testing/xterm';
 import { scenario } from '../../../main/mock';
 import { mockWithCourse, renderApp } from '../../test-utils';
@@ -8,8 +9,9 @@ import { mockWithCourse, renderApp } from '../../test-utils';
 vi.mock('@xterm/xterm', () => import('../../testing/xterm'));
 vi.mock('@xterm/addon-fit', () => import('../../testing/xterm'));
 
-async function open(options?: Parameters<typeof mockWithCourse>[0]) {
+async function open(options?: Parameters<typeof mockWithCourse>[0], before?: (api: CodemmApi) => void) {
   const { api, course } = await mockWithCourse({ read: true, ...options });
+  before?.(api);
   const view = renderApp({ to: 'practice', concept: course.topics[0].id }, api);
   await screen.findByRole('heading', { name: 'Click Counter' });
   return { ...view, course, user: userEvent.setup() };
@@ -239,6 +241,25 @@ describe('practice', () => {
     await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
     await user.click(screen.getByRole('button', { name: 'Send' }));
     expect(asked).toBe(2);
+  });
+
+  it("says Codemm is thinking while it answers, with the turn's latest step", async () => {
+    let hear: (p: JobProgress) => void = () => undefined;
+    const { api, user } = await open(undefined, (a) => (a.onJobProgress = (listener) => ((hear = listener), () => undefined)));
+    let answer!: () => void;
+    const ask = api.ask;
+    api.ask = (place, text) => new Promise((done) => (answer = () => done(ask(place, text))));
+    await user.click(screen.getByRole('button', { name: 'Hint' }));
+    const rail = screen.getByRole('complementary', { name: 'Codemm' });
+    expect(within(rail).getByRole('status')).toHaveTextContent('Codemm is thinking…');
+    // A turn asked elsewhere, still running ahead of this one, isn't this question's.
+    act(() => hear({ job: 't0', kind: 'tutor', stage: 0, steps: [{ kind: 'step', label: 'Reading the lesson' }], count: 1, thinking: true, elapsedMs: 60_000, idleMs: 0 }));
+    expect(within(rail).queryByText('Reading the lesson')).not.toBeInTheDocument();
+    act(() => hear({ job: 't1', kind: 'tutor', stage: 0, steps: [{ kind: 'step', label: 'Reading the activity' }], count: 1, thinking: true, elapsedMs: 0, idleMs: 0 }));
+    expect(within(rail).getByText('Reading the activity')).toBeInTheDocument();
+    answer();
+    await vi.waitFor(() => expect(within(rail).queryByText('Codemm is thinking…')).not.toBeInTheDocument());
+    expect(within(rail).queryByText('Reading the activity')).not.toBeInTheDocument();
   });
 
   it('offers calm ways forward when stuck, including an easier topic', async () => {

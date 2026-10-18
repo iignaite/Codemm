@@ -316,3 +316,43 @@ button.grow.link:hover { background: var(--soft); }
 /* A link inside running text: the text's own color, underlined, with the usual focus ring. */
 a.inline { color: inherit; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
 a.inline:hover { color: var(--ink); }
+
+/* Job progress (§4.11): Emm fills from grey to green, tail to head, as the job reaches each stage. */
+.emm-fill { position: relative; display: inline-block; flex-shrink: 0; line-height: 0; }
+.emm-fill .emm { animation: none; }
+.emm-fill .emm .eye { animation: none; }
+.emm-fill .zz { display: none; }
+.emm-fill .emm-base { display: block; filter: grayscale(1); opacity: .35; }
+.emm-fill .emm-color, .emm-fill .emm-edge { position: absolute; inset: 0; }
+.emm-fill .emm-color { clip-path: inset(0 calc(100% - var(--fill)) 0 0); transition: clip-path .6s var(--ease); }
+/* A thin band at the fill edge, lighter, breathing while the stage runs. */
+.emm-fill .emm-edge { clip-path: inset(0 calc(100% - var(--fill)) 0 max(0%, calc(var(--fill) - 8%))); filter: brightness(1.35); animation: edge 1.6s ease-in-out infinite; transition: clip-path .6s var(--ease); }
+.emm-fill.dim { opacity: .55; }
+.emm-fill.dim .emm-edge { display: none; }
+@keyframes edge { 0%, 100% { opacity: .15; } 50% { opacity: .85; } }
+.job { display: flex; align-items: center; min-width: 0; color: var(--muted); }
+.job.full { gap: 18px; width: 100%; }
+.job.full.bare { gap: 0; }
+.job.full .job-step { font-size: 14px; }
+.job-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.job .stages { flex: 1; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px 18px; font-size: 13.5px; color: var(--faint); }
+.job .stages li.done { color: var(--green-ink); }
+.job .stages li.now { color: var(--blue-ink); font-weight: 600; }
+.job-line { display: flex; gap: 12px; align-items: baseline; font-size: 14px; }
+.job-step { flex: 1; min-width: 0; }
+.job-time { flex-shrink: 0; margin-left: auto; font-variant-numeric: tabular-nums; color: var(--faint); }
+.job.compact { gap: 8px; width: 100%; font-size: 12.5px; }
+.job.compact .job-time { font-size: 12px; }
+.job.compact .job-step { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A lesson or activity being written: its icon and label on one line, its progress beneath, at the label's start. */
+.outline .item.writing { position: relative; flex-direction: column; align-items: stretch; gap: 8px; }
+/* In the outline, the time sits on the label's line, right-aligned, so the step has the whole second line. */
+.outline .item.writing .job-time { position: absolute; top: 12px; right: 14px; line-height: 18px; }
+.outline .item.writing .job.compact .job-step { white-space: normal; overflow: visible; }
+.outline .item-head { display: flex; align-items: center; gap: 12px; }
+.outline .item.writing > .job, .outline .item.writing > .waiting { margin-left: 30px; width: auto; }
+.row.writing { flex-wrap: wrap; row-gap: 12px; }
+.row.writing > .job { flex: 1 0 calc(100% - 32px); margin-left: 32px; }
+.topic-page .card.setup-progress { padding: 18px 22px 20px; display: flex; flex-direction: column; gap: 14px; }
+.thinking { flex-direction: column; gap: 8px; color: var(--muted); }
+.looking .job { max-width: 720px; }

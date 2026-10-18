@@ -65,7 +65,7 @@ describe('jobs (§3.2)', () => {
     const agent = fakeAgent([init, fetch('f1', 'https://good.example/a'), result('f1', false), fetch('f2', 'https://bad.example/b'), result('f2', true), success]);
     const sources: unknown[] = [];
     const steps: unknown[] = [];
-    await runJob(job(agent.exe, { kind: 'research', done: () => true, onProgress: (s) => steps.push(s), onSource: (s) => sources.push(s) }));
+    await runJob(job(agent.exe, { kind: 'research', done: () => true, onEvent: (e) => e.type === 'progress' && steps.push(e.step), onSource: (s) => sources.push(s) }));
     expect(steps).toHaveLength(2);
     expect(sources).toEqual([{ title: 'good.example/a', url: 'https://good.example/a' }]);
   });
@@ -82,6 +82,13 @@ describe('jobs (§3.2)', () => {
     const outcome = await runJob(job(agent.exe, { kind: 'lesson', done: () => false }));
     expect(outcome).toMatchObject({ ok: false, problem: 'failed' });
     expect(agent.runs()).toBe(2);
+  });
+
+  it('tells its listener each event and each relaunch, for its progress (§4.11)', async () => {
+    const agent = fakeAgent([init, say('Saved!'), success]);
+    const heard: string[] = [];
+    await runJob(job(agent.exe, { kind: 'lesson', done: () => false, onEvent: (e) => heard.push(e.type), onRelaunch: () => heard.push('relaunch') }));
+    expect(heard).toEqual(['session', 'text', 'done', 'relaunch', 'session', 'text', 'done']);
   });
 
   it('is not relaunched when its save landed just before a crash', async () => {

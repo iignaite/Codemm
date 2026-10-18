@@ -43,9 +43,10 @@ const words = text(2000, 1);
 const exampleNumber: Valid = (v) => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5;
 const fileText: Valid = (v) => typeof v === 'string' && new TextEncoder().encode(v).length <= MAX_FILE_BYTES;
 
-// onCheckProgress, onResearchProgress and onRunOutput are events main sends, never something the renderer may call.
-const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgress' | 'onRunOutput'>]: Valid[] } = {
+// onCheckProgress, onJobProgress and onRunOutput are events main sends, never something the renderer may call.
+const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' | 'onRunOutput'>]: Valid[] } = {
   agents: [],
+  jobProgress: [],
   connect: [oneOf('claude', 'codex', 'cursor')],
   chooseModel: [oneOf('claude', 'codex', 'cursor'), text(64, 1)],
   computer: [],

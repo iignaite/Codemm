@@ -4,6 +4,7 @@ vi.mock('@xterm/addon-fit', () => import('../../testing/xterm'));
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { JobProgress } from '../../../shared/api';
 import { xterm } from '../../testing/xterm';
 import { scenario, type MockOptions } from '../../../main/mock';
 import { mockWithCourse, mockWithRoadmap, renderApp } from '../../test-utils';
@@ -31,7 +32,7 @@ describe('review on the topic page', () => {
     view.unmount();
     api.course = withReview('writing');
     renderApp({ to: 'topic', topicId: TOPIC }, api);
-    expect(await screen.findByRole('img', { name: 'Writing the review' })).toBeInTheDocument();
+    expect(await screen.findByText('Writing the review')).toBeInTheDocument();
   });
 });
 
@@ -88,6 +89,38 @@ describe('lesson examples', () => {
     await waitFor(() => expect(mirror().textContent).toBe("What's your name? "));
     act(() => xterm.type('Ada\r'));
     await waitFor(() => expect(mirror().textContent).toBe("What's your name? Ada\nHello, Ada!\nExited with code 0.\n"));
+  });
+});
+
+describe('job progress on the topic page (§4.11)', () => {
+  it('shows setup and the lesson being written as staged progress, then the lesson to read', async () => {
+    const { api } = await approved({ slow: 3 });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const setup = await screen.findByRole('group', { name: 'Setting up React' });
+    expect(within(setup).getByRole('listitem', { current: 'step' })).toHaveTextContent('Proposing the setup');
+    const lesson = await screen.findByRole('group', { name: 'Writing the lesson' });
+    expect(within(lesson).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Starting', 'Writing the lesson', 'Saving the lesson']);
+    expect(await screen.findByRole('button', { name: 'Read useState' }, { timeout: 8000 })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Writing the lesson' })).not.toBeInTheDocument();
+  }, 15_000);
+});
+
+describe('setup progress while a proposing agent ends its turn', () => {
+  it("follows the install's job, not the proposal's late events or its end", async () => {
+    let hear: (p: JobProgress) => void = () => undefined;
+    const { api } = await approved();
+    api.onJobProgress = (listener) => ((hear = listener), () => undefined);
+    const real = (await api.course())!;
+    api.course = async () => ({ ...real, setup: 'installing' as const });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await screen.findByRole('heading', { name: 'JavaScript basics' });
+    // The screen subscribes again once it knows setup is installing.
+    await waitFor(() => expect(screen.getByText('Setting up React', { exact: false })).toBeInTheDocument());
+    const at = (job: string, stage: number, ended?: true): JobProgress => ({ job, kind: 'setup', stage, steps: [], count: 0, thinking: false, elapsedMs: 0, idleMs: 0, ...(ended ? { ended } : {}) });
+    act(() => hear(at('install', 1)));
+    act(() => hear(at('proposal', 0)));
+    act(() => hear(at('proposal', 0, true)));
+    await waitFor(() => expect(within(screen.getByRole('group', { name: 'Setting up React' })).getByRole('listitem', { current: 'step' })).toHaveTextContent('Building'));
   });
 });
 
@@ -378,7 +411,17 @@ describe('the activity while the agent writes it', () => {
     const writing = { ...course, topics: course.topics.map((t, i) => (i === 0 ? { ...t, activity: 'writing' as const } : t)) };
     api.course = async () => writing;
     renderApp({ to: 'topic', topicId: course.topics[0].id }, api);
-    expect(await screen.findByRole('img', { name: 'Writing the activity' })).toBeInTheDocument();
+    expect(await screen.findByText('Writing the activity')).toBeInTheDocument();
     expect(screen.queryByText('Opens after you finish the lessons')).not.toBeInTheDocument();
+  });
+
+  it('says it waits for the lesson while that is still being written, and shows no placeholder', async () => {
+    const { api, course } = await mockWithCourse({ read: true });
+    const first = course.topics[0];
+    const waiting = { ...course, topics: course.topics.map((t, i) => (i === 0 ? { ...t, activity: 'writing' as const, lessons: [...first.lessons, { id: 'x-writing', title: 'Lesson', state: 'writing' as const }] } : t)) };
+    api.course = async () => waiting;
+    renderApp({ to: 'topic', topicId: first.id }, api);
+    expect(await screen.findByText('Waiting for the lesson')).toBeInTheDocument();
+    expect(document.querySelector('.shim')).toBeNull();
   });
 });

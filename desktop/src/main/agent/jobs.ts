@@ -4,12 +4,12 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { AgentId } from '../../shared/api';
-import { AGENT_CLIS, PLAN_LIMIT, type AgentEvent, type Invocation, type McpServer, type ResearchStep } from './agents';
+import type { AgentId, JobKind } from '../../shared/api';
+import { AGENT_CLIS, PLAN_LIMIT, type AgentEvent, type Invocation, type McpServer } from './agents';
 import { infra as infraOf, spendsNoRetry } from '../core/failures';
 import { run, type Executable } from './bridge';
 
-export type JobKind = 'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor';
+export type { JobKind };
 
 interface JobSpec {
   tools: string[];
@@ -68,8 +68,10 @@ export interface Job {
   /** Asked when a job fails for an unknown reason. */
   signedIn: () => Promise<boolean>;
   deadlineMs?: number;
-  /** Hears what the agent is looking at (research progress). */
-  onProgress?: (step: ResearchStep) => void;
+  /** Hears each of the agent's events, for the job's progress (§4.11). */
+  onEvent?: (event: AgentEvent) => void;
+  /** Hears that a failed job's agent is about to run again. */
+  onRelaunch?: () => void;
   /** Hears each https page the agent read successfully, for the roadmap's sources. */
   onSource?: (source: { title: string; url: string }) => void;
 }
@@ -123,8 +125,8 @@ async function once(job: Job): Promise<Attempt> {
     if (e.type === 'session') session = e.id;
     if (e.type === 'text') text.push(e.text);
     if (e.type === 'done') done = e;
+    job.onEvent?.(e);
     if (e.type === 'progress') {
-      job.onProgress?.(e.step);
       // A Claude fetch counts once its call succeeds; a Codex page read arrives already done.
       if (e.step.kind === 'read' && e.step.href) {
         const source = { title: e.step.url, url: e.step.href };
@@ -174,6 +176,7 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     if (job.signal?.aborted) break;
     // Checked before every launch, the relaunch included.
     if (job.blocked?.()) return { ok: false, problem: 'unstoppable', text: last?.text ?? [] };
+    if (attempt > 0) job.onRelaunch?.();
     last = await once(job);
     if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };

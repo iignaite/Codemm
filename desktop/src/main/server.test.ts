@@ -14,6 +14,7 @@ describe("the Codemm server an agent job starts (§2, §4.6)", () => {
 
   it("names Codemm's data folder itself: Codex starts MCP servers without the app's environment", () => {
     // Found in the macOS journey: a Codex job's server wrote the course to the default ~/.codemm.
+    expect(codemmServer({ runtime: '/App/Codemm', coreDir: '/App/core', ws: '/ws', env: {} })('c1', ['save_exercise'], '/data/progress/j.json').args.slice(-2)).toEqual(['--progress', '/data/progress/j.json']);
     const server = codemmServer({ runtime: '/App/Codemm', coreDir: '/App/core', ws: '/ws', env: { CODEMM_HOME: '/data/codemm', PATH: '/usr/bin:/Applications/Docker.app/Contents/Resources/bin' } })(undefined, ['list_tracks']);
     // PATH too: the app adds Docker's folders to it, and the server's gates run Docker.
     expect(server.env).toEqual({ ELECTRON_RUN_AS_NODE: '1', CODEMM_HOME: '/data/codemm', PATH: '/usr/bin:/Applications/Docker.app/Contents/Resources/bin' });

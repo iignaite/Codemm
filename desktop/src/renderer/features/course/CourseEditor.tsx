@@ -3,10 +3,12 @@ import type { Concept, Roadmap } from '../../../shared/api';
 import { addTopic, moveTopic, removeTopic, renameTopic } from '../../../shared/roadmap';
 import { useApi } from '../../app/api';
 import { cacheFor } from '../../app/cache';
+import { useJob } from '../../app/useJob';
 import { useRouter } from '../../app/router';
 import { Button } from '../../ui/Button';
 import { Field } from '../../ui/Field';
 import { Icon } from '../../ui/Icon';
+import { JobBar } from '../../ui/JobBar';
 import { stagger } from '../../ui/motion';
 import { TopicItem } from './TopicItem';
 
@@ -22,6 +24,8 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
   const [request, setRequest] = useState('');
   const [asking, setAsking] = useState(false);
   const dragFrom = useRef<string>(undefined);
+  // "Ask Codemm for changes" and Go deeper run a roadmap-change job (§4.11).
+  const job = useJob((p) => p.kind === 'roadmap', []);
 
   /** Applies an edit and saves it, so the draft survives leaving or closing Codemm; or says why it was refused. */
   function edit(change: (cs: Concept[]) => Concept[]) {
@@ -109,7 +113,8 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
           ))}
           {adding && <TopicItem index={concepts.length} count={concepts.length + 1} title="" editing onEdit={() => {}} onRename={add} />}
         </ol>
-        <p className={asking ? 'quiet-text' : 'alert'} role="status">{asking ? 'Updating the roadmap…' : notice}</p>
+        {asking && job && <JobBar job={job} label="Changing the roadmap" />}
+        <p className={asking ? 'quiet-text' : 'alert'} role="status">{asking ? (job ? '' : 'Updating the roadmap…') : notice}</p>
         <button className="add a-up" type="button" style={stagger(0, 100)} disabled={adding} onClick={() => setAdding(true)}>
           <Icon name="plus" color="#0E2754" size={16} />
           Add a topic
