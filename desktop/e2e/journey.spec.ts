@@ -1,5 +1,7 @@
 import { _electron as electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -18,7 +20,10 @@ import { join } from 'node:path';
 //   JOURNEY_LABEL=<name>
 //   JOURNEY_TOPIC=<goal>    what to learn (default "Python functions"); JOURNEY_KNOWN=<what's known>;
 //   JOURNEY_DEPTH=Overview|Standard|In depth   chosen on the goal screen (default: leave Standard)
-//   JOURNEY_PART=full|setup|activity|no-agent|no-docker|docker-stop|docker-setup|low-disk|offline-setup|fake-research|fakes
+//   JOURNEY_PART=full|setup|activity|first-run|no-docker|docker-stop|docker-setup|low-disk|offline-setup|fake-research|fakes|update
+//                           (`first-run`: no agents and Docker hidden; installs both agents in the app into a temp
+//                           HOME, and starts Docker's download only to stop it; `update`: the unpackaged app from
+//                           JOURNEY_DESKTOP against a local update feed)
 //                           (`fakes` runs on a set-up course with e2e/fake-claude.cjs as Claude Code)
 //   JOURNEY_FLOW=<comma list> extras for `full`: edits, reopen, show-me, stuck, pages, relaunch,
 //                           relaunch-setup, switch=<agent>, new-course
@@ -201,11 +206,65 @@ async function rightAnswer() {
   for (const path of await files()) if (existsSync(join(solution, path))) await write(path, readFileSync(join(solution, path), 'utf8'));
 }
 
+/** The live phases the last Check showed while it ran (Building, Visible tests 1 of 3, Hidden tests...). */
+let livePhases: string[] = [];
+
 async function check(): Promise<string> {
   await button('Check').click();
   const verdict = results().getByRole('heading', { name: /passed|Try another way|wasn't counted/ });
-  await until('a Check result', () => visible(verdict), 10 * MIN);
+  livePhases = [];
+  await until('a Check result', async () => {
+    const bar = results().getByRole('progressbar');
+    if (await visible(bar)) {
+      const now = `${await bar.first().getAttribute('aria-label').catch(() => '')} ${(await bar.first().getAttribute('aria-valuenow').catch(() => null)) ?? ''}`.trim();
+      if (now && livePhases.at(-1) !== now) livePhases.push(now);
+      await waiting('check-live', bar);
+    }
+    return visible(verdict);
+  }, 10 * MIN);
   return verdict.innerText();
+}
+
+/** A lesson's runnable example: Run it, and read what it printed (or why it didn't run). */
+async function exampleRun(): Promise<string> {
+  const example = page.getByRole('region', { name: /^Example \d+$/ }).first();
+  if (!(await visible(example))) return 'no runnable example in this lesson';
+  const name = (await example.getAttribute('aria-label')) ?? 'Example';
+  await example.getByRole('button', { name: 'Run', exact: true }).click();
+  const out = example.getByRole('status');
+  const log = page.getByRole('log', { name: new RegExp(`^Terminal for ${name}, as text$`) });
+  // An interactive example waits for a line: type one once its input opens.
+  const input = page.getByRole('textbox', { name: `Terminal for ${name} input` });
+  await until('the example to start', async () => (await input.isEnabled().catch(() => false)) || (await visible(out)) || ((await visible(log)) && /Exited|failed|stopped/i.test(await log.innerText())), MIN).catch(() => undefined);
+  if (await input.isEnabled().catch(() => false)) {
+    await input.pressSequentially('Ada');
+    await input.press('Enter');
+  }
+  await until('the example output', async () => (await visible(log)) ? /Exited|stopped|failed|Time's up/i.test(await log.innerText()) : (await visible(out)) && (await out.innerText()).trim().length > 0, 3 * MIN);
+  await shot('example-run');
+  const text = (await visible(log)) ? await log.innerText() : await out.innerText();
+  if (await visible(example.getByRole('button', { name: 'Stop', exact: true }))) await example.getByRole('button', { name: 'Stop', exact: true }).click();
+  return `${name}: ${text.replace(/\s+/g, ' ').slice(0, 200)}`;
+}
+
+/** Run with input: the learner's program in the terminal, one typed line sent to it. */
+async function runWithInput(): Promise<string> {
+  const title = (await page.getByRole('heading', { level: 1 }).first().innerText()).trim();
+  const run = page.getByRole('button', { name: 'Run', exact: true });
+  if (!(await visible(run))) return 'no Run for this activity (not an io track)';
+  await run.click();
+  const input = page.getByRole('textbox', { name: `Terminal for ${title} input` });
+  const log = page.getByRole('log', { name: `Terminal for ${title}, as text` });
+  await until('the program to start', async () => (await visible(log)) && ((await input.isEnabled().catch(() => false)) || /Exited|failed|stopped|Time's up/i.test(await log.innerText())), 5 * MIN);
+  if (await input.isEnabled().catch(() => false)) {
+    await input.pressSequentially('3');
+    await input.press('Enter');
+  }
+  await until('the program to end', async () => /Exited with code|build failed|stopped|Time's up|ran out of memory|wasn't taken/i.test(await log.innerText()), 3 * MIN).catch(async () => {
+    await run.click(); // Stop
+  });
+  await shot('run-with-input');
+  return (await log.innerText()).replace(/\s+/g, ' ').slice(-240);
 }
 
 async function ask(how: 'Hint' | 'Show me' | string): Promise<string> {
@@ -237,6 +296,15 @@ async function toMap(): Promise<'map' | 'welcome'> {
   else if (!(await visible(map))) await nav('Learn').click();
   await until('the course map', async () => (await visible(map)) || (await visible(heading(/ complete$/))), 2 * MIN);
   return 'map';
+}
+
+/** The goal screen, from the welcome screen or wherever connect left off. */
+async function toGoal() {
+  const goal = page.getByRole('textbox', { name: 'What do you want to learn?' });
+  await until('the goal screen', async () => {
+    if (await visible(button('Start learning'))) await tap(button('Start learning'));
+    return visible(goal);
+  }, MIN);
 }
 
 async function nowIndex(): Promise<number> {
@@ -283,7 +351,11 @@ async function passActivity(name: string) {
 }
 
 async function launch(env: Record<string, string>) {
-  app = await electron.launch({ executablePath: exe!, args: [`--user-data-dir=${join(dir!, 'userData')}`], env, cwd: dir! });
+  // `update` runs the unpackaged app (the packaged one ignores CODEMM_UPDATE_FEED): Electron with the desktop folder.
+  // JOURNEY_MOCK=<scenario> also runs it unpackaged, on the mock: a quick check of the driver's selectors, no agents.
+  const unpacked = part === 'update' || process.env.JOURNEY_MOCK !== undefined ? [process.env.JOURNEY_DESKTOP ?? process.cwd()] : [];
+  if (process.env.JOURNEY_MOCK !== undefined) env = { ...env, CODEMM_MOCK: process.env.JOURNEY_MOCK };
+  app = await electron.launch({ ...(unpacked.length ? {} : { executablePath: exe! }), args: [...unpacked, `--user-data-dir=${join(dir!, 'userData')}`], env, cwd: dir! });
   page = await app.firstWindow();
   expect(await app.evaluate(({ app: a }) => [a.getPath('userData'), a.getPath('logs')])).toEqual([join(dir!, 'userData'), join(dir!, 'userData', 'logs')]);
   await labelWindow();
@@ -335,8 +407,11 @@ async function connect(id: string) {
     await expect(row.getByRole('combobox')).toHaveValue(model);
   }
   await button('Continue').click();
-  await expect(page.getByText('This computer is ready.')).toBeVisible({ timeout: 3 * MIN });
-  await button('Continue').click();
+  // A computer that is already ready is skipped: the app goes on to the goal, the welcome or the course.
+  await until('past the computer check', async () => {
+    if (await visible(page.getByText('This computer is ready.'))) await tap(button('Continue'));
+    return (await visible(page.getByRole('textbox', { name: 'What do you want to learn?' }))) || (await visible(button('Start learning'))) || (await visible(nav('Learn')));
+  }, 3 * MIN);
 }
 
 const docker = (command: 'stop' | 'start') => execFileSync('docker', ['desktop', command], { stdio: 'ignore', timeout: 5 * MIN });
@@ -346,6 +421,22 @@ const docker = (command: 'stop' | 'start') => execFileSync('docker', ['desktop',
 test(`journey: ${label}`, async () => {
   const env: Record<string, string> = { ...(process.env as Record<string, string>), CODEMM_HOME: join(dir!, 'home'), PATH: `${join(dir!, 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin` };
   for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ELECTRON_RUN_AS_NODE', 'CODEMM_JOURNEY', 'CODEMM_APP', 'NODE_OPTIONS']) delete env[key];
+  if (part === 'first-run') {
+    // No agent anywhere (a fresh HOME: the app installs into it), Docker hidden (simulated), downloads in the run.
+    env.PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
+    env.HOME = join(dir!, 'empty-home');
+    env.CODEMM_TEST_SEARCH_DIRS = '';
+    env.TMPDIR = join(dir!, 'tmp');
+    for (const d of [env.HOME, env.TMPDIR]) mkdirSync(d, { recursive: true });
+  }
+  let feedServer: ReturnType<typeof createServer> | undefined;
+  if (part === 'update') {
+    // A local feed offering 99.0.0, the way smoke.spec.ts does: the unsigned dev app only says a version is out.
+    const feed = ['version: 99.0.0', 'files:', '  - url: Codemm-99.0.0-mac-arm64.zip', '    sha512: AAAA', '    size: 1', 'path: Codemm-99.0.0-mac-arm64.zip', 'sha512: AAAA', "releaseDate: '2026-10-01T00:00:00.000Z'", ''].join('\n');
+    feedServer = createServer((req, res) => (new URL(req.url ?? '/', 'http://feed').pathname.endsWith('.yml') ? res.writeHead(200, { 'content-type': 'text/yaml' }).end(feed) : res.writeHead(404).end()));
+    await new Promise<void>((r) => feedServer!.listen(0, '127.0.0.1', r));
+    env.CODEMM_UPDATE_FEED = `http://127.0.0.1:${(feedServer.address() as AddressInfo).port}/`;
+  }
   if (part === 'no-agent') {
     // Neither PATH nor the usual install folders (under HOME) hold an agent.
     env.PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
@@ -372,6 +463,93 @@ test(`journey: ${label}`, async () => {
       await expect(button('Continue')).toBeDisabled();
       return (await page.getByRole('link', { name: /^Get / }).evaluateAll((els) => els.map((e) => `${e.textContent} ${e.getAttribute('href')}`))).join(' / ');
     });
+  } else if (part === 'first-run') {
+    await step('first-run-welcome', async () => {
+      await until('the welcome screen', () => visible(button('Connect an agent')), MIN);
+      const offer = await visible(button("Install what's missing"));
+      if (offer) {
+        await button("Install what's missing").click();
+        await expect(heading('Set up this computer')).toBeVisible();
+        await shot('setup-this-computer');
+        const text = (await page.locator('main').innerText()).replace(/\s+/g, ' ').slice(0, 300);
+        await button('Do it myself').click();
+        return `offered Install what's missing: ${text}`;
+      }
+      await button('Connect an agent').click();
+      return 'no install offer';
+    });
+    for (const name of ['Claude Code', 'Codex']) {
+      await step(`install-${name === 'Codex' ? 'codex' : 'claude'}`, async () => {
+        if (!(await visible(heading('Connect an agent')))) await button('Connect an agent').click();
+        const row = page.getByRole('listitem', { name });
+        await expect(row.getByText('Not installed')).toBeVisible({ timeout: MIN });
+        await row.getByRole('button', { name: 'Install', exact: true }).click();
+        const phases: string[] = [];
+        await until(`${name} installed`, async () => {
+          const bar = row.getByRole('progressbar');
+          if (await visible(bar)) {
+            const p = ((await bar.getAttribute('aria-label')) ?? '').trim();
+            if (p && phases.at(-1) !== p) {
+              phases.push(p);
+              await shot(`install-${name === 'Codex' ? 'codex' : 'claude'}-${phases.length}`);
+            }
+          }
+          if (await visible(row.getByRole('alert'))) throw new Error(`Install failed: ${await row.getByRole('alert').innerText()}`);
+          return (await visible(row.getByText('Connected'))) || (await visible(row.getByRole('button', { name: /^(Connect|Sign in)$/ })));
+        }, 10 * MIN);
+        const state = (await visible(row.getByRole('button', { name: 'Sign in' }))) ? 'installed, signed out (Codemm never signs in)' : 'installed, ready to connect';
+        if (await visible(row.getByRole('button', { name: 'Connect', exact: true }))) await row.getByRole('button', { name: 'Connect', exact: true }).click();
+        await shot(`installed-${name === 'Codex' ? 'codex' : 'claude'}`);
+        return `${phases.join(' / ')}: ${state}${(await visible(row.getByText('Connected'))) ? '; connected' : ''}`;
+      });
+    }
+    await step('docker-offer', async () => {
+      // Both installed agents may be signed out, and Codemm never signs in: then the owner's own Claude Code
+      // (already signed in) goes on PATH, so Continue opens, still with Docker hidden.
+      if (!(await button('Continue').isEnabled().catch(() => false))) {
+        await app.close();
+        env.PATH = `${join(dir!, 'bin')}:/usr/bin:/bin:/usr/sbin:/sbin`;
+        await launch(env);
+        await until('the connect screen', async () => {
+          if (await visible(button('Connect an agent'))) await tap(button('Connect an agent'));
+          return visible(heading('Connect an agent'));
+        }, MIN);
+        const row = page.getByRole('listitem', { name: 'Claude Code' });
+        if (!(await visible(row.getByText('Connected')))) await row.getByRole('button', { name: 'Connect', exact: true }).click();
+        await expect(row.getByText('Connected')).toBeVisible({ timeout: MIN });
+      }
+      await button('Continue').click();
+      await expect(heading('Check this computer')).toBeVisible({ timeout: MIN });
+      await until('the Docker offer', () => visible(button('Install Docker')), 2 * MIN);
+      await shot('docker-offer');
+      const offer = (await page.locator('main').innerText()).replace(/\s+/g, ' ').slice(0, 300);
+      await button('Install Docker').click();
+      const progress = page.getByRole('progressbar');
+      await until("Docker's download to start", async () => (await visible(progress)) && /Downloading Docker Desktop/.test((await progress.first().getAttribute('aria-label')) ?? ''), 3 * MIN);
+      await shot('docker-downloading');
+      // There is no Cancel: closing the app stops the download, and the partial file goes with the run's own temp folder.
+      await app.close();
+      const partial = readdirSync(env.TMPDIR).filter((f) => f.startsWith('codemm-docker-'));
+      for (const f of partial) rmSync(join(env.TMPDIR, f), { recursive: true, force: true });
+      expect(existsSync('/Applications/Docker.app')).toBe(true);
+      await launch(env);
+      return `${offer}; download started, stopped by quitting, ${partial.length} partial folder(s) deleted; Docker Desktop untouched`;
+    });
+  } else if (part === 'update') {
+    await step('update-notice', async () => {
+      await connect(agent);
+      const goal = page.getByRole('textbox', { name: 'What do you want to learn?' });
+      await until('the goal screen', async () => {
+        if (await visible(button('Start learning'))) await tap(button('Start learning'));
+        return visible(goal);
+      }, MIN);
+      const notice = page.getByRole('status', { name: 'Codemm updates' });
+      await until('the update notice', async () => /new version is available/i.test(await notice.innerText().catch(() => '')), 2 * MIN);
+      await shot('update-notice');
+      const link = await notice.getByRole('link').getAttribute('href');
+      return `${(await notice.innerText()).replace(/\s+/g, ' ')} (${link})`;
+    });
+    feedServer?.close();
   } else if (part === 'repair') {
     await step('repair', async () => {
       await toMap().catch(() => undefined);
@@ -439,6 +617,27 @@ test(`journey: ${label}`, async () => {
       await connect('claude');
       return `${row}; signed in again: ${await toActivity()}`;
     });
+    await step('stale-refresh', async () => {
+      // A re-read that fails after a good one keeps the screen and says so: damage the log while the map is open,
+      // then let the window's focus re-read it.
+      await toMap();
+      const course = readdirSync(join(dir!, 'home', 'courses'))[0];
+      const events = join(dir!, 'home', 'courses', course, 'events.jsonl');
+      const before = readFileSync(events, 'utf8');
+      writeFileSync(events, `${before}{damaged\n`);
+      const stale = page.getByRole('status').filter({ hasText: "Codemm couldn't refresh this." });
+      await until('the stale banner', async () => {
+        await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+        return visible(stale);
+      }, 2 * MIN);
+      await shot('stale-refresh');
+      const text = (await stale.innerText()).replace(/\s+/g, ' ');
+      const mapKept = await visible(page.getByRole('list', { name: 'Topics' }));
+      writeFileSync(events, before);
+      await stale.getByRole('button', { name: 'Try again' }).click();
+      await until('the banner to clear', async () => !(await visible(stale)), MIN);
+      return `${text} (map kept: ${mapKept}); after the fix and Try again: cleared`;
+    });
     await step('repair', async () => {
       await app.close();
       const course = readdirSync(join(dir!, 'home', 'courses'))[0];
@@ -472,9 +671,9 @@ test(`journey: ${label}`, async () => {
     await step('connect', () => connect(agent));
     await step('research-offline', async () => {
       writeFileSync(fake, 'offline-research');
-      await button('Start learning').click();
+      await toGoal();
       await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill(topic);
-      await page.getByRole('textbox', { name: 'I already know' }).fill(known);
+      await page.getByRole('textbox', { name: 'What you already know (optional)' }).fill(known);
       await button('Start').click();
       await until('the research failure', () => visible(button('Try again')), 10 * MIN);
       const text = (await page.locator('main').innerText()).replace(/\s+/g, ' ').slice(0, 300);
@@ -487,9 +686,9 @@ test(`journey: ${label}`, async () => {
   } else if (part === 'low-disk' || part === 'docker-setup' || part === 'offline-setup') {
     await step('connect', () => connect(agent));
     await step('research', async () => {
-      await button('Start learning').click();
+      await toGoal();
       await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill(topic);
-      await page.getByRole('textbox', { name: 'I already know' }).fill(known);
+      await page.getByRole('textbox', { name: 'What you already know (optional)' }).fill(known);
       await button('Start').click();
       await until('the suggested path', () => visible(button('Approve')), 15 * MIN);
     });
@@ -567,13 +766,16 @@ test(`journey: ${label}`, async () => {
     if (part !== 'activity') {
       await step('connect', () => connect(agent));
       await step('research', async () => {
-        await button('Start learning').click();
+        await toGoal();
         await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill(topic);
-        await page.getByRole('textbox', { name: 'I already know' }).fill(known);
+        await page.getByRole('textbox', { name: 'What you already know (optional)' }).fill(known);
         if (depth) await page.getByRole('radiogroup', { name: 'How deep' }).getByRole('radio', { name: depth }).check();
         await button('Start').click();
         await until('the suggested path', () => visible(button('Approve')), 15 * MIN);
         const titles = await page.getByRole('button', { name: /^Rename / }).evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.replace(/^Rename /, '')));
+        const sources = await page.getByRole('region', { name: 'Sources' }).getByRole('link').allInnerTexts().catch(() => []);
+        if (sources.length) await shot('research-sources');
+        note('research-sources', sources.length ? `${sources.length} sources: ${sources.slice(0, 4).join(' / ')}` : 'no sources shown');
         return `${depth ?? 'Standard'}: ${titles.length} topics: ${titles.join(' / ')}`.slice(0, 600);
       });
       await step('edit-course', async () => {
@@ -625,7 +827,7 @@ test(`journey: ${label}`, async () => {
           // Ask Codemm for a change.
           const before = await page.getByRole('button', { name: /^Rename / }).count();
           await page.getByRole('textbox', { name: 'Ask Codemm for changes' }).fill('Add a short topic on docstrings at the end.');
-          await page.getByRole('textbox', { name: 'Ask Codemm for changes' }).press('Enter');
+          await button('Apply').click();
           await until('the roadmap change', async () => (await page.getByRole('button', { name: /^Rename / }).count()) !== before || (await visible(page.getByRole('status'))), 10 * MIN);
           did.push(`asked for a change: ${before} → ${await page.getByRole('button', { name: /^Rename / }).count()} topics`);
           await addRows('ask');
@@ -684,6 +886,7 @@ test(`journey: ${label}`, async () => {
         return title;
       });
     }
+    if (part !== 'activity') await step('example-run', exampleRun);
     if (part === 'setup') {
       // done: the course is set up and a lesson read
     } else {
@@ -694,9 +897,11 @@ test(`journey: ${label}`, async () => {
         await until('Try it', () => visible(ran), 10 * MIN);
         return ran.innerText();
       });
+      await step('run-with-input', runWithInput);
       await step('wrong-check', async () => {
         await wrongAnswer(1);
-        return check();
+        const verdict = await check();
+        return `${verdict}; live: ${livePhases.join(', ') || 'none seen'}`;
       });
       await step('hint', () => ask('Hint'));
       if (flow.has('show-me')) await step('show-me', () => ask('Show me'));
@@ -772,6 +977,28 @@ test(`journey: ${label}`, async () => {
         await toMap();
         return (await page.getByRole('list', { name: 'Topics' }).getByRole('img').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).join(', ');
       });
+      await step('review-scheduled', async () => {
+        await toMap();
+        const mastery = page.getByRole('complementary').filter({ has: heading('Mastery') });
+        const text = (await visible(mastery)) ? (await mastery.innerText()).replace(/\s+/g, ' ') : (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+        const due = button('Review');
+        if (await visible(due)) {
+          await shot('review-due');
+          await due.first().click();
+          await until('the review', () => visible(button('Check')), 15 * MIN);
+          await rightAnswer();
+          return `review due and done: ${await check()}`;
+        }
+        await shot('review-scheduled');
+        return (text.match(/Review (tomorrow|in \d+ days)/g) ?? ['no review shown']).join(', ');
+      });
+      await step('usage', async () => {
+        await toMap();
+        const usage = page.getByRole('region', { name: 'Usage' });
+        if (!(await visible(usage))) return 'no usage shown';
+        await shot('usage');
+        return (await usage.innerText()).replace(/\s+/g, ' ');
+      });
       if (flow.has('pages')) {
         await step('practice-page', async () => {
           await nav('Practice').click();
@@ -799,7 +1026,7 @@ test(`journey: ${label}`, async () => {
           await step('new-course', async () => {
             await button('Learn something new').click();
             await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('React');
-            await page.getByRole('textbox', { name: 'I already know' }).fill('HTML and JavaScript');
+            await page.getByRole('textbox', { name: 'What you already know (optional)' }).fill('HTML and JavaScript');
             await button('Start').click();
             await until('the new suggested path', () => visible(button('Approve')), 15 * MIN);
             return `${await page.getByRole('button', { name: /^Rename / }).count()} topics for React`;
