@@ -39,7 +39,11 @@ function summarize(tests: TestResult[]): string {
  * One line per test, with its status only: for the reference, whose messages and output come from running hidden
  * code (a compiler error or a traceback can quote it).
  */
-const statuses = (tests: TestResult[]) => redact(tests).map((t) => `  ${t.name}: ${t.status}`).join("\n");
+const statuses = (tests: TestResult[]) => {
+  // Numbered, not named: a unit runner reports the names while the reference runs.
+  let visible = 0;
+  return redact(tests).map((t) => `  ${t.index === undefined ? `visible #${(visible += 1)}` : t.name}: ${t.status}`).join("\n");
+};
 
 const allPass = (tests: TestResult[]) => tests.length > 0 && tests.every((t) => t.status === "pass");
 
@@ -226,11 +230,14 @@ export async function verifyExercise(
     if (hiddenBuild && hiddenBuild.exit !== 0) throw new GateError("reference passes", "the reference didn't build for the hidden tests.");
     const bad = a.filter((c) => c.exit !== 0 || c.big);
     if (bad.length > 0 || a.length !== counts(sets)) {
+      // A visible case is named only when it matches an input the author gave; any other name came from the run.
+      const inputs = new Set(Object.keys(sets.visible).filter((p) => p.endsWith(".in")).map((p) => `visible/${p.slice(0, -3)}`));
       let hidden = 0;
+      let other = 0;
       const lines = a.map((c) =>
         c.name.startsWith("hidden/")
           ? `  hidden #${(hidden += 1)}: ${c.exit === 0 && !c.big ? "ok" : "error"}`
-          : `  ${c.name}: exit ${c.exit}${c.big ? ", printed over 64 KB" : ""}`,
+          : `  ${inputs.has(c.name) ? c.name : `unexpected case #${(other += 1)}`}: exit ${c.exit}${c.big ? ", printed over 64 KB" : ""}`,
       );
       throw new GateError("reference passes", `the reference must run every input without errors:\n${lines.join("\n")}`);
     }

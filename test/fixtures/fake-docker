@@ -99,8 +99,11 @@ case "$1" in
         printf '\n@@codemm case %s 1 0\n' "$n"
         printf '\n@@codemm stderr %s 1 %s\n%s' "$n" "${#text}" "$text"
       done
+      # A case under a name no input has, as a forged frame would carry.
+      if [ -n "$found" ]; then printf '\n@@codemm case CANARY-CASE 1 0\n'; printf '\n@@codemm stderr CANARY-CASE 1 0\n'; fi
       if [ -z "$found" ]; then
-        r="{\"tests\":[{\"name\":\"t\",\"status\":\"fail\",\"message\":\"$text\"}]}"
+        # The runner reports while the reference runs, so the source can even be a test's name.
+        r="{\"tests\":[{\"name\":\"t\",\"status\":\"fail\",\"message\":\"$text\"},{\"name\":\"CANARY-NAME\",\"status\":\"fail\"}]}"
         printf '\n@@codemm report report 0 %s\n%s' "${#r}" "$r"
         printf '\n@@codemm log log 0 0\n'
       fi

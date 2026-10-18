@@ -224,7 +224,8 @@ describe.runIf(posix)("reference-gate diagnostics through save_exercise", () => 
     fakeDocker("leaks");
     const message = await failure(call, withCanary(readFileMap(join(fixtures, "exercises", "unit-max"))));
     expect(message).toMatch(/Gate "reference passes"/);
-    expect(message).toMatch(/visible\/t: fail/);
+    // Numbered, not named: the names come from the runner's report while the reference runs.
+    expect(message).toMatch(/visible #1: fail/);
     expect(message).not.toContain("CANARY");
   });
 });
