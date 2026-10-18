@@ -15,12 +15,15 @@ export function useConversation(place: Place, opening: string) {
   const [messages, setMessages] = useState<Message[]>([{ from: 'codemm', text: opening }]);
   const [busy, setBusy] = useState(false);
   const asking = useRef(false);
-  // The tutor turn's progress while Codemm answers (§4.11).
-  const answering = useJob((p) => p.kind === 'tutor', []);
+  // The tutor turn's progress while Codemm answers (§4.11): only a turn that started after this question, since a turn
+  // asked elsewhere may still run ahead of it.
+  const askedAt = useRef(Infinity);
+  const answering = useJob((p) => p.kind === 'tutor' && Date.now() - p.elapsedMs >= askedAt.current - 250, []);
   const add = useCallback((...m: Message[]) => setMessages((ms) => [...ms, ...m]), []);
   async function ask(text: string, before?: () => Promise<void>) {
     if (asking.current) return;
     asking.current = true;
+    askedAt.current = Date.now();
     setBusy(true);
     add({ from: 'you', text });
     try {

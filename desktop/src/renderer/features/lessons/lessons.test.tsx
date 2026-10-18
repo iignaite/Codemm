@@ -1,6 +1,7 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import type { JobProgress } from '../../../shared/api';
 import { scenario, type MockOptions } from '../../../main/mock';
 import { mockWithCourse, mockWithRoadmap, renderApp } from '../../test-utils';
 
@@ -62,6 +63,24 @@ describe('job progress on the topic page (§4.11)', () => {
     expect(await screen.findByRole('button', { name: 'Read useState' }, { timeout: 8000 })).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Writing the lesson' })).not.toBeInTheDocument();
   }, 15_000);
+});
+
+describe('setup progress while a proposing agent ends its turn', () => {
+  it("follows the install's job, not the proposal's late events or its end", async () => {
+    let hear: (p: JobProgress) => void = () => undefined;
+    const { api } = await approved();
+    api.onJobProgress = (listener) => ((hear = listener), () => undefined);
+    const real = (await api.course())!;
+    api.course = async () => ({ ...real, setup: 'installing' as const });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await screen.findByRole('heading', { name: 'JavaScript basics' });
+    const at = (job: string, stage: number, ended?: true): JobProgress => ({ job, kind: 'setup', stage, steps: [], count: 0, thinking: false, elapsedMs: 0, idleMs: 0, ...(ended ? { ended } : {}) });
+    act(() => hear(at('install', 1)));
+    act(() => hear(at('proposal', 0)));
+    act(() => hear(at('proposal', 0, true)));
+    const bar = screen.getByRole('group', { name: 'Setting up React' });
+    expect(within(bar).getByRole('listitem', { current: 'step' })).toHaveTextContent('Building');
+  });
 });
 
 describe('topic page and setup consent', () => {

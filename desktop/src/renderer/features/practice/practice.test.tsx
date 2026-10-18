@@ -248,6 +248,9 @@ describe('practice', () => {
     await user.click(screen.getByRole('button', { name: 'Hint' }));
     const rail = screen.getByRole('complementary', { name: 'Codemm' });
     expect(within(rail).getByRole('status')).toHaveTextContent('Codemm is thinking…');
+    // A turn asked elsewhere, still running ahead of this one, isn't this question's.
+    act(() => hear({ job: 't0', kind: 'tutor', stage: 0, steps: [{ kind: 'step', label: 'Reading the lesson' }], count: 1, thinking: true, elapsedMs: 60_000, idleMs: 0 }));
+    expect(within(rail).queryByText('Reading the lesson')).not.toBeInTheDocument();
     act(() => hear({ job: 't1', kind: 'tutor', stage: 0, steps: [{ kind: 'step', label: 'Reading the activity' }], count: 1, thinking: true, elapsedMs: 0, idleMs: 0 }));
     expect(within(rail).getByText('Reading the activity')).toBeInTheDocument();
     answer();

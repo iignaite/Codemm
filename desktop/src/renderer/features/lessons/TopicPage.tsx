@@ -24,8 +24,10 @@ export function TopicPage({ topicId }: { topicId: string }) {
   const { data: course, error, reload } = useLoad(() => api.course(), [topicId], settled, undefined, true);
   const [consentClosed, setConsentClosed] = useState(false);
   const [consentError, setConsentError] = useState<string>();
-  // Setup's progress: the agent proposing, then Codemm building and checking (§4.11).
-  const setupJob = useJob((p) => p.kind === 'setup', []);
+  // Setup's progress: the agent proposing, then Codemm building and checking (§4.11). A proposing agent may still be
+  // ending its turn while the install runs, so each state follows its own job.
+  const installing = course?.setup === 'installing';
+  const setupJob = useJob((p) => p.kind === 'setup' && (installing ? p.stage > 0 : p.stage === 0), [installing]);
   if (error) return <Failed error={error} retry={reload} />;
   const topic = course?.topics.find((t) => t.id === topicId);
   if (!course || !topic) return null;
