@@ -1,8 +1,26 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { createMock, type MockOptions } from '../../../main/mock';
 import { renderApp } from '../../test-utils';
+
+describe('how deep the roadmap goes', () => {
+  it('offers three depths, Standard first, and researches at the one chosen', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    await api.connect('claude');
+    const asked: unknown[] = [];
+    const research = api.research;
+    api.research = (goal) => (asked.push(goal), research(goal));
+    renderApp({ to: 'goal' }, api);
+    const depth = await screen.findByRole('radiogroup', { name: 'How deep' });
+    expect(within(depth).getAllByRole('radio').map((r) => r.getAttribute('aria-label') ?? (r as HTMLInputElement).labels?.[0]?.textContent)).toEqual(['Overview', 'Standard', 'In depth']);
+    expect(within(depth).getByRole('radio', { name: 'Standard' })).toBeChecked();
+    await user.click(within(depth).getByRole('radio', { name: 'In depth' }));
+    await user.type(screen.getByRole('textbox', { name: 'What do you want to learn?' }), 'React{Enter}');
+    await waitFor(() => expect(asked[0]).toEqual({ topic: 'React', known: '', depth: 'in-depth' }));
+  });
+});
 
 describe('choose journey', () => {
   it('takes a goal and what the learner knows, researches, then opens the course editor', async () => {
@@ -29,7 +47,7 @@ describe('choose journey', () => {
     const api = createMock(options);
     await api.connect('claude');
     options.agentProblem = 'signed-out';
-    renderApp({ to: 'research', goal: { topic: 'React', known: '' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
     const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
     expect(claude).toHaveTextContent('Sign in to Claude Code, then try again.');
   });
@@ -37,7 +55,7 @@ describe('choose journey', () => {
   it('says when research hits the plan limit', async () => {
     const api = createMock({ agentProblem: 'plan-limit' });
     await api.connect('claude');
-    renderApp({ to: 'research', goal: { topic: 'React', known: '' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
     expect(await screen.findByText("Your agent's plan limit is reached. Try again later.")).toBeInTheDocument();
     expect(screen.queryByText("Couldn't reach Codemm.")).not.toBeInTheDocument();
   });
@@ -49,7 +67,7 @@ describe('choose journey', () => {
     const research = api.research;
     let failed = false;
     api.research = (goal) => (failed ? research(goal) : ((failed = true), Promise.resolve({ state: 'failed' as const })));
-    renderApp({ to: 'research', goal: { topic: 'React', known: '' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent("Codemm couldn't finish that.");
     expect(within(alert).getByRole('button', { name: 'Check your agent' })).toBeInTheDocument();
@@ -58,7 +76,7 @@ describe('choose journey', () => {
   });
 
   it('goes to connect when no agent is connected', async () => {
-    renderApp({ to: 'research', goal: { topic: 'React', known: '' } });
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } });
     expect(await screen.findByRole('heading', { name: 'Connect an agent' })).toBeInTheDocument();
   });
 

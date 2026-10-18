@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseExerciseYaml, parseRoadmapYaml, parseTrackYaml } from "../src/schemas.js";
+import { exampleRefs, parseExerciseYaml, parseLesson, parseRoadmapYaml, parseTrackYaml } from "../src/schemas.js";
 
 describe("parseTrackYaml", () => {
   it("accepts an io track and clamps limits to the host ceilings", () => {
@@ -64,5 +64,49 @@ describe("parseExerciseYaml", () => {
     ["a repeated concept", `slug: sum\nconcepts: [c.io, c.io]\ndifficulty: 1\n`],
   ])("rejects %s", (_label, yaml) => {
     expect(() => parseExerciseYaml(yaml)).toThrow();
+  });
+});
+
+describe("lesson examples", () => {
+  const fence = (n: number) => "```example\n" + n + "\n```";
+  const lesson = (markdown: string, examples?: Record<string, string>[]) => ({ id: "l", concept: "c", title: "L", markdown, ...(examples ? { examples } : {}) });
+  const ex = { "main.sh": "echo hi\n" };
+
+  it("finds example references: a fenced block with info string example and the example's number", () => {
+    expect(exampleRefs(`Intro\n\n${fence(1)}\n\nThen\n\n${fence(2)}\n`)).toEqual([1, 2]);
+    expect(exampleRefs("```sh\necho 1\n```")).toEqual([]);
+  });
+
+  it("counts only top-level example fences: not one shown inside another fence or indented, and tildes work too", () => {
+    expect(exampleRefs("````md\n```example\n1\n```\n````\n")).toEqual([]);
+    expect(exampleRefs("    ```example\n    1\n    ```\n")).toEqual([]);
+    expect(exampleRefs("~~~example\n2\n~~~\n")).toEqual([2]);
+  });
+
+  // The app's renderer pins the same cases (desktop ui/Markdown.test.tsx): both use markdown-it's tokens.
+  it.each([
+      ["- item\n  ~~~text\n  code\n\n~~~example\n1\n~~~", [1]],
+      ["~~~example\n1\n~~~\u00a0", []],
+      ["~~~example\r1\r~~~", [1]],
+      ["```example\n\n1\n\n```\n", []],
+      ["```example\n1\n", []],
+      ["   ````md\n```example\n1\n```\n   ````\n", []],
+    ])("finds the same example blocks as the app in %j", (text, refs) => {
+    expect(exampleRefs(text as string)).toEqual(refs);
+  });
+
+  it("accepts examples that are each referenced", () => {
+    expect(parseLesson(lesson(`See:\n\n${fence(1)}\n`, [ex])).examples).toEqual([ex]);
+    expect(parseLesson(lesson("No examples")).examples).toBeUndefined();
+  });
+
+  it.each([
+    ["a reference to a missing example", lesson(`${fence(2)}\n`, [ex]), /example 2/],
+    ["an example the markdown never places", lesson("Text only", [ex]), /example 1/],
+    ["more than 5 examples", lesson([1, 2, 3, 4, 5, 6].map(fence).join("\n\n"), Array(6).fill(ex)), /5/],
+    ["an example over 64 KB", lesson(`${fence(1)}\n`, [{ "main.sh": "x".repeat(65_537) }]), /64 KB/],
+    ["more than 250 example files in all", lesson(`${fence(1)}\n\n${fence(2)}\n`, [1, 2].map((e) => Object.fromEntries(Array.from({ length: 128 }, (_, i) => [`tests/t${e}-${i}.sh`, "x"])))), /250 files/],
+  ])("refuses %s", (_label, input, error) => {
+    expect(() => parseLesson(input)).toThrow(error);
   });
 });

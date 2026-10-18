@@ -153,7 +153,7 @@ test('check progress reaches the page as phase and counts only', async () => {
     const stop = bridge.onCheckProgress((p) => events.push(p));
     const call = (m: string, ...a: unknown[]) => bridge.invoke(m, a);
     await call('connect', 'claude');
-    const goal = { topic: 'React', known: '' };
+    const goal = { topic: 'React', known: '', depth: 'standard' };
     let r = await call('research', goal);
     while (r.state === 'running') r = await call('research', goal);
     await call('approve', r.roadmap.concepts);

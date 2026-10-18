@@ -370,7 +370,7 @@ export function createLive(d: LiveDeps): Live {
         await d.connect.chosen();
         // A new course, on a server that saves only it (§4.6).
         const course = courseId(goal.topic, Date.now());
-        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known), course, () => roadmapOrNull()?.course === course)
+        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course)
           .then((o) => outcomes.set(key, o))
           .catch((e: Error) => outcomes.set(key, { ok: false, problem: e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed', text: [] }));
       }
@@ -451,7 +451,21 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async lesson(id) {
-      return core.getLesson(ws, id);
+      const { examples, ...lesson } = core.getLesson(ws, id);
+      return { ...lesson, examples: examples.map((files) => ({ files: Object.entries(files).map(([path, text]) => ({ path, text })) })) };
+    },
+
+    async runExample(lessonId, index) {
+      try {
+        return { kind: 'ran', ...(await whenDockerReady(() => core.runExample(ws, lessonId, index))) };
+      } catch (e) {
+        const reason = notCounted(e);
+        if (reason) {
+          log('not-counted', { run: 'example', reason });
+          return { kind: 'not-run', reason };
+        }
+        throw e;
+      }
     },
     saveNotes: (id, notes) => core.saveNotes(ws, id, notes),
     async markRead(id) {

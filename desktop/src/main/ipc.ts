@@ -34,11 +34,13 @@ const path: Valid = (v) => typeof v === 'string' && v.length <= 512 && v.split('
 /** The renderer's id for one Try it or Check, echoed in its progress events. */
 const runId: Valid = (v) => typeof v === 'string' && /^[a-z0-9-]{1,64}$/.test(v);
 const digest: Valid = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
-const goal = shape({ topic: text(200, 1), known: text(500) });
+const goal = shape({ topic: text(200, 1), known: text(500), depth: oneOf('overview', 'standard', 'in-depth') });
 const concept = shape({ id, title: text(200, 1), requires: list(id, 200) });
 const concepts = list(concept, 200, 1);
 const place: Valid = (v) => shape({ lessonId: id })(v) || shape({ activityId: id })(v);
 const words = text(2000, 1);
+/** A lesson example's number: core keeps at most 5. */
+const exampleNumber: Valid = (v) => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5;
 const fileText: Valid = (v) => typeof v === 'string' && new TextEncoder().encode(v).length <= MAX_FILE_BYTES;
 
 // onCheckProgress is an event main sends, never something the renderer may call.
@@ -61,6 +63,7 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress'>]: Valid[] } = {
   activity: [id],
   saveFile: [id, path, fileText, digest],
   tryIt: [id, runId],
+  runExample: [id, exampleNumber],
   check: [id, runId],
   ask: [place, words],
   skip: [id],

@@ -1,16 +1,24 @@
 // Job briefs (DESIGN §3.2, §8). The brief itself is core's JOB_BRIEFS
 // (src/templates.ts), so the terminal and the app say the same thing; the app
 // adds only the job's details: the goal, request, concept or track.
+import type { Depth } from '../../shared/api';
 import type { JobKind } from './jobs';
 
 /** Learner code given to the tutor, at most this many characters. */
 const CODE_MAX = 64 * 1024;
 
+/** The learner's chosen depth, as the research brief says it. */
+const DEPTH: Record<Depth, string> = {
+  overview: 'an overview, about 8 topics',
+  standard: 'standard, about 15 topics',
+  'in-depth': 'in depth, about 25 to 30 topics',
+};
+
 export function briefsFrom(base: Record<JobKind, string>) {
   const brief = (kind: JobKind, ...details: (string | false | undefined)[]) => [base[kind], ...details.filter(Boolean)].join('\n\n');
   return {
-    research: (course: string, topic: string, known: string) =>
-      brief('research', `Course id: ${course}`, `The learner wants to learn: ${topic}`, known ? `They already know: ${known}` : 'They know nothing about it yet.'),
+    research: (course: string, topic: string, known: string, depth: Depth) =>
+      brief('research', `Course id: ${course}`, `The learner wants to learn: ${topic}`, known ? `They already know: ${known}` : 'They know nothing about it yet.', `Depth: ${DEPTH[depth]}. Each topic is one skill.`),
     roadmap: (request: string) => brief('roadmap', `The learner asks: ${request}`),
     easier: (concept: string, title: string) => brief('roadmap', `Make "${title}" (${concept}) easier: add one smaller topic that it requires.`),
     setup: (track: string, style: string, problem?: string) => {

@@ -131,7 +131,7 @@ describe("lesson tools", () => {
     await app.saveRoadmap(ws, "first", roadmap("First"));
     const { call } = await connect();
     expect(await call("save_lesson", { id: "intro", concept: "sh.basics", title: "Intro", markdown: "Hello." })).toEqual({ lesson: "intro" });
-    expect(await call("get_lesson", { id: "intro" })).toEqual({ id: "intro", concept: "sh.basics", title: "Intro", markdown: "Hello.", notes: "" });
+    expect(await call("get_lesson", { id: "intro" })).toEqual({ id: "intro", concept: "sh.basics", title: "Intro", markdown: "Hello.", notes: "", examples: [] });
     expect(app.listLessons(ws)[0]!.read).toBe(false);
     await call("mark_lesson_read", { id: "intro" });
     expect(app.listLessons(ws)[0]!.read).toBe(true);
