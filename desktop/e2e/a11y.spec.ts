@@ -76,9 +76,6 @@ async function toActivity(page: Page, title = 'Click Counter') {
 
 async function toRoadmap(page: Page) {
   await connect(page);
-  await expect(page.getByText('This computer is ready.')).toBeVisible();
-  await button(page, 'Continue').click();
-  await button(page, 'Start learning').click();
   await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('React');
   await button(page, 'Start').click();
   await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });
@@ -92,12 +89,9 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await page.getByRole('listitem', { name: 'Claude Code' }).getByRole('button', { name: 'Connect' }).click();
   await expect(page.getByRole('combobox', { name: 'Model' })).toHaveValue('sonnet');
   await audit(page, 'connect, connected, with the model choice');
+  // A computer that is ready at the first check passes by itself; its screens with a step are audited below.
   await button(page, 'Continue').click();
-  await expect(page.getByText('This computer is ready.')).toBeVisible();
-  await audit(page, 'check this computer');
-  await button(page, 'Continue').click();
-  await audit(page, 'welcome, connected');
-  await button(page, 'Start learning').click();
+  await expect(heading(page, 'What do you want to learn?')).toBeVisible();
   await audit(page, 'goal');
   await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('React');
   await button(page, 'Start').click();
@@ -310,9 +304,7 @@ test('the journey works with the keyboard alone', async () => {
   // The model choice is reachable by keyboard.
   await tabTo(page, 'combobox', 'Model');
   await press(page, 'Continue');
-  await expect(page.getByText('This computer is ready.')).toBeVisible();
-  await press(page, 'Continue');
-  await press(page, 'Start learning');
+  await expect(heading(page, 'What do you want to learn?')).toBeVisible();
   await typeInto(page, 'What do you want to learn?', 'React');
   await press(page, 'Start');
   await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });

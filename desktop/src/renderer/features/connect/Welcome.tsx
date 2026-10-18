@@ -1,5 +1,5 @@
 import { useApi } from '../../app/api';
-import { useRouter } from '../../app/router';
+import { useRouter, type Route } from '../../app/router';
 import { Failed } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
@@ -16,6 +16,8 @@ export function Welcome() {
   if (error) return <Failed error={error} retry={reload} />;
   if (!data) return null;
   const on = data.agents.some((a) => a.state === 'connected');
+  // Straight on to learning: the goal, or the course already approved.
+  const learn: Route = data.course ? { to: 'learn' } : { to: 'goal' };
   const fx = on ? 'colorin' : 'bw';
   return (
     <main className="welcome">
@@ -24,9 +26,9 @@ export function Welcome() {
         <h1 className="h1 a-up" style={stagger(1)}>{on ? 'Ready when you are.' : 'Learn anything.'}</h1>
         <div className="a-up" style={stagger(2)}>
           {on ? (
-            <Button size="lg" onClick={() => go(data.course ? { to: 'learn' } : { to: 'goal' })}>Start learning</Button>
+            <Button size="lg" onClick={() => go(learn)}>Start learning</Button>
           ) : (
-            <Button size="lg" onClick={() => go({ to: 'connect' })}>Connect an agent</Button>
+            <Button size="lg" onClick={() => go({ to: 'connect', then: learn })}>Connect an agent</Button>
           )}
         </div>
       </div>

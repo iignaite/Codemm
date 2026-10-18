@@ -9,7 +9,7 @@ import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 
 /** The only screen that names agents. Each one that can't run yet shows its next step. */
-export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
+export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
   const api = useApi();
   const { go, fail } = useRouter();
   const { data, error, reload } = useLoad(() => api.agents(), []);

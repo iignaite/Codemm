@@ -33,6 +33,13 @@ export function Computer({ then }: { then: Route }) {
     installing(last.current) ? timing.pollMs : timing.recheckMs,
   );
   last.current = data;
+  // Ready at the first check: nothing to show, so Codemm moves on. After a step, Continue waits for the learner.
+  const hadStep = useRef(false);
+  if (data && !data.ready) hadStep.current = true;
+  const ready = data?.ready ?? false;
+  useEffect(() => {
+    if (ready && !hadStep.current) go(then);
+  }, [ready]);
   const recheck = () => {
     if (!checking.current) reload();
   };
@@ -65,7 +72,7 @@ export function Computer({ then }: { then: Route }) {
   }
 
   if (error) return <Failed error={error} retry={reload} />;
-  if (!data) return null;
+  if (!data || (data.ready && !hadStep.current)) return null;
   const problem = data.checks.find((c) => c.state === 'problem');
   return (
     <main className="center">
