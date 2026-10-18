@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -17,6 +17,15 @@ describe("core's gate file (codemm mcp --progress)", () => {
       writeFileSync(path, bad);
       expect(readGate(path)).toBeUndefined();
     }
+  });
+
+  it('never throws when the file cannot be removed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'codemm-gates-'));
+    // A folder in the file's place: removing it as a file fails.
+    mkdirSync(join(dir, 'job.json', 'inside'), { recursive: true });
+    const watch = watchGates(join(dir, 'job.json'), () => undefined, 10);
+    expect(() => watch.clear()).not.toThrow();
+    expect(() => watch.stop()).not.toThrow();
   });
 
   it('hears each gate while it runs, forgets a finished save, and removes the file when stopped', async () => {

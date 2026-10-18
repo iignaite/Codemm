@@ -90,9 +90,11 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
       stage = Math.min(n, last);
       part = fraction;
     },
-    /** The exercise gate Codemm runs during the author's save (core's --progress file). */
+    /** True while one of the job's saves runs: only then can an exercise gate be running. */
+    saving: () => [...saves].some((s) => open.has(s)),
+    /** The exercise gate Codemm runs during the author's save (core's --progress file). Ignored when no save runs. */
     gate(g: Gate) {
-      if (g === gate) return;
+      if (g === gate || ![...saves].some((s) => open.has(s))) return;
       lastEvent = now();
       gate = g;
       part = { done: Object.keys(GATES).indexOf(g) + 1, total: 3 };

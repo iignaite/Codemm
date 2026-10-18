@@ -134,6 +134,18 @@ describe('job progress (§4.11)', () => {
     expect(t.snapshot().part).toBeUndefined();
   });
 
+  it('ignores a gate when no save runs: a file left by an earlier attempt', () => {
+    const t = jobTracker('author', { id: 'job-1' });
+    t.gate('mutants');
+    expect(t.snapshot().part).toBeUndefined();
+    t.event({ type: 'tool_call', id: 'c1', name: 'codemm.save_exercise' });
+    expect(t.saving()).toBe(true);
+    t.relaunch();
+    expect(t.saving()).toBe(false);
+    t.gate('mutants');
+    expect(t.snapshot().part).toBeUndefined();
+  });
+
   it('starts as a retry when it is one, such as another setup proposal', () => {
     expect(jobTracker('setup', { id: 'job-1', retry: { attempt: 2, of: 3 } }).snapshot().retry).toEqual({ attempt: 2, of: 3 });
   });

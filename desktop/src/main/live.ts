@@ -234,11 +234,13 @@ export function createLive(d: LiveDeps): Live {
         onEvent: (e) => {
           tracker.event(e);
           // A save that ended leaves its last gate in the file; the next save starts from none.
-          if (e.type === 'tool_result') gates?.clear();
+          if (gates && e.type === 'tool_result' && !tracker.saving()) gates.clear();
           tellJob(tracker.snapshot());
         },
         onRelaunch: () => {
           tracker.relaunch();
+          // An attempt that crashed mid-save left its last gate behind.
+          gates?.clear();
           tellJob(tracker.snapshot());
         },
         onSource,

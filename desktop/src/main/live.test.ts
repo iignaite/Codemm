@@ -456,6 +456,10 @@ describe('live CodemmApi', () => {
         const file = args[args.indexOf('--progress') + 1];
         job.onEvent?.({ type: 'tool_call', id: 'c1', name: 'codemm.save_exercise' });
         writeFileSync(file, JSON.stringify({ format_version: 1, gate: 'mutants' }));
+        // Another tool's result during the save leaves its gate in place.
+        job.onEvent?.({ type: 'tool_call', id: 'c0', name: 'codemm.next_step' });
+        job.onEvent?.({ type: 'tool_result', id: 'c0', error: false });
+        expect(existsSync(file)).toBe(true);
         await vi.waitFor(() => expect(heard.some((p) => p.part?.done === 3)).toBe(true), { timeout: 2000 });
         job.onEvent?.({ type: 'tool_result', id: 'c1', error: false });
         expect(existsSync(file)).toBe(false);

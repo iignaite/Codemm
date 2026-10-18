@@ -20,7 +20,14 @@ export function watchGates(path: string, onGate: (gate: Gate) => void, everyMs =
     const gate = readGate(path);
     if (gate) onGate(gate);
   }, everyMs);
-  const clear = () => rmSync(path, { force: true });
+  // Never throws: a file Codemm can't remove (Windows EPERM) only means a stale gate, which the tracker ignores.
+  const clear = () => {
+    try {
+      rmSync(path, { force: true });
+    } catch {
+      // left for the next clear
+    }
+  };
   return {
     clear,
     stop() {
