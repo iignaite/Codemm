@@ -1,7 +1,9 @@
 import { _electron as electron, expect, test } from '@playwright/test';
 import { readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { tempDir } from './temp';
+import { removeTempDirs, tempDir } from './temp';
+
+test.afterAll(removeTempDirs);
 
 // Launches the built app with the mock (CODEMM_MOCK) and walks the main journey.
 test('connect, computer check, goal, course, lesson and practice', async () => {

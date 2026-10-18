@@ -2,7 +2,9 @@ import { _electron as electron, expect, test } from '@playwright/test';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { callTool } from './mcp-client.mjs';
-import { tempDir } from './temp';
+import { removeTempDirs, tempDir } from './temp';
+
+test.afterAll(removeTempDirs);
 
 // D1: the packaged app, with no Node or npm on PATH, launches to the welcome
 // screen, starts its bundled `codemm mcp` with itself as Node, and runs a
