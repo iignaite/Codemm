@@ -7,6 +7,7 @@ import { Logo, Mark } from '../ui/Mark';
 import { useApi } from './api';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
+import { continueRoute } from './course';
 
 type Section = 'learn' | 'practice' | 'tracks';
 
@@ -20,7 +21,7 @@ function practiceRoute(course: CourseView | null | undefined): Route {
   const now = course?.topics.find((t) => t.state === 'now');
   if (!course) return { to: 'goal' };
   if (!now) return { to: 'learn' };
-  return now.activity === 'open' ? { to: 'practice', concept: now.id } : { to: 'topic', topicId: now.id };
+  return continueRoute(now);
 }
 
 /** The main navigation: wide with labels, or slim with icons beside a workspace. */

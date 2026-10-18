@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { CourseView, Lesson as LessonData, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
-import { cacheFor } from '../../app/cache';
+import { lessonCache } from '../../app/cache';
 import { useBusy } from '../../app/useBusy';
 import { useConversation } from '../../app/useConversation';
 import { useRouter, type Route } from '../../app/router';
@@ -43,7 +43,7 @@ interface View {
 /** A static lesson with the learner's notes. Reopens instantly from the cache (§4.3). */
 export function Lesson({ lessonId }: { lessonId: string }) {
   const api = useApi();
-  const cache = cacheFor<View>(api, 'lessons');
+  const cache = lessonCache<View>(api);
   // Keeps reading while the topic's work is pending, so a stall shows here too (§5).
   const { data, error, reload } = useLoad(async () => {
     const version = cache.version();
