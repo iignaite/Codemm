@@ -4,6 +4,7 @@ import type { RunOutput, RunResult } from '../shared/api';
 import type { CoreProgramRun } from './core/types';
 import { SafeError } from './errors';
 import type { Log } from './log';
+import { asNotCounted } from './notCounted';
 
 /** Run's programs at once, across windows: each holds a container. */
 const MAX_PROGRAMS = 4;
@@ -16,8 +17,6 @@ export type StartProgram = (
 export interface ProgramDeps {
   /** Runs a container operation once Docker isn't starting, tracked so quitting waits for it (live.ts). */
   whenDockerReady<T>(operation: () => Promise<T>): Promise<T>;
-  /** Why an infrastructure failure means it didn't run, or null for any other error. */
-  notCounted(error: unknown): string | null;
   log: Log;
 }
 
@@ -27,7 +26,7 @@ interface Entry {
   cancel?: () => void;
 }
 
-export function programs({ whenDockerReady, notCounted, log }: ProgramDeps) {
+export function programs({ whenDockerReady, log }: ProgramDeps) {
   const entries = new Map<string, Entry>();
   const listeners = new Set<(o: RunOutput) => void>();
   const tell = (o: RunOutput) => listeners.forEach((l) => l(o));
@@ -69,12 +68,7 @@ export function programs({ whenDockerReady, notCounted, log }: ProgramDeps) {
         if (!r) return { kind: 'ran', exit: 137, timedOut: false, stopped: true, flooded: false, outOfMemory: false };
         return { kind: 'ran', exit: r.exit, ...(r.stage ? { stage: r.stage } : {}), timedOut: r.timedOut, stopped: r.stopped ?? false, flooded: r.flooded, outOfMemory: r.outOfMemory ?? false };
       } catch (e) {
-        const reason = notCounted(e);
-        if (reason) {
-          log('not-counted', { run: 'program', reason });
-          return { kind: 'not-run', reason };
-        }
-        throw e;
+        return asNotCounted(e, log, 'program', 'not-run');
       } finally {
         entries.delete(run);
       }

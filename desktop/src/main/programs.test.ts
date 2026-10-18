@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RunOutput } from '../shared/api';
 import type { CoreProgramRun } from './core/types';
 import { programs, type StartProgram } from './programs';
+import { coreError } from './testing/fakes';
 
 type End = Awaited<CoreProgramRun['done']>;
 
@@ -24,7 +25,6 @@ function subject(ready: () => Promise<void> = async () => {}) {
   const logged: unknown[] = [];
   const p = programs({
     whenDockerReady: (operation) => ready().then(operation),
-    notCounted: (e) => ((e as Error).message === 'docker down' ? "Docker isn't running." : null),
     log: (event, fields) => void logged.push([event, fields]),
   });
   p.onOutput((o) => heard.push(o));
@@ -67,9 +67,21 @@ describe("Run's programs (§4.10)", () => {
     expect(startSpy).not.toHaveBeenCalled();
   });
 
+  it('frees a run stopped while waiting for Docker by the time stop() settles, so its id can start again', async () => {
+    let ready!: () => void;
+    const { p } = subject(() => new Promise<void>((r) => (ready = r)));
+    const first = p.start('run-1', fake().start);
+    await p.stop('run-1');
+    const again = p.start('run-1', fake().start);
+    expect(await first).toMatchObject({ stopped: true });
+    await p.stop('run-1');
+    ready();
+    expect(await again).toMatchObject({ stopped: true });
+  });
+
   it("says why it didn't run when Docker is down, and logs it", async () => {
     const { p, logged } = subject();
-    expect(await p.start('run-1', async () => Promise.reject(new Error('docker down')))).toEqual({ kind: 'not-run', reason: "Docker isn't running." });
+    expect(await p.start('run-1', async () => Promise.reject(coreError('docker down', 'docker')))).toEqual({ kind: 'not-run', reason: "Docker isn't running." });
     expect(logged).toEqual([['not-counted', { run: 'program', reason: "Docker isn't running." }]]);
     await expect(p.start('run-2', async () => Promise.reject(new Error('other')))).rejects.toThrow('other');
   });
