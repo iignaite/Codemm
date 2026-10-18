@@ -71,9 +71,12 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
     await expect(runIo(track, "visible", { "main.sh": "echo hi\n" }, { "01.in": "" })).rejects.toThrow(/missing a tool/);
   });
 
-  it("Run: stops a program at its time limit and leaves no container", async () => {
-    const run = runProgram(ioTrack, { "main.sh": "read -r n\n" }, () => undefined, { limitMs: 1_000 });
+  it("Run: stops a program at its time limit, says nothing of its own, and leaves no container", async () => {
+    let err = "";
+    const run = runProgram(ioTrack, { "main.sh": "read -r n\n" }, (text, stream) => (err += stream === "stderr" ? text : ""), { limitMs: 1_000 });
     expect(await run.done).toMatchObject({ stage: "run", timedOut: true });
+    // Codemm's own "time's up" is the only word on it: the driver's shell doesn't report the kill ("Killed").
+    expect(err).toBe("");
     // --rm finishes removing it just after the exit.
     await expect.poll(() => ownedContainers(), { timeout: 10_000 }).toEqual([]);
   });
