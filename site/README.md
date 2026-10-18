@@ -56,7 +56,7 @@ The tests cover OS detection, the Mac chip choice, the copy (it says only what C
 
 Deploys are manual. The Vercel project `codemm`, in the owner's personal scope (gael55xs-projects), isn't connected to GitHub. Every connected push, even to an unrelated branch, used up the free plan's 100 deployments a day.
 
-After a site change is merged, deploy `main` from this folder with the Vercel CLI, signed in to the owner's personal account:
+After a site change is merged, deploy `main` from this folder, signed in to the owner's personal Vercel account. `npm run deploy` fetches a pinned Vercel CLI with `npx`, so nothing needs installing:
 
 ```bash
 git switch main && git pull && cd site && npm run deploy
@@ -65,7 +65,7 @@ git switch main && git pull && cd site && npm run deploy
 The first time on a computer, link the folder to the project:
 
 ```bash
-cd site && vercel link --project codemm --scope gael55xs-projects
+cd site && npx --yes vercel@53.3.2 link --project codemm --scope gael55xs-projects
 ```
 
 `npm run deploy` runs the tests first. A new GitHub release needs no redeploy: the page reads releases in the browser.
