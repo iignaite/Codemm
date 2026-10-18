@@ -98,6 +98,27 @@ describe("--course", () => {
   });
 });
 
+describe("--progress", () => {
+  it.runIf(posix)("writes which gate save_exercise runs to the job's progress file, by name only", async () => {
+    const fixtures = join(import.meta.dirname, "fixtures");
+    const track = readFileMap(join(fixtures, "tracks", "shell-io"));
+    store.commitFolder(store.trackDir("shell-io@1"), track, {
+      "track.json": { format_version: 1, ...parseTrackYaml(track["track.yaml"]!), image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
+    });
+    await app.saveRoadmap(ws, "shell", readFileSync(join(fixtures, "roadmaps", "shell-io.yaml"), "utf8"));
+    const progress = join(tempDir("codemm-progress-"), "job.json");
+    const { call } = await connect({ course: "shell", progress });
+    fakeDocker("streams");
+    // Every fake run prints the same output, so the starter passes too and its gate fails.
+    await expect(call("save_exercise", { files: readFileMap(join(fixtures, "exercises", "io-max")) })).rejects.toThrow(/starter unsolved/);
+    expect(JSON.parse(readFileSync(progress, "utf8"))).toEqual({ format_version: 1, gate: "starter" });
+  });
+
+  it("must be an absolute path", () => {
+    expect(() => createServer(ws, "test", { progress: "job.json" })).toThrow(/absolute/);
+  });
+});
+
 describe("--desktop", () => {
   it("makes save_track propose instead of install", async () => {
     fakeDocker("missing");

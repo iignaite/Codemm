@@ -29,6 +29,7 @@ Usage:
   codemm track rebuild <id@version>              rebuild a track image and re-verify its exercises
   codemm mcp [--workspace <dir>]                 run the MCP server (your agent starts this)
              [--course <c>] [--tools <a,b>] [--desktop]   bind it to one course, limit its tools, or propose tracks
+             [--progress <file>]                 write which gate save_exercise runs to <file>
   codemm hook claude [--workspace <dir>]         Claude Code practice hook (init sets this up)
 
 Options: --workspace <dir>. Learner commands (status, test, check, skip, assist) default to the nearest folder
@@ -142,6 +143,7 @@ async function main(argv: string[]): Promise<number> {
         course: options.course?.[0],
         tools: options.tools ? parseToolList(options.tools[0]!) : undefined,
         desktop: options.desktop !== undefined,
+        progress: options.progress?.[0],
       });
       return -1; // keep running
     case "hook": {

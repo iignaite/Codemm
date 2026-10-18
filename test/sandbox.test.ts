@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProblem, runtimeHelp, runtimeProblem, sandboxArgs, startHelp } from "../src/sandbox.js";
+import { buildProblem, buildStep, runtimeHelp, runtimeProblem, sandboxArgs, startHelp } from "../src/sandbox.js";
 
 describe("sandboxArgs", () => {
   const args = sandboxArgs(
@@ -111,5 +111,30 @@ describe("buildProblem", () => {
     '✘ [ERROR] Could not resolve "./missing-module"',
   ])("leaves ordinary build failures to the track: %s", (log) => {
     expect(buildProblem(log)).toBeUndefined();
+  });
+});
+
+describe("buildStep", () => {
+  it("reads BuildKit's step counts, multi-stage ones included", () => {
+    expect(buildStep("#5 [2/7] RUN npm ci")).toEqual({ done: 2, total: 7 });
+    expect(buildStep("#7 [builder 3/4] COPY . .")).toEqual({ done: 3, total: 4 });
+  });
+
+  it("reads BuildKit's padded counters, for builds of 10 steps or more", () => {
+    expect(buildStep("#5 [ 2/10] RUN npm ci")).toEqual({ done: 2, total: 10 });
+    expect(buildStep("#5 [builder  2/10] RUN npm ci")).toEqual({ done: 2, total: 10 });
+  });
+
+  it("reads the legacy builder's and Podman's step counts", () => {
+    expect(buildStep("Step 3/7 : RUN apk add bash")).toEqual({ done: 3, total: 7 });
+    expect(buildStep("STEP 1/2: FROM alpine:3.20")).toEqual({ done: 1, total: 2 });
+    // Podman (Buildah) names the stage in a multi-stage build.
+    expect(buildStep("[2/2] STEP 3/4: COPY --from=builder /out /app")).toEqual({ done: 3, total: 4 });
+  });
+
+  it("reads nothing else: internal steps, logs and nonsense counts", () => {
+    for (const line of ["#1 [internal] load build definition from Dockerfile", "#5 0.312 added 12 packages", "#6 CACHED", "#5 [0/7] RUN x", "#5 [8/7] RUN x", "[2/7] not at the start"]) {
+      expect(buildStep(line)).toBeUndefined();
+    }
   });
 });

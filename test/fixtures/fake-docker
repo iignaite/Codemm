@@ -16,6 +16,9 @@ case "$1" in
     # builds: the build succeeds and writes its image ID where --iidfile says, as docker does.
     if [ "$FAKE_DOCKER" = no-iid ]; then exit 0; fi
     if [ "$FAKE_DOCKER" = builds ]; then
+      echo "#2 [1/3] FROM docker.io/library/alpine:3.20"
+      echo "#3 [2/3] RUN apk add bash"
+      echo "#4 [3/3] COPY . /opt/track"
       while [ $# -gt 0 ]; do if [ "$1" = --iidfile ]; then printf 'sha256:built' > "$2"; fi; shift; done
       exit 0
     fi
