@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CHANGED, OFFLINE, PLAN_LIMIT, REPAIR, UNSTOPPABLE } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
 import { HELD_BACK } from './views';
@@ -48,6 +48,67 @@ describe('live CodemmApi', () => {
     off();
     await t.api.check(id, 'run-3');
     expect(seen).toHaveLength(3);
+  });
+
+  it('runs the program with typed input, sends what it prints tagged with the run, and records nothing', async () => {
+    const t = live();
+    const { id } = await practising(t);
+    expect((await t.api.activity('values')).run).toBe('./main');
+    const heard: unknown[] = [];
+    t.api.onRunOutput((o) => heard.push(o));
+    const ran = t.api.runProgram(id, 'run-1');
+    await vi.waitFor(() => expect(heard).toHaveLength(2));
+    expect(await t.api.sendRunInput('run-1', 'Ada\n')).toBe(true);
+    expect(await ran).toEqual({ kind: 'ran', exit: 0, stage: 'run', timedOut: false, stopped: false, flooded: false, outOfMemory: false });
+    expect(heard).toEqual([
+      { run: 'run-1', started: 'run', limitMs: 120_000 },
+      { run: 'run-1', stream: 'stdout', text: 'name? ' },
+      { run: 'run-1', stream: 'stdout', text: 'hello Ada\n' },
+      { run: 'run-1', stream: 'stderr', text: 'a warning\n' },
+    ]);
+    expect(t.c.checks).toEqual([]);
+    // After the end, input goes nowhere.
+    expect(await t.api.sendRunInput('run-1', 'late\n')).toBe(false);
+  });
+
+  it('stops a program when asked, even before it has started', async () => {
+    const t = live();
+    const { id } = await practising(t);
+    const ran = t.api.runProgram(id, 'run-1');
+    await t.api.stopRun('run-1');
+    expect(await ran).toMatchObject({ kind: 'ran', stopped: true });
+    const again = t.api.runProgram(id, 'run-2');
+    await vi.waitFor(() => expect(t.c.runs).toHaveLength(2));
+    await t.api.stopRun('run-2');
+    expect(await again).toMatchObject({ kind: 'ran', stopped: true });
+  });
+
+  it('quitting stops a running program and waits until it has ended', async () => {
+    const t = live();
+    const { id } = await practising(t);
+    let finishKill: (() => void) | undefined;
+    const start = t.app.runInteractive;
+    t.app.runInteractive = async (ws, slug, bound, output, options) => {
+      const program = await start(ws, slug, bound, output, options);
+      return { ...program, kill: () => void (finishKill = () => program.kill()) };
+    };
+    const ran = t.api.runProgram(id, 'run-1');
+    await vi.waitFor(() => expect(t.c.runs).toHaveLength(1));
+    let quit = false;
+    const stopping = t.api.stop().then(() => (quit = true));
+    await vi.waitFor(() => expect(finishKill).toBeDefined());
+    await new Promise((r) => setTimeout(r, 10));
+    expect(quit).toBe(false);
+    finishKill!();
+    await stopping;
+    expect(await ran).toMatchObject({ kind: 'ran', stopped: true });
+  });
+
+  it('says why a program couldn\'t run when Docker is down, and records nothing', async () => {
+    const t = live();
+    const { id } = await practising(t);
+    t.c.down = true;
+    expect(await t.api.runProgram(id, 'run-1')).toEqual({ kind: 'not-run', reason: expect.stringMatching(/Docker/) });
   });
 
   it('saves edits, then asks for changes', async () => {

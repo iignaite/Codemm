@@ -7,6 +7,7 @@ import { handler } from './ipc';
 import { openOutside } from './links';
 import { createLog } from './log';
 import { CSP, fileFor, fromAppWindow, ORIGIN } from './origin';
+import { bindRuns } from './runs';
 import { liveApi } from './wire';
 
 const renderer = join(__dirname, '../renderer');
@@ -44,8 +45,14 @@ codemm.onResearchProgress((progress) => {
   for (const contents of appWindows) contents.send('codemm:research-progress', progress);
 });
 
-// Only an app window's top frame, on app://codemm, may call Codemm (§2.1).
-const handle = handler(codemm, log, (event: IpcMainInvokeEvent) => fromAppWindow(event, appWindows));
+// Only an app window's top frame, on app://codemm, may call Codemm (§2.1). A Run belongs to the window that
+// started it: only that window hears it, types into it or stops it, and closing the window stops it (runs.ts).
+const runs = bindRuns<WebContents>();
+const handle = runs.wrap(handler(codemm, log, (event: IpcMainInvokeEvent) => fromAppWindow(event, appWindows)));
+codemm.onRunOutput((output) => {
+  const owner = runs.ownerOf(output.run);
+  if (owner && !owner.isDestroyed()) owner.send('codemm:run-output', output);
+});
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -67,7 +74,10 @@ function createWindow() {
   });
   const contents = win.webContents;
   appWindows.add(contents);
-  win.on('closed', () => appWindows.delete(contents));
+  win.on('closed', () => {
+    appWindows.delete(contents);
+    for (const run of runs.runsOf(contents)) void codemm.stopRun(run).catch(() => undefined);
+  });
   void win.loadURL(`${ORIGIN}/index.html`);
 }
 

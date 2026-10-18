@@ -2,7 +2,7 @@
 // development (CODEMM_MOCK). Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner replaced the starter's
 // placeholder, and reports hidden results as statuses only.
-import { type CheckProgress, type ResearchProgress,
+import { type CheckProgress, type ResearchProgress, type RunOutput,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
@@ -41,6 +41,10 @@ export interface MockOptions {
   setupProblem?: SetupProblem;
   /** Read on every call: background work stopped with this until the learner tries again or connects again. */
   stalled?: CourseView['stalled'];
+  /** 'io': activities read input and print, so they have Run. */
+  style?: 'io';
+  /** Run's time limit; 120 s by default. */
+  runLimitMs?: number;
   /** Changes the options after the first approval or check, to act out a mid-session failure. */
   later?: { after: 'approve' | 'check'; set: Partial<MockOptions> };
 }
@@ -60,6 +64,8 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'sign-in-expires': { later: { after: 'approve', set: { agentProblem: 'signed-out' } } },
   'plan-limit': { later: { after: 'approve', set: { agentProblem: 'plan-limit' } } },
   'untested-version': { untested: true },
+  'io-track': { style: 'io' },
+  'run-time-up': { style: 'io', runLimitMs: 3000 },
 };
 
 export function scenario(name: string | undefined): MockOptions {
@@ -112,6 +118,7 @@ export default function Counter() {
 }
 `;
 
+const IO_STARTER = `name = input("What's your name? ")\nprint(${PLACEHOLDER})\n`;
 const APP = "import Counter from './Counter';\n\nexport default function App() {\n  return <Counter />;\n}\n";
 
 const PROPOSAL_FILES = [
@@ -191,7 +198,18 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       },
     ];
     own.forEach((l) => lessons.set(l.id, { ...l, examples: [] }));
-    const activity: Activity = {
+    const activity: Activity = options.style === 'io' ? {
+      id: `${concept.id}-easy-1`,
+      concept: concept.id,
+      title: 'Greet by name',
+      statement: 'Read a name, then print `Hello, <name>!`.',
+      visibleTests: [
+        { name: '01', input: 'Ada\n', expected: 'Hello, Ada!\n' },
+        { name: '02', input: 'Grace\n', expected: 'Hello, Grace!\n' },
+      ],
+      files: [{ path: 'main.py', text: IO_STARTER, digest: digestOf(IO_STARTER) }],
+      run: 'python3 main.py',
+    } : {
       id: `${concept.id}-easy-1`,
       concept: concept.id,
       title: 'Click Counter',
@@ -258,6 +276,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   // Progress as a real check reports it: each test, as counts only.
   const progressListeners = new Set<(p: CheckProgress) => void>();
   const researchListeners = new Set<(p: ResearchProgress) => void>();
+  const runListeners = new Set<(o: RunOutput) => void>();
+  const tell = (o: RunOutput) => runListeners.forEach((l) => l(o));
+  /** Run's programs: each asks for a name and greets it. */
+  const programs = new Map<string, { input(text: string): void; stop(): void }>();
   const progress = (run: string | undefined, phase: CheckProgress['phase'], total: number) => {
     for (let done = 0; done <= total; done++) progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
   };
@@ -274,6 +296,45 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     onCheckProgress(listener) {
       progressListeners.add(listener);
       return () => void progressListeners.delete(listener);
+    },
+
+    onRunOutput(listener) {
+      runListeners.add(listener);
+      return () => void runListeners.delete(listener);
+    },
+
+    async runProgram(activityId, run) {
+      const { activity } = find(activities, activityId);
+      if (!activity.run) throw new Error("This track has no run command, so Run isn't available.");
+      if (docker() !== 'ready') return { kind: 'not-run', reason: DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] };
+      const limitMs = options.runLimitMs ?? 120_000;
+      tell({ run, started: 'run', limitMs });
+      tell({ run, stream: 'stdout', text: "What's your name? " });
+      return new Promise((resolve) => {
+        const end = (r: { exit: number; timedOut?: boolean; stopped?: boolean }) => {
+          clearTimeout(timer);
+          programs.delete(run);
+          resolve({ kind: 'ran', stage: 'run', flooded: false, outOfMemory: false, timedOut: false, stopped: false, ...r });
+        };
+        const timer = setTimeout(() => end({ exit: 137, timedOut: true }), limitMs);
+        programs.set(run, {
+          input: (text) => {
+            tell({ run, stream: 'stdout', text: `Hello, ${text.trim()}!\n` });
+            end({ exit: 0 });
+          },
+          stop: () => end({ exit: 137, stopped: true }),
+        });
+      });
+    },
+
+    async sendRunInput(run, text) {
+      const program = programs.get(run);
+      program?.input(text);
+      return program !== undefined;
+    },
+
+    async stopRun(run) {
+      programs.get(run)?.stop();
     },
 
     onResearchProgress(listener) {

@@ -177,3 +177,44 @@ test('check progress reaches the page as phase and counts only', async () => {
   expect(asCall).toBe('Unknown call');
   await app.close();
 });
+
+// Run: main sends a program's output only to the window that started it; the page hears it tagged with its run,
+// types into it, and can't call onRunOutput as a method.
+test('Run streams a program through the bridge, with typed input', async () => {
+  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: 'io-track' } });
+  const page = await app.firstWindow();
+  await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
+  const { events, result, asCall } = await page.evaluate(async () => {
+    type O = Record<string, unknown>;
+    const bridge = (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<any>; onRunOutput(l: (o: O) => void): () => void } }).codemm;
+    const call = (m: string, ...a: unknown[]) => bridge.invoke(m, a);
+    await call('connect', 'claude');
+    const goal = { topic: 'Python', known: '', depth: 'standard' };
+    let r = await call('research', goal);
+    while (r.state === 'running') r = await call('research', goal);
+    await call('approve', r.roadmap.concepts);
+    let c = await call('course');
+    while (c.setup !== 'consent') c = await call('course');
+    await call('install', c.proposal.digest);
+    while (!(c.setup === 'ready' && c.topics[0].lessons.every((l: { state: string }) => l.state !== 'writing'))) c = await call('course');
+    for (const l of c.topics[0].lessons) await call('markRead', l.id);
+    const { id } = await call('activity', c.topics[0].id);
+    const events: O[] = [];
+    const heard = new Promise<void>((resolve) => bridge.onRunOutput((o) => (events.push(o), events.length === 2 && resolve())));
+    const running = call('runProgram', id, 'e2e-run');
+    await heard;
+    const taken = await call('sendRunInput', 'e2e-run', 'Ada\n');
+    const result = await running;
+    await new Promise((r) => setTimeout(r, 300));
+    const asCall = await bridge.invoke('onRunOutput', []).then(() => 'resolved', (e: Error) => e.message);
+    return { events, result: { ...result, taken }, asCall };
+  });
+  expect(events).toEqual([
+    { run: 'e2e-run', started: 'run', limitMs: 120_000 },
+    { run: 'e2e-run', stream: 'stdout', text: "What's your name? " },
+    { run: 'e2e-run', stream: 'stdout', text: 'Hello, Ada!\n' },
+  ]);
+  expect(result).toMatchObject({ kind: 'ran', exit: 0, taken: true });
+  expect(asCall).toBe('Unknown call');
+  await app.close();
+});

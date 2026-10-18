@@ -4,6 +4,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { scenario } from '../../../main/mock';
 import { mockWithCourse, renderApp } from '../../test-utils';
 
+// jsdom can't lay out xterm.js; this stand-in takes typing. The pane's text mirror shows what was written.
+const xterm = vi.hoisted(() => ({ type: (_data: string) => undefined as void }));
+vi.mock('@xterm/xterm', () => ({
+  Terminal: class {
+    options = {};
+    loadAddon() {}
+    open() {}
+    write() {}
+    reset() {}
+    onData(listener: (data: string) => void) {
+      xterm.type = listener;
+      return { dispose() {} };
+    }
+    dispose() {}
+    focus() {}
+    attachCustomKeyEventHandler() {}
+  },
+}));
+vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }));
+
 async function open(options?: Parameters<typeof mockWithCourse>[0]) {
   const { api, course } = await mockWithCourse({ read: true, ...options });
   const view = renderApp({ to: 'practice', concept: course.topics[0].id }, api);
@@ -268,5 +288,120 @@ describe('practice', () => {
     await user.click(screen.getByRole('button', { name: 'Hint' }));
     expect(await screen.findByRole('alert')).toHaveTextContent("Your agent's plan limit is reached. Try again later.");
     expect(screen.getByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
+  });
+});
+
+describe('Run', () => {
+  async function openIo(options?: Parameters<typeof mockWithCourse>[0], strict = false) {
+    const { api, course } = await mockWithCourse({ read: true, style: 'io', ...options });
+    const view = renderApp({ to: 'practice', concept: course.topics[0].id }, api, { strict });
+    await screen.findByRole('heading', { name: 'Greet by name' });
+    return { ...view, api, user: userEvent.setup() };
+  }
+  const terminal = () => screen.getByRole('region', { name: 'Terminal for Greet by name' });
+  const mirror = () => screen.getByRole('log', { name: 'Terminal for Greet by name, as text' });
+
+  it('runs the program in the terminal: the command, its output and typed input, then how it ended, recording nothing', async () => {
+    const { api, user } = await openIo();
+    const tools = screen.getAllByRole('button').map((b) => b.textContent).filter((t) => ['Run', 'Try it', 'Check'].includes(t ?? ''));
+    expect(tools).toEqual(['Run', 'Try it', 'Check']);
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror().textContent).toBe("$ python3 main.py\nWhat's your name? "));
+    expect(terminal()).toHaveTextContent('2:00 left');
+    expect(screen.getByRole('button', { name: 'Try it' })).toBeDisabled();
+    act(() => xterm.type('Ada\r'));
+    await vi.waitFor(() => expect(mirror().textContent).toBe("$ python3 main.py\nWhat's your name? Ada\nHello, Ada!\nExited with code 0.\n"));
+    expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
+    expect(terminal()).not.toHaveTextContent('left');
+    expect((await api.course())!.topics[0].mastery).toBe(0);
+  });
+
+  it('runs under StrictMode, as the app does, where every effect replays once', async () => {
+    const { user } = await openIo(undefined, true);
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror().textContent).toBe("$ python3 main.py\nWhat's your name? "));
+    act(() => xterm.type('Ada\r'));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent('Exited with code 0.'));
+    expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
+  });
+
+  it("says when the time is up, in the header and the terminal", async () => {
+    const { user } = await openIo({ runLimitMs: 50 });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("Time's up. The program was stopped after 1 second."));
+    expect(terminal()).toHaveTextContent("Time's up");
+  });
+
+  it('stops the program with Stop, and when the learner leaves', async () => {
+    const { api, user, unmount } = await openIo();
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await user.click(await screen.findByRole('button', { name: 'Stop' }));
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/Stopped\.\n$/));
+    const stopped: string[] = [];
+    const stop = api.stopRun;
+    api.stopRun = (run) => (stopped.push(run), stop(run));
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await screen.findByRole('button', { name: 'Stop' });
+    unmount();
+    expect(stopped).toHaveLength(1);
+  });
+
+  it('never starts the program when Stop or leaving comes while the code saves', async () => {
+    const { api, user, unmount } = await openIo();
+    const saves: (() => void)[] = [];
+    const saveFile = api.saveFile;
+    api.saveFile = (id, path, text, digest) => new Promise((done) => saves.push(() => done(saveFile(id, path, text, digest))));
+    const started: string[] = [];
+    const runProgram = api.runProgram;
+    api.runProgram = (id, run) => (started.push(run), runProgram(id, run));
+    const editor = screen.getByRole('textbox', { name: 'main.py' });
+    await user.type(editor, 'x');
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(saves).toHaveLength(1));
+    await user.click(screen.getByRole('button', { name: 'Stop' }));
+    saves[0]();
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/Stopped\.\n$/));
+    expect(started).toEqual([]);
+
+    await user.type(editor, 'y');
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(saves).toHaveLength(2));
+    unmount();
+    saves.slice(1).forEach((finish) => finish());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(started).toEqual([]);
+  });
+
+  it('takes typing only once the program has started, and says when a line wasn\'t taken', async () => {
+    const { api, user } = await openIo();
+    const sent: string[] = [];
+    const runProgram = api.runProgram;
+    let release!: () => void;
+    api.runProgram = () => new Promise((done) => (release = () => done({ kind: 'ran', exit: 137, timedOut: false, stopped: true, flooded: false, outOfMemory: false })));
+    api.sendRunInput = async (_run, text) => (sent.push(text), false);
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await screen.findByRole('button', { name: 'Stop' });
+    act(() => xterm.type('early\r'));
+    expect(sent).toEqual([]);
+
+    api.runProgram = runProgram;
+    act(() => release());
+    await user.click(await screen.findByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("What's your name?"));
+    act(() => xterm.type('Ada\r'));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("That line wasn't taken: the program isn't reading more input."));
+    expect(sent).toEqual(['Ada\n']);
+  });
+
+  it("says why a program couldn't run", async () => {
+    const { api, user } = await openIo();
+    api.runProgram = async () => ({ kind: 'not-run', reason: "Docker isn't running." });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("Docker isn't running."));
+  });
+
+  it('has no Run for a unit activity', async () => {
+    await open();
+    expect(screen.queryByRole('button', { name: 'Run' })).not.toBeInTheDocument();
   });
 });

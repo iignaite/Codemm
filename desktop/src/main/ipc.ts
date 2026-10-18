@@ -31,7 +31,7 @@ const part: Valid = (p) =>
   typeof p === 'string' && p !== '' && p !== '.' && p !== '..' && !/[<>:"|?*\\\u0000-\u001f]/.test(p) && !DEVICE.test(p) && !/[. ]$/.test(p);
 const path: Valid = (v) => typeof v === 'string' && v.length <= 512 && v.split('/').every(part);
 
-/** The renderer's id for one Try it or Check, echoed in its progress events. */
+/** The renderer's id for one Try it, Check or Run, echoed in its events. */
 const runId: Valid = (v) => typeof v === 'string' && /^[a-z0-9-]{1,64}$/.test(v);
 const digest: Valid = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const goal = shape({ topic: text(200, 1), known: text(500), depth: oneOf('overview', 'standard', 'in-depth') });
@@ -43,8 +43,8 @@ const words = text(2000, 1);
 const exampleNumber: Valid = (v) => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5;
 const fileText: Valid = (v) => typeof v === 'string' && new TextEncoder().encode(v).length <= MAX_FILE_BYTES;
 
-// onCheckProgress and onResearchProgress are events main sends, never something the renderer may call.
-const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgress'>]: Valid[] } = {
+// onCheckProgress, onResearchProgress and onRunOutput are events main sends, never something the renderer may call.
+const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgress' | 'onRunOutput'>]: Valid[] } = {
   agents: [],
   connect: [oneOf('claude', 'codex', 'cursor')],
   chooseModel: [oneOf('claude', 'codex', 'cursor'), text(64, 1)],
@@ -67,6 +67,9 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProg
   tryIt: [id, runId],
   runExample: [id, exampleNumber],
   check: [id, runId],
+  runProgram: [id, runId],
+  sendRunInput: [runId, text(64 * 1024, 1)],
+  stopRun: [runId],
   ask: [place, words],
   skip: [id],
   easier: [id],

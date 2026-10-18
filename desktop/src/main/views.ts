@@ -33,6 +33,7 @@ export function activityView(ex: CoreExercise, files: Record<string, { text: str
     statement: m ? ex.statement.slice(m[0].length) : ex.statement,
     visibleTests: ex.visibleTests.map((t) => ({ name: t.name, ...(t.input !== undefined ? { input: t.input } : {}), ...(t.expected !== undefined ? { expected: t.expected } : {}) })),
     files: ex.files.filter((p) => files[p]).map((path) => ({ path, text: files[path].text, digest: files[path].digest })),
+    ...(ex.style === 'io' && ex.run ? { run: ex.run } : {}),
   };
 }
 

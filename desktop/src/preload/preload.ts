@@ -31,6 +31,16 @@ const bridge: Bridge = {
     ipcRenderer.on('codemm:research-progress', forward);
     return () => void ipcRenderer.removeListener('codemm:research-progress', forward);
   },
+  // One-way: main sends what a Run's program printed, only to the window that started it, or a stage starting.
+  onRunOutput: (listener) => {
+    const forward = (_event: unknown, o: { run?: unknown; stream?: unknown; text?: unknown; started?: unknown; limitMs?: unknown }) => {
+      if (typeof o.run !== 'string') return;
+      if ((o.stream === 'stdout' || o.stream === 'stderr') && typeof o.text === 'string') listener({ run: o.run, stream: o.stream, text: o.text });
+      else if ((o.started === 'build' || o.started === 'run') && typeof o.limitMs === 'number') listener({ run: o.run, started: o.started, limitMs: o.limitMs });
+    };
+    ipcRenderer.on('codemm:run-output', forward);
+    return () => void ipcRenderer.removeListener('codemm:run-output', forward);
+  },
 };
 
 contextBridge.exposeInMainWorld('codemm', bridge);
