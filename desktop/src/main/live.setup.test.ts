@@ -156,6 +156,21 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     expect(t.jobs.ran.filter((j) => j.kind === 'setup').at(-1)!.brief).toContain('no test runner');
   });
 
+  it('asks for up to 5 proposals before it says setup failed', async () => {
+    const t = live();
+    t.c.install = async () => {
+      throw new Error('Gate 3 failed: the image has no test runner');
+    };
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    for (let failed = 0; failed < 5; failed++) {
+      const { proposal } = await until(t.api, (c) => c.setup === 'consent' && t.jobs.ran.filter((j) => j.kind === 'setup').length === failed + 1);
+      await t.api.install(proposal!.digest);
+    }
+    expect(await until(t.api, (c) => c.setup === 'failed')).toMatchObject({ setupProblem: 'gates' });
+    expect(t.jobs.ran.filter((j) => j.kind === 'setup')).toHaveLength(5);
+  });
+
   it('a setup that fails on this computer keeps its proposal, by kind', async () => {
     const t = live();
     const r = await researched(t);
@@ -211,7 +226,7 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     const install = heard.find((p) => p.kind === 'setup' && p.stage === 1)!;
     expect(install).toMatchObject({ thinking: false });
     expect(heard.filter((p) => p.job === install.job).at(-1)!.ended).toBe(true);
-    expect(heard.filter((p) => p.kind === 'setup' && p.stage === 0).at(-1)!.retry).toEqual({ attempt: 2, of: 3 });
+    expect(heard.filter((p) => p.kind === 'setup' && p.stage === 0).at(-1)!.retry).toEqual({ attempt: 2, of: 5 });
   });
 
   it("shows a setup's build steps as counts, then its checks", async () => {
