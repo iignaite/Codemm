@@ -197,6 +197,7 @@ export const LearnerEventSchema = z.discriminatedUnion("kind", [
   z.object({ format_version: z.literal(1), kind: z.literal("retry"), at: z.string(), concept: Id }),
   z.object({ format_version: z.literal(1), kind: z.literal("read"), at: z.string(), lesson: Id, concept: Id }),
 ]);
+export type LearnerEventRecord = z.infer<typeof LearnerEventSchema>;
 
 const MAX_LESSON_BYTES = 65_536;
 const mapBytes = (m: Record<string, string>) => Object.values(m).reduce((n, t) => n + Buffer.byteLength(t), 0);

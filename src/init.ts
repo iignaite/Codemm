@@ -1,8 +1,8 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { CodemmError } from "./errors.js";
-import { withWorkspaceLock } from "./store.js";
+import { refuseSymlinks, withWorkspaceLock, writeTextAtomic } from "./store.js";
 import { AGENTS_END, AGENTS_SECTION, AGENTS_START, AUTHOR_AGENT } from "./templates.js";
 
 export const HOSTS = ["claude", "codex", "cursor"] as const;
@@ -14,16 +14,6 @@ const HOOK_MATCHER = "Edit|Write|MultiEdit|NotebookEdit";
 const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const isObject = (v: unknown): v is Record<string, any> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** Refuses any path whose existing components (inside the workspace) include a symlink. */
-function assertNoSymlink(ws: string, rel: string): void {
-  let current = ws;
-  for (const part of rel.split("/")) {
-    current = join(current, part);
-    if (existsSync(current) && lstatSync(current).isSymbolicLink()) {
-      throw new CodemmError(`Refusing to write through the symlink at ${current}. Replace it with a real folder or file, then rerun codemm init.`);
-    }
-  }
-}
 
 const readText = (ws: string, rel: string) => (existsSync(join(ws, rel)) ? readFileSync(join(ws, rel), "utf8") : "");
 
@@ -145,14 +135,11 @@ function prepareAndWrite(ws: string, hosts: Host[], launcher: Launcher, platform
   if (chosen.has("codex")) files.push([".codex/config.toml", withCodexServer(readText(ws, ".codex/config.toml"), launcher, ws)]);
   if (chosen.has("cursor")) files.push([".cursor/mcp.json", json(withServer(readJson(ws, ".cursor/mcp.json"), ".cursor/mcp.json", { command: launcher.command, args: mcpArgs }))]);
 
-  for (const [rel] of files) assertNoSymlink(ws, rel);
+  for (const [rel] of files) refuseSymlinks(ws, rel);
   for (const [rel, content] of files) {
     const path = join(ws, rel);
     if (existsSync(path) && readFileSync(path, "utf8") === content) continue;
-    mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.codemm-${process.pid}.tmp`;
-    writeFileSync(tmp, content);
-    renameSync(tmp, path);
+    writeTextAtomic(path, content);
   }
   return files.map(([rel]) => rel);
 }

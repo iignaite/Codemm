@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
+import { processAlive } from "./store.js";
 
 /**
  * The only place Codemm starts containers. Every judge run gets the same
@@ -385,12 +386,4 @@ export async function ownedContainers(): Promise<{ id: string; pid: number }[]> 
 }
 
 /** True when the Codemm process that started a container is gone, so the container is abandoned. */
-export function ownerGone(pid: number): boolean {
-  if (!pid) return true;
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code !== "EPERM";
-  }
-}
+export const ownerGone = (pid: number): boolean => !pid || !processAlive(pid);

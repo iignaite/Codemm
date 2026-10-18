@@ -159,8 +159,6 @@ async function main(argv: string[]): Promise<number> {
     case "help":
       print(USAGE);
       return 0;
-    default:
-      throw new CodemmError(`Unknown command "${command}".\n\n${USAGE}`);
   }
 }
 
