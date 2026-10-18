@@ -2,7 +2,7 @@
 // development (CODEMM_MOCK). Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner replaced the starter's
 // placeholder, and reports hidden results as statuses only.
-import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type RunOutput, type RunResult,
+import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type RunOutput, type UpdateStatus, type RunResult,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
@@ -54,6 +54,8 @@ export interface MockOptions {
   style?: 'io';
   /** Run's time limit; 120 s by default. */
   runLimitMs?: number;
+  /** What the update check says, to see the update notice. */
+  update?: UpdateStatus;
   /**
    * Agent jobs take this many course reads per stage (and research per step), and calls such as a roadmap change
    * take this many half seconds, so each staged progress state can be seen (§4.11). Without it, jobs finish at once.
@@ -88,6 +90,8 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'io-track': { style: 'io' },
   'image-missing': { imageMissing: true },
   'run-time-up': { style: 'io', runLimitMs: 3000 },
+  'update-available': { update: { kind: 'available', version: '1.0.1', url: 'https://github.com/iignaite/Codemm/releases/tag/v1.0.1' } },
+  'update-ready': { update: { kind: 'ready', version: '1.0.1' } },
   'slow-jobs': { slow: 4 },
   'quiet-jobs': { slow: 4, quiet: true },
 };
@@ -785,6 +789,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async rebuild(ref) {
       if (!tracks.some((t) => t.ref === ref)) throw new Error(`Unknown track: ${ref}`);
+    },
+
+    update: async () => options.update ?? { kind: 'none' },
+    async restartToUpdate() {
+      if (options.update?.kind !== 'ready') throw new Error('No update is ready.');
     },
   };
 }

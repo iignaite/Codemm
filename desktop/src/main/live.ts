@@ -3,7 +3,6 @@
 // bridge; everything returned goes through views.ts.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { isSafeLink } from './links';
 import {
   AGENT_FAILED,
   CHANGED,
@@ -31,13 +30,13 @@ import { jobTracker, type JobTracker } from './agent/progress';
 import { briefsFrom, courseId } from './agent/briefs';
 import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type JobProblem } from './agent/jobs';
 import type { connector } from './connect';
-import { infra } from './core/failures';
+import { infraOf, kindOf } from './core/failures';
 import { errorFields, SafeError } from './errors';
 import type { CoreApp, CoreProgramRun, CoreProgress, CoreRoadmap } from './core/types';
 import { courseView, currentConcept, otherReady, type Setup } from './courseView';
 import { noLog, type Log } from './log';
 import type { desktopState } from './state';
-import { activityView, checkView, filterReply, hiddenLines, tryView } from './views';
+import { activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
 
 export interface LiveDeps {
   core: CoreApp;
@@ -84,16 +83,14 @@ const NOT_COUNTED: Record<'docker' | 'disk' | 'offline', string> = {
 const MAX_PROGRAMS = 4;
 
 function notCounted(error: unknown): string | null {
-  const message = error instanceof Error ? error.message : String(error);
-  if (/image for .* is missing or changed/i.test(message)) return REBUILD;
-  const kind = infra(message);
+  if (kindOf(error) === 'image-missing') return REBUILD;
+  const kind = infraOf(error);
   return kind ? NOT_COUNTED[kind] : null;
 }
 
 /** core store.ts's damaged-record errors: the learner repairs them; a retry can't (§5). */
-const DAMAGED = /^Codemm's record .* is damaged|^The learning log .* has an invalid entry/;
 function repairable(e: unknown): unknown {
-  if (e instanceof Error && e.name === 'CodemmError' && DAMAGED.test(e.message)) e.message = `${REPAIR}\n${e.message}`;
+  if (kindOf(e) === 'damaged') (e as Error).message = `${REPAIR}\n${(e as Error).message}`;
   return e;
 }
 
@@ -150,17 +147,12 @@ export function createLive(d: LiveDeps): Live {
     try {
       return core.getRoadmap(ws, course);
     } catch (e) {
-      if (e instanceof Error && /^No course in this workspace yet|^Course ".*" is missing from /.test(e.message)) return null;
+      if (kindOf(e) === 'no-course') return null;
       throw e;
     }
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
-  const trackName = (ref: string) => ref.split('@')[0];
-  const roadmapView = (r: CoreRoadmap): Roadmap => ({
-    goal: r.goal, track: trackName(r.track), installed: installed(r.track), concepts: r.concepts.map((c) => ({ id: c.id, title: c.title, requires: [...c.requires] })),
-    // Core accepts only https sources; main checks again before anything reaches the window (§2.1).
-    sources: (r.sources ?? []).filter((s) => isSafeLink(s.url)).map((s) => ({ title: s.title, url: s.url })),
-  });
+  const roadmapShown = (r: CoreRoadmap): Roadmap => roadmapView(r, installed(r.track));
   /** The activity the learner last opened: the workspace's current one is the draft's while a draft is active. */
   let opened: string | undefined;
   /** The hidden material of an activity: the one named, else the one the learner is on. */
@@ -535,7 +527,7 @@ export function createLive(d: LiveDeps): Live {
           if (outcome.problem && outcome.problem !== 'failed' && outcome.problem !== 'infra') throw problemError(outcome.problem);
           return { state: 'failed' };
         }
-        return { state: 'done', roadmap: roadmapView(core.getRoadmap(ws)) };
+        return { state: 'done', roadmap: roadmapShown(core.getRoadmap(ws)) };
       }
       if (!running.has(key) && !finishing.has(key)) {
         await d.connect.chosen();
@@ -571,7 +563,7 @@ export function createLive(d: LiveDeps): Live {
       const { outcome, changed, after } = await roadmapJob(course, briefs.roadmap(request), (before) => (turn) => turn.ok || JSON.stringify(core.getRoadmap(ws, course)) !== before);
       schedule();
       const filter = hidden();
-      return { roadmap: roadmapView(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
+      return { roadmap: roadmapShown(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
     },
 
     async approve(concepts) {
@@ -586,7 +578,7 @@ export function createLive(d: LiveDeps): Live {
 
     async draft() {
       const roadmap = draft();
-      return roadmap && roadmapView(roadmap);
+      return roadmap && roadmapShown(roadmap);
     },
 
     async saveDraft(concepts) {
@@ -634,7 +626,7 @@ export function createLive(d: LiveDeps): Live {
         })
         .catch(async (e: Error) => {
           // This computer's problems keep the proposal for Try again; nothing is recorded and no agent runs (§6.1).
-          const kind = infra(e.message);
+          const kind = infraOf(e);
           log('setup-failed', { problem: kind ?? 'gates' });
           if (kind) {
             setup.problem = kind;
@@ -666,13 +658,12 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async lesson(id) {
-      const { examples, ...lesson } = core.getLesson(ws, id, approved());
-      return { ...lesson, examples: examples.map((files) => ({ files: Object.entries(files).map(([path, text]) => ({ path, text })) })) };
+      return lessonView(core.getLesson(ws, id, approved()));
     },
 
     async runExample(lessonId, index) {
       try {
-        return { kind: 'ran', ...(await whenDockerReady(() => core.runExample(ws, lessonId, index, approved()))) };
+        return exampleRunView(await whenDockerReady(() => core.runExample(ws, lessonId, index, approved())));
       } catch (e) {
         const reason = notCounted(e);
         if (reason) {
@@ -701,7 +692,7 @@ export function createLive(d: LiveDeps): Live {
       try {
         return (await core.writeLearnerFile(ws, activityId, path, text, digest, approved())).digest;
       } catch (e) {
-        if (/changed outside codemm/i.test((e as Error).message)) throw new Error(CHANGED);
+        if (kindOf(e) === 'changed') throw new Error(CHANGED);
         throw e;
       }
     },
@@ -784,6 +775,10 @@ export function createLive(d: LiveDeps): Live {
     async rebuild(ref) {
       await core.rebuildTrack(ref);
     },
+
+    // Updates are main's (updates.ts), which answers these in place of live.
+    update: async () => ({ kind: 'none' }),
+    restartToUpdate: async () => undefined,
 
     async stop() {
       stopping = true;
