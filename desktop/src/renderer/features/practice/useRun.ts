@@ -31,10 +31,11 @@ function ending(r: RunResult, limits: Record<'build' | 'run', number>): [string,
 }
 
 /**
- * Run (§4.10): the learner's program in the terminal pane, with typed input, counting down its time limit.
- * Never recorded. Only this run's output is shown, and leaving the screen stops it.
+ * Run (§4.10): a program in the terminal pane, with typed input, counting down its time limit: the learner's
+ * (runProgram) or a lesson example (runExampleLive), which `begin` starts. Never recorded. Only this run's output is
+ * shown, and leaving the screen stops it. `command`, when known, heads the output.
  */
-export function useRun(activityId: string, command: string | undefined, terminal: RefObject<TerminalHandle | null>, save: () => Promise<void>, fail: (e: unknown) => void) {
+export function useRun(begin: (run: string) => Promise<RunResult>, command: string | undefined, terminal: RefObject<TerminalHandle | null>, save: () => Promise<void>, fail: (e: unknown) => void) {
   const api = useApi();
   const [run, setRun] = useState<string>();
   // Input is on once the program has started: before that, main has nothing to send it to.
@@ -91,9 +92,9 @@ export function useRun(activityId: string, command: string | undefined, terminal
         return;
       }
       terminal.current?.clear();
-      terminal.current?.command(command ?? '');
+      if (command) terminal.current?.command(command);
       terminal.current?.focus();
-      const result = await api.runProgram(activityId, id);
+      const result = await begin(id);
       if (left.current) return;
       const [text, tone] = ending(result, limits);
       terminal.current?.line(text, tone);

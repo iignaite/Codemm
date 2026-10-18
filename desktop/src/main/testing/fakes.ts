@@ -7,7 +7,7 @@ import type { CodemmApi, CourseView } from '../../shared/api';
 import type { Job, JobOutcome } from '../agent/jobs';
 import { connector } from '../connect';
 import { JOB_BRIEFS } from '../../../../src/templates';
-import type { CoreApp, CoreCheckView, CoreNextStep } from '../core/types';
+import type { CoreApp, CoreCheckView, CoreNextStep, CoreProgramRun } from '../core/types';
 import { createLive, type LiveDeps } from '../live';
 import { createLog } from '../log';
 import { desktopState } from '../state';
@@ -15,12 +15,32 @@ import { desktopState } from '../state';
 export const CANARY = 'printf("CANARY-SOLUTION-LINE %d", count + 1);';
 
 /** An in-memory core with the shapes and rules the desktop relies on. */
+const DOCKER_DOWN = "The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.";
+
+/** A program that asks for a name and greets it; stops when killed. */
+function greeter(output: (text: string, stream: 'stdout' | 'stderr') => void, options?: { onStart?: (stage: 'build' | 'run', limitMs: number) => void }): CoreProgramRun {
+  let end!: (r: { exit: number; stage?: 'run'; timedOut: boolean; flooded: boolean; stopped?: boolean }) => void;
+  const done = new Promise<{ exit: number; stage?: 'run'; timedOut: boolean; flooded: boolean; stopped?: boolean }>((resolve) => (end = resolve));
+  options?.onStart?.('run', 120_000);
+  output('name? ', 'stdout');
+  return {
+    write: (text) => {
+      output(`hello ${text.trim()}\n`, 'stdout');
+      output('a warning\n', 'stderr');
+      end({ exit: 0, stage: 'run', timedOut: false, flooded: false });
+      return true;
+    },
+    kill: () => end({ exit: 137, timedOut: false, flooded: false, stopped: true }),
+    done,
+  };
+}
+
 export function fakeCore() {
   const c = {
     roadmap: null as null | { course: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[]; sources?: { title: string; url: string }[] },
     tracks: [] as string[],
     proposals: [] as { track: string; digest: string; created: string; files: Record<string, string> }[],
-    lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string; examples?: Record<string, string>[] }[],
+    lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string; examples?: Record<string, string>[]; style?: 'io' | 'unit' }[],
     reads: new Set<string>(),
     exercises: new Map<string, { concept: string; file: string; digest: string; created: string; difficulty?: number }>(),
     /** The difficulty next_step asks the author for, and the one the fake author writes. */
@@ -100,13 +120,13 @@ export function fakeCore() {
       return { course: c.roadmap!.course, exercise: slug!, path: '/Users/me/Codemm/exercises/x', style: 'io', concepts: [c.exercises.get(slug!)!.concept], difficulty: 1, files: ['main.c'], statement: '# Count up\n\nPrint one.', visibleTests: [{ name: 'prints one', input: '', expected: '1' }], run: './main' };
     },
     testExercise: async (_ws, slug, _bound, onProgress) => {
-      if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
+      if (c.down) throw new Error(DOCKER_DOWN);
       onProgress?.({ phase: 'visible', done: 1, total: 1 });
       onProgress?.({ phase: 'visible', done: 1, total: 1, test: { name: 'visible/01', status: 'fail', message: 'Output differs from the expected output.', actual: '0\n' } });
       return view(slug!, 1, false);
     },
     checkExercise: async (_ws, slug, _bound, onProgress) => {
-      if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
+      if (c.down) throw new Error(DOCKER_DOWN);
       onProgress?.({ phase: 'visible', done: 1, total: 1 });
       // A hidden event never carries a test, even if core sent one.
       onProgress?.({ phase: 'hidden', done: 1, total: 2, test: { name: 'hidden/01', status: 'fail', actual: 'CANARY-HIDDEN-OUTPUT' } });
@@ -127,25 +147,17 @@ export function fakeCore() {
     getLesson: (_ws, id) => ({ examples: [], ...c.lessons.find((l) => l.id === id)! }),
     // Run: asks for a name and greets it; stops when killed.
     runInteractive: async (_ws, slug, _bound, output, options) => {
-      if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
+      if (c.down) throw new Error(DOCKER_DOWN);
       c.runs.push(slug!);
-      let end!: (r: { exit: number; stage?: 'run'; timedOut: boolean; flooded: boolean; stopped?: boolean }) => void;
-      const done = new Promise<{ exit: number; stage?: 'run'; timedOut: boolean; flooded: boolean; stopped?: boolean }>((resolve) => (end = resolve));
-      options?.onStart?.('run', 120_000);
-      output('name? ', 'stdout');
-      return {
-        write: (text) => {
-          output(`hello ${text.trim()}\n`, 'stdout');
-          output('a warning\n', 'stderr');
-          end({ exit: 0, stage: 'run', timedOut: false, flooded: false });
-          return true;
-        },
-        kill: () => end({ exit: 137, timedOut: false, flooded: false, stopped: true }),
-        done,
-      };
+      return greeter(output, options);
+    },
+    runExampleLive: async (_ws, id, index, _bound, output, options) => {
+      if (c.down) throw new Error(DOCKER_DOWN);
+      c.runs.push(`${id}#${index}`);
+      return greeter(output, options);
     },
     runExample: async (_ws, id, index) => {
-      if (c.down) throw new Error("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.");
+      if (c.down) throw new Error(DOCKER_DOWN);
       const files = c.lessons.find((l) => l.id === id)?.examples?.[index - 1];
       if (!files) throw new Error(`Lesson "${id}" has no example ${index}.`);
       return { exit: 0, output: `ran ${Object.keys(files).join(',')}\n`, errors: '' };
