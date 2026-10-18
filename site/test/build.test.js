@@ -53,7 +53,7 @@ test('the site is static and collects no personal data', () => {
     // Say only what Codemm checks: exercises against their tests, which must reject the
     // incorrect versions the agent wrote. Lessons aren't checked, and nothing is "proven".
     assert.doesNotMatch(page, /\bprove[ns]?\b|\bproof that\b|every broken|own plan|guarantee/i);
-    assert.match(page, /checks them against their tests/);
+    assert.match(page, /<p class="lead">Your agent writes the learning path\. Codemm grades you\.<\/p>/);
     assert.match(page, /reject the incorrect versions your agent wrote/);
     assert.match(page, /with your own account/);
     // The design rules allow no dots: no dotted or dashed strokes or borders.
