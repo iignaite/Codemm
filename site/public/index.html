@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Codemm: learn to code with your own coding agent</title>
+  <title>Codemm: supercharge your learning with your own coding agent</title>
   <meta name="description" content="Enhance your coding journey with your own coding agent.">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#F5F7FA" media="(prefers-color-scheme: light)">
@@ -11,7 +11,7 @@
   <link rel="canonical" href="%SITE_URL%/">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Codemm">
-  <meta property="og:title" content="Codemm">
+  <meta property="og:title" content="Supercharge your learning with Codemm">
   <meta property="og:description" content="Enhance your coding journey with your own coding agent.">
   <meta property="og:url" content="%SITE_URL%/">
   <meta property="og:image" content="%SITE_URL%/og.png">
@@ -51,8 +51,8 @@
   <main id="main">
     <section class="hero wrap" aria-labelledby="title">
       <div class="hero-text">
-        <h1 id="title">Your coding agent writes the exercises.</h1>
-        <p class="lead">Codemm proves they work, grades your code in a sandbox, and tracks what you've mastered.</p>
+        <h1 id="title">Supercharge your learning with Codemm.</h1>
+        <p class="lead">Your coding agent writes the lessons and exercises. Codemm proves they work, grades your code in a sandbox, and tracks what you've mastered.</p>
 
         <form class="gate" id="get" method="post" action="/api/subscribe" novalidate>
           <h2 class="gate-title" id="gate-title">Get Codemm for Mac and Windows.</h2>
@@ -76,13 +76,32 @@
 
       <div class="connect" aria-hidden="true">
         <img class="connect-mark" src="/favicon.svg" alt="" width="440" height="440">
-        <div class="connect-card">
-          <span class="spin"></span>
-          <svg class="tick" viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="12" fill="#13883D"/><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span class="was">Connecting</span>
-          <span class="now">Connected</span>
-        </div>
-        <svg class="emm" viewBox="0 0 200 170" width="360" height="306">
+        <svg class="art" viewBox="0 0 400 384" width="400" height="384">
+          <g fill="none" stroke-linecap="round">
+            <path class="beam" pathLength="100" d="M110 88 C 110 126, 200 112, 200 150"/>
+            <path class="beam" pathLength="100" d="M200 88 L 200 150"/>
+            <path class="beam" pathLength="100" d="M290 88 C 290 126, 200 112, 200 150"/>
+            <path class="flow f1" pathLength="100" d="M110 88 C 110 126, 200 112, 200 150"/>
+            <path class="flow f2" pathLength="100" d="M200 88 L 200 150"/>
+            <path class="flow f3" pathLength="100" d="M290 88 C 290 126, 200 112, 200 150"/>
+          </g>
+          <g class="tile t1"><rect x="82" y="30" width="56" height="56" rx="15" fill="#fff"/><image href="/img/agents/claude.svg" x="94" y="42" width="32" height="32"/></g>
+          <g class="tile t2"><rect x="172" y="30" width="56" height="56" rx="15" fill="#fff"/><image href="/img/agents/codex.svg" x="184" y="42" width="32" height="32"/></g>
+          <g class="tile t3"><rect x="262" y="30" width="56" height="56" rx="15" fill="#fff"/><image href="/img/agents/cursor.svg" x="275" y="43" width="30" height="30"/></g>
+          <rect class="ring" x="166" y="150" width="68" height="68" rx="19" fill="none" stroke="#3DDB6C" stroke-width="3"/>
+          <rect class="ring r2" x="166" y="150" width="68" height="68" rx="19" fill="none" stroke="#3DDB6C" stroke-width="2"/>
+          <g class="core">
+            <rect x="166" y="150" width="68" height="68" rx="19" fill="#0B1F44" stroke="#2A4677" stroke-width="1.5"/>
+            <polyline points="212,168 187,184 212,200" fill="none" stroke="#3DDB6C" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+          </g>
+          <g class="status">
+            <rect x="248" y="166" width="132" height="36" rx="18" fill="#fff"/>
+            <circle class="spin" cx="268" cy="184" r="8" fill="none" stroke="#0E7C35" stroke-width="3" stroke-dasharray="14 40" stroke-linecap="round"/>
+            <g class="tick"><circle cx="268" cy="184" r="10" fill="#13883D"/><path d="M263.5 184.5l3 3 6-6.5" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <text class="was" x="285" y="189.5">Connecting</text>
+            <text class="now" x="285" y="189.5">Connected</text>
+          </g>
+          <svg class="emm" x="114" y="230" width="172" height="146" viewBox="0 0 200 170">
           <rect x="14" y="140" width="176" height="12" rx="6" fill="#C9D5EA"/>
           <path d="M60 108 C 34 106, 20 128, 28 146 C 36 162, 62 160, 64 144 C 66 132, 50 128, 46 138" fill="none" stroke="#17A045" stroke-width="13" stroke-linecap="round"/>
           <path d="M82 124 L 76 142" stroke="#17A045" stroke-width="11" stroke-linecap="round"/>
@@ -106,6 +125,7 @@
           <circle cx="146" cy="110" r="5" fill="#FF8FA3" opacity=".75"/>
           <path d="M140 122 L 146 142" stroke="#17A045" stroke-width="11" stroke-linecap="round"/>
           <path d="M96 132 L 92 142" stroke="#17A045" stroke-width="11" stroke-linecap="round"/>
+          </svg>
         </svg>
       </div>
     </section>
@@ -220,7 +240,7 @@
 
   <footer class="foot">
     <div class="wrap foot-in">
-      <p>© 2026 Gaille Amolong. Open source under the <a href="https://github.com/iignaite/Codemm/blob/main/LICENSE">MIT License</a>. We keep your email, that you agreed to release emails, and when. Nothing else.</p>
+      <p>© 2026 Gaille Amolong. Open source under the <a href="https://github.com/iignaite/Codemm/blob/main/LICENSE">MIT License</a>. We keep your email, that you agreed to release emails, and when. Nothing else. Claude, Codex and Cursor are trademarks of their owners.</p>
       <nav aria-label="Footer">
         <a href="https://github.com/iignaite/Codemm/blob/main/docs/README.md">Docs</a>
         <a href="https://github.com/iignaite/Codemm">GitHub</a>
