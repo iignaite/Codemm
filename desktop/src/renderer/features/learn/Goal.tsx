@@ -7,6 +7,7 @@ import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Field } from '../../ui/Field';
 import { stagger } from '../../ui/motion';
+import { Banner } from '../../ui/Banner';
 
 const DEPTHS: [Depth, string][] = [
   ['overview', 'Overview'],
@@ -51,16 +52,12 @@ export function Goal() {
           ))}
         </div>
         {draft && (
-          <div className="card info resume a-up" style={stagger(4)}>
-            <span><b>{draft.goal}</b></span>
-            <Button variant="ghost" onClick={() => go({ to: 'course', roadmap: draft })}>Resume roadmap</Button>
-          </div>
+          <Banner style={stagger(4)} action={<Button variant="ghost" onClick={() => go({ to: 'course', roadmap: draft })}>Resume roadmap</Button>}>
+            <b>{draft.goal}</b>
+          </Banner>
         )}
         {isNew && (
-          <div className="card info a-up">
-            <Emm mood="look" width={56} />
-            <span><b>{goal} isn't set up yet.</b> Codemm will set it up.</span>
-          </div>
+          <Banner art={<Emm mood="look" width={56} />}><b>{goal} isn't set up yet.</b> Codemm will set it up.</Banner>
         )}
       </form>
     </main>

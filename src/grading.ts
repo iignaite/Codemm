@@ -107,6 +107,43 @@ export function frameProgress(on: (milestone: "built" | number) => void, onCase?
   };
 }
 
+/** `flooded` and `outOfMemory` mean the program got the whole container killed, so every test in the set is an error. */
+export type IoRun = { build?: RawBuild; cases: RawCase[]; flooded: boolean; outOfMemory?: boolean };
+export type UnitRun = { report: RawReport; flooded: boolean; outOfMemory?: boolean };
+export type Runs = Partial<Record<TestSet, IoRun | UnitRun>>;
+/** What a set is graded against: io expected outputs by test name, or each unit set's test names. */
+export type Expectation = { expected?: Record<string, string>; inventory?: Partial<Record<TestSet, string[]>> };
+
+const FLOODED = "Output limit exceeded: the program printed more than 4 MB.";
+const OUT_OF_MEMORY = "Memory limit exceeded: the program used more memory than the track allows.";
+const killedBy = (run: { flooded: boolean; outOfMemory?: boolean }) => (run.flooded ? FLOODED : run.outOfMemory ? OUT_OF_MEMORY : undefined);
+
+export function gradeIoRun(run: IoRun, expected: Record<string, string>): TestResult[] {
+  const killed = killedBy(run);
+  if (killed) return Object.keys(expected).map((name) => ({ set: name.startsWith("hidden/") ? "hidden" : "visible", name, status: "error", message: killed }));
+  return gradeIo(run.cases, expected, run.build);
+}
+
+export function gradeUnitRun(set: TestSet, run: UnitRun, inventory?: string[]): TestResult[] {
+  const killed = killedBy(run);
+  if (killed) return (inventory ?? ["report"]).map((n) => ({ set, name: `${set}/${n}`, status: "error", message: killed }));
+  return gradeUnit(set, run.report, inventory);
+}
+
+/** Grades each set of runs, visible first: io against that set's expected outputs, unit against its inventory. */
+export function gradeRuns(style: "io" | "unit", runs: Runs, exp: Expectation): TestResult[] {
+  const tests: TestResult[] = [];
+  for (const set of ["visible", "hidden"] as const) {
+    const run = runs[set];
+    if (!run) continue;
+    if (style === "io") {
+      const expected = Object.fromEntries(Object.entries(exp.expected ?? {}).filter(([k]) => k.startsWith(`${set}/`)));
+      tests.push(...gradeIoRun(run as IoRun, expected));
+    } else tests.push(...gradeUnitRun(set, run as UnitRun, exp.inventory?.[set]));
+  }
+  return tests;
+}
+
 export function normalizeOutput(text: string): string {
   return text
     .replace(/\r\n/g, "\n")

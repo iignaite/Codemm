@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { frameProgress, gradeIo, gradeUnit, normalizeOutput, parseFrames } from "../src/grading.js";
+import { frameProgress, gradeIo, gradeIoRun, gradeRuns, gradeUnit, gradeUnitRun, normalizeOutput, parseFrames } from "../src/grading.js";
 
 describe("parseFrames", () => {
   it("reads length-framed records and ignores stray bytes", () => {
@@ -79,6 +79,34 @@ describe("gradeUnit", () => {
     const tests = gradeUnit("visible", raw, ["a"]);
     expect(tests).toHaveLength(1);
     expect(tests[0]).toMatchObject({ name: "visible/a", status: "error" });
+  });
+});
+
+describe("grading whole runs", () => {
+  const ok = (name: string, stdout: string) => ({ name, exit: 0, stdout, stderr: "" });
+
+  it("makes every test in a set an error when the program flooded output or ran out of memory", () => {
+    const expected = { "visible/01": "1\n", "visible/02": "2\n" };
+    expect(gradeIoRun({ cases: [], flooded: true }, expected).map((t) => [t.name, t.status, t.message])).toEqual([
+      ["visible/01", "error", expect.stringMatching(/Output limit/)],
+      ["visible/02", "error", expect.stringMatching(/Output limit/)],
+    ]);
+    expect(gradeUnitRun("hidden", { report: { exit: 0, body: "", log: "" }, flooded: false, outOfMemory: true }, ["a", "b"]).map((t) => [t.set, t.name, t.message])).toEqual([
+      ["hidden", "hidden/a", expect.stringMatching(/Memory limit/)],
+      ["hidden", "hidden/b", expect.stringMatching(/Memory limit/)],
+    ]);
+  });
+
+  it("grades each set of runs against its own expected outputs, visible first", () => {
+    const runs = { visible: { cases: [ok("visible/01", "1\n")], flooded: false }, hidden: { cases: [ok("hidden/01", "9\n")], flooded: false } };
+    const tests = gradeRuns("io", runs, { expected: { "visible/01": "1\n", "hidden/01": "2\n" } });
+    expect(tests.map((t) => [t.set, t.name, t.status])).toEqual([["visible", "visible/01", "pass"], ["hidden", "hidden/01", "fail"]]);
+  });
+
+  it("grades unit runs against each set's inventory", () => {
+    const report = (tests: { name: string; status: string }[]) => ({ report: { exit: 0, body: JSON.stringify({ tests }), log: "" }, flooded: false });
+    const tests = gradeRuns("unit", { visible: report([{ name: "a", status: "pass" }]) }, { inventory: { visible: ["a"], hidden: ["b"] } });
+    expect(tests.map((t) => [t.set, t.name, t.status])).toEqual([["visible", "visible/a", "pass"]]);
   });
 });
 

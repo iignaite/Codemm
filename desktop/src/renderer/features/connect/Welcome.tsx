@@ -1,6 +1,6 @@
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed } from '../../app/Shell';
+import { Failed } from '../../app/Problems';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
@@ -35,7 +35,7 @@ export function Welcome() {
         <Emm mood={on ? 'wake' : 'sleep'} width={360} perch />
         {on && (
           <div className="card connected a-pop" style={stagger(0, 600)}>
-            <Status kind="ok" />
+            <Status kind="ok" decorative />
             <b>Connected</b>
           </div>
         )}
