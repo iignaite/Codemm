@@ -1,6 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -9,6 +8,7 @@ import { readFileMap } from "../src/files.js";
 import { TOOL_NAMES } from "../src/mcp.js";
 import { dockerUp } from "./docker/helpers.js";
 import { npm } from "./npm.js";
+import { tempDir } from "./temp.js";
 
 const root = join(import.meta.dirname, "..");
 let codemm: { command: string; args: string[] };
@@ -16,10 +16,10 @@ let files: string[];
 
 /** Builds and packs Codemm exactly as it would ship, then installs the tarball into a clean folder. */
 beforeAll(() => {
-  const out = mkdtempSync(join(tmpdir(), "codemm-pack-"));
+  const out = tempDir("codemm-pack-");
   const packed = JSON.parse(npm(["pack", "--json", "--pack-destination", out], root))[0];
   files = packed.files.map((f: { path: string }) => f.path);
-  const prefix = mkdtempSync(join(tmpdir(), "codemm-install-"));
+  const prefix = tempDir("codemm-install-");
   npm(["install", "--prefix", prefix, "--prefer-offline", "--no-audit", "--no-fund", join(out, packed.filename)]);
   // npm links a shell shim on POSIX. On Windows it links a .cmd shim, which Node won't spawn without
   // a shell, so there the packed package's own bin entry runs with this Node.
@@ -44,8 +44,8 @@ describe("packed artifact", () => {
   });
 
   it("sets up a project, explains a missing course and runs the practice hook", () => {
-    const ws = mkdtempSync(join(tmpdir(), "codemm-cli-"));
-    const home = mkdtempSync(join(tmpdir(), "codemm-home-"));
+    const ws = tempDir("codemm-cli-");
+    const home = tempDir("codemm-home-");
     const env = { CODEMM_HOME: home };
     const init = run(["init"], { cwd: ws, env });
     expect(init.status).toBe(0);
@@ -63,8 +63,8 @@ describe("packed artifact", () => {
   });
 
   it.runIf(dockerUp)("runs a full author-and-learner round trip through the core tools over real stdio", async () => {
-    const ws = mkdtempSync(join(tmpdir(), "codemm-mcp-"));
-    const home = mkdtempSync(join(tmpdir(), "codemm-home-"));
+    const ws = tempDir("codemm-mcp-");
+    const home = tempDir("codemm-home-");
     const client = new Client({ name: "codemm-test", version: "1.0.0" });
     await client.connect(new StdioClientTransport({ command: codemm.command, args: [...codemm.args, "mcp", "--workspace", ws], env: { ...process.env, CODEMM_HOME: home } as Record<string, string> }));
     const call = async (name: string, args: Record<string, unknown> = {}) => {
@@ -97,10 +97,10 @@ describe("packed artifact", () => {
   });
 
   it("serves every tool over real stdio, and only the listed ones with --tools", async () => {
-    const ws = mkdtempSync(join(tmpdir(), "codemm-mcp-"));
+    const ws = tempDir("codemm-mcp-");
     const client = new Client({ name: "codemm-test", version: "1.0.0" });
     await client.connect(
-      new StdioClientTransport({ command: codemm.command, args: [...codemm.args, "mcp", "--workspace", ws], env: { ...process.env, CODEMM_HOME: mkdtempSync(join(tmpdir(), "codemm-home-")) } as Record<string, string> }),
+      new StdioClientTransport({ command: codemm.command, args: [...codemm.args, "mcp", "--workspace", ws], env: { ...process.env, CODEMM_HOME: tempDir("codemm-home-") } as Record<string, string> }),
     );
     try {
       const { tools } = await client.listTools();
@@ -120,7 +120,7 @@ describe("packed artifact", () => {
       new StdioClientTransport({
         command: codemm.command,
         args: [...codemm.args, "mcp", "--workspace", ws, "--course", "c", "--tools", "list_tracks,get_roadmap"],
-        env: { ...process.env, CODEMM_HOME: mkdtempSync(join(tmpdir(), "codemm-home-")) } as Record<string, string>,
+        env: { ...process.env, CODEMM_HOME: tempDir("codemm-home-") } as Record<string, string>,
       }),
     );
     try {

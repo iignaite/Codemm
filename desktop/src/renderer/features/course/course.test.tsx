@@ -31,6 +31,12 @@ describe('roadmap sources', () => {
 });
 
 describe('course editor', () => {
+  it('saves each edit as it happens, so leaving keeps the draft', async () => {
+    const { api, user } = await open();
+    await user.click(screen.getByRole('button', { name: 'Remove Lists and keys' }));
+    await waitFor(async () => expect((await api.draft())!.concepts.map((c) => c.title)).toEqual(['JavaScript basics', 'JSX', 'Forms']));
+  });
+
   it('renames, removes, adds and reorders topics without dragging', async () => {
     const { user } = await open();
     await user.click(screen.getByRole('button', { name: 'Rename Forms' }));
@@ -92,6 +98,21 @@ describe('course editor', () => {
     const { user } = await open();
     await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Testing{Enter}');
     expect(await screen.findByRole('listitem', { name: 'Testing' })).toBeInTheDocument();
+  });
+
+  it('applies a typed request with Apply, and Approve waits until it is applied', async () => {
+    const { api, user } = await open();
+    const revise = api.reviseRoadmap;
+    let finish!: () => void;
+    api.reviseRoadmap = (concepts, request) => new Promise((resolve) => (finish = () => resolve(revise(concepts, request))));
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Testing');
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(await screen.findByText('Updating the roadmap…')).toBeInTheDocument();
+    finish();
+    expect(await screen.findByRole('listitem', { name: 'Testing' })).toBeInTheDocument();
+    expect(screen.queryByText('Updating the roadmap…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
   });
 
   it("keeps the learner's edits when sign-in expires during a request", async () => {

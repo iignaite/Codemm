@@ -125,6 +125,51 @@ describe('live CodemmApi', () => {
     expect(await t.api.check(id, 'run-2')).toMatchObject({ stuck: true, later: true });
   });
 
+  it('keeps the approved course while a new roadmap is a draft, and offers the draft to resume', async () => {
+    const t = live();
+    const { id } = await practising(t);
+    const approved = t.c.roadmap!.course;
+    let r = await t.api.research({ topic: 'Vue', known: '', depth: 'standard' });
+    for (let i = 0; i < 20 && r.state === 'running'; i++) {
+      await new Promise((res) => setTimeout(res, 5));
+      r = await t.api.research({ topic: 'Vue', known: '', depth: 'standard' });
+    }
+    const draft = t.c.roadmap!.course;
+    expect(draft).not.toBe(approved);
+    expect(await t.api.course()).toMatchObject({ topics: [{ id: 'values', state: 'now', activity: 'open' }, {}] });
+    expect(await t.api.draft()).toMatchObject({ goal: 'React', concepts: [{ id: 'values' }, { id: 'state' }] });
+    // Every learner call stays on the approved course.
+    t.c.bound.length = 0;
+    await t.api.activity('values');
+    await t.api.tryIt(id, 'run-1');
+    await t.api.check(id, 'run-2');
+    await t.api.saveNotes('values-1', 'mine');
+    await t.api.lesson('values-1');
+    await t.api.ask({ activityId: id }, 'Why?');
+    await t.api.easier('values');
+    await t.api.skip('values');
+    expect(t.c.bound.length).toBeGreaterThan(0);
+    expect(t.c.bound.every((b) => b === approved)).toBe(true);
+    expect(t.c.courses.get(approved)!.concepts.map((c) => c.id)).toContain('testing');
+    expect(t.c.courses.get(draft)!.concepts.map((c) => c.id)).toEqual(['values', 'state']);
+    // Edits to the draft are saved as they happen.
+    await t.api.saveDraft([{ id: 'state', title: 'State', requires: [] }, { id: 'values', title: 'Values', requires: [] }]);
+    expect((await t.api.draft())!.concepts.map((c) => c.id)).toEqual(['state', 'values']);
+    await t.api.approve((await t.api.draft())!.concepts);
+    expect(await t.api.draft()).toBeNull();
+    expect(t.c.bound.at(-1)).toBe(draft);
+  });
+
+  it('has no draft to resume once the roadmap is approved', async () => {
+    const t = live();
+    expect(await t.api.draft()).toBeNull();
+    const r = await researched(t);
+    expect(await t.api.draft()).toMatchObject({ goal: 'React' });
+    await t.api.approve(r.roadmap!.concepts);
+    expect(await t.api.draft()).toBeNull();
+    await expect(t.api.saveDraft(r.roadmap!.concepts)).rejects.toThrow('No roadmap to edit.');
+  });
+
   it('saves edits, then asks for changes', async () => {
     const t = live();
     const r = await researched(t);

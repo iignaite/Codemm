@@ -1,5 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
@@ -9,6 +8,7 @@ import { buildImage, runtimeHelp, startHelp } from "../src/sandbox.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import * as store from "../src/store.js";
 import { fakeDocker, posix } from "./fake-docker.js";
+import { tempDir } from "./temp.js";
 
 /** The environment matrix: what learners see when Docker is missing, stopped, offline or out of disk. */
 
@@ -16,7 +16,7 @@ const fixtures = join(import.meta.dirname, "fixtures");
 const track = () => readFileMap(join(fixtures, "tracks", "shell-io"));
 
 beforeEach(() => {
-  vi.stubEnv("CODEMM_HOME", mkdtempSync(join(tmpdir(), "codemm-home-")));
+  vi.stubEnv("CODEMM_HOME", tempDir("codemm-home-"));
 });
 
 afterEach(() => {
@@ -49,13 +49,13 @@ describe("doctor", () => {
 describe.runIf(posix)("building a track image", () => {
   it("returns the ID its own build produced, never whatever the shared tag points at later", async () => {
     fakeDocker("builds");
-    const built = await buildImage(mkdtempSync(join(tmpdir(), "codemm-context-")), "codemm-track-shell-io:1");
+    const built = await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1");
     expect(built).toMatchObject({ ok: true, imageId: "sha256:built" });
   });
 
   it("blames the runtime, not the track, when a build reports no image ID", async () => {
     fakeDocker("no-iid");
-    const built = await buildImage(mkdtempSync(join(tmpdir(), "codemm-context-")), "codemm-track-shell-io:1");
+    const built = await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1");
     expect(built).toMatchObject({ ok: false, problem: expect.stringMatching(/didn't report the image ID.*not a problem with the track files/s) });
   });
 });
@@ -108,7 +108,7 @@ describe.runIf(posix)("a check that loses Docker mid-run", () => {
 
 /** A workspace whose exercise is installed (with a fake image) and edited, ready to check. */
 async function installedExercise(): Promise<string> {
-  const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+  const ws = tempDir("codemm-ws-");
   const spec = parseTrackYaml(track()["track.yaml"]!);
   store.commitFolder(store.trackDir("shell-io@1"), track(), {
     "track.json": { format_version: 1, ...spec, image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },

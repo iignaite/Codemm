@@ -1,11 +1,11 @@
 // @vitest-environment node
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { desktopState, workspaceOf } from './state';
+import { tempDir } from './testing/temp';
 
-const dir = () => mkdtempSync(join(tmpdir(), 'codemm-state-'));
+const dir = () => tempDir('codemm-state-');
 
 describe('desktop.json (§2)', () => {
   it('starts empty, then remembers the agent and tutor sessions', () => {
