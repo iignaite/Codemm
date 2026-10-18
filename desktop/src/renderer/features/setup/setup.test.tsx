@@ -38,7 +38,9 @@ describe('install what is missing', () => {
     const user = userEvent.setup();
     const api = mac('nothing-installed');
     renderApp({ to: 'setup' }, api);
-    await user.click(await screen.findByRole('radio', { name: 'Codex' }));
+    // The choice is named by the label it shows (WCAG 2.5.3).
+    const choice = await screen.findByRole('radiogroup', { name: 'Your agent' });
+    await user.click(within(choice).getByRole('radio', { name: 'Codex' }));
     expect(within(screen.getByRole('listitem', { name: 'Agent' })).getByRole('link', { name: 'Read them' })).toHaveAttribute('href', 'https://openai.com/policies/');
     await user.click(screen.getByRole('button', { name: "Install what's missing" }));
     await screen.findAllByRole('progressbar');

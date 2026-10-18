@@ -11,9 +11,11 @@ describe('update notice', () => {
     const api = createMock({ update: { kind: 'available', version: '1.2.0', url: 'https://github.com/iignaite/Codemm/releases/tag/v1.2.0' } });
     renderApp({ to: 'tracks' }, api);
     expect(await within(sidebar()).findByText('A new version is available.')).toBeInTheDocument();
-    const link = within(sidebar()).getByRole('link', { name: 'Get Codemm 1.2.0' });
+    // The version is in the link, not in the words.
+    const link = within(sidebar()).getByRole('link', { name: 'Get it' });
     expect(link).toHaveAttribute('href', 'https://github.com/iignaite/Codemm/releases/tag/v1.2.0');
     expect(link).toHaveAttribute('target', '_blank');
+    expect(sidebar()).not.toHaveTextContent('1.2.0');
   });
 
   it('a signed build offers Restart to update once the new version is downloaded', async () => {
@@ -21,7 +23,8 @@ describe('update notice', () => {
     const restart = vi.spyOn(api, 'restartToUpdate');
     renderApp({ to: 'tracks' }, api);
     await userEvent.setup().click(await within(sidebar()).findByRole('button', { name: 'Restart to update' }));
-    expect(within(sidebar()).getByText('Codemm 1.2.0 is ready.')).toBeInTheDocument();
+    expect(within(sidebar()).getByText('A new version is ready.')).toBeInTheDocument();
+    expect(sidebar()).not.toHaveTextContent('1.2.0');
     expect(restart).toHaveBeenCalled();
   });
 
@@ -38,7 +41,7 @@ describe('update notice', () => {
       await vi.advanceTimersByTimeAsync(31_000);
       status = { kind: 'ready', version: '1.2.0' };
       await vi.advanceTimersByTimeAsync(31_000);
-      await vi.waitFor(() => expect(region).toHaveTextContent('Codemm 1.2.0 is ready.'));
+      await vi.waitFor(() => expect(region).toHaveTextContent('A new version is ready.'));
     } finally {
       vi.useRealTimers();
     }

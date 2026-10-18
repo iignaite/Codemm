@@ -128,12 +128,13 @@ function UpdateNotice({ slim = false }: { slim?: boolean }) {
       {update?.kind === 'available' && (
         <>
           <span>A new version is available.</span>
-          <ExternalLink href={update.url}>Get Codemm {update.version}</ExternalLink>
+          {/* The version is in the link, never in the words. */}
+          <ExternalLink href={update.url}>Get it</ExternalLink>
         </>
       )}
       {update?.kind === 'ready' && (
         <>
-          <span>Codemm {update.version} is ready.</span>
+          <span>A new version is ready.</span>
           <Button onClick={() => void api.restartToUpdate().catch(fail)}>Restart to update</Button>
         </>
       )}
