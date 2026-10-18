@@ -15,6 +15,13 @@ describe("tutor instructions (AGENTS.md section)", () => {
     expect(AGENTS_SECTION).toMatch(/Don't state the fix, write the code or list the steps/);
   });
 
+  it("keeps a plain tone in every tutor brief: no praise or cheerleading, just what's right or wrong and the next step", () => {
+    for (const text of [AGENTS_SECTION, JOB_BRIEFS.tutor]) {
+      expect(text).toMatch(/Keep a plain tone: no praise or cheerleading/);
+      expect(text).toMatch(/say what's right or wrong and the next step/);
+    }
+  });
+
   it("says which tools the tutor calls itself and which go through the author subagent", () => {
     expect(AGENTS_SECTION).toMatch(/Only `save_track` and `save_exercise` go through the `codemm-author` subagent/);
   });
