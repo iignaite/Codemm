@@ -169,6 +169,11 @@ function writeTextAtomic(path: string, text: string): void {
 
 const writeJsonAtomic = (path: string, value: unknown) => writeTextAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
 
+/** A job's progress file (`codemm mcp --progress`): the exercise gate running, by name only. Replaced whole each time. */
+export function writeJobProgress(path: string, gate: string): void {
+  writeJsonAtomic(path, { format_version: 1, gate });
+}
+
 /** Writes `files` (and optional JSON records) into a fresh folder, then renames it to `target`. */
 export function commitFolder(target: string, files: FileMap, records: Record<string, unknown> = {}): void {
   if (existsSync(target)) throw new CodemmError(`${target} already exists.`);
