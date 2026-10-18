@@ -391,6 +391,38 @@ describe('live CodemmApi', () => {
     expect(await t.api.runExample('ex', 1)).toEqual({ kind: 'not-run', reason: "Docker isn't running." });
   });
 
+  it("runs a lesson's io example live with typed input, tagged with the run, and records nothing", async () => {
+    const t = live();
+    await practising(t);
+    t.c.lessons.push({ id: 'ex', concept: 'values', title: 'Run it', markdown: 'See:\n\n```example\n1\n```\n', notes: '', examples: [{ 'main.c': 'int main(){}' }], style: 'io' });
+    expect(await t.api.lesson('ex')).toMatchObject({ style: 'io' });
+    const heard: unknown[] = [];
+    t.api.onRunOutput((o) => heard.push(o));
+    const ran = t.api.runExampleLive('ex', 1, 'run-1');
+    await vi.waitFor(() => expect(heard).toHaveLength(2));
+    expect(await t.api.sendRunInput('run-1', 'Ada\n')).toBe(true);
+    expect(await ran).toEqual({ kind: 'ran', exit: 0, stage: 'run', timedOut: false, stopped: false, flooded: false, outOfMemory: false });
+    expect(heard).toEqual([
+      { run: 'run-1', started: 'run', limitMs: 120_000 },
+      { run: 'run-1', stream: 'stdout', text: 'name? ' },
+      { run: 'run-1', stream: 'stdout', text: 'hello Ada\n' },
+      { run: 'run-1', stream: 'stderr', text: 'a warning\n' },
+    ]);
+    expect(t.c.runs).toEqual(['ex#1']);
+    expect(t.c.checks).toEqual([]);
+  });
+
+  it("stops a lesson example's live Run when asked, and says why it couldn't run when Docker is down", async () => {
+    const t = live();
+    await practising(t);
+    t.c.lessons.push({ id: 'ex', concept: 'values', title: 'Run it', markdown: '', notes: '', examples: [{ 'main.c': 'int main(){}' }], style: 'io' });
+    const ran = t.api.runExampleLive('ex', 1, 'run-1');
+    await t.api.stopRun('run-1');
+    expect(await ran).toMatchObject({ kind: 'ran', stopped: true });
+    t.c.down = true;
+    expect(await t.api.runExampleLive('ex', 1, 'run-2')).toEqual({ kind: 'not-run', reason: expect.stringMatching(/Docker/) });
+  });
+
   it('keeps a stuck activity open beside the ways forward', async () => {
     const t = live();
     const activity = await practising(t);

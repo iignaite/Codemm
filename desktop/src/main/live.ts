@@ -13,6 +13,7 @@ import {
   type CheckProgress,
   type ResearchProgress,
   type RunOutput,
+  type RunResult,
   type CodemmApi,
   type Computer,
   type Concept,
@@ -346,6 +347,35 @@ export function createLive(d: LiveDeps): Live {
   const programs = new Map<string, { program?: CoreProgramRun; stopped: boolean }>();
   const runListeners = new Set<(o: RunOutput) => void>();
   const tell = (o: RunOutput) => runListeners.forEach((l) => l(o));
+  type StartProgram = (output: (text: string, stream: 'stdout' | 'stderr') => void, options: { onStart: (stage: 'build' | 'run', limitMs: number) => void }) => Promise<CoreProgramRun>;
+
+  /** One Run, an activity's or a lesson example's: its output tagged with `run`, and stoppable before it has started. */
+  async function program(run: string, startProgram: StartProgram): Promise<RunResult> {
+    if (programs.has(run)) throw new SafeError('Bad input');
+    if (programs.size >= MAX_PROGRAMS) throw new SafeError('Too many programs are running. Stop one, then try again.');
+    const entry: { program?: CoreProgramRun; stopped: boolean } = { stopped: false };
+    programs.set(run, entry);
+    try {
+      // Tracked until the program has ended, so quitting waits for its container and files to go.
+      const r = await whenDockerReady(async () => {
+        const program = await startProgram((text, stream) => tell({ run, stream, text }), { onStart: (stage, limitMs) => tell({ run, started: stage, limitMs }) });
+        entry.program = program;
+        // Stopped while it was starting.
+        if (entry.stopped) program.kill();
+        return program.done;
+      });
+      return { kind: 'ran', exit: r.exit, ...(r.stage ? { stage: r.stage } : {}), timedOut: r.timedOut, stopped: r.stopped ?? false, flooded: r.flooded, outOfMemory: r.outOfMemory ?? false };
+    } catch (e) {
+      const reason = notCounted(e);
+      if (reason) {
+        log('not-counted', { run: 'program', reason });
+        return { kind: 'not-run', reason };
+      }
+      throw e;
+    } finally {
+      programs.delete(run);
+    }
+  }
 
   // Research progress goes to whoever listens (main sends it to the app window): searches, page hosts and paths, steps.
   const researchListeners = new Set<(p: ResearchProgress) => void>();
@@ -582,32 +612,8 @@ export function createLive(d: LiveDeps): Live {
       }
     },
 
-    async runProgram(activityId, run) {
-      if (programs.has(run)) throw new SafeError('Bad input');
-      if (programs.size >= MAX_PROGRAMS) throw new SafeError('Too many programs are running. Stop one, then try again.');
-      const entry: { program?: CoreProgramRun; stopped: boolean } = { stopped: false };
-      programs.set(run, entry);
-      try {
-        // Tracked until the program has ended, so quitting waits for its container and files to go.
-        const r = await whenDockerReady(async () => {
-          const program = await core.runInteractive(ws, activityId, undefined, (text, stream) => tell({ run, stream, text }), { onStart: (stage, limitMs) => tell({ run, started: stage, limitMs }) });
-          entry.program = program;
-          // Stopped while it was starting.
-          if (entry.stopped) program.kill();
-          return program.done;
-        });
-        return { kind: 'ran', exit: r.exit, ...(r.stage ? { stage: r.stage } : {}), timedOut: r.timedOut, stopped: r.stopped ?? false, flooded: r.flooded, outOfMemory: r.outOfMemory ?? false };
-      } catch (e) {
-        const reason = notCounted(e);
-        if (reason) {
-          log('not-counted', { run: 'program', reason });
-          return { kind: 'not-run', reason };
-        }
-        throw e;
-      } finally {
-        programs.delete(run);
-      }
-    },
+    runProgram: (activityId, run) => program(run, (output, options) => core.runInteractive(ws, activityId, undefined, output, options)),
+    runExampleLive: (lessonId, index, run) => program(run, (output, options) => core.runExampleLive(ws, lessonId, index, undefined, output, options)),
     sendRunInput: async (run, text) => programs.get(run)?.program?.write(text) ?? false,
     async stopRun(run) {
       const entry = programs.get(run);

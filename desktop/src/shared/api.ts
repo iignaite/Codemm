@@ -190,6 +190,8 @@ export interface Lesson {
   notes: string;
   /** Runnable examples, in order: each runs in the sandbox on request and is never recorded (§4.3). */
   examples: { files: { path: string; text: string }[] }[];
+  /** How the examples run: io ones in the terminal pane with typed input (runExampleLive), unit ones once as tests. */
+  style?: 'io' | 'unit';
 }
 
 /** One run of a lesson example (output capped by core), or why it didn't run (Docker, §6.1). */
@@ -323,6 +325,8 @@ export interface CodemmApi {
   tryIt(activityId: string, run?: string): Promise<TryResult>;
   /** Runs a lesson's example `index` (from 1) in the sandbox. Never recorded. */
   runExample(lessonId: string, index: number): Promise<ExampleRun>;
+  /** Run for a lesson's io example `index`, as runProgram is for an activity: typed input, output through onRunOutput. */
+  runExampleLive(lessonId: string, index: number, run: string): Promise<RunResult>;
   check(activityId: string, run?: string): Promise<CheckResult>;
   /**
    * Run: the learner's program with typed input, time-limited, never recorded. Resolves when it ends; what it prints

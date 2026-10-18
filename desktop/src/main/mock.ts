@@ -2,7 +2,7 @@
 // development (CODEMM_MOCK). Like the core, it never holds a solution or a
 // hidden test: it grades by whether the learner replaced the starter's
 // placeholder, and reports hidden results as statuses only.
-import { type CheckProgress, type ResearchProgress, type RunOutput,
+import { type CheckProgress, type ResearchProgress, type RunOutput, type RunResult,
   AGENT_FAILED,
   CHANGED,
   NO_AGENT,
@@ -198,6 +198,13 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       },
     ];
     own.forEach((l) => lessons.set(l.id, { ...l, examples: [] }));
+    // An io course's first lesson has an example Run takes typed input for.
+    if (options.style === 'io') {
+      const first = lessons.get(own[0].id)!;
+      first.markdown += '\n\nTry it: type a name.\n\n```example\n1\n```';
+      first.examples = [{ files: [{ path: 'main.py', text: 'name = input("What\'s your name? ")\nprint(f"Hello, {name}!")\n' }] }];
+      first.style = 'io';
+    }
     const activity: Activity = options.style === 'io' ? {
       id: `${concept.id}-easy-1`,
       concept: concept.id,
@@ -280,6 +287,28 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   const tell = (o: RunOutput) => runListeners.forEach((l) => l(o));
   /** Run's programs: each asks for a name and greets it. */
   const programs = new Map<string, { input(text: string): void; stop(): void }>();
+  /** One Run, an activity's or a lesson example's: asks for a name, greets it, then ends; or stops, or runs out of time. */
+  function greet(run: string): Promise<RunResult> {
+    if (docker() !== 'ready') return Promise.resolve({ kind: 'not-run', reason: DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] });
+    const limitMs = options.runLimitMs ?? 120_000;
+    tell({ run, started: 'run', limitMs });
+    tell({ run, stream: 'stdout', text: "What's your name? " });
+    return new Promise((resolve) => {
+      const end = (r: { exit: number; timedOut?: boolean; stopped?: boolean }) => {
+        clearTimeout(timer);
+        programs.delete(run);
+        resolve({ kind: 'ran', stage: 'run', flooded: false, outOfMemory: false, timedOut: false, stopped: false, ...r });
+      };
+      const timer = setTimeout(() => end({ exit: 137, timedOut: true }), limitMs);
+      programs.set(run, {
+        input: (text) => {
+          tell({ run, stream: 'stdout', text: `Hello, ${text.trim()}!\n` });
+          end({ exit: 0 });
+        },
+        stop: () => end({ exit: 137, stopped: true }),
+      });
+    });
+  }
   const progress = (run: string | undefined, phase: CheckProgress['phase'], total: number) => {
     for (let done = 0; done <= total; done++) progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total }));
   };
@@ -306,25 +335,13 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async runProgram(activityId, run) {
       const { activity } = find(activities, activityId);
       if (!activity.run) throw new Error("This track has no run command, so Run isn't available.");
-      if (docker() !== 'ready') return { kind: 'not-run', reason: DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] };
-      const limitMs = options.runLimitMs ?? 120_000;
-      tell({ run, started: 'run', limitMs });
-      tell({ run, stream: 'stdout', text: "What's your name? " });
-      return new Promise((resolve) => {
-        const end = (r: { exit: number; timedOut?: boolean; stopped?: boolean }) => {
-          clearTimeout(timer);
-          programs.delete(run);
-          resolve({ kind: 'ran', stage: 'run', flooded: false, outOfMemory: false, timedOut: false, stopped: false, ...r });
-        };
-        const timer = setTimeout(() => end({ exit: 137, timedOut: true }), limitMs);
-        programs.set(run, {
-          input: (text) => {
-            tell({ run, stream: 'stdout', text: `Hello, ${text.trim()}!\n` });
-            end({ exit: 0 });
-          },
-          stop: () => end({ exit: 137, stopped: true }),
-        });
-      });
+      return greet(run);
+    },
+
+    async runExampleLive(lessonId, index, run) {
+      const lesson = find(lessons, lessonId);
+      if (!lesson.examples[index - 1] || lesson.style !== 'io') throw new Error(`Lesson "${lessonId}" has no example ${index}.`);
+      return greet(run);
     },
 
     async sendRunInput(run, text) {
