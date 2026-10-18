@@ -1,6 +1,8 @@
 // The CodemmApi over the real core and the learner's own agent (DESIGN §2–§6).
 // Main calls core `app` functions in-process; agent jobs run through the
 // bridge; everything returned goes through views.ts.
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { isSafeLink } from './links';
 import {
   AGENT_FAILED,
@@ -12,7 +14,7 @@ import {
   SIGNED_OUT,
   UNSTOPPABLE,
   type CheckProgress,
-  type ResearchProgress,
+  type JobProgress,
   type RunOutput,
   type RunResult,
   type CodemmApi,
@@ -23,14 +25,16 @@ import {
   type Roadmap,
   type SetupProblem,
 } from '../shared/api';
-import type { McpServer, ResearchStep } from './agent/agents';
+import type { McpServer } from './agent/agents';
+import { watchGates } from './agent/gateFile';
+import { jobTracker, type JobTracker } from './agent/progress';
 import { briefsFrom, courseId } from './agent/briefs';
 import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type JobProblem } from './agent/jobs';
 import type { connector } from './connect';
 import { infra } from './core/failures';
 import { errorFields, SafeError } from './errors';
 import type { CoreApp, CoreProgramRun, CoreProgress, CoreRoadmap } from './core/types';
-import { courseView, currentConcept, type Setup } from './courseView';
+import { courseView, currentConcept, otherReady, type Setup } from './courseView';
 import { noLog, type Log } from './log';
 import type { desktopState } from './state';
 import { activityView, checkView, filterReply, hiddenLines, tryView } from './views';
@@ -42,8 +46,10 @@ export interface LiveDeps {
   state: ReturnType<typeof desktopState>;
   /** The learner's workspace, ~/Codemm by default (O5). */
   ws: string;
-  /** The MCP server one job's agent starts, bound to its course and tools (§2, §4.6). */
-  server: (course: string | undefined, tools: string[]) => McpServer;
+  /** The MCP server one job's agent starts, bound to its course and tools (§2, §4.6), and for an author, its gate file (§4.11). */
+  server: (course: string | undefined, tools: string[], progress?: string) => McpServer;
+  /** A Codemm-owned folder for the gate files author jobs' servers write (§4.11). */
+  progressDir?: string;
   /** The app's own executable, which runs Node-script agents. */
   runtime?: string;
   /** A Codemm-owned folder for agents that read their config from the working directory (Cursor). */
@@ -184,13 +190,18 @@ export function createLive(d: LiveDeps): Live {
     await core.saveRoadmap(ws, current.course, JSON.stringify({ goal, track, style, concepts, ...(sources ? { sources } : {}) }), current.course);
   }
 
+  // Every job's progress goes to whoever listens (main sends it to the app window): stages, steps and time (§4.11).
+  const jobListeners = new Set<(p: JobProgress) => void>();
+  const trackers = new Map<string, JobTracker>();
+  const tellJob = (p: JobProgress) => jobListeners.forEach((l) => l(p));
+
   /**
    * Runs one agent job in a lane: one foreground job and one background queue,
    * each one at a time (§3.2). The job starts only when its turn comes.
    */
   function start(
-    key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'], resume?: string,
-    onProgress?: Job['onProgress'], onSource?: Job['onSource'],
+    key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'],
+    { resume, onSource, concept, retry }: { resume?: string; onSource?: Job['onSource']; concept?: string; retry?: JobProgress['retry'] } = {},
   ): Promise<JobOutcome> {
     const existing = running.get(key);
     if (existing) return existing.outcome;
@@ -208,13 +219,27 @@ export function createLive(d: LiveDeps): Live {
       if (stop.signal.aborted) return { ok: false, problem: 'failed', text: [] };
       const began = Date.now();
       log('job-start', { kind, lane, agent: id });
+      // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
+      const filter = hidden();
+      const tracker = jobTracker(kind, { concept, retry, shows: (text) => filterReply(text, filter) === text });
+      trackers.set(key, tracker);
+      tellJob(tracker.snapshot());
+      // An author's save runs the exercise gates in its server; the server names the running gate in this file.
+      const gateFile = kind === 'author' && d.progressDir ? join(d.progressDir, `${tracker.id}.json`) : undefined;
+      if (gateFile) mkdirSync(d.progressDir!, { recursive: true });
+      const gates = gateFile
+        ? watchGates(gateFile, (gate) => {
+            tracker.gate(gate);
+            tellJob(tracker.snapshot());
+          })
+        : undefined;
       const outcome = await runJob({
         kind,
         agent: id,
         exe,
         runtime: d.runtime,
         brief,
-        server: (tools) => d.server(course, tools),
+        server: (tools) => d.server(course, tools, gateFile),
         cwd: ws,
         agentDir: d.agentDir,
         // The learner's model choice, or the recommended one (O6), for every agent with choices.
@@ -224,8 +249,23 @@ export function createLive(d: LiveDeps): Live {
         done,
         blocked: () => unstoppable,
         signedIn: () => d.connect.recheck(id, exe),
-        onProgress,
+        onEvent: (e) => {
+          tracker.event(e);
+          // A save that ended leaves its last gate in the file; the next save starts from none.
+          if (gates && e.type === 'tool_result' && !tracker.saving()) gates.clear();
+          tellJob(tracker.snapshot());
+        },
+        onRelaunch: () => {
+          tracker.relaunch();
+          // An attempt that crashed mid-save left its last gate behind.
+          gates?.clear();
+          tellJob(tracker.snapshot());
+        },
         onSource,
+      }).finally(() => {
+        gates?.stop();
+        trackers.delete(key);
+        tellJob({ ...tracker.snapshot(), ended: true });
       });
       if (outcome.problem === 'unstoppable') unstoppable = true;
       log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
@@ -245,9 +285,12 @@ export function createLive(d: LiveDeps): Live {
   }
 
   /** Background work: a failure stalls it until the learner retries, instead of relaunching on every look. */
-  function background(key: string, kind: JobKind, brief: string, course: string, done: Job['done'], lane: 'fg' | 'bg' = 'bg') {
+  function background(
+    key: string, kind: JobKind, brief: string, course: string, done: Job['done'],
+    { lane = 'bg', concept, retry }: { lane?: 'fg' | 'bg'; concept?: string; retry?: JobProgress['retry'] } = {},
+  ) {
     if (stopping || stalled || running.has(key)) return;
-    const outcome = start(key, lane, kind, brief, course, done);
+    const outcome = start(key, lane, kind, brief, course, done, { concept, retry });
     const controller = running.get(key)?.stop;
     // The first stall is the one the learner sees.
     outcome
@@ -298,7 +341,9 @@ export function createLive(d: LiveDeps): Live {
         // Done once it proposed: the proposal may already be gone if the learner approved it and its gates failed.
         const installs = setup.installs;
         const proposed = () => setup.installs > installs || core.listProposals().some((p) => p.track === ref && !before.has(p.digest));
-        background(`setup:${progress.course}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed);
+        // Another proposal after one failed its gates is a retry, within the bound (§3.2).
+        const retry = setup.gateFailures > 0 ? { attempt: setup.gateFailures + 1, of: PROPOSAL_BOUND } : undefined;
+        background(`setup:${progress.course}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed, { retry });
       }
       work(progress, state.state === 'ready');
     } catch (e) {
@@ -315,7 +360,7 @@ export function createLive(d: LiveDeps): Live {
     if (lessons() === 0) {
       // The course's first lesson runs in the foreground, beside setup (§3.2).
       const lane = core.listLessons(ws, course).length === 0 ? 'fg' : 'bg';
-      background(`lesson:${course}:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), course, () => lessons() > 0, lane);
+      background(`lesson:${course}:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), course, () => lessons() > 0, { lane, concept: concept.id });
     }
     if (ready && progress.next.kind === 'author') {
       // Done only by a new exercise for this concept at the requested difficulty (§3.2).
@@ -323,12 +368,12 @@ export function createLive(d: LiveDeps): Live {
       const { difficulty } = progress.next;
       const before = new Set(core.listExercises(ws, course).map((e) => e.exercise));
       const made = () => core.listExercises(ws, course).some((e) => !before.has(e.exercise) && e.concepts.includes(concept.id) && e.difficulty === difficulty);
-      background(`author:${course}:${concept.id}:${difficulty}`, 'author', briefs.author(), course, made);
+      background(`author:${course}:${concept.id}:${difficulty}`, 'author', briefs.author(), course, made, { concept: concept.id });
     }
   }
 
   async function foreground(key: string, kind: JobKind, brief: string, course: string | undefined, done: Job['done'], resume?: string) {
-    const outcome = await start(key, 'fg', kind, brief, course, done, resume);
+    const outcome = await start(key, 'fg', kind, brief, course, done, { resume });
     if (!outcome.ok && outcome.problem) throw problemError(outcome.problem);
     return outcome;
   }
@@ -406,8 +451,6 @@ export function createLive(d: LiveDeps): Live {
     }
   }
 
-  // Research progress goes to whoever listens (main sends it to the app window): searches, page hosts and paths, steps.
-  const researchListeners = new Set<(p: ResearchProgress) => void>();
   /** Research jobs that ended but whose sources aren't saved yet. */
   const finishing = new Set<string>();
 
@@ -426,9 +469,12 @@ export function createLive(d: LiveDeps): Live {
       progressListeners.add(listener);
       return () => void progressListeners.delete(listener);
     },
-    onResearchProgress(listener) {
-      researchListeners.add(listener);
-      return () => void researchListeners.delete(listener);
+    onJobProgress(listener) {
+      jobListeners.add(listener);
+      return () => void jobListeners.delete(listener);
+    },
+    async jobProgress() {
+      return [...trackers.values()].map((t) => t.snapshot());
     },
     onRunOutput(listener) {
       runListeners.add(listener);
@@ -488,19 +534,15 @@ export function createLive(d: LiveDeps): Live {
         // A new course, on a server that saves only it (§4.6).
         const course = courseId(goal.topic, Date.now());
         const reads: { title: string; url: string }[] = [];
-        // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
+        // The same backstop as tutor replies (§2.2): a page that shows hidden material is no source.
         const filter = hidden();
         const safe = (text: string) => filterReply(text, filter) === text;
-        const onProgress = (step: ResearchStep) => {
-          const shown: ResearchProgress = step.kind === 'read' ? { kind: 'read', url: step.url } : step;
-          if (safe(step.kind === 'search' ? step.query : step.kind === 'read' ? (step.href ?? step.url) : step.label)) researchListeners.forEach((l) => l(shown));
-        };
         const onSource = (source: { title: string; url: string }) => {
           if (safe(source.url)) reads.push({ title: source.title.slice(0, 120), url: source.url });
         };
         // Research counts as running until its sources are saved, so a poll meanwhile starts no second agent.
         finishing.add(key);
-        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, undefined, onProgress, onSource)
+        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, { onSource })
           .then(async (o) => {
             if (o.ok) {
               // Quitting waits for this save, like any other run (stop()).
@@ -565,8 +607,20 @@ export function createLive(d: LiveDeps): Live {
       setup.approved = proposal;
       setup.problem = undefined;
       setup.installs++;
+      // Codemm builds and checks the approved files: the setup's later stages (§4.11).
+      const tracker = jobTracker('setup');
+      trackers.set(`install:${ref}`, tracker);
+      tracker.reach(1);
+      tellJob(tracker.snapshot());
       setup.installing = dockerReady()
-        .then(() => core.installProposal(ref, digest))
+        .then(() =>
+          core.installProposal(ref, digest, (p) => {
+            // Counts only: the build's steps, then its checks.
+            if (p.phase === 'building') tracker.reach(1, { done: p.done, total: p.total });
+            else tracker.reach(2);
+            tellJob(tracker.snapshot());
+          }),
+        )
         .then(() => {
           setup.approved = undefined;
         })
@@ -585,6 +639,8 @@ export function createLive(d: LiveDeps): Live {
           await core.dropProposal(ref).catch(() => undefined);
         })
         .finally(() => {
+          trackers.delete(`install:${ref}`);
+          tellJob({ ...tracker.snapshot(), ended: true });
           setup.installing = undefined;
           schedule();
         });
@@ -671,10 +727,11 @@ export function createLive(d: LiveDeps): Live {
         const course = approved();
         const view = await whenDockerReady(() => core.checkExercise(ws, activityId, course, progressOf(run)));
         const concepts = core.listExercises(ws, course).find((e) => e.exercise === activityId)?.concepts ?? [];
-        const state = core.progress(ws, course).concepts.find((c) => concepts.includes(c.id));
+        const progress = core.progress(ws, course);
+        const state = progress.concepts.find((c) => concepts.includes(c.id));
         // A graded check can move the course on: the next topic's lesson and activity.
         schedule();
-        return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false });
+        return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false, later: otherReady(progress, concepts) });
       } catch (e) {
         const reason = notCounted(e);
         if (reason) {
@@ -735,7 +792,7 @@ export function createLive(d: LiveDeps): Live {
   };
   // Every call: a damaged record says so, with core's guidance. (onCheckProgress subscribes; it isn't a call.)
   for (const name of Object.keys(api) as (keyof Live)[]) {
-    if (name === 'onCheckProgress' || name === 'onResearchProgress' || name === 'onRunOutput') continue;
+    if (name === 'onCheckProgress' || name === 'onJobProgress' || name === 'onRunOutput') continue;
     const call = api[name] as (...args: unknown[]) => Promise<unknown>;
     (api as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => call.apply(api, args).catch((e: unknown) => Promise.reject(repairable(e)));
   }

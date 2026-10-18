@@ -163,7 +163,13 @@ export function fakeCore() {
     assertRuntime: async () => undefined,
     getRoadmap: (_ws, bound) => roadmapOf(bound),
     listProposals: () => c.proposals,
-    installProposal: (ref, digest) => c.install(ref, digest),
+    // Reports a two-step build, then its checks, as core does.
+    installProposal: (ref, digest, onProgress) => {
+      onProgress?.({ phase: 'building', done: 1, total: 2 });
+      onProgress?.({ phase: 'building', done: 2, total: 2 });
+      onProgress?.({ phase: 'checking' });
+      return c.install(ref, digest);
+    },
     dropProposal: async () => void (c.proposals = []),
     getLesson: (_ws, id, bound) => (c.bound.push(bound), { examples: [], ...c.lessons.find((l) => l.id === id)! }),
     // Run: asks for a name and greets it; stops when killed.
@@ -264,7 +270,7 @@ export function live(over: Partial<Record<Job['kind'], Act>> = {}, deps: Partial
     state,
     ws: '/Users/me/Codemm',
     agentDir: '/userData/agents',
-    server: (course, tools) => ({ command: '/app', args: ['core/cli.mjs', 'mcp', ...(course ? ['--course', course] : []), '--tools', tools.join(',')] }),
+    server: (course, tools, progress) => ({ command: '/app', args: ['core/cli.mjs', 'mcp', ...(course ? ['--course', course] : []), '--tools', tools.join(','), ...(progress ? ['--progress', progress] : [])] }),
     runJob: jobs.runJob,
     log: createLog(dir),
     ...deps,
@@ -272,23 +278,24 @@ export function live(over: Partial<Record<Job['kind'], Act>> = {}, deps: Partial
   return { api, c, app, jobs, connect, dir, logFile: join(dir, 'codemm.log') };
 }
 
-export async function until(api: CodemmApi, done: (c: CourseView) => boolean) {
-  for (let i = 0; i < 40; i++) {
-    const c = await api.course();
-    if (c && done(c)) return c;
+/** Reads until `done` holds, for up to 2 s, then fails. A read that throws fails at once. */
+export async function settle<T>(read: () => Promise<T>, done: (value: T) => boolean, what: string): Promise<T> {
+  const deadline = Date.now() + 2000;
+  for (;;) {
+    const value = await read();
+    if (done(value)) return value;
+    if (Date.now() > deadline) throw new Error(`${what} never settled`);
     await new Promise((r) => setTimeout(r, 5));
   }
-  throw new Error('never settled');
+}
+
+export async function until(api: CodemmApi, done: (c: CourseView) => boolean) {
+  return (await settle(() => api.course(), (c) => c !== null && done(c), 'The course'))!;
 }
 
 export async function researched(t: ReturnType<typeof live>) {
   await t.api.connect('claude');
-  let r = await t.api.research({ topic: 'React', known: '', depth: 'standard' });
-  for (let i = 0; i < 20 && r.state === 'running'; i++) {
-    await new Promise((res) => setTimeout(res, 5));
-    r = await t.api.research({ topic: 'React', known: '', depth: 'standard' });
-  }
-  return r;
+  return settle(() => t.api.research({ topic: 'React', known: '', depth: 'standard' }), (r) => r.state !== 'running', 'Research');
 }
 
 export async function practising(t: ReturnType<typeof live>) {

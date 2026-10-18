@@ -1,31 +1,17 @@
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { CodemmApi, JobProgress } from '../../../shared/api';
+import { xterm } from '../../testing/xterm';
 import { scenario } from '../../../main/mock';
 import { mockWithCourse, renderApp } from '../../test-utils';
 
-// jsdom can't lay out xterm.js; this stand-in takes typing. The pane's text mirror shows what was written.
-const xterm = vi.hoisted(() => ({ type: (_data: string) => undefined as void }));
-vi.mock('@xterm/xterm', () => ({
-  Terminal: class {
-    options = {};
-    loadAddon() {}
-    open() {}
-    write() {}
-    reset() {}
-    onData(listener: (data: string) => void) {
-      xterm.type = listener;
-      return { dispose() {} };
-    }
-    dispose() {}
-    focus() {}
-    attachCustomKeyEventHandler() {}
-  },
-}));
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }));
+vi.mock('@xterm/xterm', () => import('../../testing/xterm'));
+vi.mock('@xterm/addon-fit', () => import('../../testing/xterm'));
 
-async function open(options?: Parameters<typeof mockWithCourse>[0]) {
+async function open(options?: Parameters<typeof mockWithCourse>[0], before?: (api: CodemmApi) => void) {
   const { api, course } = await mockWithCourse({ read: true, ...options });
+  before?.(api);
   const view = renderApp({ to: 'practice', concept: course.topics[0].id }, api);
   await screen.findByRole('heading', { name: 'Click Counter' });
   return { ...view, course, user: userEvent.setup() };
@@ -43,7 +29,8 @@ async function checkUntilStuck(user: ReturnType<typeof userEvent.setup>) {
   await write(user, 'wrong /* your code */');
   for (let i = 0; i < 3; i++) {
     await user.click(screen.getByRole('button', { name: 'Check' }));
-    await within(results()).findByRole('heading', { name: /passed|Try another way/ });
+    // Stuck shows the ways forward above the failed results, so both headings may be there.
+    await within(results()).findAllByRole('heading', { name: /passed|Try another way/ });
   }
 }
 
@@ -237,6 +224,25 @@ describe('practice', () => {
     expect(asked).toBe(2);
   });
 
+  it("says Codemm is thinking while it answers, with the turn's latest step", async () => {
+    let hear: (p: JobProgress) => void = () => undefined;
+    const { api, user } = await open(undefined, (a) => (a.onJobProgress = (listener) => ((hear = listener), () => undefined)));
+    let answer!: () => void;
+    const ask = api.ask;
+    api.ask = (place, text) => new Promise((done) => (answer = () => done(ask(place, text))));
+    await user.click(screen.getByRole('button', { name: 'Hint' }));
+    const rail = screen.getByRole('complementary', { name: 'Codemm' });
+    expect(within(rail).getByRole('status')).toHaveTextContent('Codemm is thinking…');
+    // A turn asked elsewhere, still running ahead of this one, isn't this question's.
+    act(() => hear({ job: 't0', kind: 'tutor', stage: 0, steps: [{ kind: 'step', label: 'Reading the lesson' }], count: 1, thinking: true, elapsedMs: 60_000, idleMs: 0 }));
+    expect(within(rail).queryByText('Reading the lesson')).not.toBeInTheDocument();
+    act(() => hear({ job: 't1', kind: 'tutor', stage: 0, steps: [{ kind: 'step', label: 'Reading the activity' }], count: 1, thinking: true, elapsedMs: 0, idleMs: 0 }));
+    expect(within(rail).getByText('Reading the activity')).toBeInTheDocument();
+    answer();
+    await vi.waitFor(() => expect(within(rail).queryByText('Codemm is thinking…')).not.toBeInTheDocument());
+    expect(within(rail).queryByText('Reading the activity')).not.toBeInTheDocument();
+  });
+
   it('offers calm ways forward when stuck, including an easier topic', async () => {
     const { user } = await open();
     await checkUntilStuck(user);
@@ -314,6 +320,17 @@ describe('Run', () => {
     expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
     expect(terminal()).not.toHaveTextContent('left');
     expect((await api.course())!.topics[0].mastery).toBe(0);
+  });
+
+  it('counts down from the whole limit, even when the clock ticks while the run starts', async () => {
+    const { user } = await openIo();
+    // Each read of the clock is a millisecond later, as on a busy machine.
+    let t = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => (t += 1));
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(terminal()).toHaveTextContent('left'));
+    expect(terminal()).toHaveTextContent('2:00 left');
+    vi.restoreAllMocks();
   });
 
   it('runs under StrictMode, as the app does, where every effect replays once', async () => {
