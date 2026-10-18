@@ -28,6 +28,7 @@ test('connect, computer check, goal, course, lesson and practice', async () => {
   await button('Approve').click();
   const consent = page.getByRole('dialog', { name: 'Set up React on this computer?' });
   await consent.getByRole('button', { name: 'Set up', exact: true }).click();
+  await expect(consent).toBeHidden({ timeout: 15_000 });
 
   await expect(heading('JavaScript basics')).toBeVisible();
   await expect(button('Read useState')).toBeVisible({ timeout: 15_000 });
