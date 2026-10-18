@@ -6,7 +6,7 @@ import { CodemmError } from "./errors.js";
 import { type FileMap, subMap, validateFileMap, writeFileMap } from "./files.js";
 import { gradeRuns, type IoRun, redact, type TestResult } from "./grading.js";
 import { type JudgeTrack, runSets } from "./judge.js";
-import { buildImage, type BuildStep, inspectImage } from "./sandbox.js";
+import { buildImage, type BuildStep, infraKind, inspectImage } from "./sandbox.js";
 import {
   type CourseRecord, type ExerciseRecord, type ExerciseSpec, parseExerciseYaml, parseTrackYaml, type Style, type TrackRecord, type TrackSpec,
 } from "./schemas.js";
@@ -14,7 +14,9 @@ import {
 /** A gate failed. The message names the gate and never contains hidden inputs or outputs. */
 export class GateError extends CodemmError {
   constructor(gate: string, details: string) {
-    super(`Gate "${gate}" failed: ${details}`);
+    // A failure whose details show this computer's problem (a probe out of disk, a build that lost Docker) isn't
+    // the track's: its kind tells the desktop to keep the proposal.
+    super(`Gate "${gate}" failed: ${details}`, infraKind(details));
   }
 }
 

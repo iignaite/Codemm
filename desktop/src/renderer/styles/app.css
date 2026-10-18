@@ -227,6 +227,8 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .gr .g { background: var(--green-ink); animation: draw .5s var(--ease) backwards; animation-delay: var(--d, .3s); }
 .grow { min-height: 50px; display: flex; align-items: center; gap: 16px; padding: 0 16px; font-size: 15.5px; font-weight: 500; }
 .grow.later { color: var(--faint); font-weight: 400; }
+button.grow.link { width: 100%; border: none; border-radius: 10px; background: transparent; color: inherit; font-family: inherit; text-align: left; cursor: pointer; }
+button.grow.link:hover { background: var(--soft); }
 .now-card { margin: 8px 0; padding: 14px 18px; display: flex; align-items: center; gap: 16px; border: 1.5px solid var(--green-ink); }
 .now-card b { flex: 1; font-size: 16px; }
 .soon { font-size: 13px; color: var(--muted); }
@@ -330,6 +332,9 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 a.inline { color: inherit; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
 a.inline:hover { color: var(--ink); }
 
+/* A new version, at the foot of the sidebar (§7.2). */
+.side .update { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; padding: 12px; border: 1px solid var(--navy-line); border-radius: 10px; color: var(--navy-text); font-size: 13px; }
+.side .update a { color: #9AF0B8; font-weight: 600; }
 /* Job progress (§4.11): Emm fills from grey to green, tail to head, as the job reaches each stage. */
 .emm-fill { position: relative; display: inline-block; flex-shrink: 0; line-height: 0; }
 .emm-fill .emm { animation: none; }
