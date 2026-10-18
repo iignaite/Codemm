@@ -154,7 +154,6 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .you { margin: 0; font-size: 14px; color: var(--muted); }
 .you b { color: var(--ink); font-weight: 600; }
 .note { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 12px; border: 1px solid var(--line); font-size: 14.5px; line-height: 1.5; }
-.note.thinking { margin: 0; color: var(--muted); border-style: dashed; }
 .cfoot { flex-shrink: 0; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line); }
 .cfoot .actions .btn { flex: 1; height: 40px; }
 

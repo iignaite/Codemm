@@ -20,13 +20,3 @@ describe('research progress', () => {
     expect(screen.getByText('3 steps')).toBeInTheDocument();
   });
 });
-
-describe('research time', () => {
-  it('shows how long research has been running', async () => {
-    const api = createMock();
-    api.research = async () => ({ state: 'running' });
-    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
-    expect(await screen.findByRole('timer')).toHaveTextContent('0:00');
-    expect(await screen.findByText('0:01', {}, { timeout: 2000 })).toBeInTheDocument();
-  });
-});

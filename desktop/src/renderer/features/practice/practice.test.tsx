@@ -85,10 +85,9 @@ describe('practice', () => {
     const ask = api.ask;
     api.ask = (place, text) => new Promise((resolve, reject) => (answer = (ok) => (ok ? resolve(ask(place, text)) : reject(new Error('codemm:agent-failed')))));
     await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'And this?{Enter}');
-    expect(await screen.findByText('Codemm is thinking…')).toBeInTheDocument();
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled());
     answer(false);
     await vi.waitFor(() => expect(screen.getByRole('textbox', { name: 'Ask Codemm' })).toHaveValue('And this?'));
-    expect(screen.queryByText('Codemm is thinking…')).not.toBeInTheDocument();
   });
 
   it('keeps unchecked code when the learner leaves and comes back', async () => {

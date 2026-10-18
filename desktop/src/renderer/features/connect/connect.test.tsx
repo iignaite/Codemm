@@ -102,15 +102,3 @@ describe('connect journey', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
   });
 });
-
-describe('loading', () => {
-  it('says Welcome and Connect are loading instead of showing nothing', async () => {
-    const api = createMock();
-    api.agents = () => new Promise(() => {});
-    const view = renderApp({ to: 'welcome' }, api);
-    expect(await screen.findByRole('status')).toHaveTextContent('Loading');
-    view.unmount();
-    renderApp({ to: 'connect' }, api);
-    expect(await screen.findByRole('status')).toHaveTextContent('Loading');
-  });
-});

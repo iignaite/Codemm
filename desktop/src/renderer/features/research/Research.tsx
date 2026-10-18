@@ -15,13 +15,6 @@ export function Research({ goal }: { goal: Goal }) {
   // What the agent is looking at, the latest first (§4.9).
   const [steps, setSteps] = useState<ResearchProgress[]>([]);
   useEffect(() => api.onResearchProgress((step) => setSteps((s) => [step, ...s])), [api]);
-  // How long research has run: it can take minutes.
-  const [seconds, setSeconds] = useState(0);
-  useEffect(() => {
-    const started = Date.now();
-    const tick = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
-    return () => clearInterval(tick);
-  }, [goal]);
 
   useEffect(() => {
     if (data?.state === 'done' && data.roadmap) go({ to: 'course', roadmap: data.roadmap });
@@ -47,7 +40,6 @@ export function Research({ goal }: { goal: Goal }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
         <Emm mood="think" width={110} />
         <h1 className="h1 a-up">Researching {goal.topic}</h1>
-        <span className="soon" role="timer">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</span>
       </div>
       {steps.length > 0 && (
         <section className="looking" aria-label="Research progress">

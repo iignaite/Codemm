@@ -1,6 +1,6 @@
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed, Loading } from '../../app/Shell';
+import { Failed } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
@@ -14,7 +14,7 @@ export function Welcome() {
   const { go } = useRouter();
   const { data, error, reload } = useLoad(async () => ({ agents: await api.agents(), course: await api.course() }), []);
   if (error) return <Failed error={error} retry={reload} />;
-  if (!data) return <Loading />;
+  if (!data) return null;
   const on = data.agents.some((a) => a.state === 'connected');
   const fx = on ? 'colorin' : 'bw';
   return (

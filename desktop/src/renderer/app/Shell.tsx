@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react';
 import { SIGNED_OUT, type CourseView } from '../../shared/api';
 import { Button } from '../ui/Button';
 import { hueColor } from '../ui/Emm';
-import { Icon, Status, type IconName } from '../ui/Icon';
+import { Icon, type IconName } from '../ui/Icon';
 import { Logo, Mark } from '../ui/Mark';
 import { useApi } from './api';
 import { SAY, problemOf, repairDetail } from './errors';
@@ -108,15 +108,6 @@ export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['s
 }
 
 /** A screen whose data couldn't load. An agent that is missing or signed out goes to connect instead. */
-/** A screen still reading Codemm, instead of a blank window. */
-export function Loading() {
-  return (
-    <main className="center">
-      <span className="busy" role="status"><Status kind="run" size={18} />Loading</span>
-    </main>
-  );
-}
-
 export function Failed({ error, retry }: { error: unknown; retry: () => void }) {
   const { fail } = useRouter();
   const problem = problemOf(error);

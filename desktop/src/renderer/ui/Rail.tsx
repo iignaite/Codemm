@@ -26,7 +26,6 @@ export function Rail({ messages, onAsk, busy = false, name, children }: { messag
       <div className="chead"><Emm width={40} name={name} />Codemm</div>
       <div className="cbody" role="log" aria-busy={busy}>
         {messages.map((m, i) => <Entry key={i} m={m} />)}
-        {busy && <p className="note thinking">Codemm is thinking…</p>}
       </div>
       <div className="cfoot">
         {children}
