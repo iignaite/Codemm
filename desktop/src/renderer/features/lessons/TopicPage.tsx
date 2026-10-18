@@ -53,13 +53,13 @@ function Items({ topic }: { topic: TopicView }) {
   return (
     <div className="card">
       {topic.lessons.map((l, i) => (
-        <div className="row a-up" key={l.id} style={stagger(i, 300)}>
+        <div className={`row a-up${l.state === 'writing' ? ' writing' : ''}`} key={l.id} style={stagger(i, 300)}>
           <Icon name="book" color={l.state === 'writing' ? '#5B6A84' : '#0E7C35'} size={18} />
           {l.state === 'writing' ? (
-            <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <span>{l.title}</span>
+            <>
+              <span style={{ flex: 1 }}>{l.title}</span>
               <Writing kind="lesson" concept={topic.id} label="Writing the lesson" />
-            </span>
+            </>
           ) : (
             <>
               <span style={{ flex: 1 }}>{l.title}</span>
@@ -69,15 +69,13 @@ function Items({ topic }: { topic: TopicView }) {
           )}
         </div>
       ))}
-      <div className={`row a-up${open ? '' : ' off'}`} style={stagger(topic.lessons.length, 300)}>
+      <div className={`row a-up${open ? '' : ' off'}${topic.activity === 'writing' ? ' writing' : ''}`} style={stagger(topic.lessons.length, 300)}>
         <Icon name="code" color="#5B6A84" size={18} />
         <span style={{ flex: 1 }}>{topic.review ? 'Review' : 'Activity'}</span>
         {open ? (
           <Button onClick={() => go({ to: 'practice', concept: topic.id })}>{topic.activity === 'passed' ? 'Again' : 'Start'}</Button>
         ) : topic.activity === 'writing' ? (
-          <span style={{ flex: 2, display: 'flex', justifyContent: 'flex-end' }}>
-            <Writing kind="author" concept={topic.id} label={topic.review ? 'Writing the review' : 'Writing the activity'} width={96} />
-          </span>
+          <Writing kind="author" concept={topic.id} label={topic.review ? 'Writing the review' : 'Writing the activity'} />
         ) : (
           <span role="img" aria-label="Opens after the lessons"><Icon name="lock" color="#5B6A84" size={16} /></span>
         )}

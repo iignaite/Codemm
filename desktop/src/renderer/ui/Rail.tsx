@@ -32,7 +32,7 @@ export function Rail({ messages, onAsk, busy = false, answering, name, children 
         {busy && (
           <div className="note thinking a-up">
             <span role="status">Codemm is thinking…</span>
-            {answering && <JobBar job={answering} label="Codemm's answer" />}
+            {answering && <JobBar job={answering} label="Codemm's answer" compact />}
           </div>
         )}
       </div>

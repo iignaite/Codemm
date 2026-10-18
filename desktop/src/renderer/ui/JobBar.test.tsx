@@ -30,9 +30,26 @@ describe('JobBar (§4.11)', () => {
   it('counts the time so far, from where the job was when it arrived', () => {
     vi.useFakeTimers();
     show(job({ elapsedMs: 65_000 }));
-    expect(screen.getByRole('timer', { name: 'Time so far' })).toHaveTextContent('1:05');
+    const time = () => document.querySelector('.job-time')!.textContent;
+    expect(time()).toBe('1:05');
     act(() => vi.advanceTimersByTime(10_000));
-    expect(screen.getByRole('timer')).toHaveTextContent('1:15');
+    expect(time()).toBe('1:15');
+  });
+
+  it('is a progressbar: Emm fills to the stages reached, named for screen readers by stage and time', () => {
+    vi.useFakeTimers();
+    show(job({ stage: 1, elapsedMs: 7000 }));
+    const bar = screen.getByRole('progressbar', { name: 'Writing the lesson' });
+    expect(bar).toHaveAttribute('aria-valuenow', '50');
+    expect(bar).toHaveAttribute('aria-valuetext', 'Writing the lesson, 0:07');
+    expect(bar.querySelector('.emm-fill')).toHaveAttribute('aria-hidden', 'true');
+    expect((bar.querySelector('.emm-fill') as HTMLElement).style.getPropertyValue('--fill')).toBe('50%');
+  });
+
+  it('dims Emm while it tries again, and says so', () => {
+    show(job({ stage: 1, retry: { attempt: 2, of: 3 } }));
+    expect(document.querySelector('.emm-fill')).toHaveClass('dim');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuetext', 'Trying again (2 of 3), 0:00');
   });
 
   it('says it is still working after 90 seconds with no event while the agent thinks', () => {
@@ -48,12 +65,16 @@ describe('JobBar (§4.11)', () => {
     expect(screen.queryByText('Still working: the agent is thinking.')).not.toBeInTheDocument();
   });
 
-  it('compact: names only the current stage, and a retry but not the latest step', () => {
+  it('compact: a small Emm and one line, the latest step (or the stage) and the time, with no stage list', () => {
     const { rerender } = show(job({ stage: 1, steps: [{ kind: 'step', label: 'Reading the roadmap' }] }), { compact: true });
-    expect(screen.getByText('Writing the lesson', { selector: '.job-now span' })).toBeInTheDocument();
-    expect(screen.getByText('Starting')).toHaveClass('sr-only');
-    expect(screen.queryByText('Reading the roadmap')).not.toBeInTheDocument();
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+    expect(document.querySelector('.job-step')).toHaveTextContent('Reading the roadmap');
+    expect(document.querySelector('.job-time')).toHaveTextContent('0:00');
+    rerender(<JobBar job={{ progress: job({ stage: 1 }), at: Date.now() }} label="Writing the lesson" compact />);
+    expect(document.querySelector('.job-step')).toHaveTextContent('Writing the lesson');
     rerender(<JobBar job={{ progress: job({ stage: 1, retry: { attempt: 2, of: 3 } }), at: Date.now() }} label="Writing the lesson" compact />);
-    expect(screen.getByText('Trying again (2 of 3)')).toBeInTheDocument();
+    expect(document.querySelector('.job-step')).toHaveTextContent('Try 2 of 3');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuetext', 'Trying again (2 of 3), 0:00');
   });
+
 });
