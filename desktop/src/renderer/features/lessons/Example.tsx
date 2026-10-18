@@ -18,7 +18,7 @@ export function Example({ lesson, index }: { lesson: Lesson; index: number }) {
       {example.files.map((f) => (
         <div key={f.path}>
           {example.files.length > 1 && <span className="file">{f.path}</span>}
-          <pre className="code"><code>{f.text}</code></pre>
+          <pre><code>{f.text}</code></pre>
         </div>
       ))}
       {lesson.style === 'io' ? <LiveRun lesson={lesson} index={index} /> : <RunOnce lesson={lesson} index={index} />}
