@@ -27,7 +27,7 @@ test/     node:test suites
 
 - **Page views:** Vercel Web Analytics, in the Vercel project `codemm`, under **Analytics**. It's cookieless and aggregate. Speed Insights is off.
 
-The hero shows the names Claude Code, Codex and Cursor as plain text around Codemm's own art. There are no third-party logos, and the footer says Codemm isn't affiliated with or endorsed by them.
+The hero shows Emm walking while the Claude Code, Codex and Cursor logos walk in; Emm catches each with its tongue and takes its color. The logos are there by the owner's choice; the footer says they're trademarks of their owners and that Codemm isn't affiliated with or endorsed by them. With reduced motion nothing moves: the logos stand still, and clicking one changes Emm's color.
 
 ## Develop
 
@@ -45,7 +45,7 @@ Then open http://localhost:4317.
 cd site && npm test
 ```
 
-The tests cover OS detection, the Mac chip choice, the copy (it says only what Codemm checks), that the orbit starts no animation with reduced motion, which release and installer are offered, that every button is the asset's own GitHub URL, the no-release case, the build, and that the site stays static, with no forms and no tracking beyond Web Analytics. `.github/workflows/site.yml` runs them on pull requests that touch `site/`.
+The tests cover OS detection, the Mac chip choice, the copy (it says only what Codemm checks), that the hero starts no animation with reduced motion, which release and installer are offered, that every button is the asset's own GitHub URL, the no-release case, the build, and that the site stays static, with no forms and no tracking beyond Web Analytics. `.github/workflows/site.yml` runs them on pull requests that touch `site/`.
 
 ## Deploy
 

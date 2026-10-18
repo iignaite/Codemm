@@ -40,9 +40,12 @@ test('the site is static and collects no personal data', () => {
     assert.doesNotMatch(page, /<form|<input|<textarea|speed-insights|gtag|googletagmanager|cookie/i);
     assert.deepEqual(page.match(/_vercel\/[a-z-]+\/script\.js/g), ['_vercel/insights/script.js']);
     assert.doesNotMatch(page, /<script(?![^>]*\b(src=|type="application\/ld\+json"))|\son[a-z]+=|style="/);
-    // No third-party logos: the agents appear as plain text only.
-    assert.equal(files.some((f) => f.includes('agents')), false);
-    assert.match(page, />Claude Code<\/button>/);
+    // The agents' logos, by the owner's choice, each named for screen readers, and the
+    // footer still says they're trademarks of their owners.
+    for (const [name, file] of [['Claude Code', 'claude'], ['Codex', 'codex'], ['Cursor', 'cursor']]) {
+      assert.ok(files.includes(join('img', 'agents', `${file}.svg`)), file);
+      assert.match(page, new RegExp(`aria-label="${name}"><img src="/img/agents/${file}\\.svg" alt=""`));
+    }
     assert.match(page, /Codemm isn't affiliated with or endorsed by them\./);
     assert.match(page, /provided as is, without warranty/);
     // Say only what Codemm checks: exercises against their tests, which must reject the
