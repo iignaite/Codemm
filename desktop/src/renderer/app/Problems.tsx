@@ -5,31 +5,35 @@ import { Button } from '../ui/Button';
 import { useApi } from './api';
 import { SAY, problemOf, repairDetail } from './errors';
 import { useRouter } from './router';
+import { useBusy } from './useBusy';
 
 /** Background work stopped after its retry, and nothing was recorded (§5). A sign-out goes to connect instead. */
 export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['stalled']>; retry: () => void }) {
   const api = useApi();
   const { route, go, fail } = useRouter();
+  // Try again runs once: a double click starts the work once.
+  const starting = useBusy();
   useEffect(() => {
     if (stalled === 'signed-out') fail(new Error(SIGNED_OUT));
   }, [stalled, fail]);
   if (stalled === 'signed-out') return null;
 
-  async function again() {
-    try {
-      await api.retryJobs();
-      retry();
-    } catch (e) {
-      fail(e);
-    }
-  }
+  const again = () =>
+    starting.guard(async () => {
+      try {
+        await api.retryJobs();
+        retry();
+      } catch (e) {
+        fail(e);
+      }
+    });
 
   return (
     <div className="failed" role="alert">
       {stalled === 'failed' ? "Codemm couldn't finish that." : SAY[stalled]}
       {stalled === 'failed' && <Button variant="text" onClick={() => go({ to: 'connect', then: route })}>Check your agent</Button>}
       {/* An agent Codemm couldn't stop is still running: only quitting stops it (§3.1). */}
-      {stalled !== 'unstoppable' && <Button variant="text" onClick={again}>Try again</Button>}
+      {stalled !== 'unstoppable' && <Button variant="text" disabled={starting.busy} onClick={again}>Try again</Button>}
     </div>
   );
 }
