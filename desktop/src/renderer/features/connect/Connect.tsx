@@ -96,7 +96,7 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
         </ul>
         <div className="a-up" style={{ ...stagger(4), display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <span className="quiet-text">Codemm uses your agent and your plan.</span>
-          <Button size="lg" disabled={!list.some((a) => a.state === 'connected')} onClick={() => go({ to: 'computer', then })}>Continue</Button>
+          <Button size="lg" disabled={!list.some((a) => a.state === 'connected')} onClick={() => go({ to: 'computer', then, fromConnect: true })}>Continue</Button>
         </div>
       </div>
     </main>

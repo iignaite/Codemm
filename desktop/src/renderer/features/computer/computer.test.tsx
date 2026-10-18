@@ -15,8 +15,18 @@ function open(options: MockOptions) {
 }
 
 describe('check this computer', () => {
-  it('moves on by itself when the first check finds the computer ready', async () => {
+  it('moves on by itself when the first check after Connect finds the computer ready', async () => {
+    renderApp({ to: 'computer', then: { to: 'goal' }, fromConnect: true });
+    expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
+  });
+
+  it('an explicit Check this computer that finds it ready says so, and waits for Continue', async () => {
+    const user = userEvent.setup();
     renderApp({ to: 'computer', then: { to: 'goal' } });
+    expect(await screen.findByText('This computer is ready.')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole('heading', { name: 'Check this computer' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
   });
 

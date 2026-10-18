@@ -153,6 +153,13 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await app.close();
 });
 
+test('a relaunch with a connected agent opens on Welcome, connected, which passes WCAG AA checks', async () => {
+  const { app, page } = await launch('relaunch');
+  await expect(heading(page, 'Ready when you are.')).toBeVisible();
+  await audit(page, 'welcome, connected');
+  await app.close();
+});
+
 test('failure and environment screens pass WCAG AA checks', async () => {
   for (const scenario of ['no-agent', 'untested-version']) {
     const { app, page } = await launch(scenario);

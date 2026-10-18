@@ -38,6 +38,8 @@ export interface MockOptions {
   /** Read on every call: agent jobs fail with this until it's cleared. */
   agentProblem?: 'signed-out' | 'plan-limit' | 'offline' | 'failed';
   untested?: boolean;
+  /** The agent connected before: a relaunch shows it connected. */
+  connected?: AgentId;
   setupProblem?: SetupProblem;
   /** Read on every call: background work stopped with this until the learner tries again or connects again. */
   stalled?: CourseView['stalled'];
@@ -68,6 +70,7 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'setup-gates': { setupProblem: 'gates' },
   'no-agent': { agents: { claude: 'missing', codex: 'missing', cursor: 'missing' } },
   'one-agent': { agents: { codex: 'missing', cursor: 'missing' } },
+  relaunch: { connected: 'claude' },
   'signed-out': { agents: { claude: 'signed-out', codex: 'signed-out', cursor: 'missing' } },
   'sign-in-expires': { later: { after: 'approve', set: { agentProblem: 'signed-out' } } },
   'plan-limit': { later: { after: 'approve', set: { agentProblem: 'plan-limit' } } },
@@ -178,7 +181,7 @@ function hostPlatform(): Platform {
 const slugOf = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
 export function createMock(options: MockOptions = {}): CodemmApi {
-  const agents = AGENTS.map((a) => ({ ...a, state: (options.agents?.[a.id] === 'missing' ? 'missing' : 'not-connected') as Agent['state'] }));
+  const agents = AGENTS.map((a) => ({ ...a, state: (options.agents?.[a.id] === 'missing' ? 'missing' : options.connected === a.id ? 'connected' : 'not-connected') as Agent['state'] }));
   const tracks: Track[] = [];
   const lessons = new Map<string, Lesson>();
   const activities = new Map<string, { activity: Activity; fails: number }>();

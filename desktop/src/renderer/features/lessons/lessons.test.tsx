@@ -207,7 +207,7 @@ describe('topic page and setup consent', () => {
 
   it('says when Docker stopped during setup, and offers Check this computer', async () => {
     const user = userEvent.setup();
-    const { api } = await approved({ setupProblem: 'docker', docker: 'stopped' });
+    const { api } = await approved({ setupProblem: 'docker' });
     renderApp({ to: 'topic', topicId: TOPIC }, api);
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
     const alert = await screen.findByRole('alert');

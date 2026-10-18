@@ -12,7 +12,7 @@ import { CHECK_NAMES, DETAILS, FIXES, INSTALL, NOT_YET } from './fixes';
 const STATE_TEXT = { ok: 'Ready', problem: 'Needs a step', waiting: 'Waiting' } as const;
 
 /** Can this computer run graded checks? Re-checks by itself until it can. */
-export function Computer({ then }: { then: Route }) {
+export function Computer({ then, fromConnect = false }: { then: Route; fromConnect?: boolean }) {
   const api = useApi();
   const { go, fail } = useRouter();
   // One check at a time: a click or focus while one runs waits for its result. The ref is set the moment a
@@ -33,8 +33,9 @@ export function Computer({ then }: { then: Route }) {
     installing(last.current) ? timing.pollMs : timing.recheckMs,
   );
   last.current = data;
-  // Ready at the first check: nothing to show, so Codemm moves on. After a step, Continue waits for the learner.
-  const hadStep = useRef(false);
+  // On the way in from Connect, ready at the first check: nothing to show, so Codemm moves on. An explicit
+  // Check this computer, or one where the learner had a step to take, says "This computer is ready." and waits.
+  const hadStep = useRef(!fromConnect);
   if (data && !data.ready) hadStep.current = true;
   const ready = data?.ready ?? false;
   useEffect(() => {
