@@ -10,8 +10,9 @@ export function bindRuns<W>() {
     /** Wraps the IPC handler. A Run belongs to its window from the start call until that call settles. */
     wrap<E extends { sender: W }>(handle: Handle<E>): Handle<E> {
       return (event, method, args) => {
-        if (method === 'runProgram' && Array.isArray(args)) {
-          const run = args[1];
+        // The run id is the start call's last argument.
+        if ((method === 'runProgram' || method === 'runExampleLive') && Array.isArray(args)) {
+          const run = args.at(-1);
           if (typeof run !== 'string' || owners.has(run)) return Promise.reject(new SafeError('Bad input'));
           owners.set(run, event.sender);
           return handle(event, method, args).finally(() => owners.delete(run));

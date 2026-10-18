@@ -15,6 +15,7 @@ import {
   type CheckProgress,
   type JobProgress,
   type RunOutput,
+  type RunResult,
   type CodemmApi,
   type Computer,
   type Concept,
@@ -391,9 +392,46 @@ export function createLive(d: LiveDeps): Live {
     progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total, ...(phase === 'visible' && test ? { test: finished(test) } : {}) }));
 
   // Run's programs, by run id (§4.10). What they print goes to whoever listens; main sends it to the window that started each.
-  const programs = new Map<string, { program?: CoreProgramRun; stopped: boolean }>();
+  const programs = new Map<string, { program?: CoreProgramRun; stopped: boolean; cancel?: () => void }>();
   const runListeners = new Set<(o: RunOutput) => void>();
   const tell = (o: RunOutput) => runListeners.forEach((l) => l(o));
+  type StartProgram = (output: (text: string, stream: 'stdout' | 'stderr') => void, options: { onStart: (stage: 'build' | 'run', limitMs: number) => void }) => Promise<CoreProgramRun>;
+
+  /** One Run, an activity's or a lesson example's: its output tagged with `run`, and stoppable before it has started. */
+  async function program(run: string, startProgram: StartProgram): Promise<RunResult> {
+    if (programs.has(run)) throw new SafeError('Bad input');
+    if (programs.size >= MAX_PROGRAMS) throw new SafeError('Too many programs are running. Stop one, then try again.');
+    const entry: { program?: CoreProgramRun; stopped: boolean; cancel?: () => void } = { stopped: false };
+    programs.set(run, entry);
+    try {
+      const r = await new Promise<Awaited<CoreProgramRun['done']> | undefined>((resolve, reject) => {
+        let starting = false;
+        // Stopped while waiting for Docker: it ends now, frees its place, and never starts.
+        entry.cancel = () => !starting && resolve(undefined);
+        // Tracked until the program has ended, so quitting waits for its container and files to go.
+        whenDockerReady(async () => {
+          if (entry.stopped) return undefined;
+          starting = true;
+          const program = await startProgram((text, stream) => tell({ run, stream, text }), { onStart: (stage, limitMs) => tell({ run, started: stage, limitMs }) });
+          entry.program = program;
+          // Stopped while it was starting.
+          if (entry.stopped) program.kill();
+          return program.done;
+        }).then(resolve, reject);
+      });
+      if (!r) return { kind: 'ran', exit: 137, timedOut: false, stopped: true, flooded: false, outOfMemory: false };
+      return { kind: 'ran', exit: r.exit, ...(r.stage ? { stage: r.stage } : {}), timedOut: r.timedOut, stopped: r.stopped ?? false, flooded: r.flooded, outOfMemory: r.outOfMemory ?? false };
+    } catch (e) {
+      const reason = notCounted(e);
+      if (reason) {
+        log('not-counted', { run: 'program', reason });
+        return { kind: 'not-run', reason };
+      }
+      throw e;
+    } finally {
+      programs.delete(run);
+    }
+  }
 
   /** Research jobs that ended but whose sources aren't saved yet. */
   const finishing = new Set<string>();
@@ -641,37 +679,14 @@ export function createLive(d: LiveDeps): Live {
       }
     },
 
-    async runProgram(activityId, run) {
-      if (programs.has(run)) throw new SafeError('Bad input');
-      if (programs.size >= MAX_PROGRAMS) throw new SafeError('Too many programs are running. Stop one, then try again.');
-      const entry: { program?: CoreProgramRun; stopped: boolean } = { stopped: false };
-      programs.set(run, entry);
-      try {
-        // Tracked until the program has ended, so quitting waits for its container and files to go.
-        const r = await whenDockerReady(async () => {
-          const program = await core.runInteractive(ws, activityId, undefined, (text, stream) => tell({ run, stream, text }), { onStart: (stage, limitMs) => tell({ run, started: stage, limitMs }) });
-          entry.program = program;
-          // Stopped while it was starting.
-          if (entry.stopped) program.kill();
-          return program.done;
-        });
-        return { kind: 'ran', exit: r.exit, ...(r.stage ? { stage: r.stage } : {}), timedOut: r.timedOut, stopped: r.stopped ?? false, flooded: r.flooded, outOfMemory: r.outOfMemory ?? false };
-      } catch (e) {
-        const reason = notCounted(e);
-        if (reason) {
-          log('not-counted', { run: 'program', reason });
-          return { kind: 'not-run', reason };
-        }
-        throw e;
-      } finally {
-        programs.delete(run);
-      }
-    },
+    runProgram: (activityId, run) => program(run, (output, options) => core.runInteractive(ws, activityId, undefined, output, options)),
+    runExampleLive: (lessonId, index, run) => program(run, (output, options) => core.runExampleLive(ws, lessonId, index, undefined, output, options)),
     sendRunInput: async (run, text) => programs.get(run)?.program?.write(text) ?? false,
     async stopRun(run) {
       const entry = programs.get(run);
       if (!entry) return;
       entry.stopped = true;
+      entry.cancel?.();
       entry.program?.kill();
     },
 
@@ -732,6 +747,7 @@ export function createLive(d: LiveDeps): Live {
       log('quit', { jobs: running.size, runs: runs.size });
       for (const entry of programs.values()) {
         entry.stopped = true;
+        entry.cancel?.();
         entry.program?.kill();
       }
       await cancel(() => true);

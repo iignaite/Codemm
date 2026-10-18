@@ -65,6 +65,8 @@ export interface CoreLesson {
   notes: string;
   /** Runnable examples: file maps that follow the track's contract. */
   examples: Record<string, string>[];
+  /** How the examples run, when there are any: io ones take typed input, unit ones run as tests. */
+  style?: 'io' | 'unit';
 }
 
 /** core judge.ts ProgramRun: a running program. `write` is false when the input wasn't taken. */
@@ -103,6 +105,8 @@ export interface CoreApp {
    * `done` rejects only on an infrastructure failure.
    */
   runInteractive(ws: string, slug: string | undefined, bound: string | undefined, output: (text: string, stream: 'stdout' | 'stderr') => void, options?: { onStart?: (stage: 'build' | 'run', limitMs: number) => void }): Promise<CoreProgramRun>;
+  /** Run for a lesson's io example: like runInteractive, on the example's files. Never recorded. */
+  runExampleLive(ws: string, lessonId: string, index: number, bound: string | undefined, output: (text: string, stream: 'stdout' | 'stderr') => void, options?: { onStart?: (stage: 'build' | 'run', limitMs: number) => void }): Promise<CoreProgramRun>;
   /** Runs a saved lesson example in the sandbox; output and errors are capped. Never recorded. */
   runExample(ws: string, lessonId: string, index: number, bound?: string): Promise<{ exit: number; output: string; errors: string }>;
   listLessons(ws: string, bound?: string): { id: string; concept: string; title: string; read: boolean }[];
