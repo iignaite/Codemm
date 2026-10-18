@@ -22,7 +22,7 @@ Status: trimmed to the owner-approved 1.0 scope (the scope ledger, 17 Oct 2026),
 
 1.0 is the core harness (`docs/DESIGN.md`, A1 to A16) plus a desktop app that runs the prototype's journeys:
 
-- **Connect:** Claude Code and Codex, with a sign-in check. Cursor is experimental.
+- **Connect:** Claude Code and Codex, with a sign-in check. Codemm installs either one, and Docker, when they're missing (§3.1, §6.1). Cursor is experimental.
 - **Check this computer:** the environment matrix in §6.1.
 - **Learn:**
   1. Pick a goal, and the agent writes a roadmap; it may research first.
@@ -151,13 +151,31 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 
 - Codemm never opens an agent's credential files or keychain entries.
 - Sign-in uses the agent's own status command. Only a yes or no leaves the bridge.
-- Signing in is the learner's job in their agent. A signed-out row says "Sign in to Codex, then try again." with the CLI's own sign-in command (`claude auth login`, `codex login`, `cursor-agent login`) to type in a terminal.
+- Signing in uses the agent's own login, never Codemm. A signed-out row says "Sign in to Codex, then try again." with the CLI's own sign-in command (`claude auth login`, `codex login`, `cursor-agent login`), and a **Sign in** button that starts that login where the learner sees it (`signIn.ts`):
+  - Claude Code: in a Terminal window on macOS (a one-line `.command` file holding the quoted path), or its own console window on Windows.
+  - Codex and Cursor: their login opens the browser.
+  - Codemm never reads, stores or types credentials.
 - A signed-out agent is checked again on every look, and the connect screen looks again when the window regains focus. The agent the learner tried to connect connects once it is signed in.
 - The agent gets the app's environment unchanged (decision O1).
 
 **Finding and launching agents.**
 
-- GUI apps don't load shell profiles. The app looks on `PATH` and in the usual install folders, including where Node version managers put npm-installed CLIs: Volta, nvm (its default version first, then the newest) and fnm's default. On the connect screen the learner can pick the agent's executable.
+- GUI apps don't load shell profiles. The app looks on `PATH` and in the usual install folders, including where Node version managers put npm-installed CLIs: Volta, nvm (its default version first, then the newest) and fnm's default, and where the vendors' installers put the agents (`~/.local/bin`; on Windows, `%USERPROFILE%\.local\bin` and `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin`). On the connect screen the learner can pick the agent's executable.
+
+**Installing an agent for the learner** (`desktop/src/main/agentInstall.ts`). On macOS and Windows, a missing Claude Code or Codex row offers **Install** and **Get it myself** (the official page). Install is the vendor's own user-level install: no Node, npm or admin rights.
+
+- **Downloads.** Only from the vendor's https host, checked at every redirect hop: `downloads.claude.ai` for Claude Code; `releases.openai.com` (where `chatgpt.com/codex/install.*` redirects) for Codex. Nothing is a `curl | sh` string; every command is an argument array.
+- **Claude Code.** Codemm does what Anthropic's `install.sh` and `install.ps1` do, without running a script, so the binary is checked before it runs:
+  1. It reads the latest version and that release's `manifest.json`.
+  2. It downloads the platform's binary and requires its SHA-256 to match the manifest.
+  3. It requires Anthropic's signature. On macOS, `/usr/bin/codesign --verify --strict` with the requirement `anchor apple generic and certificate leaf[subject.OU] = "Q6L2SF6YDW"`: an Apple-issued certificate for Anthropic's team, not just a valid signature. On Windows, Authenticode `O="Anthropic, PBC"`, with the path passed as an environment variable.
+  4. It runs the binary's own `install`, which puts the launcher in `~/.local/bin`.
+  - Downloads are capped per file: 1 KB for the version, 1 MB for the manifest and the scripts, 2 GB for a binary.
+- **Codex.** OpenAI's install script is about 1,300 lines (release-asset SHA-256 checks, its package layout, PATH setup), so Codemm runs it rather than re-implement it: `/bin/sh <file>` on macOS, `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <file>` on Windows, with `CODEX_NON_INTERACTIVE=1`. The script itself verifies its download's SHA-256. Afterwards Codemm requires OpenAI's signature on the installed binary: Apple team `2DC432GLL2` (the same Apple-anchored requirement), or Authenticode `O="OpenAI OpCo, LLC"`. That check comes after the script ran, so it is defense in depth, not a gate. OpenAI publishes no checksum or signature for the script itself.
+- **Nothing unverified runs.** While Codemm is installing or checking an agent, or after an install left something unverified (a rejected binary, or whatever a failed Codex script left), Codemm runs nothing of it this session: not `--version`, the sign-in check, Sign in or a job. Try again installs again. An agent the learner installed themselves is theirs to trust, as in a terminal; so is a leftover found after a relaunch, since the install's state isn't kept.
+- **Verified against real releases.** The Windows signers were read from Anthropic's `claude.exe` and OpenAI's `codex.exe`. An opt-in test (`agentInstall.real.test.ts`) downloads both for real and checks them without installing.
+- **States.** Downloading (with progress), checking, installing, then done or a plain reason: offline, low disk (1 GB), unverified, or the installer didn't finish, each with Try again. An agent Codemm installed gets its sign-in check at once, and connects once signed in.
+- **Never automatic.** Large downloads and third-party terms wait for the learner's click.
 - A native executable runs directly.
 - A JavaScript entry point (a `#!/usr/bin/env node` launcher, like the npm-installed Codex) runs as `ELECTRON_RUN_AS_NODE=1 <app executable> <script>`, so no system Node is needed.
 - On Windows, an npm `.cmd` shim is never run, because that needs a shell. The app reads the script path from npm's fixed shim format and runs that script the same way.
@@ -423,6 +441,12 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 - **Re-checking.** Only the first failing row shows its message. Only one check runs at a time: the next starts 5 seconds after the last finishes, or at once when the window regains focus and no check is running. Re-checking stops once every row passes, and Continue unlocks.
 - **Docker stopping mid-session.** A check or setup that loses Docker fails as an infrastructure failure, records nothing, and opens this screen.
 - **Docker's slow first start.** Setup and checks started while Docker is starting (in the 3 minutes after Codemm opened or installed it) wait for the daemon before failing, and record nothing. With a stopped Docker they fail at once as not counted.
+- **Install what's missing** (`features/setup/Setup.tsx`). On a first run with Docker not installed, or no agent installed, Welcome's one primary action is **Install what's missing**.
+  - Its screen lists what will be installed, with each maker's terms and the agent to install (Claude Code by default, or Codex). Nothing downloads until the learner clicks Install what's missing.
+  - It then runs the Docker install and the agent install side by side, each showing its progress and result.
+  - The learner then sees Docker's terms window, then the agent's sign-in (enabled once Docker's install has handed over to Docker), in that order.
+  - Once Docker is ready and the agent is connected, Codemm moves on to the goal.
+  - Install Docker (below), each agent's Install and Get it myself, and "Do it myself" stay for doing it one at a time.
 - **Installing Docker Desktop for the learner** (`desktop/src/main/dockerDesktop.ts`). One click on Install Docker, on macOS and Windows:
   1. Codemm checks there is room (4 GB on macOS, 8 GB on Windows), then downloads Docker Desktop for this chip from `desktop.docker.com` over https. A redirect may only land on another https docker.com host.
   2. It runs the download only if Docker signed it:
@@ -567,7 +591,7 @@ Cut from 1.0 by the owner's scope ledger:
 
 Also deferred:
 
-- Token-level streaming, a model picker, signing in from inside the app, multiple workspaces and course sharing.
+- Token-level streaming, a model picker, entering credentials inside the app (Sign in starts the agent's own login instead, §3.1), multiple workspaces and course sharing.
 - Stronger hidden-data protection against agents with file access, which would need a separate grader account or encrypted storage.
 - Practice hooks for terminal Codex and Cursor; protection there stays advisory (core §2).
 

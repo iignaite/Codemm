@@ -8,12 +8,14 @@ import { AGENT_CLIS } from './agent/agents';
 import { ask } from './agent/bridge';
 import { find, withDockerFolders } from './agent/find';
 import { computerCheck, waitWhileStarting } from './computer';
+import { agentInstaller, nodeAgentDeps } from './agentInstall';
 import { connector } from './connect';
 import { dockerDesktop, nodeDesktopDeps } from './dockerDesktop';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
 import type { Log } from './log';
 import { codemmServer } from './server';
+import { agentSignIn, nodeSignInDeps } from './signIn';
 import { desktopState, workspaceOf } from './state';
 
 const RUNTIME_INFO = ['info', '--format', '{{.ServerVersion}}|{{.OSType}}'];
@@ -33,6 +35,8 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
   mkdirSync(ws, { recursive: true });
   const runtime = process.execPath;
 
+  // Claude Code and Codex, installed the vendor's own way into the learner's folders, then their own sign-in.
+  const installer = agentInstaller(nodeAgentDeps((bin) => find(bin)));
   const connect = connector(
     {
       find: (bin) => find(bin),
@@ -40,6 +44,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
       version: (id, exe) => ask(exe, AGENT_CLIS[id].version.args, AGENT_CLIS[id].version.read),
     },
     state,
+    { ...installer, signIn: agentSignIn(nodeSignInDeps(runtime)) },
   );
 
   // GUI apps don't load shell profiles: give core's own docker calls Docker's folders, helpers included (§3.1).

@@ -95,12 +95,39 @@ describe('connect journey', () => {
   });
 
   it('links to each agent\'s install page when none is installed', async () => {
-    renderApp({ to: 'connect' }, createMock(scenario('no-agent')));
+    // Linux: Codemm doesn't install agents there.
+    renderApp({ to: 'connect' }, createMock({ ...scenario('no-agent'), platform: 'linux' }));
     const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
     expect(within(claude).getByText('Not installed')).toBeInTheDocument();
     expect(within(claude).getByRole('link', { name: 'Get Claude Code' })).toHaveAttribute('href', 'https://code.claude.com/docs/en/setup');
     expect(within(screen.getByRole('listitem', { name: 'Codex' })).getByRole('link', { name: 'Get Codex' })).toBeInTheDocument();
     expect(within(screen.getByRole('listitem', { name: 'Cursor' })).getByRole('link', { name: 'Get Cursor' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  });
+});
+
+describe('installing an agent', () => {
+  it('installs a missing agent with progress, then signs in with its own login, and continues once signed in', async () => {
+    const user = userEvent.setup();
+    renderApp({ to: 'connect', then: { to: 'goal' } }, createMock({ ...scenario('no-agent'), platform: 'mac' }));
+    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+    expect(within(claude).getByRole('link', { name: 'Get it myself' })).toHaveAttribute('href', 'https://code.claude.com/docs/en/setup');
+    expect(within(screen.getByRole('listitem', { name: 'Cursor' })).queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
+    await user.click(within(claude).getByRole('button', { name: 'Install' }));
+    expect(await within(claude).findByRole('progressbar', { name: 'Downloading Claude Code' })).toBeInTheDocument();
+    await user.click(await within(claude).findByRole('button', { name: 'Sign in' }, { timeout: 4000 }));
+    // Signed in in the agent's own window; coming back to Codemm checks, then moves on as Continue does.
+    window.dispatchEvent(new Event('focus'));
+    expect(await screen.findByRole('heading', { name: /^(Check this computer|What do you want to learn\?)$/ })).toBeInTheDocument();
+  });
+
+  it('says why an install stopped, with Try again and a way to do it by hand', async () => {
+    const user = userEvent.setup();
+    renderApp({ to: 'connect' }, createMock({ ...scenario('agent-install-offline'), platform: 'mac' }));
+    const codex = await screen.findByRole('listitem', { name: 'Codex' });
+    await user.click(within(codex).getByRole('button', { name: 'Install' }));
+    expect(await within(codex).findByText("You're offline. Connect to the internet, then try again.", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(within(codex).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(within(codex).getByRole('link', { name: 'Get it myself' })).toBeInTheDocument();
   });
 });

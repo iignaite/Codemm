@@ -32,6 +32,8 @@ function folders(w: Where): string[] {
       w.appData && join(w.appData, 'npm'),
       w.localAppData && join(w.localAppData, 'Programs'),
       w.localAppData && join(w.localAppData, 'Volta', 'bin'),
+      // Where OpenAI's Windows install script puts Codex.
+      w.localAppData && join(w.localAppData, 'Programs', 'OpenAI', 'Codex', 'bin'),
       'C:\\Program Files\\Docker\\Docker\\resources\\bin',
       join(w.home, '.local', 'bin'),
     ].filter((d): d is string => Boolean(d));

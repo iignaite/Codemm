@@ -11,6 +11,8 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' 
   jobProgress: [],
   connect: ['claude'],
   chooseModel: ['claude', 'opus'],
+  installAgent: ['claude'],
+  signIn: ['codex'],
   computer: [],
   installDocker: [],
   openDocker: [],
