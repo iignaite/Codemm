@@ -127,6 +127,13 @@ describe('jobs (§3.2)', () => {
     expect(agent.runs()).toBe(1);
   });
 
+  it('a stopped attempt keeps its own reason when its cleanup fails too', async () => {
+    const offline = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: "The build couldn't reach the network." }] } };
+    const agent = fakeAgent([init, call('a', 'save_exercise'), offline], { hang: true });
+    const cleanup = async () => { throw new Error('Docker stopped.'); };
+    expect(await runJob(job(agent.exe, { kind: 'author', done: () => false, cleanup }))).toMatchObject({ ok: false, problem: 'offline' });
+  });
+
   it('reports a sign-out when a failed job finds the agent signed out', async () => {
     const agent = fakeAgent([init, failure('Invalid API key')]);
     expect(await runJob(job(agent.exe, { signedIn: async () => false }))).toMatchObject({ ok: false, problem: 'signed-out' });
