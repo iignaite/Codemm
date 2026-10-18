@@ -223,13 +223,20 @@ async function ask(how: 'Hint' | 'Show me' | string): Promise<string> {
 // ---------- moving around ----------
 
 /** The course map, from anywhere (a relaunched app opens on the welcome screen). */
-async function toMap() {
+/**
+ * To the course map. A relaunch whose chosen agent is missing or signed out opens on the welcome screen's
+ * Connect an agent instead: then it stops there and says so.
+ */
+async function toMap(): Promise<'map' | 'welcome'> {
   const map = page.getByRole('list', { name: 'Topics' });
+  const welcome = button('Connect an agent');
   // Right after launch the page may still be rendering: wait for a screen first.
-  await until('a screen', async () => (await visible(button('Start learning'))) || (await visible(nav('Learn'))) || (await visible(map)), MIN);
+  await until('a screen', async () => (await visible(button('Start learning'))) || (await visible(welcome)) || (await visible(nav('Learn'))) || (await visible(map)), MIN);
+  if (await visible(welcome)) return 'welcome';
   if (await visible(button('Start learning'))) await button('Start learning').click();
   else if (!(await visible(map))) await nav('Learn').click();
   await until('the course map', async () => (await visible(map)) || (await visible(heading(/ complete$/))), 2 * MIN);
+  return 'map';
 }
 
 async function nowIndex(): Promise<number> {
@@ -403,7 +410,8 @@ test(`journey: ${label}`, async () => {
       writeFileSync(fake, 'unstoppable-author');
       await toMap();
       await page.getByRole('button', { name: 'Continue', exact: true }).click();
-      await until('the unstoppable message', async () => /couldn't stop your agent/i.test(await page.locator('body').innerText()), 15 * MIN);
+      // The author's deadline (15 min) plus the stop's grace: one run needed 17 min.
+      await until('the unstoppable message', async () => /couldn't stop your agent/i.test(await page.locator('body').innerText()), 25 * MIN);
       const text = await alertText().catch(() => '');
       const tryAgain = await visible(page.getByRole('alert').getByRole('button', { name: 'Try again' }));
       await app.close();
@@ -716,10 +724,14 @@ test(`journey: ${label}`, async () => {
           // other one), and the learner follows what the app offers until the other agent is connected.
           await app.close();
           await launch({ ...env, PATH: `${join(dir!, `bin-${switchTo}`)}:/usr/bin:/bin:/usr/sbin:/sbin` });
-          await toMap();
-          await page.getByRole('button', { name: 'Continue', exact: true }).click();
           const offered: string[] = [];
-          await until('the connect screen', async () => {
+          if ((await toMap()) === 'welcome') {
+            await shot(`switch-to-${switchTo}-welcome`);
+            offered.push('the welcome screen, Connect an agent');
+          } else {
+            await page.getByRole('button', { name: 'Continue', exact: true }).click();
+          }
+          if (!offered.length) await until('the connect screen', async () => {
             if (await visible(heading('Connect an agent'))) return true;
             const check = page.getByRole('alert').getByRole('button', { name: 'Check your agent' });
             if (await visible(check)) {
