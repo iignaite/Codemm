@@ -1,28 +1,12 @@
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { xterm } from '../../testing/xterm';
 import { scenario } from '../../../main/mock';
 import { mockWithCourse, renderApp } from '../../test-utils';
 
-// jsdom can't lay out xterm.js; this stand-in takes typing. The pane's text mirror shows what was written.
-const xterm = vi.hoisted(() => ({ type: (_data: string) => undefined as void }));
-vi.mock('@xterm/xterm', () => ({
-  Terminal: class {
-    options = {};
-    loadAddon() {}
-    open() {}
-    write() {}
-    reset() {}
-    onData(listener: (data: string) => void) {
-      xterm.type = listener;
-      return { dispose() {} };
-    }
-    dispose() {}
-    focus() {}
-    attachCustomKeyEventHandler() {}
-  },
-}));
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }));
+vi.mock('@xterm/xterm', () => import('../../testing/xterm'));
+vi.mock('@xterm/addon-fit', () => import('../../testing/xterm'));
 
 async function open(options?: Parameters<typeof mockWithCourse>[0]) {
   const { api, course } = await mockWithCourse({ read: true, ...options });
