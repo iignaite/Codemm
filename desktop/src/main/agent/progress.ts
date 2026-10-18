@@ -11,6 +11,10 @@ import { JOBS, SAVE_BOUND } from './jobs';
 const SAVES: Partial<Record<JobKind, string>> = { research: 'save_roadmap', roadmap: 'save_roadmap', lesson: 'save_lesson', author: 'save_exercise' };
 const KEPT = 8;
 
+/** The exercise gates (core §6), in the order they run, as Codemm checks them. */
+export const GATES = { reference: 'Codemm is checking that the reference passes', starter: 'Codemm is checking that the starter fails', mutants: 'Codemm is checking that the tests catch each broken version' } as const;
+export type Gate = keyof typeof GATES;
+
 export interface TrackerOptions {
   id?: string;
   concept?: string;
@@ -31,6 +35,8 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
   let steps: JobStep[] = [];
   let count = 0;
   let retry: JobProgress['retry'] = first;
+  let part: JobProgress['part'];
+  let gate: Gate | undefined;
   /** Codemm itself is working (a setup's build), not the agent. */
   let codemm = false;
   let failedSaves = 0;
@@ -68,6 +74,10 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
       }
       if (e.type === 'tool_result') {
         open.delete(e.id);
+        if (saves.has(e.id)) {
+          part = undefined;
+          gate = undefined;
+        }
         if (targets.delete(e.id) && !e.error) step({ kind: 'step', label: 'Writing the exercise' });
         // A rejected save sends the agent back to its work. Only bounded saves count toward "Trying again".
         if (e.error && saves.delete(e.id)) {
@@ -76,17 +86,30 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
         }
       }
     },
-    /** Codemm's own work reached a stage: a setup's build, then its checks. */
-    reach(n: number) {
+    /** Codemm's own work reached a stage: a setup's build (with its steps), then its checks. */
+    reach(n: number, fraction?: JobProgress['part']) {
       lastEvent = now();
       codemm = true;
       stage = Math.min(n, last);
+      part = fraction;
+    },
+    /** True while one of the job's saves runs: only then can an exercise gate be running. */
+    saving: () => [...saves].some((s) => open.has(s)),
+    /** The exercise gate Codemm runs during the author's save (core's --progress file). Ignored when no save runs. */
+    gate(g: Gate) {
+      if (g === gate || ![...saves].some((s) => open.has(s))) return;
+      lastEvent = now();
+      gate = g;
+      part = { done: Object.keys(GATES).indexOf(g) + 1, total: 3 };
+      step({ kind: 'step', label: GATES[g] });
     },
     /** The job's agent runs again after a failure (§3.2): it starts over. */
     relaunch() {
       lastEvent = now();
       stage = 0;
       failedSaves = 0;
+      part = undefined;
+      gate = undefined;
       open.clear();
       saves.clear();
       targets.clear();
@@ -102,6 +125,7 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
         steps,
         count,
         ...(retry ? { retry } : {}),
+        ...(part ? { part } : {}),
         thinking: open.size === 0 && !codemm,
         elapsedMs: t - started,
         idleMs: t - lastEvent,

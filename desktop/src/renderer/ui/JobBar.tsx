@@ -21,10 +21,17 @@ export const clock = (ms: number) => {
 };
 
 /**
- * How far Emm fills: each stage reached fills its share, and the last share is the job done (a tutor turn, with one
- * stage, is half full while it answers). Never a percentage the job doesn't have.
+ * How far Emm fills: each stage reached fills its share, a real fraction (a build's steps, the exercise's gates) fills
+ * within it, and the last share is the job done (a tutor turn, with one stage, is half full while it answers). Never
+ * a percentage the job doesn't have.
  */
-export const fillOf = (p: JobProgress) => Math.min(1, (p.stage + 1) / (JOB_STAGES[p.kind].length + 1));
+export const fillOf = (p: JobProgress) => {
+  const within = p.part && p.part.total > 0 ? Math.min(p.part.done, p.part.total) / p.part.total : 0;
+  return Math.min(1, (p.stage + 1 + within) / (JOB_STAGES[p.kind].length + 1));
+};
+
+/** A real fraction within the stage, as words: a setup's build steps, or which exercise gate runs. */
+export const partOf = (p: JobProgress) => (p.part && p.part.total > 0 ? (p.kind === 'setup' ? `Step ${p.part.done} of ${p.part.total}` : `${p.part.done} of ${p.part.total}`) : undefined);
 
 /** Ticks once a second, for the elapsed time. */
 function useNow() {
@@ -60,7 +67,7 @@ export function JobBar({ job, label, compact = false, noLine = false, emm = true
   const stage = Math.min(p.stage, stages.length - 1);
   const elapsed = clock(p.elapsedMs + since);
   const quiet = p.thinking && p.idleMs + since >= QUIET_MS;
-  const line = nowLine(p);
+  const line = [nowLine(p), partOf(p)].filter(Boolean).join(' ') || undefined;
   const fill = fillOf(p);
   const dim = Boolean(p.retry) || quiet;
   const meter = (
