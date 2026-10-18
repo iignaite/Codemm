@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { CodemmApi } from '../../../shared/api';
@@ -15,6 +15,29 @@ async function master(api: CodemmApi, topics: number) {
     await api.check(id);
   }
 }
+
+describe('a course read that fails after one worked', () => {
+  it('keeps the course on screen, says it could not refresh, and Try again reads again', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse({ read: true });
+    const course = api.course.bind(api);
+    let failing = false;
+    api.course = () => (failing ? Promise.reject(new Error("codemm:offline")) : course());
+    renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('button', { name: 'Continue' })).toBeInTheDocument();
+    failing = true;
+    window.dispatchEvent(new Event('focus'));
+    // A status (the sidebar keeps its own, for updates): this one says what happened.
+    const notice = await screen.findByText(/Codemm couldn't refresh this/);
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveTextContent("Codemm couldn't refresh this. You're offline.");
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+    failing = false;
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    await screen.findByRole('button', { name: 'Continue' });
+    expect(screen.queryByText(/Codemm couldn't refresh this/)).not.toBeInTheDocument();
+  });
+});
 
 describe('course map', () => {
   it('shows mastered, current and later topics, and continues the current one', async () => {
@@ -107,6 +130,17 @@ describe('course map', () => {
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
   });
 
+  it('opens a finished course, and a mastered topic, again', async () => {
+    const user = userEvent.setup();
+    const { api, course } = await mockWithCourse();
+    await master(api, course.topics.length);
+    renderApp({ to: 'learn' }, api);
+    await user.click(await screen.findByRole('button', { name: 'View course' }));
+    const map = await screen.findByRole('list', { name: 'Topics' });
+    await user.click(within(map).getByRole('button', { name: 'JSX' }));
+    expect(await screen.findByRole('heading', { name: 'JSX', level: 1 })).toBeInTheDocument();
+  });
+
   it("says Codemm's records need a repair, and how", async () => {
     const { api } = await mockWithCourse();
     api.course = () => Promise.reject(new Error("codemm:repair\nThe learning log /h/events.jsonl has an invalid entry on line 3. Fix or remove that line, then retry."));
@@ -124,5 +158,47 @@ describe('course map', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Track python@3 offers unit, not style "io".');
     expect(alert).not.toHaveTextContent("Couldn't reach Codemm.");
+  });
+});
+
+describe('usage', () => {
+  const usage = (over: Partial<NonNullable<Awaited<ReturnType<CodemmApi['usage']>>>> = {}) => ({
+    kinds: {},
+    total: { input: 182_400, output: 12_300, cachedInput: 90_000, costUsd: 0.4231, runs: 6 },
+    ...over,
+  });
+
+  it("shows the course's tokens, and Claude's cost as its own estimate, which a plan counts toward its usage", async () => {
+    const { api } = await mockWithCourse();
+    api.usage = async () => usage();
+    renderApp({ to: 'learn' }, api);
+    const section = await screen.findByRole('region', { name: 'Usage' });
+    expect(section).toHaveTextContent('Tokens in182,400');
+    expect(section).toHaveTextContent('Tokens out12,300');
+    expect(section).toHaveTextContent("Claude's estimate$0.42");
+    expect(section).toHaveTextContent("Claude's own estimate. On a Claude plan, this counts toward the plan's usage.");
+    // No promise about charges: Codemm can't tell a plan from an API key.
+    expect(section).not.toHaveTextContent('charge');
+  });
+
+  it('shows no cost when none was reported, and refreshes as jobs finish', async () => {
+    const { api } = await mockWithCourse();
+    let total = { input: 10, output: 2, cachedInput: 0, costUsd: 0, runs: 1 };
+    api.usage = async () => usage({ total });
+    renderApp({ to: 'learn' }, api);
+    const section = await screen.findByRole('region', { name: 'Usage' });
+    expect(section).not.toHaveTextContent('estimate');
+    // Whenever the map reads the course again (here: the window regains focus), it reads usage too.
+    total = { ...total, input: 500, runs: 2 };
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() => expect(section).toHaveTextContent('Tokens in500'));
+  });
+
+  it('is hidden until an agent has run for the course', async () => {
+    const { api } = await mockWithCourse();
+    api.usage = async () => usage({ total: { input: 0, output: 0, cachedInput: 0, costUsd: 0, runs: 0 } });
+    renderApp({ to: 'learn' }, api);
+    await screen.findByRole('list', { name: 'Topics' });
+    expect(screen.queryByRole('region', { name: 'Usage' })).not.toBeInTheDocument();
   });
 });

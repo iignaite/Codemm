@@ -1,22 +1,23 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
+import { parseTrackYaml } from "../src/schemas.js";
 import { createServer, parseToolList, type ServerOptions, TOOL_NAMES } from "../src/mcp.js";
 import * as store from "../src/store.js";
-import { fakeDocker } from "./fake-docker.js";
+import { fakeDocker, posix } from "./fake-docker.js";
+import { tempDir } from "./temp.js";
 
 /** The per-job server: `codemm mcp --tools`, `--course` and `--desktop`. */
 
 let ws: string;
 let client: Client | undefined;
 beforeEach(() => {
-  vi.stubEnv("CODEMM_HOME", mkdtempSync(join(tmpdir(), "codemm-home-")));
-  ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+  vi.stubEnv("CODEMM_HOME", tempDir("codemm-home-"));
+  ws = tempDir("codemm-ws-");
 });
 afterEach(async () => {
   await client?.close();
@@ -97,6 +98,27 @@ describe("--course", () => {
   });
 });
 
+describe("--progress", () => {
+  it.runIf(posix)("writes which gate save_exercise runs to the job's progress file, by name only", async () => {
+    const fixtures = join(import.meta.dirname, "fixtures");
+    const track = readFileMap(join(fixtures, "tracks", "shell-io"));
+    store.commitFolder(store.trackDir("shell-io@1"), track, {
+      "track.json": { format_version: 1, ...parseTrackYaml(track["track.yaml"]!), image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
+    });
+    await app.saveRoadmap(ws, "shell", readFileSync(join(fixtures, "roadmaps", "shell-io.yaml"), "utf8"));
+    const progress = join(tempDir("codemm-progress-"), "job.json");
+    const { call } = await connect({ course: "shell", progress });
+    fakeDocker("streams");
+    // Every fake run prints the same output, so the starter passes too and its gate fails.
+    await expect(call("save_exercise", { files: readFileMap(join(fixtures, "exercises", "io-max")) })).rejects.toThrow(/starter unsolved/);
+    expect(JSON.parse(readFileSync(progress, "utf8"))).toEqual({ format_version: 1, gate: "starter" });
+  });
+
+  it("must be an absolute path", () => {
+    expect(() => createServer(ws, "test", { progress: "job.json" })).toThrow(/absolute/);
+  });
+});
+
 describe("--desktop", () => {
   it("makes save_track propose instead of install", async () => {
     fakeDocker("missing");
@@ -135,5 +157,38 @@ describe("lesson tools", () => {
     expect(app.listLessons(ws)[0]!.read).toBe(false);
     await call("mark_lesson_read", { id: "intro" });
     expect(app.listLessons(ws)[0]!.read).toBe(true);
+  });
+});
+
+describe.runIf(posix)("hidden data through the tools", () => {
+  it("no tool's output carries a hidden input, expected output, solution or mutant", async () => {
+    const fixtures = join(import.meta.dirname, "fixtures");
+    const track = readFileMap(join(fixtures, "tracks", "shell-io"));
+    store.commitFolder(store.trackDir("shell-io@1"), track, {
+      "track.json": { format_version: 1, ...parseTrackYaml(track["track.yaml"]!), image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },
+    });
+    await app.saveRoadmap(ws, "shell", readFileSync(join(fixtures, "roadmaps", "shell-io.yaml"), "utf8"));
+    // Every hidden part of the exercise carries a canary.
+    const files = readFileMap(join(fixtures, "exercises", "io-max"));
+    for (const path of Object.keys(files)) if (/^(tests\/hidden|solution|mutants)\//.test(path)) files[path] = `CANARY ${path}\n`;
+    store.commitFolder(store.exerciseDir("shell", "max-of-line"), files, {
+      "exercise.json": {
+        format_version: 1, slug: "max-of-line", style: "io", concepts: ["sh.loops"], difficulty: 1, track: "shell-io@1",
+        createdAt: new Date().toISOString(), expected: { "visible/01": "3\n", "hidden/01": "CANARY one\n", "hidden/02": "CANARY two\n", "hidden/03": "CANARY three\n" },
+      },
+    });
+    const { client, call } = await connect();
+    const { path } = await call("get_exercise", { slug: "max-of-line" });
+    writeFileSync(join(path, "main.sh"), "echo 3\n");
+    // The fake prints each case's input as its output and errors, so a hidden case's would carry its canary.
+    fakeDocker("echoes");
+    expect((await call("check", { slug: "max-of-line" })).tests).toHaveLength(4);
+    // Whole responses, every content block and any structured content, not only the first text.
+    const calls: [string, Record<string, unknown>][] = [["get_exercise", { slug: "max-of-line" }], ["check", { slug: "max-of-line" }], ["progress", {}], ["next_step", {}], ["get_roadmap", {}], ["list_tracks", {}]];
+    const responses = [];
+    for (const [name, args] of calls) responses.push(await client.callTool({ name, arguments: args }));
+    const text = JSON.stringify(responses);
+    expect(text).not.toContain("CANARY");
+    expect(text).not.toMatch(/hidden\/0/);
   });
 });

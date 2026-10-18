@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { createMock, type MockOptions } from '../../../main/mock';
-import { renderApp } from '../../test-utils';
+import { mockWithCourse, mockWithRoadmap, renderApp } from '../../test-utils';
 
 describe('how deep the roadmap goes', () => {
   it('offers three depths, Standard first, and researches at the one chosen', async () => {
@@ -32,7 +32,9 @@ describe('choose journey', () => {
     await user.type(goal, 'React');
     expect(await screen.findByText("React isn't set up yet.")).toBeInTheDocument();
 
-    await user.type(screen.getByRole('textbox', { name: 'I already know' }), 'Python');
+    const known = screen.getByRole('textbox', { name: 'What you already know (optional)' });
+    expect(known).toHaveAttribute('placeholder', 'What you already know (optional)');
+    await user.type(known, 'Python');
 
     await user.click(screen.getByRole('button', { name: 'Start' }));
     expect(await screen.findByRole('heading', { name: 'Researching React' })).toBeInTheDocument();
@@ -60,6 +62,15 @@ describe('choose journey', () => {
     expect(screen.queryByText("Couldn't reach Codemm.")).not.toBeInTheDocument();
   });
 
+  it('says when research found the computer offline, with no Check your agent', async () => {
+    const api = createMock({ agentProblem: 'offline' });
+    await api.connect('claude');
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("You're offline. Connect to the internet, then try again.");
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
+  });
+
   it('says when research failed, and tries again', async () => {
     const user = userEvent.setup();
     const api = createMock();
@@ -83,5 +94,26 @@ describe('choose journey', () => {
   it('does not start without a goal', async () => {
     renderApp({ to: 'goal' });
     expect(await screen.findByRole('button', { name: 'Start' })).toBeDisabled();
+  });
+});
+
+describe('resuming a roadmap', () => {
+  it('offers the roadmap that is not approved yet, and opens it with its edits', async () => {
+    const user = userEvent.setup();
+    const { api, roadmap } = await mockWithRoadmap();
+    await api.saveDraft([...roadmap.concepts.slice(0, -2), ...roadmap.concepts.slice(-2).reverse()]);
+    renderApp({ to: 'goal' }, api);
+    await user.click(await screen.findByRole('button', { name: 'Resume roadmap' }));
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    const topics = within(screen.getByRole('list')).getAllByRole('listitem').map((li) => li.getAttribute('aria-label'));
+    expect(topics.slice(-2)).toEqual(['Forms', 'Lists and keys']);
+  });
+
+  it('offers nothing to resume once the roadmap is approved', async () => {
+    const { api } = await mockWithCourse();
+    renderApp({ to: 'goal' }, api);
+    await screen.findByRole('textbox', { name: 'What do you want to learn?' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole('button', { name: 'Resume roadmap' })).not.toBeInTheDocument();
   });
 });

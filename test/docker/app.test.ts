@@ -1,5 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import * as app from "../../src/app.js";
@@ -7,6 +6,7 @@ import { readFileMap } from "../../src/files.js";
 import { cli } from "../../src/sandbox.js";
 import { readEvents, trackImageTag } from "../../src/store.js";
 import { dockerUp, FIXTURES, fixtureTrack } from "./helpers.js";
+import { tempDir } from "../temp.js";
 
 const roadmap = (name: string) => readFileSync(join(FIXTURES, "roadmaps", `${name}.yaml`), "utf8");
 const exercise = (name: string) => readFileMap(join(FIXTURES, "exercises", name));
@@ -21,8 +21,8 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   };
 
   beforeAll(() => {
-    process.env.CODEMM_HOME = mkdtempSync(join(tmpdir(), "codemm-home-"));
-    ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+    process.env.CODEMM_HOME = tempDir("codemm-home-");
+    ws = tempDir("codemm-ws-");
   });
 
   it("installs a track once and refuses a different track under the same version", async () => {
@@ -77,12 +77,15 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
   it("runs visible tests without recording an attempt, reporting progress as it goes", async () => {
     const seen: app.CheckProgress[] = [];
     const r = await app.testExercise(ws, undefined, undefined, (p) => seen.push(p));
-    expect(seen).toEqual([
+    expect(seen.filter((p) => !p.test)).toEqual([
       { phase: "building", done: 0, total: 0 },
       { phase: "visible", done: 0, total: 1 },
       { phase: "visible", done: 1, total: 1 },
     ]);
     expect(r.tests.map((t) => t.status)).toEqual(["fail"]);
+    // Each visible test's result arrives as it finishes, the same as Results shows it.
+    const streamed = seen.filter((p) => p.test).map((p) => p.test);
+    expect(streamed).toEqual([{ name: "visible/01", status: "fail", message: r.tests[0]!.message, actual: r.tests[0]!.actual }]);
     expect(readEvents("shell")).toEqual([]);
   });
 
@@ -101,9 +104,9 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     // One real failed attempt after an unrecorded starter check isn't "stuck".
     expect(app.progress(ws).concepts[0]).toMatchObject({ id: "sh.basics", stuck: false });
     expect(failed.tests.filter((t) => t.name.startsWith("hidden"))).toEqual([
-      { name: "hidden #1", status: "fail" },
-      { name: "hidden #2", status: "fail" },
-      { name: "hidden #3", status: "fail" },
+      { name: "hidden #1", index: 1, status: "fail" },
+      { name: "hidden #2", index: 2, status: "fail" },
+      { name: "hidden #3", index: 3, status: "fail" },
     ]);
 
     writeFileSync(file, exercise("io-max")["solution/main.sh"]!);

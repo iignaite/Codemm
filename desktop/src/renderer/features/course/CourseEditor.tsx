@@ -2,34 +2,44 @@ import { useRef, useState, type FormEvent } from 'react';
 import type { Concept, Roadmap } from '../../../shared/api';
 import { addTopic, moveTopic, removeTopic, renameTopic } from '../../../shared/roadmap';
 import { useApi } from '../../app/api';
-import { cacheFor } from '../../app/cache';
+import { cacheFor, lessonCache } from '../../app/cache';
+import { useJob } from '../../app/useJob';
 import { useRouter } from '../../app/router';
 import { Button } from '../../ui/Button';
 import { Field } from '../../ui/Field';
 import { Icon } from '../../ui/Icon';
+import { JobBar } from '../../ui/JobBar';
 import { stagger } from '../../ui/motion';
 import { TopicItem } from './TopicItem';
+import { ExternalLink } from '../../ui/ExternalLink';
 
 /** Rename, reorder, add or remove topics, or ask Codemm for changes. Then approve (§4.2). */
 export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
   const api = useApi();
   const { go, fail } = useRouter();
   const [concepts, setConcepts] = useState(roadmap.concepts);
+  const [sources, setSources] = useState(roadmap.sources);
   const [editing, setEditing] = useState<string>();
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState('');
   const [request, setRequest] = useState('');
   const [asking, setAsking] = useState(false);
   const dragFrom = useRef<string>(undefined);
+  // "Ask Codemm for changes" and Go deeper run a roadmap-change job (§4.11).
+  const job = useJob((p) => p.kind === 'roadmap', []);
 
-  /** Applies an edit, or says why it was refused. */
+  /** Applies an edit and saves it, so the draft survives leaving or closing Codemm; or says why it was refused. */
   function edit(change: (cs: Concept[]) => Concept[]) {
+    let next: Concept[];
     try {
-      setConcepts(change(concepts));
-      setNotice('');
+      next = change(concepts);
     } catch (e) {
       setNotice((e as Error).message);
+      return;
     }
+    setConcepts(next);
+    setNotice('');
+    api.saveDraft(next).catch((err: unknown) => fail(err, { to: 'course', roadmap: { ...roadmap, concepts: next, sources } }));
   }
 
   function rename(id: string, title: string) {
@@ -57,11 +67,12 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
     try {
       const result = await api.reviseRoadmap(concepts, text);
       setConcepts(result.roadmap.concepts);
+      setSources(result.roadmap.sources);
       setNotice(result.changed ? '' : result.text || 'No change.');
       setRequest('');
     } catch (err) {
       // Come back to the edited roadmap, not the one this screen opened with.
-      fail(err, { to: 'course', roadmap: { ...roadmap, concepts } });
+      fail(err, { to: 'course', roadmap: { ...roadmap, concepts, sources } });
     } finally {
       setAsking(false);
     }
@@ -71,7 +82,8 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
     try {
       await api.approve(concepts);
       // A new course reuses lesson ids, so cached lessons belong to the old one.
-      cacheFor(api, 'lessons').clear();
+      lessonCache(api).clear();
+      cacheFor(api, 'conversations').clear();
       const now = (await api.course())?.topics.find((t) => t.state === 'now');
       go(now ? { to: 'topic', topicId: now.id } : { to: 'learn' });
     } catch (err) {
@@ -102,15 +114,30 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
           ))}
           {adding && <TopicItem index={concepts.length} count={concepts.length + 1} title="" editing onEdit={() => {}} onRename={add} />}
         </ol>
-        <p className="alert" role="status">{notice}</p>
+        {asking && job && <JobBar job={job} label="Changing the roadmap" />}
+        <p className={asking ? 'quiet-text' : 'alert'} role="status">{asking ? (job ? '' : 'Updating the roadmap…') : notice}</p>
         <button className="add a-up" type="button" style={stagger(0, 100)} disabled={adding} onClick={() => setAdding(true)}>
           <Icon name="plus" color="#0E2754" size={16} />
           Add a topic
         </button>
         <form className="composer a-up" style={{ ...stagger(1, 100), marginTop: 10 }} onSubmit={ask}>
           <Field aria-label="Ask Codemm for changes" placeholder="Ask Codemm for changes" value={request} disabled={asking} onChange={(e) => setRequest(e.target.value)} />
-          <Button size="lg" disabled={concepts.length === 0 || editing !== undefined || adding || asking} onClick={approve}>Approve</Button>
+          <Button type="submit" variant="ghost" size="lg" disabled={!request.trim() || asking}>Apply</Button>
         </form>
+        {/* A typed request is applied or cleared first, so approving never drops it. */}
+        <div className="actions approve a-up" style={stagger(2, 100)}>
+          <Button size="lg" disabled={concepts.length === 0 || editing !== undefined || adding || asking || request.trim() !== ''} onClick={approve}>Approve</Button>
+        </div>
+        {sources.length > 0 && (
+          <section className="sources a-up" style={stagger(3, 100)} aria-labelledby="sources-t">
+            <h2 className="h3" id="sources-t">Sources</h2>
+            <ul>
+              {sources.map((s) => (
+                <li key={s.url}><ExternalLink href={s.url}>{s.title}</ExternalLink></li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </main>
   );

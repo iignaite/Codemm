@@ -54,10 +54,22 @@ button, input, textarea { font: inherit; color: inherit; }
 .field::placeholder { color: var(--faint); }
 textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: vertical; }
 .composer { display: flex; gap: 8px; align-items: center; }
+.actions.approve { justify-content: flex-end; }
 .row { display: flex; gap: 14px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line); font-size: 15px; font-weight: 500; }
 .row:first-child { border-top: none; }
 .row.off { color: var(--faint); }
 .stack { display: flex; flex-direction: column; gap: 12px; }
+/* Layout set by class, not inline: a column's spacing and width. */
+.stack.tight { gap: 8px; }
+.stack.snug { gap: 10px; }
+.stack.loose { gap: 14px; }
+.stack.wide { gap: 22px; }
+.fill { flex: 1; }
+.page-head { display: flex; align-items: center; gap: 20px; }
+.goal-form { width: 680px; }
+.setup-page { width: 620px; }
+.note-form { max-width: 600px; }
+.rename { flex: 1; display: flex; gap: 8px; }
 .actions { display: flex; align-items: center; gap: 10px; }
 .quiet-text { font-size: 14px; color: var(--muted); }
 .alert { color: var(--orange-ink); font-size: 14px; }
@@ -100,6 +112,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .goal-box input { flex: 1; min-width: 0; height: 100%; border: none; background: transparent; font-size: 22px; outline: none; }
 .goal-box:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
 .info { padding: 14px 18px; display: flex; align-items: center; gap: 14px; font-size: 15px; }
+.info.resume { justify-content: space-between; }
 .research { max-width: 720px; padding: 8px 22px; }
 .research .h3 { padding: 12px 0 4px; }
 .row .pill { margin-left: auto; }
@@ -124,12 +137,16 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 /* ---------- Lessons ---------- */
 .topic-page { width: 620px; display: flex; flex-direction: column; gap: 18px; }
 .topic-page .card { padding: 4px 22px; }
+.topic-page .card.panel { width: auto; padding: 28px; }
 .ws { flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: 340px minmax(0, 1fr) 340px; }
 .ws.lesson { grid-template-columns: 270px minmax(0, 1fr) 340px; }
 .stmt { min-width: 0; padding: 28px; display: flex; flex-direction: column; gap: 18px; background: #fff; border-right: 1px solid var(--line); overflow: auto; }
 .outline { gap: 6px; }
 .outline .h3 { padding: 0 14px 8px; }
 .outline .item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: none; border-radius: 10px; background: transparent; color: var(--faint); text-align: left; }
+/* Why a locked activity is locked, in words (the lock alone says nothing). */
+.locked { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.outline .locked { margin-top: -8px; padding: 0 14px 0 44px; }
 .outline .link { color: var(--ink); cursor: pointer; }
 .outline .link:hover { background: var(--soft); }
 .outline .link[aria-current="page"] { background: var(--green-soft); font-weight: 600; }
@@ -163,6 +180,13 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .lnum { display: flex; flex-direction: column; align-items: flex-end; padding-right: 16px; color: var(--faint); user-select: none; }
 .code textarea { display: block; width: 100%; min-width: 480px; margin: 0; padding: 0 16px 0 0; border: none; background: transparent; font: inherit; white-space: pre; resize: none; overflow: hidden; outline: none; position: relative; z-index: 1; }
 .code:focus-within { box-shadow: inset 0 0 0 3px var(--focus); }
+/* The terminal pane (§4.9): dark and monospace, between the editor and the results. */
+.term { flex-shrink: 0; height: 200px; display: flex; flex-direction: column; background: var(--navy-3); border-top: 1px solid var(--navy-line); }
+.term-head { height: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--navy-line); color: var(--navy-text); font-size: 12px; font-weight: 600; }
+.term-status { color: var(--navy-muted); font: 500 12px var(--mono); font-variant-numeric: tabular-nums; }
+.term-screen { flex: 1; min-height: 0; padding: 8px 4px 8px 16px; }
+.term-screen:focus-within { outline: 3px solid var(--focus-on-navy); outline-offset: -3px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: pre-wrap; border: 0; }
 .res { flex-shrink: 0; height: 280px; display: flex; flex-direction: column; gap: 14px; padding: 18px 24px; border-top: 1px solid var(--line); background: #fff; overflow: auto; animation: slide .55s var(--ease) backwards; }
 .res.nok { background: #FFFBF5; border-top: 2px solid var(--orange-line); }
 .res.ok { background: #F6FCF8; border-top: 2px solid var(--green-line); }
@@ -173,6 +197,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .rhead .h3 { color: var(--orange-ink); }
 .tline { display: flex; gap: 12px; align-items: center; font-size: 15px; font-weight: 600; }
 .cmp { display: inline-flex; gap: 8px; margin-left: 6px; font: 500 13px var(--mono); }
+.cmd { padding: 1px 6px; border-radius: 6px; background: var(--soft); color: var(--ink); font: 500 13px var(--mono); user-select: all; }
 .cmp span { padding: 4px 10px; border-radius: 6px; }
 .cmp .e { background: var(--green-soft); color: var(--green-ink); }
 .cmp .f { background: var(--orange-soft); color: var(--orange-ink); }
@@ -202,6 +227,8 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .gr .g { background: var(--green-ink); animation: draw .5s var(--ease) backwards; animation-delay: var(--d, .3s); }
 .grow { min-height: 50px; display: flex; align-items: center; gap: 16px; padding: 0 16px; font-size: 15.5px; font-weight: 500; }
 .grow.later { color: var(--faint); font-weight: 400; }
+button.grow.link { width: 100%; border: none; border-radius: 10px; background: transparent; color: inherit; font-family: inherit; text-align: left; cursor: pointer; }
+button.grow.link:hover { background: var(--soft); }
 .now-card { margin: 8px 0; padding: 14px 18px; display: flex; align-items: center; gap: 16px; border: 1.5px solid var(--green-ink); }
 .now-card b { flex: 1; font-size: 16px; }
 .soon { font-size: 13px; color: var(--muted); }
@@ -276,6 +303,10 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .md.small pre { padding: 10px 12px; font-size: 13px; }
 
 /* Narrow windows and high zoom (WCAG reflow): the workspace stacks its columns and scrolls. Last, so it wins. */
+/* Smaller windows: the side columns narrow first, so the editor keeps its room. */
+@media (max-width: 1280px) {
+  .ws, .ws.lesson { grid-template-columns: 280px minmax(0, 1fr) 280px; }
+}
 @media (max-width: 1000px) {
   .ws, .ws.lesson { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
   .stmt, .reader { overflow: visible; border-right: none; border-bottom: 1px solid var(--line); }
@@ -283,8 +314,73 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
   .coach { min-height: 420px; border-left: none; border-top: 1px solid var(--line); }
 }
 
+.sources { margin-top: 18px; display: flex; flex-direction: column; gap: 6px; }
+.sources ul { margin: 0; padding-left: 18px; font-size: 14px; color: var(--muted); }
+.sources a { color: var(--muted); }
+
+.looking { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.looking ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
+.looking li { overflow-wrap: anywhere; }
+
 .example { margin: 14px 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
 .example .file { font-size: 13px; color: var(--muted); }
 .example pre { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--soft); font-family: var(--mono); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
 .example .run { display: flex; justify-content: flex-end; }
 .example pre.err { color: var(--orange-ink); }
+
+/* A link inside running text: the text's own color, underlined, with the usual focus ring. */
+a.inline { color: inherit; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+a.inline:hover { color: var(--ink); }
+
+/* Usage on the course map (§4.12): label and value in two columns. */
+.usage dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0; font-size: 14px; }
+.usage dt { color: var(--muted); }
+.usage dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.usage p { margin: 0; font-size: 13px; }
+/* A new version, at the foot of the sidebar (§7.2). */
+.side .update { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; padding: 12px; border: 1px solid var(--navy-line); border-radius: 10px; color: var(--navy-text); font-size: 13px; }
+.side .update a { color: #9AF0B8; font-weight: 600; }
+/* Job progress (§4.11): Emm fills from grey to green, tail to head, as the job reaches each stage. */
+.emm-fill { position: relative; display: inline-block; flex-shrink: 0; line-height: 0; }
+.emm-fill .emm { animation: none; }
+.emm-fill .emm .eye { animation: none; }
+.emm-fill .zz { display: none; }
+.emm-fill .emm-base { display: block; filter: grayscale(1); opacity: .35; }
+.emm-fill .emm-color, .emm-fill .emm-edge { position: absolute; inset: 0; }
+.emm-fill .emm-color { clip-path: inset(0 calc(100% - var(--fill)) 0 0); transition: clip-path .6s var(--ease); }
+/* A thin band at the fill edge, lighter, breathing while the stage runs. */
+.emm-fill .emm-edge { clip-path: inset(0 calc(100% - var(--fill)) 0 max(0%, calc(var(--fill) - 8%))); filter: brightness(1.35); animation: edge 1.6s ease-in-out infinite; transition: clip-path .6s var(--ease); }
+.emm-fill.dim { opacity: .55; }
+.emm-fill.dim .emm-edge { display: none; }
+@keyframes edge { 0%, 100% { opacity: .15; } 50% { opacity: .85; } }
+.job { display: flex; align-items: center; min-width: 0; color: var(--muted); }
+.job.full { gap: 18px; width: 100%; }
+.job.full.bare { gap: 0; }
+.job.full .job-step { font-size: 14px; }
+.job-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.job .stages { flex: 1; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px 18px; font-size: 13.5px; color: var(--faint); }
+.job .stages li.done { color: var(--green-ink); }
+.job .stages li.now { color: var(--blue-ink); font-weight: 600; }
+.job-line { display: flex; gap: 12px; align-items: baseline; font-size: 14px; }
+.job-step { flex: 1; min-width: 0; }
+.job-time { flex-shrink: 0; margin-left: auto; font-variant-numeric: tabular-nums; color: var(--faint); }
+.job.compact { gap: 8px; width: 100%; font-size: 12.5px; }
+.job.compact .job-time { font-size: 12px; }
+.job.compact .job-step { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* An install's words say what to do (accept Docker's terms in its window), so they wrap rather than cut. */
+.job.compact.install-fill { align-items: center; font-size: 14px; }
+.job.compact.install-fill .job-step { white-space: normal; overflow: visible; }
+/* A lesson or activity being written: its icon and label on one line, its progress beneath, at the label's start. */
+.outline .item.writing { position: relative; flex-direction: column; align-items: stretch; gap: 8px; }
+/* In the outline, the time sits on the label's line, right-aligned, so the step has the whole second line. */
+.outline .item.writing .job-time { position: absolute; top: 12px; right: 14px; line-height: 18px; }
+.outline .item.writing .job.compact .job-step { white-space: normal; overflow: visible; }
+.outline .item-head { display: flex; align-items: center; gap: 12px; }
+.outline .item.writing > .job, .outline .item.writing > .waiting { margin-left: 30px; width: auto; }
+.row.writing { flex-wrap: wrap; row-gap: 12px; }
+.row.writing > .job { flex: 1 0 calc(100% - 32px); margin-left: 32px; }
+.topic-page .card.setup-progress { padding: 18px 22px 20px; display: flex; flex-direction: column; gap: 14px; }
+.thinking { flex-direction: column; gap: 8px; color: var(--muted); }
+.looking .job { max-width: 720px; }
+/* A new screen's heading takes focus for screen readers (useRouteFocus); it isn't a control, so it shows no ring. */
+h1[tabindex="-1"]:focus { outline: none; }

@@ -1,5 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
@@ -9,6 +8,7 @@ import { buildImage, runtimeHelp, startHelp } from "../src/sandbox.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import * as store from "../src/store.js";
 import { fakeDocker, posix } from "./fake-docker.js";
+import { tempDir } from "./temp.js";
 
 /** The environment matrix: what learners see when Docker is missing, stopped, offline or out of disk. */
 
@@ -16,7 +16,7 @@ const fixtures = join(import.meta.dirname, "fixtures");
 const track = () => readFileMap(join(fixtures, "tracks", "shell-io"));
 
 beforeEach(() => {
-  vi.stubEnv("CODEMM_HOME", mkdtempSync(join(tmpdir(), "codemm-home-")));
+  vi.stubEnv("CODEMM_HOME", tempDir("codemm-home-"));
 });
 
 afterEach(() => {
@@ -49,28 +49,60 @@ describe("doctor", () => {
 describe.runIf(posix)("building a track image", () => {
   it("returns the ID its own build produced, never whatever the shared tag points at later", async () => {
     fakeDocker("builds");
-    const built = await buildImage(mkdtempSync(join(tmpdir(), "codemm-context-")), "codemm-track-shell-io:1");
+    const built = await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1");
+    expect(built).toMatchObject({ ok: true, imageId: "sha256:built" });
+  });
+
+  it("reports each build step as a count, and nothing of the build's output", async () => {
+    fakeDocker("builds");
+    const steps: unknown[] = [];
+    await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1", undefined, (step) => steps.push(step));
+    expect(steps).toEqual([{ done: 1, total: 3 }, { done: 2, total: 3 }, { done: 3, total: 3 }]);
+  });
+
+  it("keeps building when a step listener throws", async () => {
+    fakeDocker("builds");
+    const built = await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1", undefined, () => {
+      throw new Error("listener bug");
+    });
     expect(built).toMatchObject({ ok: true, imageId: "sha256:built" });
   });
 
   it("blames the runtime, not the track, when a build reports no image ID", async () => {
     fakeDocker("no-iid");
-    const built = await buildImage(mkdtempSync(join(tmpdir(), "codemm-context-")), "codemm-track-shell-io:1");
-    expect(built).toMatchObject({ ok: false, problem: expect.stringMatching(/didn't report the image ID.*not a problem with the track files/s) });
+    const built = await buildImage(tempDir("codemm-context-"), "codemm-track-shell-io:1");
+    expect(built).toMatchObject({ ok: false, problem: { kind: "docker", message: expect.stringMatching(/didn't report the image ID.*not a problem with the track files/s) } });
   });
 });
 
 describe.runIf(posix)("installing a track", () => {
   it.each([
-    ["down", /isn't running/],
-    ["offline", /couldn't reach the network.*no such host.*not a problem with the track files/s],
-    ["disk-full", /ran out of disk space.*not a problem with the track files/s],
-  ] as const)("is an infrastructure failure when Docker is %s, and installs nothing", async (scenario, message) => {
+    ["down", /isn't running/, "docker"],
+    ["offline", /couldn't reach the network.*no such host.*not a problem with the track files/s, "offline"],
+    ["disk-full", /ran out of disk space.*not a problem with the track files/s, "disk"],
+  ] as const)("is an infrastructure failure when Docker is %s, and installs nothing", async (scenario, message, kind) => {
     fakeDocker(scenario);
     const failure = app.saveTrack(track());
     await expect(failure).rejects.toThrow(message);
+    // The desktop tells these apart by kind, not by reading the English.
+    await expect(failure).rejects.toMatchObject({ name: "CodemmError", kind });
     await expect(failure).rejects.not.toThrow(/Gate/);
     expect(app.listTracks()).toEqual([]);
+  });
+
+  it("reports a setup's build steps, then its checks, as phases and counts only", async () => {
+    fakeDocker("builds");
+    await app.proposeTrack(track());
+    const { digest } = app.listProposals()[0]!;
+    const seen: unknown[] = [];
+    // The fake's containers fail after the build, so the install stops at the probes.
+    await expect(app.installProposal("shell-io@1", digest, (p) => seen.push(p))).rejects.toThrow();
+    expect(seen).toEqual([
+      { phase: "building", done: 1, total: 3 },
+      { phase: "building", done: 2, total: 3 },
+      { phase: "building", done: 3, total: 3 },
+      { phase: "checking" },
+    ]);
   });
 
   it("keeps a proposal when its install fails offline, so Try again needs no new consent", async () => {
@@ -108,7 +140,7 @@ describe.runIf(posix)("a check that loses Docker mid-run", () => {
 
 /** A workspace whose exercise is installed (with a fake image) and edited, ready to check. */
 async function installedExercise(): Promise<string> {
-  const ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+  const ws = tempDir("codemm-ws-");
   const spec = parseTrackYaml(track()["track.yaml"]!);
   store.commitFolder(store.trackDir("shell-io@1"), track(), {
     "track.json": { format_version: 1, ...spec, image: "codemm-track-shell-io:1", imageId: "sha256:fake", installedAt: new Date().toISOString() },

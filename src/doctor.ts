@@ -3,7 +3,7 @@ import { accessSync, constants, mkdirSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { promisify } from "node:util";
-import { assertRuntime, cli, containerCli, ownedContainers, ownerGone, runSandboxed } from "./sandbox.js";
+import { assertRuntime, containerCli, ownedContainers, ownerGone, removeAbandoned, runSandboxed } from "./sandbox.js";
 import { codemmHome } from "./store.js";
 
 /** A small, pinned utility image used only for the network self-test. */
@@ -15,7 +15,7 @@ export type Check = { name: string; ok: boolean; detail: string };
  * Proves the sandbox blocks a host server that an ordinary container can reach.
  * If the ordinary container can't reach it either, nothing is proven, and that's reported as a failure.
  */
-async function networkIsolation(): Promise<Check> {
+export async function networkIsolation(): Promise<Check> {
   const name = "network isolation";
   const server = createServer((_req, res) => res.end("pong"));
   await new Promise<void>((r) => server.listen(0, "0.0.0.0", () => r()));
@@ -57,11 +57,10 @@ async function leftovers(fix: boolean): Promise<Check> {
   const abandoned = owned.filter((c) => ownerGone(c.pid));
   if (abandoned.length === 0) return { name, ok: true, detail: owned.length ? `none abandoned (${owned.length} in use by running checks)` : "none" };
   if (!fix) return { name, ok: false, detail: `${abandoned.length} abandoned; run codemm doctor --fix` };
-  await cli(["rm", "-f", ...abandoned.map((c) => c.id)]);
-  const still = (await ownedContainers()).filter((c) => abandoned.some((a) => a.id === c.id));
-  return still.length === 0
-    ? { name, ok: true, detail: `removed ${abandoned.length}` }
-    : { name, ok: false, detail: `couldn't remove ${still.length} of ${abandoned.length}` };
+  const removed = await removeAbandoned();
+  return removed.left === 0
+    ? { name, ok: true, detail: `removed ${removed.abandoned}` }
+    : { name, ok: false, detail: `couldn't remove ${removed.left} of ${removed.abandoned}` };
 }
 
 export async function doctor(fix: boolean): Promise<Check[]> {

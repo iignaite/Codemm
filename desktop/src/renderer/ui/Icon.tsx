@@ -15,19 +15,25 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS;
 
+/** `color` is any CSS color, a token such as `var(--faint)` included: it's set in style, which SVG attributes can't. */
 export function Icon({ name, color = 'currentColor', size = 20 }: { name: IconName; color?: string; size?: number }) {
   const { w, d } = PATHS[name];
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" style={color === 'currentColor' ? undefined : { color }} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {d}
     </svg>
   );
 }
 
-export function Status({ kind, size = 26, label }: { kind: 'ok' | 'fail' | 'run'; size?: number; label?: string }) {
+/**
+ * A state icon. Alone, it's an image named for its state ("Passed"). `decorative` hides it from screen readers when
+ * the words beside it already say the same ("Connected"), so they aren't read twice.
+ */
+export function Status({ kind, size = 26, label, decorative = false }: { kind: 'ok' | 'fail' | 'run'; size?: number; label?: string; decorative?: boolean }) {
   const name = label ?? { ok: 'Passed', fail: 'Not yet', run: 'In progress' }[kind];
+  const a11y = decorative ? { 'aria-hidden': true } : { role: 'img', 'aria-label': name };
   return (
-    <span className={`ico ${kind}`} style={{ width: size, height: size }} role="img" aria-label={name}>
+    <span className={`ico ${kind}`} style={{ width: size, height: size }} {...a11y}>
       {kind === 'ok' && <Icon name="check" color="#fff" size={Math.round(size * 0.54)} />}
       {kind === 'fail' && <Icon name="x" color="#fff" size={Math.round(size * 0.46)} />}
     </span>

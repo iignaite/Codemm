@@ -30,6 +30,9 @@ export class Cache<T> {
 
 const caches = new WeakMap<CodemmApi, Map<string, Cache<unknown>>>();
 
+/** Lessons as the reader saw them, per Codemm instance: reopening one starts no read (§4.3). */
+export const lessonCache = <T>(api: CodemmApi) => cacheFor<T>(api, 'lessons');
+
 /** One cache per Codemm instance and name. */
 export function cacheFor<T>(api: CodemmApi, name: string): Cache<T> {
   let all = caches.get(api);

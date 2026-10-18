@@ -16,6 +16,9 @@ case "$1" in
     # builds: the build succeeds and writes its image ID where --iidfile says, as docker does.
     if [ "$FAKE_DOCKER" = no-iid ]; then exit 0; fi
     if [ "$FAKE_DOCKER" = builds ]; then
+      echo "#2 [1/3] FROM docker.io/library/alpine:3.20"
+      echo "#3 [2/3] RUN apk add bash"
+      echo "#4 [3/3] COPY . /opt/track"
       while [ $# -gt 0 ]; do if [ "$1" = --iidfile ]; then printf 'sha256:built' > "$2"; fi; shift; done
       exit 0
     fi
@@ -25,12 +28,33 @@ case "$1" in
       disk-full) echo "ERROR: failed to solve: failed to copy files: write /var/lib/docker/tmp/layer: no space left on device" >&2 ;;
     esac
     exit 1 ;;
-  image) echo "sha256:fake null" ;;
-  events) if [ "$FAKE_DOCKER" = oom ]; then echo oom; fi ;;
+  # no-image: the verified image is gone (pruned), so inspecting it fails.
+  image) [ "$FAKE_DOCKER" = no-image ] && exit 1; echo "sha256:fake null" ;;
+  events) case "$FAKE_DOCKER" in oom|childoom) echo oom ;; esac ;;
   run)
+    # Run scenarios act out the Run driver: its markers go to stderr, around the program's own output.
+    # interactive: asks for a name and greets it. waits/ignores: run until killed (no end marker).
+    m() { printf '\n@@codemm-run %s\n' "$*" >&2; }
+    # nospace: the container can't even start, because Docker's disk is full (a Run or a check alike).
+    [ "$FAKE_DOCKER" = nospace ] && { echo "docker: Error response from daemon: mkdir /var/lib/docker/overlay2/x: no space left on device." >&2; exit 125; }
+    case "$FAKE_DOCKER" in
+      interactive) m start run; printf 'name? '; read -r name; echo "hello $name"; echo "a warning" >&2; m end run 0; exit 0 ;;
+      waits) m start run; while read -r line; do :; done; exit 0 ;;
+      ignores) m start run; exec /bin/sleep 30 ;;
+      exits124) m start run; m end run 124; exit 0 ;;
+      euro) m start run; printf '\342'; /bin/sleep 0.2; printf '\202\254\n'; m end run 0; exit 0 ;;
+      forges) m start run; echo "error waiting for container: unexpected EOF" >&2; m end run 125; exit 0 ;;
+      quickkill) m start run; m end run 137; exit 0 ;;
+      timesout) m start run; m timeout run; m end run 137; exit 0 ;;
+      exits138) m start run; m end run 138; exit 0 ;;
+      buildtimesout) m start build; m timeout build; m end build 137; exit 0 ;;
+      childoom) m start run; m end run 137; exit 0 ;;
+    esac
     # streams: a working io driver. One case frame per input in the mounted tests folder, a beat apart,
     # so a test can watch progress arrive while the container is still running.
-    if [ "$FAKE_DOCKER" = streams ]; then
+    # echoes: the same, but each case prints its input on stdout and stderr and fails, and a unit runner fails
+    # with its tests' text as the message, so whatever a hidden test holds would show if it got out.
+    if [ "$FAKE_DOCKER" = streams ] || [ "$FAKE_DOCKER" = echoes ]; then
       tests=""
       build=""
       for a in "$@"; do case "$a" in *target=/work/tests,*) tests="${a#*source=}"; tests="${tests%%,target=*}" ;; CODEMM_BUILD=*) build=1 ;; esac; done
@@ -40,13 +64,20 @@ case "$1" in
         [ -e "$f" ] || continue
         found=1
         n="${f##*/}"; n="${n%.in}"
-        printf '\n@@codemm case %s 0 2\n0\n' "$n"
-        printf '\n@@codemm stderr %s 0 0\n' "$n"
+        if [ "$FAKE_DOCKER" = echoes ]; then
+          text=$(/bin/cat "$f") # ASCII, so its length is its size in bytes
+          printf '\n@@codemm case %s 1 %s\n%s' "$n" "${#text}" "$text"
+          printf '\n@@codemm stderr %s 1 %s\n%s' "$n" "${#text}" "$text"
+        else
+          printf '\n@@codemm case %s 0 2\n0\n' "$n"
+          printf '\n@@codemm stderr %s 0 0\n' "$n"
+        fi
         /bin/sleep 0.2 # PATH holds only this fake in tests
       done
       # A unit set (no .in inputs): the runner reports once, at the end.
       if [ -z "$found" ]; then
         r='{"tests":[{"name":"t","status":"pass"}]}'
+        if [ "$FAKE_DOCKER" = echoes ]; then r="{\"tests\":[{\"name\":\"t\",\"status\":\"fail\",\"message\":\"$(/bin/cat "$tests"/* | /usr/bin/tr -d '\n"\\')\"}]}"; fi
         printf '\n@@codemm report report 0 %s\n%s' "${#r}" "$r"
         printf '\n@@codemm log log 0 0\n'
       fi
@@ -59,5 +90,6 @@ case "$1" in
     printf '\n@@codemm build build 0 0\n'
     echo "error waiting for container: unexpected EOF" >&2
     exit 125 ;;
+  rm) exit 0 ;;
   *) exit 1 ;;
 esac

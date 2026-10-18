@@ -2,26 +2,58 @@
 // renderer sees is built here: hidden results become an index and a status,
 // paths and ids it doesn't need are dropped, and tutor replies pass the
 // reply filter.
-import type { Activity, CheckResult, TestView, TryResult } from '../shared/api';
-import type { CoreCheckView, CoreExercise } from './core/types';
+import type { Activity, CheckResult, ExampleRun, Lesson, Roadmap, TestView, TryResult } from '../shared/api';
+import type { CoreCheckView, CoreExercise, CoreLesson, CoreRoadmap } from './core/types';
+import { isSafeLink } from './links';
 
+// Core marks a hidden result with its index. The name check is only a backstop: it can hide more, never show more.
 const HIDDEN = /^hidden #(\d+)$/;
 
 function testViews(tests: CoreCheckView['tests']): TestView[] {
   return tests.map((t): TestView => {
-    const hidden = HIDDEN.exec(t.name);
-    if (hidden) return { hidden: true, index: Number(hidden[1]), status: t.status };
+    const named = HIDDEN.exec(t.name);
+    if (t.index !== undefined || named) return { hidden: true, index: t.index ?? Number(named![1]), status: t.status };
     return { hidden: false, name: t.name, status: t.status, ...(t.message ? { message: t.message } : {}), ...(t.actual !== undefined ? { actual: t.actual } : {}) };
   });
 }
 
-export function checkView(core: CoreCheckView, concept: { stuck: boolean; mastered: boolean }): CheckResult {
-  return { kind: 'graded', passed: core.passed, total: core.total, tests: testViews(core.tests), recorded: core.recorded, stuck: concept.stuck, mastered: concept.mastered };
+export function checkView(core: CoreCheckView, concept: { stuck: boolean; mastered: boolean; later: boolean }): CheckResult {
+  return { kind: 'graded', passed: core.passed, total: core.total, tests: testViews(core.tests), recorded: core.recorded, stuck: concept.stuck, mastered: concept.mastered, later: concept.later };
 }
 
 export function tryView(core: CoreCheckView): TryResult {
   return { kind: 'ran', passed: core.passed, total: core.total, tests: testViews(core.tests).filter((t) => !t.hidden) };
 }
+
+/** A track's name without its version: `react` for `react@1`. */
+export const trackName = (ref: string) => ref.split('@')[0];
+
+/** A roadmap as the window sees it. Core accepts only https sources; main checks again before anything reaches the window (§2.1). */
+export function roadmapView(r: CoreRoadmap, installed: boolean): Roadmap {
+  return {
+    goal: r.goal,
+    track: trackName(r.track),
+    installed,
+    concepts: r.concepts.map((c) => ({ id: c.id, title: c.title, requires: [...c.requires] })),
+    sources: (r.sources ?? []).filter((s) => isSafeLink(s.url)).map((s) => ({ title: s.title, url: s.url })),
+  };
+}
+
+/** A lesson as the window sees it: named fields only, examples as file lists. */
+export function lessonView(l: CoreLesson): Lesson {
+  return {
+    id: l.id,
+    concept: l.concept,
+    title: l.title,
+    markdown: l.markdown,
+    notes: l.notes,
+    examples: l.examples.map((files) => ({ files: Object.entries(files).map(([path, text]) => ({ path, text })) })),
+    ...(l.style ? { style: l.style } : {}),
+  };
+}
+
+/** One run of a lesson example, from core's capped output. */
+export const exampleRunView = (r: { exit: number; output: string; errors: string }): ExampleRun => ({ kind: 'ran', exit: r.exit, output: r.output, errors: r.errors });
 
 /** The statement's first heading is the activity's title; the rest is its text. */
 export function activityView(ex: CoreExercise, files: Record<string, { text: string; digest: string }>, concept: string): Activity {
@@ -33,6 +65,7 @@ export function activityView(ex: CoreExercise, files: Record<string, { text: str
     statement: m ? ex.statement.slice(m[0].length) : ex.statement,
     visibleTests: ex.visibleTests.map((t) => ({ name: t.name, ...(t.input !== undefined ? { input: t.input } : {}), ...(t.expected !== undefined ? { expected: t.expected } : {}) })),
     files: ex.files.filter((p) => files[p]).map((path) => ({ path, text: files[path].text, digest: files[path].digest })),
+    ...(ex.style === 'io' && ex.run ? { run: ex.run } : {}),
   };
 }
 
@@ -41,14 +74,8 @@ export function activityView(ex: CoreExercise, files: Record<string, { text: str
 export const HELD_BACK = 'Codemm held back a reply that showed hidden material.';
 const MIN_LINE = 24;
 const normalize = (text: string) => text.replace(/\s+/g, ' ').trim();
-const HIDDEN_FILES = /^(solution|mutants|tests\/hidden)\//;
-
-/** The normalized lines, 24 characters or longer, of an exercise's solution, mutants, hidden tests and hidden expected outputs. */
-export function hiddenLines(files: Record<string, string>, expected: Record<string, string> = {}): string[] {
-  const texts = [
-    ...Object.entries(files).filter(([path]) => HIDDEN_FILES.test(path)).map(([, text]) => text),
-    ...Object.entries(expected).filter(([key]) => key.startsWith('hidden/')).map(([, text]) => text),
-  ];
+/** The normalized lines, 24 characters or longer, of an exercise's hidden material (core hiddenMaterial). */
+export function hiddenLines(texts: string[]): string[] {
   return [...new Set(texts.flatMap((t) => t.split('\n')).map(normalize).filter((l) => l.length >= MIN_LINE))];
 }
 

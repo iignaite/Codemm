@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { frameProgress, gradeIo, gradeUnit, normalizeOutput, parseFrames } from "../src/grading.js";
+import { frameProgress, gradeIo, gradeIoRun, gradeRuns, gradeUnit, gradeUnitRun, normalizeOutput, parseFrames, redact } from "../src/grading.js";
 
 describe("parseFrames", () => {
   it("reads length-framed records and ignores stray bytes", () => {
@@ -82,6 +82,52 @@ describe("gradeUnit", () => {
   });
 });
 
+describe("redact", () => {
+  it("shows visible results in full and hidden ones as an index and a status only", () => {
+    const shown = redact([
+      { set: "visible", name: "visible/01", status: "fail", message: "Output differs.", actual: "0\n" },
+      { set: "hidden", name: "hidden/edge", status: "fail", message: "secret", actual: "secret" },
+      { set: "visible", name: "visible/02", status: "pass", actual: "2\n" },
+      { set: "hidden", name: "hidden/other", status: "pass" },
+    ]);
+    expect(shown).toEqual([
+      { name: "visible/01", status: "fail", message: "Output differs.", actual: "0\n" },
+      { name: "hidden #1", index: 1, status: "fail" },
+      // A passing test's output adds nothing.
+      { name: "visible/02", status: "pass" },
+      { name: "hidden #2", index: 2, status: "pass" },
+    ]);
+  });
+});
+
+describe("grading whole runs", () => {
+  const ok = (name: string, stdout: string) => ({ name, exit: 0, stdout, stderr: "" });
+
+  it("makes every test in a set an error when the program flooded output or ran out of memory", () => {
+    const expected = { "visible/01": "1\n", "visible/02": "2\n" };
+    expect(gradeIoRun({ cases: [], flooded: true }, expected).map((t) => [t.name, t.status, t.message])).toEqual([
+      ["visible/01", "error", expect.stringMatching(/Output limit/)],
+      ["visible/02", "error", expect.stringMatching(/Output limit/)],
+    ]);
+    expect(gradeUnitRun("hidden", { report: { exit: 0, body: "", log: "" }, flooded: false, outOfMemory: true }, ["a", "b"]).map((t) => [t.set, t.name, t.message])).toEqual([
+      ["hidden", "hidden/a", expect.stringMatching(/Memory limit/)],
+      ["hidden", "hidden/b", expect.stringMatching(/Memory limit/)],
+    ]);
+  });
+
+  it("grades each set of runs against its own expected outputs, visible first", () => {
+    const runs = { visible: { cases: [ok("visible/01", "1\n")], flooded: false }, hidden: { cases: [ok("hidden/01", "9\n")], flooded: false } };
+    const tests = gradeRuns("io", runs, { expected: { "visible/01": "1\n", "hidden/01": "2\n" } });
+    expect(tests.map((t) => [t.set, t.name, t.status])).toEqual([["visible", "visible/01", "pass"], ["hidden", "hidden/01", "fail"]]);
+  });
+
+  it("grades unit runs against each set's inventory", () => {
+    const report = (tests: { name: string; status: string }[]) => ({ report: { exit: 0, body: JSON.stringify({ tests }), log: "" }, flooded: false });
+    const tests = gradeRuns("unit", { visible: report([{ name: "a", status: "pass" }]) }, { inventory: { visible: ["a"], hidden: ["b"] } });
+    expect(tests.map((t) => [t.set, t.name, t.status])).toEqual([["visible", "visible/a", "pass"]]);
+  });
+});
+
 describe("frameProgress", () => {
   const frame = (kind: string, name: string, body: string) => `\n@@codemm ${kind} ${name} 0 ${Buffer.byteLength(body)}\n${body}`;
   // A body that looks like a frame header must be skipped by length, never counted.
@@ -99,11 +145,28 @@ describe("frameProgress", () => {
     expect(milestones([...bytes].map((b) => Buffer.from([b])))).toEqual(["built", 1, 2]);
   });
 
+  it("hands over each finished case whole, with its stderr, however the output is split", () => {
+    const want = [
+      { name: "01", exit: 0, stdout: "@@codemm case 99 0 1\nx", stderr: "", big: false },
+      { name: "02", exit: 0, stdout: "", stderr: "oops", big: true },
+    ];
+    const cases = (chunks: Buffer[]) => {
+      const seen: unknown[] = [];
+      const feed = frameProgress(() => undefined, (c) => seen.push(c));
+      for (const c of chunks) feed(c);
+      return seen;
+    };
+    expect(cases([bytes])).toEqual(want);
+    for (let at = 1; at < bytes.length; at++) expect(cases([bytes.subarray(0, at), bytes.subarray(at)])).toEqual(want);
+    expect(cases([...bytes].map((b) => Buffer.from([b])))).toEqual(want);
+  });
+
   it("stays linear: 4 MB in 1 KB chunks", () => {
     const big = Buffer.from(Array.from({ length: 400 }, (_, i) => frame("case", String(i), "y".repeat(10_000))).join(""));
     const chunks = Array.from({ length: Math.ceil(big.length / 1024) }, (_, i) => big.subarray(i * 1024, (i + 1) * 1024));
     const started = performance.now();
     expect(milestones(chunks)).toHaveLength(400);
-    expect(performance.now() - started).toBeLessThan(500);
+    // Quadratic copying would take many seconds here; linear takes milliseconds. The bound leaves room for slow runners.
+    expect(performance.now() - started).toBeLessThan(2000);
   });
 });

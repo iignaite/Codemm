@@ -128,11 +128,12 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
 - **Known limitation: results can be forged from inside.** The driver (PID 1) holds the container's output stream on a saved descriptor while a case runs. A program running as the same user could write forged frames to it through `/proc/1/fd`. This doesn't weaken host isolation, but it does mean grading is honor-system, consistent with §1 and §2. Tamper-proof grading would need a separate trusted grader and is out of scope for 1.0.
 - **Progress.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }`:
   - `phase` is `building`, `visible` or `hidden`;
-  - io reports the build, then each visible test as it finishes, counted from the frame headers as they stream (bodies are skipped, never decoded);
+  - io reports the build, then each visible test as it finishes, counted from the frame headers as they stream;
+  - each visible io test also arrives with its result (`test`: name, status, message and output, graded as Results grades it), so the app can print it as it finishes. Only visible bodies are kept; hidden bodies are skipped, never decoded. The final grade still decides: an output flood or a memory kill afterwards makes every test an error;
   - hidden tests, and unit tests (whose runner reports at the end), report their phase once with `total` 0, so nothing per hidden test, not even timing, leaves;
   - a listener that throws is dropped, and the check goes on.
   Code in the container could print extra frames, but that can only move progress, never a grade.
-- **Disclosure.** Visible results include messages and program output. Hidden results include only an index and a status: no messages, output or names leave Codemm, in tool output, CLI output or gate diagnostics.
+- **Disclosure.** Visible results include messages and program output. Hidden results include only an index and a status (`{ name: "hidden #2", index: 2, status }`, built in one place, `grading.redact`): no messages, output or names leave Codemm, in tool output, CLI output or gate diagnostics.
 
 ### 4.3 Host-owned sandbox settings
 
@@ -164,6 +165,20 @@ Other ceilings:
 - **Memory:** every track or learner command first raises its own `oom_score_adj`, so the kernel kills the program rather than the driver, and that case is an `error`. If the driver dies anyway, the runtime's `oom` event tells a memory kill from an outside one. The runtime can miss that event when a container exits quickly, and then the check counts as an infrastructure failure: nothing is recorded, never a wrong attempt.
 - **Volumes:** images that declare `VOLUME` are rejected at install.
 
+**Run (interactive).** `runInteractive` runs the learner's io program once, for the app's Run button. It is never graded or recorded.
+- **Sandbox:** the same `startSandboxed` path and every flag above. The only addition is `-i`, which keeps stdin open, so typed lines reach the program.
+- **What's mounted:** only the learner's files, at `/work/src`. No tests.
+- **Driver:** the build, if the track has one (60 s), then the run command, with stdout and stderr streamed as they come.
+- **How it ended:** the driver writes short markers to stderr when each stage starts and how it ended, then exits 0. The host strips the markers from what the learner sees. The first start marker of each stage is reported once, with that stage's limit, so the app can count down.
+  - An end marker means the driver finished, so the program's own exit code and output are reported as they are, even when they look like Docker's.
+  - **Time limits:** 120 s for the run, because a person is typing, and 60 s for the build. Each stage runs in the foreground, keeping stdin, with a watchdog beside it. At the limit the watchdog writes a timeout marker, then `kill -9 -1` stops everything but the driver, which stays PID 1. A timeout is therefore the driver's own statement: it is never read from an exit code or guessed from timing, and it doesn't depend on which `timeout` tool the image has. The watchdog fires only after `sleep` succeeds; if it can't, the host deadline stops the run. Grading checks the image has `sleep`, so installed tracks have it.
+  - **Memory:** a stage that ends with 137 and didn't time out is checked against the runtime's memory-kill events, so a program killed for memory says so even though the driver went on.
+  - No end marker means Codemm stopped it (the learner, the host deadline or the 4 MB cap), the runtime killed it for memory, or Docker failed. Only that last case is an infrastructure failure.
+  - A program could forge markers, but only about its own unrecorded run.
+- **Input:** typed input is bounded: one write is at most 64 KB, and at most 1 MB may wait unread. Beyond that, and after the end, input is dropped.
+- **Failures:** if Docker's connection drops (exit 125), the container is removed with a checked command.
+- **Unit tracks:** they have no run command, so they have no Run.
+
 `codemm doctor` checks the container CLI and daemon. It also proves `--network none` blocks a host TCP server that a networked container can reach.
 
 ### 4.4 Installing a track (a separate trust boundary)
@@ -174,6 +189,7 @@ Other ceilings:
 - **In the desktop app** (`codemm mcp --desktop`), `save_track` only proposes. It runs track gate 1 and stores the files as an immutable proposal named by their digest (SHA-256 over the file map sorted by path), replacing older proposals for the same `id@version`, and builds nothing. The learner consents in the app, and `installProposal(ref, digest)` re-reads the files under the track lock, refuses unless their digest is the one the learner was shown, checks that 5 GB is free under `$CODEMM_HOME`, and installs exactly like `save_track`. A failed install keeps the proposal, so retrying needs no new consent. Approving a roadmap never builds anything.
 - **The build context** is a fresh folder holding only the track's files. No secrets, SSH agent or Docker socket are forwarded.
 - **The build** times out after 10 minutes and the process is killed. Build resource limits are not enforced in 1.0 (a known limitation).
+- **Install progress.** `installProposal(ref, digest, onProgress?)` reports each build step as counts only (`{ phase: "building", done, total }`, read from BuildKit's `#5 [2/7]`, the legacy builder's `Step 2/7 :` and Podman's `STEP 2/7:`), then `{ phase: "checking" }` before the probes. The build's output never leaves. A listener that throws is dropped, and the install goes on.
 - **Infrastructure failures.** A build that fails because the runtime is down, the network is unreachable or the disk is full is reported as that, not as a gate failure, and installs nothing. The agent retries the same files instead of rewriting a correct track.
 - **The image** is tagged `codemm-track-<home>-<id>:<version>`, where `<home>` is the first 8 hex characters of the SHA-256 of the Codemm home's real path, so two homes on one Docker never share a tag. Its ID is stored in `track.json`, and checks use that ID. A track installed before this naming keeps its old tag, which only `track rebuild` uses. The ID is the one the build itself reports (`--iidfile`), never the tag looked up afterwards, so a concurrent build of the same tag can't swap the image being verified. Every check verifies that the ID still matches. If the image is missing or has changed, the check fails with "Run `codemm track rebuild <id>@<version>`".
 - **Base images.** Each `FROM` should pin its image by digest (`image@sha256:…`). An unpinned `FROM` (other than `scratch` or an earlier stage) installs with a warning rather than failing a gate: checks run by the recorded image ID, and a rebuild that pulls a different base must pass every gate below, so an unpinned base can make a rebuild fail but can't change results silently.
@@ -189,9 +205,12 @@ style: unit                 # the default style for new exercises; must be offer
 concepts:
   - { id: react.jsx, title: "JSX", requires: [] }
   - { id: react.state, title: "State with hooks", requires: [react.jsx] }
+sources:                    # optional: the roadmaps and docs the agent used, at most 10
+  - { title: "React docs: Thinking in React", url: "https://react.dev/learn/thinking-in-react" }
 ```
 
 - **First save** creates the course. Concept order in the file is the tie-break order.
+- **Sources** are optional: at most 10, each a `title` of at most 120 characters and an https `url` with no credentials. The app shows them and opens them only in the learner's browser.
 - **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is. Proposing or installing a track that a course names but whose styles lack that course's style is refused, so a course can't be stranded; an install checks this under the track lock, which roadmap saves also take (after the course lock). `next_step` fails with "Edit the roadmap's style" if an installed track still doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
 - **Re-saving** an existing course may change `goal`, titles and order, add concepts, and change `requires` while staying acyclic. Edits keep concept ids, so renaming changes only the title. It may change `track` while the course has no exercises.
 - **Re-saving is rejected** if it changes `track` after exercises exist, or removes a concept that an exercise, event or lesson uses.
@@ -208,9 +227,9 @@ concepts:
   - The lesson records the track and style its examples were checked with, and they always run with those.
   - The gate: under the course lock, then the track lock, each example runs in the track's image exactly as a check runs code, with the same sandbox and limits. io runs the build and run commands once, with empty input; unit runs the test command on the example's tests. Each must exit 0 within the limits. A runtime failure is infrastructure and saves nothing.
   - Examples need the installed track, and `get_roadmap` over MCP includes the track's contract once it's installed.
-- **Running.** `runExample(ws, lesson, n)` runs a saved example the same way and returns its exit code, output (capped at 16 KB) and errors (capped at 4 KB). It is never recorded.
+- **Running.** `runExample(ws, lesson, n)` runs a saved example the same way and returns its exit code, output (capped at 16 KB) and errors (capped at 4 KB). It is never recorded. `runExampleLive(ws, lesson, n, bound, output)` runs an io example interactively instead, as Run does for an activity (`runProgram`): its output streams, and the learner's typed input reaches its stdin. It checks the files against the recorded track first, and is never recorded either. A unit example has no live run.
 - **Storage.** `lesson.md` never changes after saving. The learner's `notes.md` (at most 64 KB) sits beside it. Writes are atomic and hold the course lock.
-- **Reading.** `get_lesson` returns the text, the notes and the examples, and records nothing. Only an acknowledgement records a read: `mark_lesson_read` appends a `read` event the first time.
+- **Reading.** `get_lesson` returns the text, the notes and the examples, and records nothing. A lesson with examples also names their `style`, which says how they run. Only an acknowledgement records a read: `mark_lesson_read` appends a `read` event the first time.
 
 ## 6. Exercises and gates
 
@@ -307,14 +326,14 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `get_roadmap` | — | `{ course, goal, track, style, concepts }` |
 | `next_step` | — | `setup` / `review` / `practice` / `author` / `stuck` / `done`; `author` carries the concept's `title`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests) |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
-| `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint |
+| `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint, and for io the track's run command |
 | `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |
 | `progress` | — | mastery and difficulty per concept (with `reviewDue` for a mastered concept whose review is scheduled), next step |
 | `save_lesson` | `id`, `concept`, `title`, `markdown` | `{ lesson: id }` or errors |
-| `get_lesson` | `id` | `{ id, concept, title, markdown, notes }`; records nothing |
+| `get_lesson` | `id` | `{ id, concept, title, markdown, notes, examples, style? }`; records nothing |
 | `mark_lesson_read` | `id` | ok; records a `read` event once |
 
-**Per-job servers.** `codemm mcp --course <course>` makes course-scoped tools use that course instead of the workspace's active one, and `save_roadmap` may save only that course. `--tools <a,b>` registers only the listed tools. With neither option the server behaves as above.
+**Per-job servers.** `codemm mcp --course <course>` makes course-scoped tools use that course instead of the workspace's active one, and `save_roadmap` may save only that course. `--tools <a,b>` registers only the listed tools. With neither option the server behaves as above. `--progress <file>` (an absolute path) makes `save_exercise` write which gate is running, `{ "format_version": 1, "gate": "reference" | "starter" | "mutants" }`, replacing the file atomically as each starts, so the desktop app can show it (`saveExercise`'s optional `onProgress` hears the same). Only the gate's name is written.
 
 **App functions without tools** (the desktop app calls them in-process): `listLessons`, `saveNotes`, `listExercises`, `listProposals`, `installProposal`, `dropProposal`, `readLearnerFiles` and `writeLearnerFile`. `writeLearnerFile(ws, slug, path, text, digest)` accepts only the exercise's track files, holds the workspace lock, refuses symlinked paths, and replaces the file through a temp file and a rename only if its current digest is the one the editor loaded ("Changed outside Codemm").
 

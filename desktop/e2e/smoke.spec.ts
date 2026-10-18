@@ -1,7 +1,11 @@
 import { _electron as electron, expect, test } from '@playwright/test';
-import { mkdtempSync, readFileSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, realpathSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
+import { removeTempDirs, tempDir } from './temp';
+
+test.afterAll(removeTempDirs);
 
 // Launches the built app with the mock (CODEMM_MOCK) and walks the main journey.
 test('connect, computer check, goal, course, lesson and practice', async () => {
@@ -12,14 +16,11 @@ test('connect, computer check, goal, course, lesson and practice', async () => {
 
   await button('Connect an agent').click();
   await page.getByRole('listitem', { name: 'Claude Code' }).getByRole('button', { name: 'Connect' }).click();
+  // Three clicks: a computer that is ready at the first check passes by itself.
   await button('Continue').click();
-  await expect(heading('Check this computer')).toBeVisible();
-  await expect(page.getByText('This computer is ready.')).toBeVisible();
-  await button('Continue').click();
-  await button('Start learning').click();
 
   await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('React');
-  await page.getByRole('textbox', { name: 'I already know' }).fill('Python');
+  await page.getByRole('textbox', { name: 'What you already know (optional)' }).fill('Python');
   await button('Start').click();
   await expect(heading('Researching React')).toBeVisible();
 
@@ -27,6 +28,7 @@ test('connect, computer check, goal, course, lesson and practice', async () => {
   await button('Approve').click();
   const consent = page.getByRole('dialog', { name: 'Set up React on this computer?' });
   await consent.getByRole('button', { name: 'Set up', exact: true }).click();
+  await expect(consent).toBeHidden({ timeout: 15_000 });
 
   await expect(heading('JavaScript basics')).toBeVisible();
   await expect(button('Read useState')).toBeVisible({ timeout: 15_000 });
@@ -48,19 +50,22 @@ test('connect, computer check, goal, course, lesson and practice', async () => {
 });
 
 // Learners who lack a prerequisite get a specific next step, acted out by the mock.
-test('no agent installed: install links on the connect screen', async () => {
+test('no agent installed: Install, or get it by hand, on the connect screen', async () => {
   const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: 'no-agent' } });
   const page = await app.firstWindow();
+  // macOS and Windows: Welcome offers to install what's missing, and connecting by hand stays possible.
+  await expect(page.getByRole('button', { name: "Install what's missing", exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Connect an agent', exact: true }).click();
   const claude = page.getByRole('listitem', { name: 'Claude Code' });
   await expect(claude.getByText('Not installed')).toBeVisible();
-  await expect(claude.getByRole('link', { name: 'Get Claude Code' })).toHaveAttribute('href', 'https://code.claude.com/docs/en/setup');
-  await expect(page.getByRole('link', { name: 'Get Codex' })).toBeVisible();
+  await expect(claude.getByRole('button', { name: 'Install', exact: true })).toBeVisible();
+  await expect(claude.getByRole('link', { name: 'Get it myself' })).toHaveAttribute('href', 'https://code.claude.com/docs/en/setup');
+  await expect(page.getByRole('link', { name: 'Get Cursor' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
   await app.close();
 });
 
-test('no Docker: install steps, a link and a re-check', async () => {
+test('no Docker: Install Docker, a link to do it by hand, and a re-check', async () => {
   const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: 'no-docker' } });
   const page = await app.firstWindow();
   await page.getByRole('button', { name: 'Connect an agent', exact: true }).click();
@@ -68,10 +73,12 @@ test('no Docker: install steps, a link and a re-check', async () => {
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   const installed = page.getByRole('listitem', { name: 'Docker is installed' });
   await expect(installed.getByText('Needs a step')).toBeVisible();
-  await expect(installed.getByRole('link', { name: /^Get Docker/ })).toBeVisible();
+  // macOS and Windows: Codemm installs Docker, and doing it by hand stays possible.
+  await expect(installed.getByRole('button', { name: 'Install Docker', exact: true })).toBeVisible();
+  await expect(installed.getByRole('link', { name: 'Install it myself' })).toBeVisible();
   await expect(page.getByRole('status')).toHaveText("Docker isn't installed yet. Checking again every few seconds.");
   await page.getByRole('button', { name: 'Later', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Ready when you are.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'What do you want to learn?' })).toBeVisible();
   await app.close();
 });
 
@@ -131,7 +138,7 @@ test('errors cross IPC as their own message', async () => {
 
 // A separate profile (--user-data-dir) keeps its log too, so runs with one never write to the learner's log.
 test('logs live under a given user-data-dir', async () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-profile-')));
+  const dir = realpathSync(tempDir('codemm-profile-'));
   const app = await electron.launch({ args: ['.', `--user-data-dir=${dir}`], env: { ...process.env, CODEMM_MOCK: '' } });
   const page = await app.firstWindow();
   await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
@@ -150,22 +157,31 @@ test('check progress reaches the page as phase and counts only', async () => {
     type P = { phase: string; done: number; total: number };
     const bridge = (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<any>; onCheckProgress(l: (p: P) => void): () => void } }).codemm;
     const events: P[] = [];
-    const stop = bridge.onCheckProgress((p) => events.push(p));
+    let hidden!: () => void;
+    const lastPhase = new Promise<void>((resolve) => (hidden = resolve));
+    const stop = bridge.onCheckProgress((p) => (events.push(p), p.phase === 'hidden' && hidden()));
     const call = (m: string, ...a: unknown[]) => bridge.invoke(m, a);
+    // Bounded: a state that never settles fails here instead of hanging the test.
+    const poll = async (read: () => Promise<any>, done: (v: any) => boolean, what: string) => {
+      for (let i = 0; i < 1000; i++) {
+        const v = await read();
+        if (done(v)) return v;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error(`${what} never settled`);
+    };
     await call('connect', 'claude');
     const goal = { topic: 'React', known: '', depth: 'standard' };
-    let r = await call('research', goal);
-    while (r.state === 'running') r = await call('research', goal);
+    const r = await poll(() => call('research', goal), (v) => v.state !== 'running', 'Research');
     await call('approve', r.roadmap.concepts);
-    let c = await call('course');
-    while (c.setup !== 'consent') c = await call('course');
+    let c = await poll(() => call('course'), (v) => v.setup === 'consent', 'Setup consent');
     await call('install', c.proposal.digest);
-    while (!(c.setup === 'ready' && c.topics[0].lessons.every((l: { state: string }) => l.state !== 'writing'))) c = await call('course');
+    c = await poll(() => call('course'), (v) => v.setup === 'ready' && v.topics[0].lessons.every((l: { state: string }) => l.state !== 'writing'), 'The course');
     for (const l of c.topics[0].lessons) await call('markRead', l.id);
     const { id } = await call('activity', c.topics[0].id);
     await call('check', id, 'e2e-run');
-    // Events travel apart from the call's reply, so the last ones can land just after it.
-    await new Promise((r) => setTimeout(r, 300));
+    // Events travel apart from the call's reply, so the last one can land just after it.
+    await lastPhase;
     stop();
     const asCall = await bridge.invoke('onCheckProgress', []).then(() => 'resolved', (e: Error) => e.message);
     return { events, asCall };
@@ -174,4 +190,95 @@ test('check progress reaches the page as phase and counts only', async () => {
   for (const e of events) expect(Object.keys(e).sort()).toEqual(['done', 'phase', 'run', 'total']);
   expect(asCall).toBe('Unknown call');
   await app.close();
+});
+
+// Run: main sends a program's output only to the window that started it; the page hears it tagged with its run,
+// types into it, and can't call onRunOutput as a method.
+test('Run streams a program through the bridge, with typed input', async () => {
+  const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: 'io-track' } });
+  const page = await app.firstWindow();
+  await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
+  const { events, result, asCall } = await page.evaluate(async () => {
+    type O = Record<string, unknown>;
+    const bridge = (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<any>; onRunOutput(l: (o: O) => void): () => void } }).codemm;
+    const call = (m: string, ...a: unknown[]) => bridge.invoke(m, a);
+    // Bounded: a state that never settles fails here instead of hanging the test.
+    const poll = async (read: () => Promise<any>, done: (v: any) => boolean, what: string) => {
+      for (let i = 0; i < 1000; i++) {
+        const v = await read();
+        if (done(v)) return v;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      throw new Error(`${what} never settled`);
+    };
+    await call('connect', 'claude');
+    const goal = { topic: 'Python', known: '', depth: 'standard' };
+    const r = await poll(() => call('research', goal), (v) => v.state !== 'running', 'Research');
+    await call('approve', r.roadmap.concepts);
+    let c = await poll(() => call('course'), (v) => v.setup === 'consent', 'Setup consent');
+    await call('install', c.proposal.digest);
+    c = await poll(() => call('course'), (v) => v.setup === 'ready' && v.topics[0].lessons.every((l: { state: string }) => l.state !== 'writing'), 'The course');
+    for (const l of c.topics[0].lessons) await call('markRead', l.id);
+    const { id } = await call('activity', c.topics[0].id);
+    const events: O[] = [];
+    const reached: Record<number, () => void> = {};
+    const reach = (n: number) => new Promise<void>((resolve) => (reached[n] = resolve));
+    const [prompted, greeted] = [reach(2), reach(3)];
+    bridge.onRunOutput((o) => (events.push(o), reached[events.length]?.()));
+    const running = call('runProgram', id, 'e2e-run');
+    await prompted;
+    const taken = await call('sendRunInput', 'e2e-run', 'Ada\n');
+    const result = await running;
+    // Output travels apart from the call's reply, so the greeting can land just after it.
+    await greeted;
+    const asCall = await bridge.invoke('onRunOutput', []).then(() => 'resolved', (e: Error) => e.message);
+    return { events, result: { ...result, taken }, asCall };
+  });
+  expect(events).toEqual([
+    { run: 'e2e-run', started: 'run', limitMs: 120_000 },
+    { run: 'e2e-run', stream: 'stdout', text: "What's your name? " },
+    { run: 'e2e-run', stream: 'stdout', text: 'Hello, Ada!\n' },
+  ]);
+  expect(result).toMatchObject({ kind: 'ran', exit: 0, taken: true });
+  expect(asCall).toBe('Unknown call');
+  await app.close();
+});
+
+// Auto-update (§7.2) against a local feed: electron-updater reads the feed, finds a newer version, and this unsigned
+// development build says so with the release's page, without downloading anything.
+test('auto-update finds a newer version on a feed, and an unsigned build only links to it', async () => {
+  const requests: string[] = [];
+  const feed = [
+    'version: 99.0.0',
+    'files:',
+    '  - url: Codemm-99.0.0-mac-arm64.zip',
+    '    sha512: AAAA',
+    '    size: 1',
+    'path: Codemm-99.0.0-mac-arm64.zip',
+    'sha512: AAAA',
+    "releaseDate: '2026-10-01T00:00:00.000Z'",
+    '',
+  ].join('\n');
+  const server = createServer((req, res) => {
+    const path = new URL(req.url ?? '/', 'http://feed').pathname; // the updater adds ?noCache=
+    requests.push(path);
+    // Whatever channel file it asks for (latest-mac.yml, latest.yml, beta-mac.yml...), the same feed.
+    if (path.endsWith('.yml')) res.writeHead(200, { 'content-type': 'text/yaml' }).end(feed);
+    else res.writeHead(404).end();
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const app = await electron.launch({ args: ['.'], env: { ...process.env, CODEMM_MOCK: '', CODEMM_UPDATE_FEED: `http://127.0.0.1:${port}/` } });
+    const page = await app.firstWindow();
+    await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
+    const update = () => page.evaluate(() => (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<unknown> } }).codemm.invoke('update', []));
+    await expect.poll(update, { timeout: 15_000 }).toEqual({ kind: 'available', version: '99.0.0', url: 'https://github.com/iignaite/Codemm/releases/tag/v99.0.0' });
+    expect(requests.some((u) => u.endsWith('.yml'))).toBe(true);
+    // Unsigned: nothing was downloaded.
+    expect(requests.some((u) => u.endsWith('.zip') || u.endsWith('.exe'))).toBe(false);
+    await app.close();
+  } finally {
+    server.close();
+  }
 });

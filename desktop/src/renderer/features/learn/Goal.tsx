@@ -7,6 +7,7 @@ import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Field } from '../../ui/Field';
 import { stagger } from '../../ui/motion';
+import { Banner } from '../../ui/Banner';
 
 const DEPTHS: [Depth, string][] = [
   ['overview', 'Overview'],
@@ -19,6 +20,8 @@ export function Goal() {
   const { go } = useRouter();
   const api = useApi();
   const { data: tracks } = useLoad(() => api.tracks(), []);
+  // A roadmap not approved yet: the learner left it, or Codemm was closed (§4.2).
+  const { data: draft } = useLoad(() => api.draft(), []);
   const [topic, setTopic] = useState('');
   const [known, setKnown] = useState('');
   const [depth, setDepth] = useState<Depth>('standard');
@@ -32,13 +35,13 @@ export function Goal() {
 
   return (
     <main className="center">
-      <form className="stack" style={{ width: 680, gap: 22 }} onSubmit={start}>
+      <form className="stack wide goal-form" onSubmit={start}>
         <h1 className="h1 a-up" id="goal-q">What do you want to learn?</h1>
         <div className="goal-box a-up" style={stagger(1)}>
           <input aria-labelledby="goal-q" value={topic} onChange={(e) => setTopic(e.target.value)} autoFocus />
           <Button type="submit" disabled={!goal}>Start</Button>
         </div>
-        <Field className="a-up" style={stagger(2)} aria-label="I already know" placeholder="I already know" value={known} onChange={(e) => setKnown(e.target.value)} />
+        <Field className="a-up" style={stagger(2)} aria-label="What you already know (optional)" placeholder="What you already know (optional)" value={known} onChange={(e) => setKnown(e.target.value)} />
         <div className="depth a-up" style={stagger(3)} role="radiogroup" aria-labelledby="depth-q">
           <span className="depth-q" id="depth-q">How deep</span>
           {DEPTHS.map(([id, label]) => (
@@ -48,11 +51,13 @@ export function Goal() {
             </label>
           ))}
         </div>
+        {draft && (
+          <Banner style={stagger(4)} action={<Button variant="ghost" onClick={() => go({ to: 'course', roadmap: draft })}>Resume roadmap</Button>}>
+            <b>{draft.goal}</b>
+          </Banner>
+        )}
         {isNew && (
-          <div className="card info a-up">
-            <Emm mood="look" width={56} />
-            <span><b>{goal} isn't set up yet.</b> Codemm will set it up.</span>
-          </div>
+          <Banner art={<Emm mood="look" width={56} />}><b>{goal} isn't set up yet.</b> Codemm will set it up.</Banner>
         )}
       </form>
     </main>

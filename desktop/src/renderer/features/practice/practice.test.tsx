@@ -1,11 +1,17 @@
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { CodemmApi, JobProgress } from '../../../shared/api';
+import { xterm } from '../../testing/xterm';
 import { scenario } from '../../../main/mock';
 import { mockWithCourse, renderApp } from '../../test-utils';
 
-async function open(options?: Parameters<typeof mockWithCourse>[0]) {
+vi.mock('@xterm/xterm', () => import('../../testing/xterm'));
+vi.mock('@xterm/addon-fit', () => import('../../testing/xterm'));
+
+async function open(options?: Parameters<typeof mockWithCourse>[0], before?: (api: CodemmApi) => void) {
   const { api, course } = await mockWithCourse({ read: true, ...options });
+  before?.(api);
   const view = renderApp({ to: 'practice', concept: course.topics[0].id }, api);
   await screen.findByRole('heading', { name: 'Click Counter' });
   return { ...view, course, user: userEvent.setup() };
@@ -23,7 +29,8 @@ async function checkUntilStuck(user: ReturnType<typeof userEvent.setup>) {
   await write(user, 'wrong /* your code */');
   for (let i = 0; i < 3; i++) {
     await user.click(screen.getByRole('button', { name: 'Check' }));
-    await within(results()).findByRole('heading', { name: /passed|Try another way/ });
+    // Stuck shows the ways forward above the failed results, so both headings may be there.
+    await within(results()).findAllByRole('heading', { name: /passed|Try another way/ });
   }
 }
 
@@ -56,14 +63,33 @@ describe('practice', () => {
     expect(results()).toHaveTextContent('graded, not shown');
   });
 
-  it("saves the learner's code, then passes and continues to the course", async () => {
+  it("saves the learner's code, then passes and continues straight to the next topic", async () => {
     const { user } = await open();
     await write(user, 'count + 1');
     await user.click(screen.getByRole('button', { name: 'Check' }));
     expect(await within(results()).findByRole('heading', { name: '4 of 4 passed' })).toBeInTheDocument();
     expect(results()).toHaveTextContent('JavaScript basics mastered.');
     await user.click(within(results()).getByRole('button', { name: 'Continue' }));
-    expect(await screen.findByRole('list', { name: 'Topics' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'JSX', level: 1 })).toBeInTheDocument();
+  });
+
+  it('keeps the conversation when the learner leaves and comes back, and gives a failed question back', async () => {
+    const { api, course, user } = await open();
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'Why?{Enter}');
+    expect(await within(screen.getByRole('log')).findByText('Look at what you pass to setCount.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Learn' }));
+    await screen.findByRole('list', { name: 'Topics' });
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await within(await screen.findByRole('log')).findByText('Look at what you pass to setCount.')).toBeInTheDocument();
+    expect(course.topics[0].id).toBe('javascript-basics');
+
+    let answer!: (ok: boolean) => void;
+    const ask = api.ask;
+    api.ask = (place, text) => new Promise((resolve, reject) => (answer = (ok) => (ok ? resolve(ask(place, text)) : reject(new Error('codemm:agent-failed')))));
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'And this?{Enter}');
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled());
+    answer(false);
+    await vi.waitFor(() => expect(screen.getByRole('textbox', { name: 'Ask Codemm' })).toHaveValue('And this?'));
   });
 
   it('keeps unchecked code when the learner leaves and comes back', async () => {
@@ -217,6 +243,25 @@ describe('practice', () => {
     expect(asked).toBe(2);
   });
 
+  it("says Codemm is thinking while it answers, with the turn's latest step", async () => {
+    let hear: (p: JobProgress) => void = () => undefined;
+    const { api, user } = await open(undefined, (a) => (a.onJobProgress = (listener) => ((hear = listener), () => undefined)));
+    let answer!: () => void;
+    const ask = api.ask;
+    api.ask = (place, text) => new Promise((done) => (answer = () => done(ask(place, text))));
+    await user.click(screen.getByRole('button', { name: 'Hint' }));
+    const rail = screen.getByRole('complementary', { name: 'Codemm' });
+    expect(within(rail).getByRole('status')).toHaveTextContent('Codemm is thinking…');
+    // A turn asked elsewhere, still running ahead of this one, isn't this question's.
+    act(() => hear({ job: 't0', kind: 'tutor', stage: 0, steps: [{ kind: 'step', label: 'Reading the lesson' }], count: 1, thinking: true, elapsedMs: 60_000, idleMs: 0 }));
+    expect(within(rail).queryByText('Reading the lesson')).not.toBeInTheDocument();
+    act(() => hear({ job: 't1', kind: 'tutor', stage: 0, steps: [{ kind: 'step', label: 'Reading the activity' }], count: 1, thinking: true, elapsedMs: 0, idleMs: 0 }));
+    expect(within(rail).getByText('Reading the activity')).toBeInTheDocument();
+    answer();
+    await vi.waitFor(() => expect(within(rail).queryByText('Codemm is thinking…')).not.toBeInTheDocument());
+    expect(within(rail).queryByText('Reading the activity')).not.toBeInTheDocument();
+  });
+
   it('offers calm ways forward when stuck, including an easier topic', async () => {
     const { user } = await open();
     await checkUntilStuck(user);
@@ -258,8 +303,8 @@ describe('practice', () => {
     expect(claude).toHaveTextContent('Sign in to Claude Code, then try again.');
     await user.click(within(claude).getByRole('button', { name: 'Try again' }));
     await within(claude).findByText('Connected');
+    // A ready computer passes by itself.
     await user.click(screen.getByRole('button', { name: 'Continue' }));
-    await user.click(await screen.findByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
   });
 
@@ -268,5 +313,199 @@ describe('practice', () => {
     await user.click(screen.getByRole('button', { name: 'Hint' }));
     expect(await screen.findByRole('alert')).toHaveTextContent("Your agent's plan limit is reached. Try again later.");
     expect(screen.getByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
+  });
+});
+
+describe('Run', () => {
+  async function openIo(options?: Parameters<typeof mockWithCourse>[0], strict = false) {
+    const { api, course } = await mockWithCourse({ read: true, style: 'io', ...options });
+    const view = renderApp({ to: 'practice', concept: course.topics[0].id }, api, { strict });
+    await screen.findByRole('heading', { name: 'Greet by name' });
+    return { ...view, api, user: userEvent.setup() };
+  }
+  const terminal = () => screen.getByRole('region', { name: 'Terminal for Greet by name' });
+  const mirror = () => screen.getByRole('log', { name: 'Terminal for Greet by name, as text' });
+
+  it('runs the program in the terminal: the command, its output and typed input, then how it ended, recording nothing', async () => {
+    const { api, user } = await openIo();
+    const tools = screen.getAllByRole('button').map((b) => b.textContent).filter((t) => ['Run', 'Try it', 'Check'].includes(t ?? ''));
+    expect(tools).toEqual(['Run', 'Try it', 'Check']);
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror().textContent).toBe("$ python3 main.py\nWhat's your name? "));
+    expect(terminal()).toHaveTextContent('2:00 left');
+    expect(screen.getByRole('button', { name: 'Try it' })).toBeDisabled();
+    act(() => xterm.type('Ada\r'));
+    await vi.waitFor(() => expect(mirror().textContent).toBe("$ python3 main.py\nWhat's your name? Ada\nHello, Ada!\nExited with code 0.\n"));
+    expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
+    expect(terminal()).not.toHaveTextContent('left');
+    expect((await api.course())!.topics[0].mastery).toBe(0);
+  });
+
+  it('counts down from the whole limit, even when the clock ticks while the run starts', async () => {
+    const { user } = await openIo();
+    // Each read of the clock is a millisecond later, as on a busy machine.
+    let t = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => (t += 1));
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(terminal()).toHaveTextContent('left'));
+    expect(terminal()).toHaveTextContent('2:00 left');
+    vi.restoreAllMocks();
+  });
+
+  it('runs under StrictMode, as the app does, where every effect replays once', async () => {
+    const { user } = await openIo(undefined, true);
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror().textContent).toBe("$ python3 main.py\nWhat's your name? "));
+    act(() => xterm.type('Ada\r'));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent('Exited with code 0.'));
+    expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
+  });
+
+  it("says when the time is up, in the header and the terminal", async () => {
+    const { user } = await openIo({ runLimitMs: 50 });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("Time's up. The program was stopped after 1 second."));
+    expect(terminal()).toHaveTextContent("Time's up");
+  });
+
+  it('stops the program with Stop, and when the learner leaves', async () => {
+    const { api, user, unmount } = await openIo();
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await user.click(await screen.findByRole('button', { name: 'Stop' }));
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/Stopped\.\n$/));
+    const stopped: string[] = [];
+    const stop = api.stopRun;
+    api.stopRun = (run) => (stopped.push(run), stop(run));
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await screen.findByRole('button', { name: 'Stop' });
+    unmount();
+    expect(stopped).toHaveLength(1);
+  });
+
+  it('never starts the program when Stop or leaving comes while the code saves', async () => {
+    const { api, user, unmount } = await openIo();
+    const saves: (() => void)[] = [];
+    const saveFile = api.saveFile;
+    api.saveFile = (id, path, text, digest) => new Promise((done) => saves.push(() => done(saveFile(id, path, text, digest))));
+    const started: string[] = [];
+    const runProgram = api.runProgram;
+    api.runProgram = (id, run) => (started.push(run), runProgram(id, run));
+    const editor = screen.getByRole('textbox', { name: 'main.py' });
+    await user.type(editor, 'x');
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(saves).toHaveLength(1));
+    await user.click(screen.getByRole('button', { name: 'Stop' }));
+    saves[0]();
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/Stopped\.\n$/));
+    expect(started).toEqual([]);
+
+    await user.type(editor, 'y');
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(saves).toHaveLength(2));
+    unmount();
+    saves.slice(1).forEach((finish) => finish());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(started).toEqual([]);
+  });
+
+  it('takes typing only once the program has started, and says when a line wasn\'t taken', async () => {
+    const { api, user } = await openIo();
+    const sent: string[] = [];
+    const runProgram = api.runProgram;
+    let release!: () => void;
+    api.runProgram = () => new Promise((done) => (release = () => done({ kind: 'ran', exit: 137, timedOut: false, stopped: true, flooded: false, outOfMemory: false })));
+    api.sendRunInput = async (_run, text) => (sent.push(text), false);
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await screen.findByRole('button', { name: 'Stop' });
+    act(() => xterm.type('early\r'));
+    expect(sent).toEqual([]);
+
+    api.runProgram = runProgram;
+    act(() => release());
+    await user.click(await screen.findByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("What's your name?"));
+    act(() => xterm.type('Ada\r'));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("That line wasn't taken: the program isn't reading more input."));
+    expect(sent).toEqual(['Ada\n']);
+  });
+
+  it("says why a program couldn't run", async () => {
+    const { api, user } = await openIo();
+    api.runProgram = async () => ({ kind: 'not-run', reason: "Docker isn't running." });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent("Docker isn't running."));
+  });
+
+  it('Try it prints each visible test as it finishes: the command, the output, then expected and found', async () => {
+    const { user } = await openIo();
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/visible tests passed\n$/));
+    expect(mirror().textContent).toBe(
+      [
+        '$ python3 main.py  (test 01)',
+        'Hello, !',
+        '✗ test 01',
+        '  expected  Hello, Ada!',
+        '  found     Hello, !',
+        '$ python3 main.py  (test 02)',
+        'Hello, !',
+        '✗ test 02',
+        '  expected  Hello, Grace!',
+        '  found     Hello, !',
+        '✗ 0 of 2 visible tests passed',
+        '',
+      ].join('\n'),
+    );
+    // The structured results stay.
+    expect(await within(results()).findByRole('heading', { name: '0 of 2 visible tests passed' })).toBeInTheDocument();
+  });
+
+  it('prints a visible test whose event came too late from the final result, once', async () => {
+    const { api, user } = await openIo();
+    api.onCheckProgress = () => () => undefined; // every event lands after the reply
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/visible tests passed\n$/));
+    expect(mirror().textContent!.match(/\(test 01\)/g)).toHaveLength(1);
+    expect(mirror().textContent).toContain('$ python3 main.py  (test 02)\nHello, !\n✗ test 02\n');
+  });
+
+  it('Check prints visible tests as they finish and hidden tests as an index and a status only', async () => {
+    const { user } = await openIo();
+    const editor = screen.getByRole('textbox', { name: 'main.py' }) as HTMLTextAreaElement;
+    await user.clear(editor);
+    await user.type(editor, 'name = input("What\'s your name? "){Enter}print(f"Hello, {{name}!")');
+    await user.click(screen.getByRole('button', { name: 'Check' }));
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/of 4 passed\n$/));
+    expect(mirror().textContent).toBe(
+      ['$ python3 main.py  (test 01)', 'Hello, Ada!', '✓ test 01', '$ python3 main.py  (test 02)', 'Hello, Grace!', '✓ test 02', 'hidden #1 ✓', 'hidden #2 ✓', '✓ 4 of 4 passed', ''].join('\n'),
+    );
+  });
+
+  it('never lets a test report take the pane from a running program, even through Try again', async () => {
+    const { api, user } = await openIo();
+    api.tryIt = async () => ({ kind: 'not-counted', reason: "Docker isn't running." });
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await within(results()).findByRole('button', { name: /try again/i });
+    const tries: string[] = [];
+    api.tryIt = async (id) => (tries.push(id), { kind: 'ran', passed: 0, total: 0, tests: [] });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror().textContent).toContain("What's your name? "));
+    await user.click(within(results()).getByRole('button', { name: /try again/i }));
+    expect(tries).toEqual([]);
+    expect(mirror().textContent).toContain("What's your name? ");
+  });
+
+  it("shows a Run's time-up only while the pane holds that Run", async () => {
+    const { user } = await openIo({ runLimitMs: 50 });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(terminal()).toHaveTextContent("Time's up"));
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/visible tests passed\n$/));
+    expect(terminal()).not.toHaveTextContent("Time's up");
+  });
+
+  it('has no Run for a unit activity', async () => {
+    await open();
+    expect(screen.queryByRole('button', { name: 'Run' })).not.toBeInTheDocument();
   });
 });

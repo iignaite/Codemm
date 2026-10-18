@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
@@ -8,14 +7,15 @@ import { readFileMap } from "../src/files.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import type { LearnerEvent } from "../src/learner.js";
 import * as store from "../src/store.js";
-import { fakeDocker } from "./fake-docker.js";
+import { fakeDocker, posix } from "./fake-docker.js";
+import { tempDir } from "./temp.js";
 
 /** Use cases that need no container runtime: tracks and exercises are written straight into the store. */
 
 let ws: string;
 beforeEach(() => {
-  vi.stubEnv("CODEMM_HOME", mkdtempSync(join(tmpdir(), "codemm-home-")));
-  ws = mkdtempSync(join(tmpdir(), "codemm-ws-"));
+  vi.stubEnv("CODEMM_HOME", tempDir("codemm-home-"));
+  ws = tempDir("codemm-ws-");
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -61,6 +61,11 @@ describe("roadmap draft", () => {
     await app.saveRoadmap(ws, "shell", roadmap(undefined, "shell-io@2"));
     installFake("shell-io@2", ["unit"]);
     expect(() => app.nextStep(ws)).toThrow(/Edit the roadmap's style/);
+  });
+
+  it("keeps the roadmap's sources and returns them", async () => {
+    await app.saveRoadmap(ws, "shell", `${roadmap()}sources:\n  - { title: POSIX shell, url: "https://pubs.opengroup.org/onlinepubs/9799919799/" }\n`);
+    expect(app.getRoadmap(ws).sources).toEqual([{ title: "POSIX shell", url: "https://pubs.opengroup.org/onlinepubs/9799919799/" }]);
   });
 
   it("returns the roadmap as saved", async () => {
@@ -154,6 +159,21 @@ describe("reviews", () => {
   });
 });
 
+describe("error kinds", () => {
+  it("names a missing course, so the desktop needn't read the English", () => {
+    expect(() => app.nextStep(ws)).toThrow(expect.objectContaining({ kind: "no-course", message: expect.stringMatching(/No course in this workspace yet/) }));
+  });
+
+  // The fake docker is a shell script, so this one runs where a shell does.
+  it.runIf(posix)("names a missing track image", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    addExercise("shell", "e1", "sh.basics");
+    fakeDocker("no-image");
+    await expect(app.testExercise(ws, "e1")).rejects.toMatchObject({ kind: "image-missing", message: expect.stringMatching(/is missing or changed/) });
+  });
+});
+
 describe("lessons", () => {
   const lesson = (id: string, concept = "sh.basics") => ({ id, concept, title: `About ${id}`, markdown: `# ${id}\n\nText.` });
 
@@ -223,6 +243,24 @@ describe("lessons", () => {
   });
 });
 
+describe("hidden material", () => {
+  it("gives the reply filter an exercise's hidden texts only: solution, mutants, hidden tests and hidden expected outputs", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    store.commitFolder(store.exerciseDir("shell", "e1"), {
+      "README.md": "VISIBLE statement", "starter/main.sh": "VISIBLE starter", "tests/visible/01.in": "VISIBLE input",
+      "solution/main.sh": "HIDDEN solution", "mutants/m/main.sh": "HIDDEN mutant", "tests/hidden/01.in": "HIDDEN input",
+    }, {
+      "exercise.json": {
+        format_version: 1, slug: "e1", style: "io", concepts: ["sh.basics"], difficulty: 1, track: "shell-io@1", createdAt: new Date().toISOString(),
+        expected: { "visible/01": "VISIBLE expected", "hidden/01": "HIDDEN expected" },
+      },
+    });
+    const material = app.hiddenMaterial("shell", "e1");
+    expect([...material].sort()).toEqual(["HIDDEN expected", "HIDDEN input", "HIDDEN mutant", "HIDDEN solution"]);
+  });
+});
+
 describe("exercise list", () => {
   it("lists exercises with what a job's done check needs, and nothing hidden", async () => {
     installFake();
@@ -254,7 +292,7 @@ describe("learner files", () => {
     const { digest } = app.readLearnerFiles(ws, "e1")["main.sh"]!;
     expect(await app.writeLearnerFile(ws, "e1", "main.sh", "echo 3\n", digest)).toEqual({ digest: sha("echo 3\n") });
     expect(readFileSync(file(), "utf8")).toBe("echo 3\n");
-    await expect(app.writeLearnerFile(ws, "e1", "main.sh", "echo 4\n", digest)).rejects.toThrow(/Changed outside Codemm/);
+    await expect(app.writeLearnerFile(ws, "e1", "main.sh", "echo 4\n", digest)).rejects.toMatchObject({ kind: "changed", message: expect.stringMatching(/Changed outside Codemm/) });
     expect(readFileSync(file(), "utf8")).toBe("echo 3\n");
   });
 
@@ -266,7 +304,7 @@ describe("learner files", () => {
 
   it.runIf(process.platform !== "win32")("refuses to write through a symlink", async () => {
     app.readLearnerFiles(ws, "e1");
-    const outside = join(mkdtempSync(join(tmpdir(), "codemm-outside-")), "target.sh");
+    const outside = join(tempDir("codemm-outside-"), "target.sh");
     writeFileSync(outside, "echo todo\n");
     rmSync(file());
     symlinkSync(outside, file());

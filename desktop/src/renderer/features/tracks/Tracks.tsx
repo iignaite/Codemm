@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed } from '../../app/Shell';
+import { Failed } from '../../app/Problems';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
@@ -15,13 +15,16 @@ export function Tracks() {
   const { data: tracks, error, reload } = useLoad(() => api.tracks(), []);
   const [topic, setTopic] = useState('');
   const [rebuilding, setRebuilding] = useState<string>();
+  const [rebuilt, setRebuilt] = useState<string>();
   if (error) return <Failed error={error} retry={reload} />;
   if (!tracks) return null;
 
   async function rebuild(ref: string) {
     setRebuilding(ref);
+    setRebuilt(undefined);
     try {
       await api.rebuild(ref);
+      setRebuilt(ref);
     } catch (e) {
       fail(e);
     } finally {
@@ -38,12 +41,13 @@ export function Tracks() {
     <main className="main page">
       <h1 className="h2 a-up">Tracks</h1>
       {tracks.length > 0 && (
-        <ul className="track-grid" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        <ul className="track-grid plain">
           {tracks.map((t, i) => (
             <li key={t.ref} className="card track a-up" style={stagger(i + 1)} aria-label={t.name}>
               <Emm width={140} name={t.name} perch />
               <b>{t.name}</b>
               <Button variant="ghost" disabled={rebuilding === t.ref} onClick={() => rebuild(t.ref)}>Rebuild</Button>
+              <span className="quiet-text" role="status">{rebuilt === t.ref ? 'Rebuilt.' : ''}</span>
             </li>
           ))}
         </ul>

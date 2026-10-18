@@ -15,5 +15,8 @@
       { "id": "gpt-6-astra", "label": "gpt-6-astra" }
     ]
   },
-  "cursor": null
+  "cursor": {
+    "recommended": "auto",
+    "models": [{ "id": "auto", "label": "Auto" }]
+  }
 }

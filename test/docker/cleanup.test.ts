@@ -1,9 +1,9 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { cli, runSandboxed } from "../../src/sandbox.js";
 import { dockerUp } from "./helpers.js";
+import { tempDir } from "../temp.js";
 
 describe.runIf(dockerUp)("container cleanup", () => {
   afterAll(async () => {
@@ -15,7 +15,7 @@ describe.runIf(dockerUp)("container cleanup", () => {
 
   it("gives up on a stalled `rm` after a bounded time and reports it", async () => {
     // A wrapper CLI whose `rm` hangs, standing in for a stuck daemon.
-    const dir = mkdtempSync(join(tmpdir(), "codemm-fakecli-"));
+    const dir = tempDir("codemm-fakecli-");
     const fake = join(dir, "docker");
     writeFileSync(fake, `#!/bin/sh\nif [ "$1" = rm ]; then sleep 60; exit 1; fi\nif [ "$1" = run ]; then shift; exec docker run --label codemm-stalled-test=1 "$@"; fi\nexec docker "$@"\n`);
     chmodSync(fake, 0o755);

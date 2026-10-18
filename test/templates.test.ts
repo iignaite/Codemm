@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { TOOL_NAMES } from "../src/mcp.js";
-import { AGENTS_SECTION, AUTHOR_AGENT, JOB_BRIEFS, JOB_TOOLS, type JobKind } from "../src/templates.js";
+import { DRIVER_TOOLS } from "../src/judge.js";
+import { AGENTS_SECTION, AUTHOR_AGENT, JOB_BRIEFS, type JobKind } from "../src/templates.js";
 
 // Each rule below closes a failure the cross-model bench observed (docs/bench/results.md).
 describe("tutor instructions (AGENTS.md section)", () => {
@@ -25,6 +25,12 @@ describe("tutor instructions (AGENTS.md section)", () => {
 });
 
 describe("author instructions (codemm-author subagent)", () => {
+  it("names every tool the judge's driver needs in a track image, and no other", () => {
+    const line = AUTHOR_AGENT.split("\n").find((l) => l.startsWith("- The image must have"))!;
+    const named = [...line.replace(/, and must not.*/, "").matchAll(/`([a-z]+)`/g)].map((m) => m[1]);
+    expect(named).toEqual(["sh", ...DRIVER_TOOLS]);
+  });
+
   it("never asks for an invented image digest", () => {
     expect(AUTHOR_AGENT).toMatch(/never make one up/i);
   });
@@ -55,17 +61,11 @@ describe("the 1.0 learning flow in the tutor instructions", () => {
 });
 
 describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
-  const named = (brief: string) => new Set(brief.match(new RegExp(`\\b(${TOOL_NAMES.join("|")})\\b`, "g")));
   const kinds = Object.keys(JOB_BRIEFS) as JobKind[];
 
-  it("has a brief and a tool list for every job in the spec", () => {
+  // The desktop checks each brief against its job's tools (desktop/src/main/agent/briefs.test.ts).
+  it("has a brief for every job in the spec", () => {
     expect(kinds.sort()).toEqual(["author", "lesson", "research", "roadmap", "setup", "tutor"]);
-    expect(Object.keys(JOB_TOOLS).sort()).toEqual(kinds);
-    for (const k of kinds) for (const t of JOB_TOOLS[k]) expect(TOOL_NAMES).toContain(t);
-  });
-
-  it.each(kinds)("the %s brief names only its own tools", (kind) => {
-    expect([...named(JOB_BRIEFS[kind])].filter((t) => !JOB_TOOLS[kind].includes(t))).toEqual([]);
   });
 
   it.each(kinds)("keeps the %s brief within 25 lines", (kind) => {
@@ -85,10 +85,14 @@ describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
     expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, difficulty, style, track and contract from `next_step`/);
   });
 
+  it("asks the research job for its sources, and a roadmap change to keep them", () => {
+    expect(JOB_BRIEFS.research).toMatch(/`sources`/);
+    expect(JOB_BRIEFS.roadmap).toMatch(/Keep `sources`/);
+  });
+
   it("keeps the tutor's hint rule and keeps it away from saves", () => {
     expect(JOB_BRIEFS.tutor).toMatch(/not in chat/);
     expect(JOB_BRIEFS.tutor).toMatch(/Don't state the fix, write the code or list the steps/);
-    expect(JOB_TOOLS.tutor.filter((t) => t.startsWith("save_"))).toEqual([]);
   });
 });
 

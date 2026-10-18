@@ -1,15 +1,15 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { beforeEach, describe, expect, it } from "vitest";
 import { CODEX_TOOL_TIMEOUT_SEC, init } from "../src/init.js";
 import { BUILD_TIMEOUT_MS } from "../src/sandbox.js";
+import { tempDir } from "./temp.js";
 
 const launcher = { command: "/opt/node/bin/node", args: ["/opt/codemm/dist/cli.js"] };
 let ws: string;
 beforeEach(() => {
-  ws = mkdtempSync(join(tmpdir(), "codemm init-"));
+  ws = tempDir("codemm init-");
 });
 const read = (p: string) => readFileSync(join(ws, p), "utf8");
 const json = (p: string) => JSON.parse(read(p));
@@ -113,7 +113,7 @@ describe("init", () => {
   });
 
   it("refuses to write through a symlinked config folder", async () => {
-    const outside = mkdtempSync(join(tmpdir(), "codemm-outside-"));
+    const outside = tempDir("codemm-outside-");
     symlinkSync(outside, join(ws, ".claude"));
     await expect(init(ws, ["claude"], launcher)).rejects.toThrow(/symlink/i);
     expect(readdirSync(outside)).toEqual([]);

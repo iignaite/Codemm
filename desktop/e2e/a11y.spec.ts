@@ -63,22 +63,21 @@ async function masterEverything(page: Page) {
   });
 }
 
-async function toActivity(page: Page) {
+async function toActivity(page: Page, title = 'Click Counter') {
   await toRoadmap(page);
   await button(page, 'Approve').click();
   await page.getByRole('dialog').getByRole('button', { name: 'Set up', exact: true }).click();
+  // Set up runs once (useBusy): the dialog stays until the install starts, and it traps focus meanwhile.
+  await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15_000 });
   await expect(button(page, 'Read What javascript basics is')).toBeVisible({ timeout: 15_000 });
   await button(page, 'Read What javascript basics is').click();
   await button(page, 'Next').click();
   await button(page, 'Next').click();
-  await expect(heading(page, 'Click Counter')).toBeVisible();
+  await expect(heading(page, title)).toBeVisible();
 }
 
 async function toRoadmap(page: Page) {
   await connect(page);
-  await expect(page.getByText('This computer is ready.')).toBeVisible();
-  await button(page, 'Continue').click();
-  await button(page, 'Start learning').click();
   await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('React');
   await button(page, 'Start').click();
   await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });
@@ -92,12 +91,9 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await page.getByRole('listitem', { name: 'Claude Code' }).getByRole('button', { name: 'Connect' }).click();
   await expect(page.getByRole('combobox', { name: 'Model' })).toHaveValue('sonnet');
   await audit(page, 'connect, connected, with the model choice');
+  // A computer that is ready at the first check passes by itself; its screens with a step are audited below.
   await button(page, 'Continue').click();
-  await expect(page.getByText('This computer is ready.')).toBeVisible();
-  await audit(page, 'check this computer');
-  await button(page, 'Continue').click();
-  await audit(page, 'welcome, connected');
-  await button(page, 'Start learning').click();
+  await expect(heading(page, 'What do you want to learn?')).toBeVisible();
   await audit(page, 'goal');
   await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('React');
   await button(page, 'Start').click();
@@ -110,7 +106,15 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await audit(page, 'setup consent');
   await consent.getByText('Details').click();
   await audit(page, 'setup consent, details');
+  // Not now: a lesson offers setup without blocking the reading.
+  await consent.getByRole('button', { name: 'Not now', exact: true }).click();
+  await button(page, 'Read What javascript basics is').click();
+  await expect(button(page, 'Set up React')).toBeVisible();
+  await audit(page, 'lesson, setup waiting');
+  await button(page, 'Set up React').click();
   await consent.getByRole('button', { name: 'Set up', exact: true }).click();
+  await expect(consent).toBeHidden({ timeout: 15_000 });
+  await button(page, 'Previous').click();
   await expect(button(page, 'Read useState')).toBeVisible({ timeout: 15_000 });
   await audit(page, 'topic');
   await button(page, 'Read What javascript basics is').click();
@@ -127,7 +131,10 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await button(page, 'Check').click();
   await expect(results.getByRole('heading', { name: '4 of 4 passed' })).toBeVisible();
   await audit(page, 'results, passed');
+  // Continue goes straight on to the next topic.
   await button(page, 'Continue').click();
+  await expect(heading(page, 'JSX')).toBeVisible();
+  await button(page, 'Learn').click();
   await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();
   await audit(page, 'course');
   await button(page, 'Tracks').click();
@@ -137,15 +144,58 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await button(page, 'Learn').click();
   await expect(heading(page, 'React complete')).toBeVisible();
   await audit(page, 'course complete');
+  // A new goal's roadmap is a draft: the course stays, and the goal screen offers the draft again.
+  await button(page, 'Learn something new').click();
+  await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('Vue');
+  await button(page, 'Start').click();
+  await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });
+  await button(page, 'Learn').click();
+  await expect(heading(page, 'React complete')).toBeVisible();
+  await button(page, 'Learn something new').click();
+  await expect(button(page, 'Resume roadmap')).toBeVisible();
+  await audit(page, 'goal, with a roadmap to resume');
+  await button(page, 'Resume roadmap').click();
+  await expect(heading(page, 'Vue')).toBeVisible();
+  await app.close();
+});
+
+test('a relaunch with a connected agent opens on Welcome, connected, which passes WCAG AA checks', async () => {
+  const { app, page } = await launch('relaunch');
+  await expect(heading(page, 'Ready when you are.')).toBeVisible();
+  await audit(page, 'welcome, connected');
   await app.close();
 });
 
 test('failure and environment screens pass WCAG AA checks', async () => {
+  // Nine launches, each with a scan: on CI runners that's well past the default minute.
+  test.setTimeout(240_000);
   for (const scenario of ['no-agent', 'untested-version']) {
     const { app, page } = await launch(scenario);
     await button(page, 'Connect an agent').click();
     await expect(page.getByRole('listitem', { name: 'Claude Code' })).toBeVisible();
     await audit(page, `connect, ${scenario}`);
+    await app.close();
+  }
+  {
+    // Install what's missing: before, during, and the agent's sign-in after Docker.
+    const { app, page } = await launch('nothing-installed');
+    await button(page, "Install what's missing").click();
+    await expect(page.getByRole('listitem', { name: 'Docker Desktop' })).toBeVisible();
+    await audit(page, 'setup, before installing');
+    await button(page, "Install what's missing").click();
+    await expect(page.getByRole('progressbar').first()).toBeVisible();
+    await audit(page, 'setup, installing');
+    await expect(button(page, 'Sign in')).toBeVisible();
+    await audit(page, 'setup, sign in');
+    await app.close();
+  }
+  {
+    const { app, page } = await launch('agent-install-offline');
+    await button(page, 'Connect an agent').click();
+    const claude = page.getByRole('listitem', { name: 'Claude Code' });
+    await claude.getByRole('button', { name: 'Install', exact: true }).click();
+    await expect(claude.getByRole('alert')).toHaveText("You're offline. Connect to the internet, then try again.");
+    await audit(page, 'connect, agent install failed');
     await app.close();
   }
   {
@@ -195,7 +245,7 @@ test('failure and environment screens pass WCAG AA checks', async () => {
     await page.getByRole('textbox', { name: 'Counter.jsx' }).fill('wrong /* your code */');
     for (let i = 0; i < 3; i++) {
       await button(page, 'Check').click();
-      await expect(results.getByRole('heading', { name: /passed|Try another way/ })).toBeVisible();
+      await expect(results.getByRole('heading', { name: /passed|Try another way/ }).first()).toBeVisible();
     }
     await expect(results.getByRole('heading', { name: 'Try another way' })).toBeVisible();
     await audit(page, 'results, stuck');
@@ -240,6 +290,8 @@ test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', 
   await toRoadmap(page);
   await button(page, 'Approve').click();
   await page.getByRole('dialog').getByRole('button', { name: 'Set up', exact: true }).click();
+  // Set up runs once (useBusy): the dialog stays until the install starts, and it traps focus meanwhile.
+  await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15_000 });
   await expect(button(page, 'Read What javascript basics is')).toBeVisible({ timeout: 15_000 });
   await button(page, 'Read What javascript basics is').click();
   await button(page, 'Next').click();
@@ -260,6 +312,17 @@ test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', 
   await app.close();
 });
 
+test('at 1280 px and narrower, the side columns narrow so the editor keeps its room', async () => {
+  const { app, page } = await launch();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1200, 800));
+  await toActivity(page);
+  const statement = await page.locator('.stmt').boundingBox();
+  const codemm = await page.getByRole('complementary', { name: 'Codemm' }).boundingBox();
+  expect(statement!.width).toBeLessThanOrEqual(281);
+  expect(codemm!.width).toBeLessThanOrEqual(281);
+  await app.close();
+});
+
 /** Elements Tab can stop on right now. */
 const focusables = (page: Page) =>
   page.evaluate(
@@ -272,18 +335,21 @@ const focusables = (page: Page) =>
 /**
  * Presses Tab until the control named `name` has focus. It waits for the control first, so a screen still loading
  * (the agent list, a lesson) is never tabbed through early. Then one lap through every focusable element, plus the
- * stop on the page itself, must reach it, or it fails.
+ * stop on the page itself, must reach it, or it fails. The lap is counted again before each press: a screen that
+ * was still swapping in when the count began (the next lesson after Next) has more controls once it's there.
  */
 async function tabTo(page: Page, role: 'button' | 'textbox' | 'menuitem' | 'combobox', name: string | RegExp) {
   const target = page.getByRole(role, { name, exact: typeof name === 'string' }).first();
   await expect(target).toBeVisible();
   await expect(target).toBeEnabled();
-  const laps = (await focusables(page)) + 2;
-  for (let i = 0; i < laps; i++) {
-    if (await target.evaluate((el) => el === document.activeElement)) return;
+  let presses = 0;
+  while (!(await target.evaluate((el) => el === document.activeElement))) {
+    if (presses >= (await focusables(page)) + 2) {
+      throw new Error(`Tab never reached ${role} "${name}" in ${presses} presses on:\n${await page.locator('body').ariaSnapshot()}`);
+    }
     await page.keyboard.press('Tab');
+    presses++;
   }
-  throw new Error(`Tab never reached ${role} "${name}" in ${laps} presses on:\n${await page.locator('body').ariaSnapshot()}`);
 }
 
 async function press(page: Page, name: string | RegExp) {
@@ -307,9 +373,7 @@ test('the journey works with the keyboard alone', async () => {
   // The model choice is reachable by keyboard.
   await tabTo(page, 'combobox', 'Model');
   await press(page, 'Continue');
-  await expect(page.getByText('This computer is ready.')).toBeVisible();
-  await press(page, 'Continue');
-  await press(page, 'Start learning');
+  await expect(heading(page, 'What do you want to learn?')).toBeVisible();
   await typeInto(page, 'What do you want to learn?', 'React');
   await press(page, 'Start');
   await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });
@@ -331,6 +395,8 @@ test('the journey works with the keyboard alone', async () => {
 
   await press(page, 'Approve');
   await press(page, 'Set up');
+  // Set up runs once (useBusy): the dialog stays until the install starts, and it traps focus meanwhile.
+  await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15_000 });
   await expect(button(page, 'Read What javascript basics is')).toBeVisible({ timeout: 15_000 });
   await press(page, 'Read What javascript basics is');
 
@@ -349,7 +415,7 @@ test('the journey works with the keyboard alone', async () => {
   await typeInto(page, 'Counter.jsx', 'wrong /* your code */');
   for (let i = 0; i < 3; i++) {
     await press(page, 'Check');
-    await expect(results.getByRole('heading', { name: /passed|Try another way/ })).toBeVisible();
+    await expect(results.getByRole('heading', { name: /passed|Try another way/ }).first()).toBeVisible();
   }
   await press(page, 'Come back later');
   await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();
@@ -369,8 +435,49 @@ test('the journey works with the keyboard alone', async () => {
   await typeInto(page, 'Counter.jsx', '// my answer');
   await press(page, 'Check');
   await expect(results.getByRole('heading', { name: '4 of 4 passed' })).toBeVisible();
+  // Straight on to the next topic: the roadmap edit above put Forms before Lists and keys.
   await press(page, 'Continue');
-  await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();
+  await expect(heading(page, 'Lists and keys')).toBeVisible();
   });
+  await app.close();
+});
+
+// Run (§4.10): the terminal pane passes WCAG AA while a program runs and with test output, and works by keyboard.
+// The program gets the full 2 minutes, so the scans never race its time limit.
+test('the terminal pane passes WCAG AA checks and works with the keyboard alone', async () => {
+  test.setTimeout(120_000);
+  const { app, page } = await launch('io-track');
+  await toActivity(page, 'Greet by name');
+  const log = page.getByRole('log', { name: 'Terminal for Greet by name, as text' });
+  await press(page, 'Run');
+  await expect(log).toHaveText(/What's your name\? $/);
+  // Focus moves into the pane, so typing goes to the program.
+  await expect(page.getByRole('textbox', { name: 'Terminal for Greet by name input' })).toBeFocused();
+  await expect(page.getByRole('region', { name: 'Terminal for Greet by name' })).toContainText('left');
+  await audit(page, 'terminal, running');
+  await page.screenshot({ path: process.env.CODEMM_SCREENSHOT ?? test.info().outputPath('terminal.png') });
+  await page.keyboard.type('Ada');
+  await page.keyboard.press('Enter');
+  await expect(log).toContainText('Hello, Ada!');
+  await expect(log).toContainText('Exited with code 0.');
+
+  // Try it prints each visible test into the pane as it finishes.
+  await press(page, 'Try it');
+  await expect(log).toContainText('✗ 0 of 2 visible tests passed');
+  await expect(log).toContainText('$ python3 main.py  (test 02)');
+  await audit(page, 'terminal, Try it');
+  await app.close();
+});
+
+// The time limit: the pane and its header say the time is up, and pass WCAG AA.
+test('the terminal pane says when the time is up', async () => {
+  test.setTimeout(120_000);
+  const { app, page } = await launch('run-time-up');
+  await toActivity(page, 'Greet by name');
+  const log = page.getByRole('log', { name: 'Terminal for Greet by name, as text' });
+  await press(page, 'Run');
+  await expect(log).toContainText("Time's up. The program was stopped after 3 seconds.", { timeout: 10_000 });
+  await expect(page.getByRole('region', { name: 'Terminal for Greet by name' })).toContainText("Time's up");
+  await audit(page, 'terminal, time up');
   await app.close();
 });

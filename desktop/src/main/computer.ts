@@ -1,39 +1,44 @@
 // "Check this computer" (DESIGN §6.1): Docker is installed, it's running with
 // Linux containers, and the sandbox works. Only the first failing row is a
 // problem; the ones after it wait.
-import type { CheckId, Computer, ComputerCheck, Platform } from '../shared/api';
+import type { CheckId, Computer, ComputerCheck, DockerInstall, Platform } from '../shared/api';
 import type { Executable } from './agent/bridge';
+import { STARTING_MS } from './dockerDesktop';
 
 export interface Probe {
   find(): Executable | null;
-  /** `docker info --format '{{.ServerVersion}}|{{.OSType}}'`. */
-  info(docker: Executable): Promise<{ exit: number; output: string }>;
+  /** Whether the found engine is there, running, and running Linux containers (core sandbox.ts runtimeStateOf). */
+  state(docker: Executable): Promise<'missing' | 'down' | 'windows' | 'ready'>;
   /** Core doctor's network-isolation check. */
   sandbox(): Promise<boolean>;
   now(): number;
+  /** When Codemm last opened or installed Docker Desktop. Only then is a silent Docker "starting". */
+  startedAt?(): number | undefined;
+  /** Codemm can install Docker Desktop here, and the install it started. */
+  canInstall?: boolean;
+  install?(): DockerInstall | undefined;
 }
 
-const STARTING_MS = 3 * 60_000;
 
 export const platformOf = (p: NodeJS.Platform): Platform => (p === 'darwin' ? 'mac' : p === 'win32' ? 'windows' : 'linux');
 
-/** A re-checkable check: it remembers when Docker was first found not answering, and a sandbox that passed. */
+/**
+ * A re-checkable check: it remembers a sandbox that passed. A Docker that doesn't answer is "starting" only for
+ * 3 minutes after Codemm opened or installed it; otherwise it's stopped, and the fix is to open it (§6.1).
+ */
 export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.platform): () => Promise<Computer> {
-  let silentSince: number | undefined;
   let sandboxOk = false;
 
   async function failing(): Promise<{ at: number; detail?: ComputerCheck['detail'] } | null> {
     const docker = probe.find();
     if (!docker) return { at: 0 };
-    const { exit, output } = await probe.info(docker);
-    // `docker info` exits 0 even when the daemon is down: a running engine reports a version.
-    const m = /^(\S+)\|(\w+)\s*$/m.exec(output);
-    if (exit !== 0 || !m) {
-      silentSince ??= probe.now();
-      return { at: 1, ...(probe.now() - silentSince <= STARTING_MS ? { detail: 'starting' as const } : {}) };
+    const state = await probe.state(docker);
+    if (state === 'missing') return { at: 0 };
+    if (state === 'down') {
+      const started = probe.startedAt?.();
+      return { at: 1, ...(started !== undefined && probe.now() - started <= STARTING_MS ? { detail: 'starting' as const } : {}) };
     }
-    silentSince = undefined;
-    if (m[2] === 'windows') return { at: 1, detail: 'windows-containers' };
+    if (state === 'windows') return { at: 1, detail: 'windows-containers' };
     sandboxOk ||= await probe.sandbox();
     return sandboxOk ? null : { at: 2 };
   }
@@ -46,13 +51,14 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
       if (i > problem.at) return { id, state: 'waiting' };
       return { id, state: 'problem', ...(problem.detail ? { detail: problem.detail } : {}) };
     });
-    return { platform: platformOf(platform), checks, ready: !problem };
+    const install = probe.install?.();
+    return { platform: platformOf(platform), checks, ready: !problem, ...(probe.canInstall ? { canInstall: true } : {}), ...(install ? { install } : {}) };
   };
 }
 
 /**
- * Waits while Docker is starting: setup and checks started then wait for the daemon,
- * within the same 3-minute window Check this computer shows, before they fail (§6.1).
+ * Waits while Docker is starting, which is only after Codemm opened or installed it: setup and checks started
+ * then wait for the daemon, within the same 3-minute window Check this computer shows. A stopped Docker fails fast (§6.1).
  */
 export async function waitWhileStarting(computer: () => Promise<Computer>, nap: () => Promise<void>): Promise<void> {
   while ((await computer()).checks.some((c) => c.id === 'docker-running' && c.detail === 'starting')) await nap();

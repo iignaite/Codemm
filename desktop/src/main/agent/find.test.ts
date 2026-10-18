@@ -1,12 +1,12 @@
 // @vitest-environment node
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { dockerFolders, find, here, shimTarget, withDockerFolders, type Where } from './find';
+import { tempDir } from '../testing/temp';
 
 function tree() {
-  const root = mkdtempSync(join(tmpdir(), 'codemm-find-'));
+  const root = tempDir('codemm-find-');
   const at = (...p: string[]) => join(root, ...p);
   return { root, at };
 }
@@ -41,6 +41,41 @@ describe('find (§3.1)', () => {
     expect(find('nothing-here', posix('', at('home')))).toBeNull();
   });
 
+  it('looks where Volta, nvm and fnm put the CLIs they install, nvm\'s default version first', () => {
+    const put = (at: (...p: string[]) => string, ...p: string[]) => {
+      mkdirSync(at(...p.slice(0, -1)), { recursive: true });
+      writeFileSync(at(...p), 'binary');
+      return at(...p);
+    };
+    const volta = tree();
+    put(volta.at, 'home', '.volta', 'bin', 'claude');
+    expect(find('claude', posix('', volta.at('home')))?.path).toBe(volta.at('home', '.volta', 'bin', 'claude'));
+
+    const nvm = tree();
+    put(nvm.at, 'home', '.nvm', 'versions', 'node', 'v20.11.0', 'bin', 'codex');
+    put(nvm.at, 'home', '.nvm', 'versions', 'node', 'v9.0.0', 'bin', 'codex');
+    // With no default alias, the newest version.
+    expect(find('codex', posix('', nvm.at('home')))?.path).toBe(nvm.at('home', '.nvm', 'versions', 'node', 'v20.11.0', 'bin', 'codex'));
+    mkdirSync(nvm.at('home', '.nvm', 'alias'));
+    writeFileSync(nvm.at('home', '.nvm', 'alias', 'default'), '9\n');
+    expect(find('codex', posix('', nvm.at('home')))?.path).toBe(nvm.at('home', '.nvm', 'versions', 'node', 'v9.0.0', 'bin', 'codex'));
+
+    const fnm = tree();
+    put(fnm.at, 'home', '.local', 'share', 'fnm', 'aliases', 'default', 'bin', 'codex');
+    expect(find('codex', posix('', fnm.at('home')))?.path).toBe(fnm.at('home', '.local', 'share', 'fnm', 'aliases', 'default', 'bin', 'codex'));
+  });
+
+  it("finds Codex where OpenAI's Windows installer puts it, and Claude Code in the profile's .local\\bin", () => {
+    const { at } = tree();
+    mkdirSync(at('local', 'Programs', 'OpenAI', 'Codex', 'bin'), { recursive: true });
+    writeFileSync(at('local', 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'), 'MZ');
+    mkdirSync(at('home', '.local', 'bin'), { recursive: true });
+    writeFileSync(at('home', '.local', 'bin', 'claude.exe'), 'MZ');
+    const w: Where = { platform: 'win32', path: '', home: at('home'), localAppData: at('local') };
+    expect(find('codex', w)?.path).toBe(join(at('local'), 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'));
+    expect(find('claude', w)?.path).toBe(join(at('home'), '.local', 'bin', 'claude.exe'));
+  });
+
   it("reads an npm .cmd shim's script instead of running the shim", () => {
     const { at } = tree();
     mkdirSync(at('npm', 'node_modules', '@openai', 'codex', 'bin'), { recursive: true });
@@ -53,7 +88,7 @@ describe('find (§3.1)', () => {
   });
 
   it("gives Docker's calls the folders its credential helpers live in, as well as the one it was found in", () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-docker-')));
+    const dir = realpathSync(tempDir('codemm-docker-'));
     const cellar = join(dir, 'Cellar', 'docker', 'bin');
     const desktop = join(dir, 'Docker.app', 'Contents', 'Resources', 'bin');
     mkdirSync(cellar, { recursive: true });
@@ -67,7 +102,7 @@ describe('find (§3.1)', () => {
   });
 
   it("adds Docker's folders to a PATH once, keeping what was there", () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-path-')));
+    const dir = realpathSync(tempDir('codemm-path-'));
     writeFileSync(join(dir, 'docker'), '');
     const path = ['/usr/bin', '/bin'].join(delimiter);
     const once = withDockerFolders(path, join(dir, 'docker'), []);
@@ -76,7 +111,7 @@ describe('find (§3.1)', () => {
   });
 
   it('searches only the given folders when a test sets them: the journey\'s "no Docker" run', () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'codemm-only-')));
+    const dir = realpathSync(tempDir('codemm-only-'));
     writeFileSync(join(dir, 'docker'), '#!/bin/sh\n');
     chmodSync(join(dir, 'docker'), 0o755);
     const w: Where = { platform: 'darwin', path: '', home: '/nowhere', searchDirs: [] };

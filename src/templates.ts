@@ -48,7 +48,7 @@ A track is the environment for one language or framework. It needs:
 How checks run:
 
 - The learner's files are read-only in \`/work/src\` (the working directory), and the tests are read-only in \`/work/tests\`. Only \`/tmp\` is writable, and \`HOME=/tmp\`, so put build output and caches in \`/tmp\`.
-- The image must have \`sh\`, \`timeout\`, \`head\`, \`wc\`, \`cat\` and \`basename\`, and must not declare a \`VOLUME\`.
+- The image must have \`sh\`, \`timeout\`, \`sleep\`, \`head\`, \`wc\`, \`cat\` and \`basename\`, and must not declare a \`VOLUME\`.
 - **Unit tracks:** the \`test\` command runs the tests in \`$TESTS\` against \`/work/src\` and writes \`$OUT\`, for example \`{"tests":[{"name":"test_sum.test_basic","status":"pass"},{"name":"test_sum.test_empty","status":"fail","message":"expected 0, got 1"}]}\`. Each status is exactly \`pass\`, \`fail\` or \`error\`, and every name is unique and stable. It must exit 0 whenever it wrote the report, even if tests failed. Usually that means a small script baked into the image that runs the framework and converts its report.`;
 
 const EXERCISE_RULES = `## Exercises (\`save_exercise\`)
@@ -115,18 +115,11 @@ ${EXERCISE_RULES}
 
 export type JobKind = "research" | "roadmap" | "setup" | "lesson" | "author" | "tutor";
 
-/** The Codemm tools each job's server exposes (\`codemm mcp --tools\`). */
-export const JOB_TOOLS: Record<JobKind, string[]> = {
-  research: ["list_tracks", "save_roadmap"],
-  roadmap: ["get_roadmap", "save_roadmap"],
-  setup: ["list_tracks", "save_track"],
-  lesson: ["get_roadmap", "save_lesson"],
-  author: ["next_step", "save_exercise"],
-  tutor: ["progress", "next_step", "get_exercise", "get_lesson", "mark_lesson_read", "get_roadmap", "list_tracks"],
-};
+// Each job's Codemm tools live with the jobs in the desktop (desktop/src/main/agent/jobs.ts), which checks these
+// briefs name only their own job's tools.
 
 const ROADMAP_YAML =
-  "The roadmap is YAML: \`goal\`, \`track\` (\`id@version\`), \`style\` (\`io\` or \`unit\`) and \`concepts\` (each with \`id\`, \`title\`, \`requires\`).";
+  "The roadmap is YAML: \`goal\`, \`track\` (\`id@version\`), \`style\` (\`io\` or \`unit\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`) and optional \`sources\` (up to 10, each with a \`title\` and an https \`url\`).";
 
 /** One short, single-purpose brief per job. The app adds the job's own details: the goal, request, concept or track. */
 export const JOB_BRIEFS: Record<JobKind, string> = {
@@ -134,7 +127,7 @@ export const JOB_BRIEFS: Record<JobKind, string> = {
 
 1. You may research the topic first.
 2. Call \`list_tracks\`. If an installed track fits, use it exactly as listed. Otherwise name a new one, like \`name@1\`; Codemm sets it up after the learner agrees.
-3. Save the roadmap with \`save_roadmap\` under the course id you were given. ${ROADMAP_YAML} Order concepts from basic to advanced.
+3. Save the roadmap with \`save_roadmap\` under the course id you were given. ${ROADMAP_YAML} Order concepts from basic to advanced. If you used roadmaps or docs, list them as \`sources\`.
    ${GRANULARITY}
    ${COURSE_SIZE}
 4. End your turn after the save succeeds.`,
@@ -143,7 +136,7 @@ export const JOB_BRIEFS: Record<JobKind, string> = {
 
 1. Call \`get_roadmap\`.
 2. Change only what was asked. Keep the ids of the concepts you keep, and keep \`requires\` free of cycles. To make a topic easier, add a prerequisite topic that it requires. ${GRANULARITY}
-3. Save the whole roadmap with \`save_roadmap\` under the same course id. ${ROADMAP_YAML}
+3. Save the whole roadmap with \`save_roadmap\` under the same course id. ${ROADMAP_YAML} Keep \`sources\` unless asked to change them.
 4. If nothing should change, don't save, and say why in one sentence.`,
 
   setup: `You set up the environment for one Codemm track. ${CHECKED_RETRIES}
