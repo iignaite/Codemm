@@ -18,7 +18,7 @@ export function bindRuns<W>() {
           return handle(event, method, args).finally(() => owners.delete(run));
         }
         // Another window's Run, or one that ended: nothing happens, as for input that came too late.
-        if ((method === 'sendRunInput' || method === 'stopRun') && Array.isArray(args) && owners.get(args[0]) !== event.sender) {
+        if ((method === 'sendRunInput' || method === 'endRunInput' || method === 'stopRun') && Array.isArray(args) && owners.get(args[0]) !== event.sender) {
           return Promise.resolve(method === 'sendRunInput' ? false : undefined);
         }
         return handle(event, method, args);

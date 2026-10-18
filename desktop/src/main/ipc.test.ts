@@ -37,6 +37,7 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' 
   check: ['values-easy-1', 'run-1'],
   runProgram: ['values-easy-1', 'run-1'],
   sendRunInput: ['run-1', 'Ada\n'],
+  endRunInput: ['run-1'],
   stopRun: ['run-1'],
   ask: [{ activityId: 'values-easy-1' }, 'Why?'],
   skip: ['values'],

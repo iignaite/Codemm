@@ -44,6 +44,20 @@ describe.runIf(posix)("interactive run", () => {
     expect(store.readEvents("shell")).toEqual([]);
   });
 
+  it("ends the program's input when asked, so one that reads until the end finishes", async () => {
+    const ws = await installedExercise();
+    fakeDocker("untileof");
+    let stdout = "";
+    const run = await app.runInteractive(ws, undefined, undefined, (text, stream) => (stream === "stdout" ? (stdout += text) : undefined));
+    run.write("3\n");
+    run.write("4\n");
+    run.end();
+    run.end(); // again: nothing happens
+    expect(await run.done).toMatchObject({ exit: 0, timedOut: false });
+    expect(stdout).toBe("read 2 lines\n");
+    expect(run.write("5\n")).toBe(false);
+  });
+
   it("says when each stage starts, with its time limit", async () => {
     const ws = await installedExercise();
     fakeDocker("interactive");

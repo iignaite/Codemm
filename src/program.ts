@@ -44,7 +44,8 @@ exit 0`;
  * learner stopped it. `outOfMemory`: the runtime recorded a memory-limit kill. `exit` is the program's own code.
  */
 export type ProgramResult = { exit: number; stage?: "build" | "run"; timedOut: boolean; flooded: boolean; stopped?: boolean; outOfMemory?: boolean };
-export type ProgramRun = { write(text: string): boolean; kill(): void; done: Promise<ProgramResult> };
+/** `end` closes the program's input, so one that reads until the end can finish; it does nothing once it ran. */
+export type ProgramRun = { write(text: string): boolean; end(): void; kill(): void; done: Promise<ProgramResult> };
 /** Time limits, and `onStart`, told once as each stage starts with that stage's limit (for a countdown). */
 export type ProgramOptions = { limitMs?: number; buildLimitMs?: number; onStart?: (stage: "build" | "run", limitMs: number) => void };
 
@@ -128,6 +129,7 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
     .finally(() => rmSync(dir, { recursive: true, force: true }));
   return {
     write: started.write,
+    end: started.end,
     kill: () => {
       stopped = true;
       started.kill();

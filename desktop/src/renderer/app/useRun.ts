@@ -141,11 +141,22 @@ export function useRun({ begin, terminal, fail, command, save = async () => unde
     }
   }
 
+  async function endInput() {
+    const c = current.current;
+    if (!c) return;
+    try {
+      await api.endRunInput(c.id);
+    } catch (e) {
+      fail(e);
+    }
+  }
+
   return {
     running: run !== undefined,
     status: deadline !== undefined ? `${clock(deadline - now)} left` : status,
     start,
     stop,
     input: run && ready ? (text: string) => void send(text) : undefined,
+    end: run && ready ? () => void endInput() : undefined,
   };
 }

@@ -76,6 +76,10 @@ export function programs({ whenDockerReady, log }: ProgramDeps) {
 
     input: async (run: string, text: string) => entries.get(run)?.program?.write(text) ?? false,
 
+    async end(run: string) {
+      entries.get(run)?.program?.end();
+    },
+
     async stop(run: string) {
       const entry = entries.get(run);
       if (entry) stopEntry(entry);

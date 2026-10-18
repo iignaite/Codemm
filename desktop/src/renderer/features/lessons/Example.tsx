@@ -39,7 +39,7 @@ function LiveRun({ lesson, index }: { lesson: Lesson; index: number }) {
       <div className="run">
         <RunButton running={program.running} onStop={program.stop} onRun={() => (setRan(true), void program.start())} />
       </div>
-      {ran && <Terminal ref={terminal} label={`Terminal for Example ${index}`} status={program.status} onInput={program.input} />}
+      {ran && <Terminal ref={terminal} label={`Terminal for Example ${index}`} status={program.status} onInput={program.input} onEnd={program.end} />}
     </>
   );
 }

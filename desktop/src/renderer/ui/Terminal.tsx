@@ -23,6 +23,8 @@ export interface TerminalProps {
   status?: string;
   /** Set while a program can read input: typing is echoed and each line is sent with its "\n". Without it, read-only. */
   onInput?: (text: string) => void;
+  /** Set with `onInput`: Ctrl+D ends the program's input, as in a terminal. */
+  onEnd?: () => void;
 }
 
 // Every color reaches WCAG AA (at least 5.7:1) on the pane's navy.
@@ -59,13 +61,15 @@ const MIRROR_MAX = 20_000;
  * The terminal pane: a dark, monospace xterm.js screen headed "Terminal". A visually hidden log mirrors its plain
  * text for screen readers. Screens write to it through the handle; typed lines go to `onInput`.
  */
-export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ label, status, onInput }, ref) {
+export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Terminal({ label, status, onInput, onEnd }, ref) {
   const screen = useRef<HTMLDivElement>(null);
   const mirror = useRef<HTMLDivElement>(null);
   const term = useRef<XTerm>(undefined);
   const labelAtStart = useRef(label);
   const input = useRef(onInput);
   input.current = onInput;
+  const end = useRef(onEnd);
+  end.current = onEnd;
   /** Whether the last thing written ended a line. */
   const atLineStart = useRef(true);
   /** The line being typed, not yet sent. */
@@ -129,7 +133,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
     const typing = xterm.onData((data) => {
       if (!input.current || data.startsWith('\x1b')) return;
       for (const ch of data) {
-        if (ch === '\r') {
+        if (ch === '\x04') {
+          end.current?.();
+        } else if (ch === '\r') {
           const lineText = typed.current;
           typed.current = '';
           show('\r\n', `${lineText}\n`);
@@ -164,6 +170,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(function Termi
         {status && <span className="term-status">{status}</span>}
       </div>
       <div className="term-screen" ref={screen} />
+      {onInput && onEnd && <p className="term-hint">Ctrl+D ends input.</p>}
       <div className="sr-only" role="log" aria-label={`${label}, as text`} ref={mirror} />
     </section>
   );

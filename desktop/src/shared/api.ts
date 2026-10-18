@@ -419,6 +419,8 @@ export interface CodemmApi {
   runProgram(activityId: string, run: string): Promise<RunResult>;
   /** Typed input for a Run this window started. False if it wasn't taken: the run ended, or too much is waiting. */
   sendRunInput(run: string, text: string): Promise<boolean>;
+  /** Ends a Run's input, as Ctrl+D does in a terminal, so a program that reads until the end can finish. */
+  endRunInput(run: string): Promise<void>;
   /** Stops a Run this window started. */
   stopRun(run: string): Promise<void>;
 
