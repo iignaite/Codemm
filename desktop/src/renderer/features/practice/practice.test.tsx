@@ -445,6 +445,29 @@ describe('Run', () => {
     );
   });
 
+  it('never lets a test report take the pane from a running program, even through Try again', async () => {
+    const { api, user } = await openIo();
+    api.tryIt = async () => ({ kind: 'not-counted', reason: "Docker isn't running." });
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await within(results()).findByRole('button', { name: /try again/i });
+    const tries: string[] = [];
+    api.tryIt = async (id) => (tries.push(id), { kind: 'ran', passed: 0, total: 0, tests: [] });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror().textContent).toContain("What's your name? "));
+    await user.click(within(results()).getByRole('button', { name: /try again/i }));
+    expect(tries).toEqual([]);
+    expect(mirror().textContent).toContain("What's your name? ");
+  });
+
+  it("shows a Run's time-up only while the pane holds that Run", async () => {
+    const { user } = await openIo({ runLimitMs: 50 });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(terminal()).toHaveTextContent("Time's up"));
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/visible tests passed\n$/));
+    expect(terminal()).not.toHaveTextContent("Time's up");
+  });
+
   it('has no Run for a unit activity', async () => {
     await open();
     expect(screen.queryByRole('button', { name: 'Run' })).not.toBeInTheDocument();
