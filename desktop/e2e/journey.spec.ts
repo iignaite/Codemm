@@ -127,31 +127,73 @@ async function waiting(name: string, locator: Locator) {
 
 /** Every waiting state the app shows, checked while the driver waits. */
 /**
- * JOURNEY_WALKTHROUGH=<dir>: a human-perspective record. Every time the screen changes (its text or its dialog), a
- * numbered screenshot goes to <dir> (shared across runs through <dir>/.count) with a one-line caption in captions.md.
+ * JOURNEY_WALKTHROUGH=<dir>: a human-perspective record, one image per distinct screen state (a new heading, dialog,
+ * alert or stage), numbered across runs through <dir>/.count. A state that lasts keeps its first, a middle (at 60 s)
+ * and its last frame. captions.md lists every state, with or without a kept image.
  */
 const walkDir = process.env.JOURNEY_WALKTHROUGH;
-let lastScreen = '';
-async function everyScreen(why = '') {
-  if (!walkDir) return;
-  const text = await page.locator('body').innerText().catch(() => '');
-  const sig = text.replace(/\d+:\d\d|\d+%|\d+ (of|steps?)\b.*$/gm, '#').replace(/\s+/g, ' ').slice(0, 4000);
-  if (!why && sig === lastScreen) return;
-  lastScreen = sig;
-  mkdirSync(walkDir, { recursive: true });
-  const countFile = join(walkDir, '.count');
-  const n = (existsSync(countFile) ? Number(readFileSync(countFile, 'utf8')) : 0) + 1;
-  writeFileSync(countFile, String(n));
-  const file = `${String(n).padStart(3, '0')}.jpg`;
+let walkState = { key: '', since: 0, middle: false, last: undefined as Buffer | undefined, lastAt: 0 };
+
+async function walkKey(): Promise<{ key: string; caption: string }> {
+  const one = (l: Locator) => l.first().innerText({ timeout: 300 }).then((t) => t.replace(/\s+/g, ' ').trim(), () => '');
+  const dialog = (await one(page.getByRole('dialog'))).split(/(?<=[.?!]) /)[0];
+  const h1 = await one(page.getByRole('heading', { level: 1 }));
+  const alert = await one(page.getByRole('alert'));
+  const stage = await page.getByRole('progressbar').first().getAttribute('aria-label', { timeout: 300 }).catch(() => '') ?? '';
+  const results = (await one(page.getByRole('region', { name: 'Results' }).getByRole('heading'))).replace(/\d+/g, '#');
+  // A list that grows or shrinks (topics added, removed, made deeper) is a new state too.
+  const items = await page.locator('main').getByRole('listitem').count().catch(() => 0);
+  const key = [h1, dialog, alert, stage, results, items].join(' | ');
+  const caption = [dialog ? `dialog: ${dialog}` : h1, stage && `stage: ${stage}`, results && `result: ${await one(page.getByRole('region', { name: 'Results' }).getByRole('heading'))}`, alert && `alert: ${alert}`].filter(Boolean).join(' — ').slice(0, 220);
+  return { key, caption };
+}
+
+async function walkShot(): Promise<Buffer | undefined> {
   const banner = (on: boolean) => page.evaluate(([show, t]) => { document.getElementById('journey-banner')?.style.setProperty('display', show ? 'block' : 'none'); const bar = document.querySelector('.tbar'); if (bar?.hasAttribute('data-title')) bar.textContent = show ? t : bar.getAttribute('data-title'); }, [on, LABEL] as const).catch(() => undefined);
   await banner(false);
-  await page.screenshot({ path: join(walkDir, file), type: 'jpeg', quality: 70 }).catch(() => undefined);
+  const image = await page.screenshot({ type: 'jpeg', quality: 70, scale: 'css' }).catch(() => undefined);
   await banner(true);
-  const dialog = await page.getByRole('dialog').first().innerText().catch(() => '');
-  const h1 = await page.getByRole('heading', { level: 1 }).first().innerText({ timeout: 500 }).catch(() => '');
-  const alert = await page.getByRole('alert').first().innerText({ timeout: 500 }).catch(() => '');
-  const caption = [why && `[${why}]`, dialog ? `dialog: ${dialog.split('\n')[0]}` : h1 || text.split('\n').find((l) => l.trim()) || '', alert && `alert: ${alert.replace(/\s+/g, ' ')}`].filter(Boolean).join(' — ').replace(/\s+/g, ' ').slice(0, 220);
-  appendFileSync(join(walkDir, 'captions.md'), `- ${file}: ${caption} (${label})\n`);
+  return image;
+}
+
+function walkSave(image: Buffer | undefined, caption: string) {
+  mkdirSync(walkDir!, { recursive: true });
+  let file = '(no image)';
+  if (image) {
+    // Only kept images are numbered.
+    const countFile = join(walkDir!, '.count');
+    const n = (existsSync(countFile) ? Number(readFileSync(countFile, 'utf8')) : 0) + 1;
+    writeFileSync(countFile, String(n));
+    file = `${String(n).padStart(3, '0')}.jpg`;
+    writeFileSync(join(walkDir!, file), image);
+  }
+  appendFileSync(join(walkDir!, 'captions.md'), `- ${file}: ${caption} (${label})\n`);
+}
+
+async function everyScreen(why = '') {
+  if (!walkDir) return;
+  const { key, caption } = await walkKey();
+  const now = Date.now();
+  if (key === walkState.key && why) {
+    // A step that ended on the same screen: listed, no new image.
+    walkSave(undefined, `[${why}] ${caption}`);
+    return;
+  }
+  if (key === walkState.key) {
+    // The same state: a middle frame once it has lasted a minute, and a rolling last frame every 5 s.
+    if (!walkState.middle && now - walkState.since > 60_000) {
+      walkState.middle = true;
+      walkSave(await walkShot(), `${caption} (still, ${Math.round((now - walkState.since) / 1000)} s)`);
+    } else if (now - walkState.lastAt > 5000) {
+      walkState.last = await walkShot();
+      walkState.lastAt = now;
+    }
+    return;
+  }
+  // A new state: the last frame of a long previous one, then this one's first frame.
+  if (walkState.last && now - walkState.since > 20_000) walkSave(walkState.last, `(end of the wait above, ${Math.round((now - walkState.since) / 1000)} s)`);
+  walkSave(await walkShot(), `${why ? `[${why}] ` : ''}${caption}`);
+  walkState = { key, since: now, middle: false, last: undefined, lastAt: now };
 }
 
 async function waitingStates() {
