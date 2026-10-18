@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-// A minimal page for public/hero.js: one orbit, three agent names, and a
+// A minimal page for public/hero.js: the walking scene, three agents, and a
 // reduced-motion preference. Every element records the animations it starts.
 function element() {
   const el = {
@@ -22,13 +22,13 @@ function element() {
 }
 
 async function loadWith({ reduced }) {
-  const orbit = element();
-  const parts = { '.orbit-scene': element(), '.orbit-ring': element(), '.core': element(), '.emm': element(), '.motion': element() };
+  const stage = element();
+  const parts = { '.walk-scene': element(), '.emm': element(), '.tongue': element(), '.motion': element() };
   const agents = [element(), element(), element()];
-  orbit.querySelector = (q) => parts[q];
-  orbit.querySelectorAll = (q) => (q === '.agent' ? agents : []);
+  stage.querySelector = (q) => parts[q];
+  stage.querySelectorAll = (q) => (q === '.agent' ? agents : []);
   Object.assign(globalThis, {
-    document: { querySelector: (q) => (q === '.orbit' ? orbit : null), hidden: false },
+    document: { querySelector: (q) => (q === '.walk' ? stage : null), hidden: false },
     matchMedia: () => ({ matches: reduced, addEventListener() {} }),
     requestAnimationFrame: () => 0,
     IntersectionObserver: class { observe() {} },
@@ -36,13 +36,13 @@ async function loadWith({ reduced }) {
     getComputedStyle: () => ({ boxShadow: 'none' }),
   });
   await import(`../public/hero.js?${Math.random()}`);
-  return { orbit, parts, agents };
+  return { stage, parts, agents };
 }
 
 test('with reduced motion, clicking an agent changes Emm\'s colors and starts no animation', async () => {
-  const { orbit, parts, agents } = await loadWith({ reduced: true });
-  for (const fn of agents[0].listeners.click) fn();
-  assert.equal(orbit.style.props['--emm-b'], '#E8875F');
-  const started = [orbit, ...Object.values(parts), ...agents].flatMap((el) => el.animations);
+  const { stage, parts, agents } = await loadWith({ reduced: true });
+  for (const fn of agents[1].listeners.click) fn();
+  assert.equal(stage.style.props['--emm-b'], '#7383F7');
+  const started = [stage, ...Object.values(parts), ...agents].flatMap((el) => el.animations);
   assert.deepEqual(started, []);
 });
