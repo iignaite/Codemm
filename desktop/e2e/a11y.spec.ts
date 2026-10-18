@@ -393,6 +393,12 @@ test('the terminal pane passes WCAG AA checks and works with the keyboard alone'
   await expect(log).toContainText('Hello, Ada!');
   await expect(log).toContainText('Exited with code 0.');
 
+  // Try it prints each visible test into the pane as it finishes.
+  await press(page, 'Try it');
+  await expect(log).toContainText('✗ 0 of 2 visible tests passed');
+  await expect(log).toContainText('$ python3 main.py  (test 02)');
+  await audit(page, 'terminal, Try it');
+
   await press(page, 'Run');
   await expect(log).toContainText("Time's up. The program was stopped after 3 seconds.", { timeout: 10_000 });
   await expect(page.getByRole('region', { name: 'Terminal for Greet by name' })).toContainText("Time's up");

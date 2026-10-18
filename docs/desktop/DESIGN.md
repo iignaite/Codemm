@@ -312,7 +312,7 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
   - io reports each visible test as it finishes; the build, when the track has one, shows once as `building`.
   - Hidden tests and unit tests report their phase only (`total` 0): no names, counts or timing per hidden test.
 - **Desktop.**
-  - The renderer passes a run id with each Try it or Check. `live` tags that run's events with it and keeps only `phase`, `done` and `total`.
+  - The renderer passes a run id with each Try it or Check. `live` tags that run's events with it and keeps only `phase`, `done`, `total` and, for a visible io test as it finishes, `test` (name, status, message, output; core §4.2). A hidden event never carries a test, in `live` or in the preload.
   - Main sends each event to the app's windows only, on the one-way channel `codemm:check-progress`.
   - The preload exposes it as `onCheckProgress(listener)`, which returns a function that stops listening. It isn't an IPC call: `invoke('onCheckProgress')` is refused.
 - **Renderer.** While Try it or Check runs, the results panel shows a quiet bar with the phase and "3 of 8". With no count, it shows the phase alone. It hears only its own run's events, and stops listening when the learner leaves.
@@ -340,7 +340,7 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
   - A visually hidden log mirrors the plain text (the last 20,000 characters) for screen readers, and the input is named for its pane.
   - **CSP.** xterm.js writes its layout into `<style>` elements, which `style-src 'self'` blocks. The CSP stays as it is; the pane copies only its own style elements' rules into constructed stylesheets, which the CSP doesn't govern.
 - **Renderer.** The pane appears with the first Run, between the editor and the results, and focus moves into it. Run turns into Stop on the same button, so focus stays put. Codemm's last line says how the program ended, for example "Exited with code 0." or "Time's up. The program was stopped after 2 minutes." Leaving the screen stops the program.
-- **Next.** Try it and Check printing each visible test into the pane as it finishes, with hidden tests as an index and a status only.
+- **Try it and Check in the pane.** For an io activity, each visible test prints as it finishes: `$ <run command>  (test 01)`, what the program printed, then ✓, or ✗ with expected and found (or the error). Then Try it prints "✓ 2 of 2 visible tests passed" (✗ when any failed). Check prints each hidden test as "hidden #2 ✗", an index and a status only, then "✓ 4 of 4 passed". Visible tests that never streamed (the build failed) print from the final result. The structured Results view stays. Unit activities keep Results only: their runner reports at the end.
 
 ## 5. Failure states
 
