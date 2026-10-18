@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildProblem, buildStep, runtimeHelp, runtimeProblem, sandboxArgs, startHelp } from "../src/sandbox.js";
+import { buildProblem, buildStep, runtimeHelp, runtimeKind, runtimeProblem, sandboxArgs, startHelp } from "../src/sandbox.js";
 
 describe("sandboxArgs", () => {
   const args = sandboxArgs(
@@ -88,6 +88,14 @@ describe("runtime guidance", () => {
 });
 
 describe("buildProblem", () => {
+  it("blames Docker, not the track, when its credential helper fails", () => {
+    const line = '#2 ERROR: error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``';
+    const problem = buildProblem(`#2 [internal] load metadata for docker.io/library/alpine:3.20\n${line}\n`);
+    expect(problem?.kind).toBe("docker");
+    expect(problem?.message).toMatch(/credentials.*not a problem with the track files/s);
+    expect(problem?.message).toContain("error getting credentials");
+  });
+
   it.each([
     ["BuildKit", "ERROR: failed to solve: alpine:3.20: failed to resolve source metadata: dial tcp: lookup registry-1.docker.io: no such host"],
     ["apt", "W: Failed to fetch http://deb.debian.org/debian/dists/bookworm/InRelease  Temporary failure resolving 'deb.debian.org'"],
@@ -97,12 +105,15 @@ describe("buildProblem", () => {
     ["a dropped route", "dial tcp 104.18.1.1:443: connect: network is unreachable"],
   ])("blames the network, not the track, for %s offline output", (_, line) => {
     const problem = buildProblem(`#5 [2/3] RUN install\n${line}\n#5 ERROR: process did not complete successfully`);
-    expect(problem).toMatch(/couldn't reach the network.*not a problem with the track files/s);
-    expect(problem).toContain(line.trim());
+    expect(problem?.kind).toBe("offline");
+    expect(problem?.message).toMatch(/couldn't reach the network.*not a problem with the track files/s);
+    expect(problem?.message).toContain(line.trim());
   });
 
   it("blames the disk, not the track, when Docker runs out of space", () => {
-    expect(buildProblem("ERROR: failed to solve: write /var/lib/docker/tmp/x: no space left on device")).toMatch(/ran out of disk space.*not a problem with the track files/s);
+    expect(buildProblem("ERROR: failed to solve: write /var/lib/docker/tmp/x: no space left on device")).toEqual({
+      kind: "disk", message: expect.stringMatching(/ran out of disk space.*not a problem with the track files/s),
+    });
   });
 
   it.each([
@@ -136,5 +147,12 @@ describe("buildStep", () => {
     for (const line of ["#1 [internal] load build definition from Dockerfile", "#5 0.312 added 12 packages", "#6 CACHED", "#5 [0/7] RUN x", "#5 [8/7] RUN x", "[2/7] not at the start"]) {
       expect(buildStep(line)).toBeUndefined();
     }
+  });
+});
+
+describe("runtimeKind", () => {
+  it("reads a runtime's own failure as out of disk when it says so, and as Docker otherwise", () => {
+    expect(runtimeKind("docker: Error response from daemon: write /var/lib/docker/x: no space left on device.")).toBe("disk");
+    expect(runtimeKind("docker: Error response from daemon: Conflict.")).toBe("docker");
   });
 });

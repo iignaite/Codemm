@@ -144,6 +144,22 @@ export function gradeRuns(style: "io" | "unit", runs: Runs, exp: Expectation): T
   return tests;
 }
 
+/** A result as Codemm shows it outside: a visible test in full; a hidden one only its `index` and status. */
+export type ShownResult = { name: string; status: Status; message?: string; actual?: string; index?: number };
+
+/** The hidden-results rule (DESIGN §4.2), in one place: nothing about a hidden test but its index and status. */
+export function redact(tests: TestResult[]): ShownResult[] {
+  let hidden = 0;
+  return tests.map((t) => {
+    if (t.set === "hidden") {
+      hidden += 1;
+      return { name: `hidden #${hidden}`, index: hidden, status: t.status };
+    }
+    // A passing test's output adds nothing.
+    return { name: t.name, status: t.status, ...(t.message ? { message: t.message } : {}), ...(t.actual !== undefined && t.status !== "pass" ? { actual: t.actual } : {}) };
+  });
+}
+
 export function normalizeOutput(text: string): string {
   return text
     .replace(/\r\n/g, "\n")

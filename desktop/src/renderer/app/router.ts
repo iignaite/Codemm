@@ -6,6 +6,7 @@ export type Route =
   | { to: 'connect'; then?: Route }
   /** `fromConnect`: the check on the way in from Connect, which moves on by itself when the computer is ready. */
   | { to: 'computer'; then: Route; fromConnect?: true }
+  | { to: 'setup' }
   | { to: 'goal' }
   | { to: 'research'; goal: Goal }
   | { to: 'course'; roadmap: Roadmap }

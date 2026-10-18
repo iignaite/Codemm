@@ -9,6 +9,7 @@ import {
   CHANGED,
   OFFLINE,
   PLAN_LIMIT,
+  REBUILD,
   REPAIR,
   SIGNED_OUT,
   UNSTOPPABLE,
@@ -84,7 +85,7 @@ const MAX_PROGRAMS = 4;
 
 function notCounted(error: unknown): string | null {
   const message = error instanceof Error ? error.message : String(error);
-  if (/image for .* is missing or changed/i.test(message)) return 'This environment needs a rebuild. Rebuild it under Tracks.';
+  if (/image for .* is missing or changed/i.test(message)) return REBUILD;
   const kind = infra(message);
   return kind ? NOT_COUNTED[kind] : null;
 }
@@ -493,6 +494,14 @@ export function createLive(d: LiveDeps): Live {
         schedule();
       }
       return agent;
+    },
+    async installAgent(id) {
+      log('agent-install', { agent: id });
+      await d.connect.install(id);
+    },
+    async signIn(id) {
+      log('agent-sign-in', { agent: id });
+      await d.connect.signIn(id);
     },
     async chooseModel(id, model) {
       const agent = await d.connect.chooseModel(id, model);

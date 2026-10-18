@@ -4,12 +4,12 @@ import type { CheckProgress } from '../../shared/api';
 
 export type TestStatus = 'pass' | 'fail' | 'error';
 
-/** core app.ts CheckView: visible results in full, hidden ones named `hidden #n` with a status only. */
+/** core app.ts CheckView: visible results in full, hidden ones named `hidden #n` with `index` n and a status only. */
 export interface CoreCheckView {
   exercise: string;
   passed: number;
   total: number;
-  tests: { name: string; status: TestStatus; message?: string; actual?: string }[];
+  tests: { name: string; status: TestStatus; message?: string; actual?: string; index?: number }[];
   recorded: boolean;
   note?: string;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CHANGED, NO_AGENT, PLAN_LIMIT, SIGNED_OUT, type CodemmApi, type CourseView, type JobProgress } from '../shared/api';
+import { CHANGED, NO_AGENT, PLAN_LIMIT, REBUILD, SIGNED_OUT, type CodemmApi, type CourseView, type JobProgress } from '../shared/api';
 import { isSafeLink } from './links';
 import { createMock, scenario, SCENARIOS, type MockOptions } from './mock';
 
@@ -31,6 +31,35 @@ async function practising(options?: MockOptions) {
   for (const l of course.topics[0].lessons) await api.markRead(l.id);
   return { api, activity: await api.activity(course.topics[0].id) };
 }
+
+describe('mock: installing an agent', () => {
+  it('installs a missing agent step by step, then checks its sign-in; signing in connects it on the next look', async () => {
+    const api = createMock({ ...scenario('no-agent'), platform: 'mac' });
+    const codex = async () => (await api.agents()).find((a) => a.id === 'codex')!;
+    expect(await codex()).toMatchObject({ state: 'missing', canInstall: true });
+    expect((await api.agents()).find((a) => a.id === 'cursor')!.canInstall).toBe(false);
+    await api.installAgent('codex');
+    const phases: string[] = [];
+    for (let a = await codex(); a.install?.phase !== 'done' && a.install?.phase !== 'failed'; a = await codex()) phases.push(a.install!.phase);
+    expect(phases).toContain('downloading');
+    expect(await codex()).toMatchObject({ state: 'signed-out', install: { phase: 'done' } });
+    await api.signIn('codex');
+    expect(await codex()).toMatchObject({ state: 'connected' });
+  });
+
+  it('says why an install stopped, and can try again', async () => {
+    const api = createMock({ ...scenario('agent-install-offline'), platform: 'mac' });
+    await api.installAgent('claude');
+    let claude = (await api.agents()).find((a) => a.id === 'claude')!;
+    while (claude.install?.phase !== 'failed') claude = (await api.agents()).find((a) => a.id === 'claude')!;
+    expect(claude).toMatchObject({ state: 'missing', install: { phase: 'failed', problem: 'offline' } });
+  });
+
+  it('cannot install on Linux', async () => {
+    const api = createMock({ ...scenario('no-agent'), platform: 'linux' });
+    expect((await api.agents()).every((a) => !a.canInstall)).toBe(true);
+  });
+});
 
 describe('mock: roadmap and setup', () => {
   it('keeps the approved course while a new roadmap is a draft, with edits saved as they happen', async () => {
@@ -232,6 +261,12 @@ describe('mock: environment', () => {
     expect((await api.activity(activity.concept)).files[0]).toMatchObject({ text: 'mine', digest });
   });
 
+  it('says a check needs a rebuild when the track image is missing, and records nothing', async () => {
+    const { api, activity } = await practising(scenario('image-missing'));
+    expect(await api.check(activity.id)).toEqual({ kind: 'not-counted', reason: REBUILD });
+    expect(await api.tryIt(activity.id)).toEqual({ kind: 'not-counted', reason: REBUILD });
+  });
+
   it('fails setup offline or low on disk, records nothing, and retries the same proposal', async () => {
     for (const [name, problem] of [['offline-setup', 'offline'], ['low-disk', 'disk']] as const) {
       const { api, roadmap } = await roadmapped(scenario(name));
@@ -260,7 +295,7 @@ describe('mock: environment', () => {
   });
 
   it('names every scenario, and rejects unknown ones', () => {
-    expect(Object.keys(SCENARIOS)).toHaveLength(19);
+    expect(Object.keys(SCENARIOS)).toHaveLength(23);
     expect(scenario(undefined)).toEqual({});
     expect(() => scenario('nope')).toThrow('Unknown mock scenario');
   });

@@ -155,7 +155,7 @@ function parseRecord<T>(schema: { parse: (v: unknown) => T }, file: string): T {
   try {
     return schema.parse(JSON.parse(readFileSync(file, "utf8")));
   } catch {
-    throw new CodemmError(`Codemm's record ${file} is damaged. Restore it from a backup, or remove that track, course or exercise.`);
+    throw new CodemmError(`Codemm's record ${file} is damaged. Restore it from a backup, or remove that track, course or exercise.`, "damaged");
   }
 }
 
@@ -311,7 +311,7 @@ export function assertFreeSpace(dir: string, min = MIN_FREE_BYTES): void {
   mkdirSync(dir, { recursive: true });
   const { bavail, bsize } = statfsSync(dir);
   if (bavail * bsize < min) {
-    throw new CodemmError(`Not enough disk space. Setup needs ${Math.round(min / 1024 ** 3)} GB free where Codemm keeps its data (${dir}). Free some space, then try again.`);
+    throw new CodemmError(`Not enough disk space. Setup needs ${Math.round(min / 1024 ** 3)} GB free where Codemm keeps its data (${dir}). Free some space, then try again.`, "disk");
   }
 }
 
@@ -410,7 +410,7 @@ export function readEvents(course: string): LearnerEvent[] {
     try {
       events.push(LearnerEventSchema.parse(JSON.parse(line)));
     } catch {
-      throw new CodemmError(`The learning log ${file} has an invalid entry on line ${i + 1}. Fix or remove that line, then retry.`);
+      throw new CodemmError(`The learning log ${file} has an invalid entry on line ${i + 1}. Fix or remove that line, then retry.`, "damaged");
     }
   });
   return events;
@@ -515,7 +515,7 @@ export function replaceLearnerFile(ws: string, rel: string, name: string, text: 
   assertRelativePath(name);
   const path = refuseSymlinks(ws, `${rel}/${name}`);
   const current = existsSync(path) ? readLearnerFiles(ws, rel, [name])[name] : undefined;
-  if (current === undefined || digestText(current) !== digest) throw new CodemmError(`Changed outside Codemm. Reload ${name}.`);
+  if (current === undefined || digestText(current) !== digest) throw new CodemmError(`Changed outside Codemm. Reload ${name}.`, "changed");
   writeTextAtomic(path, text, 0o644);
   return digestText(text);
 }
