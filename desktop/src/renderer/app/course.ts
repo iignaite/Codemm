@@ -1,4 +1,10 @@
-import type { CourseView } from '../../shared/api';
+import type { CourseView, TopicView } from '../../shared/api';
+import type { Route } from './router';
+
+/** Where to continue a topic: its activity once open, else its topic page. */
+export function continueRoute(topic: TopicView): Route {
+  return topic.activity === 'open' ? { to: 'practice', concept: topic.id } : { to: 'topic', topicId: topic.id };
+}
 
 /**
  * Whether a course screen can stop re-reading Codemm: nothing is installing, and setup and the

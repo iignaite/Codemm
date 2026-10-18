@@ -78,6 +78,7 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
       await api.approve(concepts);
       // A new course reuses lesson ids, so cached lessons belong to the old one.
       cacheFor(api, 'lessons').clear();
+      cacheFor(api, 'conversations').clear();
       const now = (await api.course())?.topics.find((t) => t.state === 'now');
       go(now ? { to: 'topic', topicId: now.id } : { to: 'learn' });
     } catch (err) {

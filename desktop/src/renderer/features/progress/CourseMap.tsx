@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import type { CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
-import { settled } from '../../app/course';
-import { useRouter, type Route } from '../../app/router';
+import { continueRoute, settled } from '../../app/course';
+import { useRouter } from '../../app/router';
 import { Failed, Stalled } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
@@ -12,18 +13,16 @@ import { Complete } from './Complete';
 
 const STATE_LABEL = { mastered: 'Mastered', now: 'Now', later: 'Later' } as const;
 
-function continueRoute(topic: TopicView): Route {
-  return topic.activity === 'open' ? { to: 'practice', concept: topic.id } : { to: 'topic', topicId: topic.id };
-}
-
 /** Lessons, then an activity, per topic, with mastery so far. */
 export function CourseMap() {
   const api = useApi();
   const { data: course, error, reload } = useLoad(() => api.course(), [], settled, undefined, true);
+  // A finished course celebrates first; View course opens its map again.
+  const [viewing, setViewing] = useState(false);
   if (error) return <Failed error={error} retry={reload} />;
   if (course === undefined) return null;
   if (course === null) return <Goal />;
-  if (course.done) return <Complete course={course} />;
+  if (course.done && !viewing) return <Complete course={course} onView={() => setViewing(true)} />;
   return (
     <main className="main map">
       <div className="map-main">
@@ -64,6 +63,9 @@ function MapItem({ topic, index, course }: { topic: TopicView; index: number; co
           {topic.lessons.every((l) => l.state === 'read') && <span className="done"><Icon name="check" color="#0E7C35" size={14} />Lessons</span>}
           <Button onClick={() => go(continueRoute(topic))}>Continue</Button>
         </div>
+      ) : topic.state === 'mastered' ? (
+        // A mastered topic opens again: its lessons and the activity, to reread or practise.
+        <button type="button" className="grow mastered link" onClick={() => go({ to: 'topic', topicId: topic.id })}>{topic.title}</button>
       ) : (
         <div className={`grow ${topic.state}`}>{topic.title}</div>
       )}

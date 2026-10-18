@@ -6,7 +6,7 @@ import { Icon } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 
 /** Every topic pops in. Then pick anything next. */
-export function Complete({ course }: { course: CourseView }) {
+export function Complete({ course, onView }: { course: CourseView; onView: () => void }) {
   const { go } = useRouter();
   return (
     <main className="center">
@@ -28,7 +28,10 @@ export function Complete({ course }: { course: CourseView }) {
             ))}
           </ul>
         )}
-        <Button size="lg" className="a-up" style={stagger(0, 1500)} onClick={() => go({ to: 'goal' })}>Learn something new</Button>
+        <div className="actions a-up" style={stagger(0, 1500)}>
+          <Button variant="ghost" size="lg" onClick={onView}>View course</Button>
+          <Button size="lg" onClick={() => go({ to: 'goal' })}>Learn something new</Button>
+        </div>
       </div>
     </main>
   );

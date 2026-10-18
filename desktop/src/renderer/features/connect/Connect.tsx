@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Agent, AgentId } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
-import { Failed } from '../../app/Shell';
+import { Failed, Loading } from '../../app/Shell';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
@@ -17,7 +17,7 @@ export function Connect({ then = { to: 'welcome' } }: { then?: Route }) {
   const [busy, setBusy] = useState<string>();
   const list = agents ?? data;
   if (error) return <Failed error={error} retry={reload} />;
-  if (!list) return null;
+  if (!list) return <Loading />;
 
   const replace = (agent: Agent) => setAgents((current) => (current ?? data)?.map((a) => (a.id === agent.id ? agent : a)));
 

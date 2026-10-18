@@ -11,20 +11,22 @@ function Entry({ m }: { m: Message }) {
 }
 
 /** The Codemm tutor beside a lesson or activity. */
-export function Rail({ messages, onAsk, busy = false, name, children }: { messages: Message[]; onAsk: (text: string) => void; busy?: boolean; name?: string; children?: ReactNode }) {
+/** `onAsk` may resolve false when the question failed: it goes back in the field, unless the learner typed again. */
+export function Rail({ messages, onAsk, busy = false, name, children }: { messages: Message[]; onAsk: (text: string) => unknown; busy?: boolean; name?: string; children?: ReactNode }) {
   const [text, setText] = useState('');
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     const q = text.trim();
     if (!q || busy) return;
-    onAsk(q);
     setText('');
+    if ((await onAsk(q)) === false) setText((now) => now || q);
   }
   return (
     <aside className="coach" aria-label="Codemm">
       <div className="chead"><Emm width={40} name={name} />Codemm</div>
       <div className="cbody" role="log" aria-busy={busy}>
         {messages.map((m, i) => <Entry key={i} m={m} />)}
+        {busy && <p className="note thinking">Codemm is thinking…</p>}
       </div>
       <div className="cfoot">
         {children}

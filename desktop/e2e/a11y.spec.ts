@@ -134,7 +134,10 @@ test('every screen of the journey passes WCAG AA checks', async () => {
   await button(page, 'Check').click();
   await expect(results.getByRole('heading', { name: '4 of 4 passed' })).toBeVisible();
   await audit(page, 'results, passed');
+  // Continue goes straight on to the next topic.
   await button(page, 'Continue').click();
+  await expect(heading(page, 'JSX')).toBeVisible();
+  await button(page, 'Learn').click();
   await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();
   await audit(page, 'course');
   await button(page, 'Tracks').click();
@@ -391,8 +394,9 @@ test('the journey works with the keyboard alone', async () => {
   await typeInto(page, 'Counter.jsx', '// my answer');
   await press(page, 'Check');
   await expect(results.getByRole('heading', { name: '4 of 4 passed' })).toBeVisible();
+  // Straight on to the next topic: the roadmap edit above put Forms before Lists and keys.
   await press(page, 'Continue');
-  await expect(page.getByRole('list', { name: 'Topics' })).toBeVisible();
+  await expect(heading(page, 'Lists and keys')).toBeVisible();
   });
   await app.close();
 });
