@@ -107,7 +107,8 @@ export function fakeCore() {
   const app: CoreApp = {
     JOB_BRIEFS,
     networkIsolation: async () => ({ name: 'network isolation', ok: true, detail: 'blocked' }),
-    runtimeState: async () => 'ready',
+    RUNTIME_INFO: ['info'],
+    runtimeStateOf: () => 'ready',
     readWorkspace: () => ({ course: c.roadmap?.course, current: c.current }),
     hiddenMaterial: () => [CANARY, 'printf("CANARY-MUTANT-LINE %d", count + 2);', 'CANARY-HIDDEN-INPUT-LINE with enough length', 'CANARY-EXPECTED-OUTPUT-LINE 42'],
     listTracks: () => c.tracks.map((track) => ({ track, styles: ['io'], files: ['main.c'] })),

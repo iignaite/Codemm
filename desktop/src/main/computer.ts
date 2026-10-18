@@ -7,8 +7,8 @@ import { STARTING_MS } from './dockerDesktop';
 
 export interface Probe {
   find(): Executable | null;
-  /** core sandbox.ts runtimeState: whether the engine is there, running, and running Linux containers. */
-  state(): Promise<'missing' | 'down' | 'windows' | 'ready'>;
+  /** Whether the found engine is there, running, and running Linux containers (core sandbox.ts runtimeStateOf). */
+  state(docker: Executable): Promise<'missing' | 'down' | 'windows' | 'ready'>;
   /** Core doctor's network-isolation check. */
   sandbox(): Promise<boolean>;
   now(): number;
@@ -30,8 +30,9 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
   let sandboxOk = false;
 
   async function failing(): Promise<{ at: number; detail?: ComputerCheck['detail'] } | null> {
-    if (!probe.find()) return { at: 0 };
-    const state = await probe.state();
+    const docker = probe.find();
+    if (!docker) return { at: 0 };
+    const state = await probe.state(docker);
     if (state === 'missing') return { at: 0 };
     if (state === 'down') {
       const started = probe.startedAt?.();

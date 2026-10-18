@@ -81,8 +81,10 @@ export interface CoreApp {
   JOB_BRIEFS: Record<'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor', string>;
   /** core doctor.ts: whether the sandbox is cut off from the host network (Check this computer's last row). */
   networkIsolation(): Promise<{ name: string; ok: boolean; detail: string }>;
-  /** core sandbox.ts: whether the engine is there, running, and running Linux containers. */
-  runtimeState(): Promise<'missing' | 'down' | 'windows' | 'ready'>;
+  /** core sandbox.ts: the arguments that ask the engine for its version and kind of containers. */
+  RUNTIME_INFO: string[];
+  /** core sandbox.ts: reads that answer as missing, down, Windows containers or ready. */
+  runtimeStateOf(r: { exit: number; output: string }): 'missing' | 'down' | 'windows' | 'ready';
   readWorkspace(ws: string): { course?: string; current?: string };
   /** An exercise's solution, mutants, hidden tests and hidden expected outputs, for the reply filter only. */
   hiddenMaterial(course: string, slug: string): string[];

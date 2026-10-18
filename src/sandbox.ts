@@ -287,11 +287,6 @@ export function cli(args: string[], timeoutMs = 60_000, onOutput?: (text: string
   });
 }
 
-/** Whether the runtime is there, running, and running Linux containers (the desktop's computer check). */
-export async function runtimeState(): Promise<RuntimeState> {
-  return runtimeStateOf(await cli(RUNTIME_INFO, 20_000));
-}
-
 /** Why the runtime can't run containers right now, or undefined when it can. */
 export async function runtimeDown(): Promise<string | undefined> {
   return runtimeProblem(await cli(RUNTIME_INFO, 20_000));
