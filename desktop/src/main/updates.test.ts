@@ -179,9 +179,11 @@ describe('updates', () => {
       expect(await verifyWindowsSignature([], file, signed('CN=Codemm'))).toMatch(/no publisher/);
     });
 
-    it('passes the file to PowerShell in the environment, never inside the command', async () => {
-      let seen: { args: string[]; env: Record<string, string | undefined> } | undefined;
-      await verifyWindowsSignature(['Codemm'], "C:\\x\\a';calc;'.exe", async (_exe, args, env) => ((seen = { args, env }), JSON.stringify({ Status: 0, SignerCertificate: { Subject: 'CN=Codemm' } })));
+    it('runs Windows PowerShell by its full path, and passes the file in the environment, never inside the command', async () => {
+      let seen: { exe: string; args: string[]; env: Record<string, string | undefined> } | undefined;
+      await verifyWindowsSignature(['Codemm'], "C:\\x\\a';calc;'.exe", async (exe, args, env) => ((seen = { exe, args, env }), JSON.stringify({ Status: 0, SignerCertificate: { Subject: 'CN=Codemm' } })));
+      // Not "powershell.exe" by name: another one earlier on PATH could answer for it.
+      expect(seen!.exe).toBe('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
       expect(seen!.args.join(' ')).not.toContain('calc');
       expect(seen!.env.CODEMM_UPDATE_FILE).toBe("C:\\x\\a';calc;'.exe");
     });

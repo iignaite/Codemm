@@ -4,6 +4,7 @@
 // A prerelease build sees prereleases; a stable build sees stable releases only.
 import type { UpdateStatus } from '../shared/api';
 import type { Log } from './log';
+import { POWERSHELL } from './windows';
 
 /** What Codemm needs from electron-updater: a check that finds a newer version or none, a download, an install. */
 export interface Updater {
@@ -126,7 +127,7 @@ export async function verifyWindowsSignature(publisherNames: string[], file: str
   if (publisherNames.length === 0) return 'The update has no publisher to check its signature against.';
   let out: string;
   try {
-    out = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-InputFormat', 'None', '-Command', 'Get-AuthenticodeSignature -LiteralPath $env:CODEMM_UPDATE_FILE | ConvertTo-Json -Compress'], { ...process.env, CODEMM_UPDATE_FILE: file });
+    out = await exec(POWERSHELL, ['-NoProfile', '-NonInteractive', '-InputFormat', 'None', '-Command', 'Get-AuthenticodeSignature -LiteralPath $env:CODEMM_UPDATE_FILE | ConvertTo-Json -Compress'], { ...process.env, CODEMM_UPDATE_FILE: file });
   } catch (e) {
     return `The update's signature couldn't be checked: ${e instanceof Error ? e.message : String(e)}`;
   }
