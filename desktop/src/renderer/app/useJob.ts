@@ -18,11 +18,14 @@ export function useJob(match: (p: JobProgress) => boolean, deps: unknown[]): Hea
   useEffect(() => {
     let live = true;
     setHeard(undefined);
+    /** Jobs an event told about: what jobProgress read is older, and can't bring back one that ended. */
+    const told = new Set<string>();
     const take = (p: JobProgress, fresh: boolean) => {
       if (!live || !match(p)) return;
+      if (fresh) told.add(p.job);
+      else if (told.has(p.job)) return;
       setHeard((h) => {
         if (p.ended) return h?.progress.job === p.job ? undefined : h;
-        // What jobProgress read is older than any event already heard for the same job.
         if (!fresh && h) return h;
         return { progress: p, at: Date.now() };
       });

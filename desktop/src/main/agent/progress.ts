@@ -62,10 +62,10 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
       if (e.type === 'tool_result') {
         open.delete(e.id);
         if (targets.delete(e.id) && !e.error) step({ kind: 'step', label: 'Writing the exercise' });
-        if (e.error && saves.has(e.id) && JOBS[kind].save) {
-          failedSaves++;
+        // A rejected save sends the agent back to its work. Only bounded saves count toward "Trying again".
+        if (e.error && saves.delete(e.id)) {
           stage = 1;
-          retry = { attempt: Math.min(failedSaves + 1, SAVE_BOUND), of: SAVE_BOUND };
+          if (JOBS[kind].save) retry = { attempt: Math.min(++failedSaves + 1, SAVE_BOUND), of: SAVE_BOUND };
         }
       }
     },
@@ -73,7 +73,10 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
     relaunch() {
       lastEvent = now();
       stage = 0;
+      failedSaves = 0;
       open.clear();
+      saves.clear();
+      targets.clear();
       retry = { attempt: 2, of: 2 };
     },
     snapshot(): JobProgress {

@@ -25,6 +25,21 @@ describe('research progress', () => {
     expect(screen.getByText('3 steps')).toBeInTheDocument();
   });
 
+  it('never brings back a job that ended while its first read was on the way', async () => {
+    const api = createMock();
+    let hear: (p: JobProgress) => void = () => undefined;
+    api.onJobProgress = (listener) => ((hear = listener), () => undefined);
+    let answer: (ps: JobProgress[]) => void = () => undefined;
+    api.jobProgress = () => new Promise((r) => (answer = r));
+    api.research = async () => ({ state: 'running' });
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    await screen.findByRole('heading', { name: 'Researching React' });
+    const job: JobProgress = { job: 'j1', kind: 'research', stage: 1, steps: [{ kind: 'search', query: 'react hooks' }], count: 1, thinking: true, elapsedMs: 0, idleMs: 0 };
+    act(() => hear({ ...job, ended: true }));
+    await act(async () => answer([job]));
+    expect(screen.queryByText('Searching react hooks')).not.toBeInTheDocument();
+  });
+
   it('opened while research runs, shows its steps so far, and ignores other jobs', async () => {
     const api = createMock();
     let hear: (p: JobProgress) => void = () => undefined;

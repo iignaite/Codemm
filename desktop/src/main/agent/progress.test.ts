@@ -57,6 +57,28 @@ describe('job progress (§4.11)', () => {
     expect(t.snapshot().retry).toEqual({ attempt: 3, of: 3 });
   });
 
+  it('goes back to the second stage when a roadmap save is rejected, with no bounded retry', () => {
+    for (const kind of ['research', 'roadmap'] as const) {
+      const t = jobTracker(kind, { id: 'job-1' });
+      t.event({ type: 'tool_call', id: 'c1', name: 'codemm.save_roadmap' });
+      t.event({ type: 'tool_result', id: 'c1', error: true });
+      expect(t.snapshot()).toMatchObject({ stage: 1 });
+      expect(t.snapshot().retry).toBeUndefined();
+    }
+  });
+
+  it('counts failed saves afresh after a relaunch, as the runner does', () => {
+    const t = jobTracker('author', { id: 'job-1' });
+    for (const id of ['c1', 'c2', 'c3']) {
+      t.event({ type: 'tool_call', id, name: 'codemm.save_exercise' });
+      t.event({ type: 'tool_result', id, error: true });
+    }
+    t.relaunch();
+    t.event({ type: 'tool_call', id: 'c4', name: 'codemm.save_exercise' });
+    t.event({ type: 'tool_result', id: 'c4', error: true });
+    expect(t.snapshot().retry).toEqual({ attempt: 2, of: 3 });
+  });
+
   it('starts over on a relaunch, as attempt 2 of 2', () => {
     const t = jobTracker('research', { id: 'job-1' });
     t.event({ type: 'tool_call', id: 'c1', name: 'codemm.save_roadmap' });
