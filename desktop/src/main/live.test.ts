@@ -475,7 +475,8 @@ describe('live CodemmApi', () => {
     await t.api.install(consent.proposal!.digest);
     await vi.waitFor(() => expect(heard.some((p) => p.kind === 'author' && p.ended)).toBe(true), { timeout: 4000 });
     const gate = heard.find((p) => p.part?.done === 3)!;
-    expect(gate).toMatchObject({ kind: 'author', stage: 2, part: { done: 3, total: 3 }, steps: [{ kind: 'step', label: 'Codemm is checking that the tests catch each broken version' }] });
+    expect(gate).toMatchObject({ kind: 'author', stage: 2, part: { done: 3, total: 3 } });
+    expect(gate.steps[0]).toEqual({ kind: 'step', label: 'Codemm is checking that the tests catch each broken version' });
     // Other jobs' servers get no gate file.
     expect(t.jobs.ran.filter((j) => j.kind !== 'author').every((j) => !j.server([]).args.includes('--progress'))).toBe(true);
   });
