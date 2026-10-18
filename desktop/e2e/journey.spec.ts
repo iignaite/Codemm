@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -107,6 +107,12 @@ async function shot(name: string) {
   await page.evaluate(() => Promise.race([Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))), new Promise((r) => setTimeout(r, 3000))])).catch(() => undefined);
   await page.screenshot({ path: join(dir!, 'shots', `${label}-${name}.jpg`), type: 'jpeg', quality: 60 });
   await banner(true);
+}
+
+/** Copies the proposals the learner is about to approve, so a gate failure can be diagnosed after the app drops them. */
+function keepProposals(n: number) {
+  const from = join(dir!, 'home', 'proposals');
+  if (existsSync(from)) cpSync(from, join(dir!, 'proposals', `consent-${n}`), { recursive: true });
 }
 
 /** Screenshots a waiting state the first time it shows. */
@@ -863,6 +869,7 @@ test(`journey: ${label}`, async () => {
           if (await visible(consent)) {
             approved.push((await consent.getByRole('heading').first().innerText()).trim());
             await shot(`consent-${approved.length}`);
+            keepProposals(approved.length);
             await tap(consent.getByRole('button', { name: 'Set up', exact: true }));
             idle = 0;
           } else if (flow.has('relaunch-setup') && !relaunched && (await visible(page.getByText(/^Setting up /)))) {
