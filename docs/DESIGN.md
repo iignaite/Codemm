@@ -133,7 +133,7 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
   - hidden tests, and unit tests (whose runner reports at the end), report their phase once with `total` 0, so nothing per hidden test, not even timing, leaves;
   - a listener that throws is dropped, and the check goes on.
   Code in the container could print extra frames, but that can only move progress, never a grade.
-- **Disclosure.** Visible results include messages and program output. Hidden results include only an index and a status (`{ name: "hidden #2", index: 2, status }`, built in one place, `grading.redact`): no messages, output or names leave Codemm, in tool output, CLI output or gate diagnostics.
+- **Disclosure.** Visible results include messages and program output. Hidden results include only an index and a status (`{ name: "hidden #2", index: 2, status }`, built in one place, `grading.redact`): no messages, output or names leave Codemm, in tool output, CLI output or gate diagnostics. The reference is hidden code too, so its gate diagnostics carry no build output, errors or test messages (§6). That costs authors detail by design: in the desktop an author job has only Codemm's tools and can't build the reference itself, so each reference failure says which phase and which visible tests failed, and what to check.
 
 ### 4.3 Host-owned sandbox settings
 
@@ -243,7 +243,7 @@ tests/visible/...            io: NN.in only · unit: test files
 tests/hidden/...
 ```
 
-A failure goes back to the caller with the failing gate and capped output. Hidden inputs and expected outputs never appear in diagnostics returned to tools.
+A failure goes back to the caller with the failing gate and capped output. Hidden inputs and expected outputs never appear in diagnostics returned to tools. Neither does anything the reference or a mutant printed, since building or running them runs hidden code: a reference failure names its phase, exit codes and statuses: visible tests by name (io cases only by the inputs the author gave), hidden ones by number, and a failed build by the track's build command and what to check. A track gate's failure shows the last lines of what the track's own build or probes printed (track files only, never an exercise's), and that output never sets the failure's kind.
 
 **Track gates:**
 1. The files are valid, each style's pass probe and probe tests total at most 64 KB (authors receive them as the track's example), and `id@version` is either new or identical to the installed one, in which case the install is a no-op.

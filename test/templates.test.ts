@@ -25,6 +25,16 @@ describe("tutor instructions (AGENTS.md section)", () => {
 });
 
 describe("author instructions (codemm-author subagent)", () => {
+  it("tells a unit track to find its tests in $TESTS and never hide its runner's failure, without naming a language", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).toMatch(/find the test files in `\$TESTS`/);
+      expect(text).toMatch(/Never hide the runner's own failure, such as finding no test files: a report that lists no tests fails/);
+      // Exiting 0 with a report is required, so the rule can't also forbid what does that.
+      expect(text).not.toMatch(/\|\| true/);
+      expect(text).toMatch(/a report that lists no tests fails/);
+    }
+  });
+
   it("names every tool the judge's driver needs in a track image, and no other", () => {
     const line = AUTHOR_AGENT.split("\n").find((l) => l.startsWith("- The image must have"))!;
     const named = [...line.replace(/, and must not.*/, "").matchAll(/`([a-z]+)`/g)].map((m) => m[1]);
