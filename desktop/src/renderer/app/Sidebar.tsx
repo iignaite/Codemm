@@ -9,6 +9,7 @@ import { useApi } from './api';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
 import { continueRoute } from './course';
+import { ExternalLink } from '../ui/ExternalLink';
 
 type Section = 'learn' | 'practice' | 'tracks';
 
@@ -96,7 +97,7 @@ function UpdateNotice() {
       {update?.kind === 'available' && (
         <>
           <span>A new version is available.</span>
-          <a href={update.url} target="_blank" rel="noreferrer">Get Codemm {update.version}</a>
+          <ExternalLink href={update.url}>Get Codemm {update.version}</ExternalLink>
         </>
       )}
       {update?.kind === 'ready' && (
