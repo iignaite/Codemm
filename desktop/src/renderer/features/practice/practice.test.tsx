@@ -43,7 +43,8 @@ async function checkUntilStuck(user: ReturnType<typeof userEvent.setup>) {
   await write(user, 'wrong /* your code */');
   for (let i = 0; i < 3; i++) {
     await user.click(screen.getByRole('button', { name: 'Check' }));
-    await within(results()).findByRole('heading', { name: /passed|Try another way/ });
+    // Stuck shows the ways forward above the failed results, so both headings may be there.
+    await within(results()).findAllByRole('heading', { name: /passed|Try another way/ });
   }
 }
 

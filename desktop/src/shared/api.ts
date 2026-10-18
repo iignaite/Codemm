@@ -272,6 +272,8 @@ export type CheckResult =
       recorded: boolean;
       stuck: boolean;
       mastered: boolean;
+      /** Another topic is ready, so "Come back later" moves on (§4.4). */
+      later: boolean;
     }
   /** An infrastructure failure: nothing was recorded. */
   | { kind: 'not-counted'; reason: string };

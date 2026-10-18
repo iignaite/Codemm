@@ -94,18 +94,27 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
   }
   if (result.stuck && shown.kind === 'check' && !shown.keepTrying) {
     return (
+      <>
       <div className="outcome">
         <Emm mood="soft" width={130} name={name} />
         <div className="stack" style={{ gap: 10 }}>
           <h2 className="h2 a-up">Try another way</h2>
           <button type="button" className="way a-up" style={stagger(1, 150)} onClick={ways.reread}>Reread the lesson</button>
           <button type="button" className="way a-up" style={stagger(2, 150)} onClick={ways.easier}>Try an easier one</button>
-          <button type="button" className="way a-up" style={stagger(3, 150)} onClick={ways.later}>Come back later</button>
+          {/* Deferring moves on only when another topic is ready; otherwise the same one comes straight back (§4.4). */}
+          {result.later && <button type="button" className="way a-up" style={stagger(3, 150)} onClick={ways.later}>Come back later</button>}
           <div className="a-up" style={stagger(4, 150)}><Button variant="text" onClick={ways.keepTrying}>Keep trying</Button></div>
         </div>
       </div>
+      <Failing result={result} name={name} visibleTests={visibleTests} />
+      </>
     );
   }
+  return <Failing result={result} name={name} visibleTests={visibleTests} />;
+}
+
+/** A graded check that didn't pass: each visible test, and the hidden ones as statuses. */
+function Failing({ result, name, visibleTests }: { result: Extract<CheckResult, { kind: 'graded' }>; name: string; visibleTests: VisibleTest[] }) {
   const hidden = result.tests.filter((t) => t.hidden);
   return (
     <>

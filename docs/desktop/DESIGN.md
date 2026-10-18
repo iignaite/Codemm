@@ -192,7 +192,8 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 - **Stuck.**
   - "Reread the lesson" opens the lesson.
   - "Try an easier one" runs a roadmap-change job that adds a prerequisite topic. The stuck topic waits for it, then gets a fresh start (§4.2).
-  - "Come back later" is skip (§4.4).
+  - "Come back later" is skip (§4.4). It shows only when another topic is ready, since otherwise the same topic would come straight back.
+  - The failed results stay under these ways forward.
 
 ### 3.3 Agent CLI versions and the minimum model
 
