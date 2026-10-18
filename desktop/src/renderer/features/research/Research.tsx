@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import type { Goal } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed } from '../../app/Problems';
+import { Failed, Stale } from '../../app/Problems';
 import { useJob } from '../../app/useJob';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
@@ -15,7 +15,7 @@ import { Panel } from '../../ui/Panel';
 export function Research({ goal }: { goal: Goal }) {
   const api = useApi();
   const { go } = useRouter();
-  const { data, error, reload } = useLoad(() => api.research(goal), [goal], (r) => r.state !== 'running');
+  const { data, error, stale, reload } = useLoad(() => api.research(goal), [goal], { settled: (r) => r.state !== 'running' });
   // What the agent is looking at, the latest first (§4.9, §4.11).
   const job = useJob((p) => p.kind === 'research', []);
   const steps = job?.progress.steps ?? [];
@@ -38,7 +38,7 @@ export function Research({ goal }: { goal: Goal }) {
   }
   return (
     <main className="main page">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+      <div className="page-head">
         {/* While research runs, the heading's Emm is its progress, filling as it goes (§4.11). */}
         {job ? <EmmFill value={fillOf(job.progress)} width={110} dim={Boolean(job.progress.retry)} /> : <Emm mood="think" width={110} />}
         <h1 className="h1 a-up">Researching {goal.topic}</h1>
@@ -49,7 +49,8 @@ export function Research({ goal }: { goal: Goal }) {
           {steps.length > 0 && (
             <ol aria-label="What Codemm is looking at">
               {steps.map((step, i) => (
-                <li key={count - i} style={{ opacity: Math.max(0.35, 1 - i * 0.12) }}>{sayStep(step)}</li>
+                // The latest step stands out by its color; older ones stay readable (WCAG AA), never faded.
+                <li key={count - i} className={i === 0 ? 'now' : undefined}>{sayStep(step)}</li>
               ))}
             </ol>
           )}
@@ -62,6 +63,7 @@ export function Research({ goal }: { goal: Goal }) {
         <div className="row"><span className="shim" style={{ width: '55%' }} /></div>
         <div className="row"><span className="shim" style={{ width: '62%' }} /></div>
       </section>
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }

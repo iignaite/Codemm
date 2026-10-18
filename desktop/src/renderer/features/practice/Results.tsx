@@ -91,9 +91,9 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
     return (
       <div className="outcome">
         <Emm mood="cheer" width={170} name={name} />
-        <div className="stack" style={{ gap: 14 }}>
+        <div className="stack loose">
           <h2 className="h2 won a-pop" style={stagger(0, 300)}>{result.passed} of {result.total} passed</h2>
-          <p className="sub a-up" style={stagger(0, 600)}>{result.mastered ? `${topic} mastered.` : `More practice masters ${topic}.`}</p>
+          <p className="sub a-up" style={stagger(0, 600)}>{result.mastered ? `${topic} mastered.` : `Keep practicing ${topic}.`}</p>
           <div className="a-up" style={stagger(0, 800)}><Button size="lg" onClick={ways.next}>Continue</Button></div>
         </div>
       </div>
@@ -104,7 +104,7 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
       <>
       <div className="outcome">
         <Emm mood="soft" width={130} name={name} />
-        <div className="stack" style={{ gap: 10 }}>
+        <div className="stack snug">
           <h2 className="h2 a-up">Try another way</h2>
           <button type="button" className="way a-up" style={stagger(1, 150)} onClick={ways.reread}>Reread the lesson</button>
           <button type="button" className="way a-up" style={stagger(2, 150)} onClick={ways.easier}>Try an easier one</button>
@@ -137,7 +137,7 @@ function Failing({ result, name, visibleTests }: { result: Extract<CheckResult, 
           <b>Hidden tests</b>
           {hidden.map((t, i) => (
             <span key={i} className={`x a-pop ${t.status === 'pass' ? 'pass' : 'fail'}`} style={stagger(i, 800)} role="img" aria-label={`Hidden test ${t.hidden ? t.index : i + 1} ${t.status === 'pass' ? 'passed' : 'not yet'}`}>
-              {t.status === 'pass' ? <Icon name="check" color="#0E7C35" size={12} /> : <Icon name="x" color="#8A4B00" size={11} />}
+              {t.status === 'pass' ? <Icon name="check" color="var(--green-ink)" size={12} /> : <Icon name="x" color="var(--orange-ink)" size={11} />}
             </span>
           ))}
           <span>graded, not shown</span>
@@ -162,7 +162,7 @@ function Progress({ phase, done, total }: CheckProgress) {
   );
 }
 
-/** Visible results, with what was expected next to what was found. */
+/** Visible results: a wrong output with what was expected next to what was found, an error with its reason. */
 function TestLines({ tests, visibleTests }: { tests: TestView[]; visibleTests: VisibleTest[] }) {
   return (
     <>
@@ -174,7 +174,11 @@ function TestLines({ tests, visibleTests }: { tests: TestView[]; visibleTests: V
           <div className="tline a-up" key={t.name} style={stagger(i, 350)}>
             <Status kind={t.status === 'pass' ? 'ok' : 'fail'} />
             {name}
-            {t.status !== 'pass' && (t.actual !== undefined || t.message) && (
+            {/* An error says why the program stopped; only a wrong output compares expected and found. */}
+            {t.status === 'error' && t.message && (
+              <span className="cmp"><span className="f why">{t.message}</span></span>
+            )}
+            {t.status === 'fail' && (t.actual !== undefined || t.message) && (
               <span className="cmp">
                 {expected !== undefined && <span className="e">expected {expected}</span>}
                 {t.actual !== undefined ? <span className="f">found {t.actual}</span> : <span className="f">{t.message}</span>}

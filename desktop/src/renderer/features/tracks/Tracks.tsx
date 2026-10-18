@@ -7,6 +7,8 @@ import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Field } from '../../ui/Field';
 import { stagger } from '../../ui/motion';
+import { Limit } from '../../ui/Limit';
+import { LIMITS } from '../../../shared/limits';
 
 /** What Codemm has set up. Anything else is one request away. */
 export function Tracks() {
@@ -41,7 +43,7 @@ export function Tracks() {
     <main className="main page">
       <h1 className="h2 a-up">Tracks</h1>
       {tracks.length > 0 && (
-        <ul className="track-grid" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        <ul className="track-grid plain">
           {tracks.map((t, i) => (
             <li key={t.ref} className="card track a-up" style={stagger(i + 1)} aria-label={t.name}>
               <Emm width={140} name={t.name} perch />
@@ -55,9 +57,10 @@ export function Tracks() {
       <section className="card new a-up" style={stagger(4)} aria-labelledby="new-t">
         <h2 className="h3" id="new-t">Learn something new</h2>
         <form className="composer" onSubmit={start}>
-          <Field aria-labelledby="new-t" value={topic} onChange={(e) => setTopic(e.target.value)} />
+          <Field aria-labelledby="new-t" value={topic} maxLength={LIMITS.topic} onChange={(e) => setTopic(e.target.value)} />
           <Button type="submit" size="lg" disabled={!topic.trim()}>Start</Button>
         </form>
+        <Limit value={topic} max={LIMITS.topic} />
       </section>
     </main>
   );

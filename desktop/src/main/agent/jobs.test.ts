@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { JOBS, runJob, type Job } from './jobs';
 import { tempDir } from '../testing/temp';
 
@@ -58,6 +58,14 @@ describe('jobs (§3.2)', () => {
   it('a tutor turn is done when it ends without error, and keeps its session and text', async () => {
     const agent = fakeAgent([init, say('Look at line 3.'), success]);
     expect(await runJob(job(agent.exe))).toEqual({ ok: true, session: 's1', text: ['Look at line 3.'] });
+  });
+
+  it('reports what the run used, with its session', async () => {
+    const used = { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.05, usage: { input_tokens: 10, cache_read_input_tokens: 90, output_tokens: 7 } };
+    const agent = fakeAgent([init, say('Done.'), used]);
+    const reports: unknown[] = [];
+    await runJob(job(agent.exe, { onUsage: (u) => reports.push(u) }));
+    expect(reports).toEqual([{ input: 100, output: 7, cachedInput: 90, costUsd: 0.05, session: 's1' }]);
   });
 
   it('counts a fetched page as a source only once its fetch succeeds', async () => {
@@ -190,6 +198,16 @@ describe('jobs (§3.2)', () => {
     expect(agent.runs()).toBe(1);
   });
 
+  it('launches nothing of an agent Codemm started installing again, the relaunch included (§3.1)', async () => {
+    const agent = fakeAgent([init, success]);
+    expect(await runJob(job(agent.exe, { kind: 'lesson', usable: () => false }))).toMatchObject({ ok: false, problem: 'signed-out' });
+    expect(agent.runs()).toBe(0);
+    let usable = true;
+    const outcome = await runJob(job(agent.exe, { kind: 'lesson', done: () => false, usable: () => usable, signedIn: async () => ((usable = false), true) }));
+    expect(outcome).toMatchObject({ ok: false, problem: 'signed-out' });
+    expect(agent.runs()).toBe(1);
+  });
+
   it('cursor: runs in a Codemm-owned folder holding only its config, the same folder for the same config (so a chat resumes)', async () => {
     const agentDir = tempDir('codemm-agents-');
     const ws = tempDir('codemm-ws-');
@@ -212,6 +230,38 @@ describe('jobs (§3.2)', () => {
     const agent = fakeAgent([{ type: 'system', subtype: 'init', session_id: 'chat-1' }], { exitCode: 1, stderr: ["Error: You've hit your usage limit"] });
     const agentDir = tempDir('codemm-agents-');
     expect(await runJob(job(agent.exe, { agent: 'cursor', agentDir }))).toMatchObject({ ok: false, problem: 'plan-limit' });
+    expect(agent.runs()).toBe(1);
+  });
+
+  it("removes an ended attempt's abandoned containers before relaunching it, and again before finishing", async () => {
+    const agent = fakeAgent([init], { hang: true });
+    const order: string[] = [];
+    const outcome = await runJob(job(agent.exe, { deadlineMs: 300, done: () => false, onRelaunch: () => void order.push('relaunch'), cleanup: async () => void order.push('cleanup') }));
+    expect(outcome).toMatchObject({ ok: false, problem: 'failed' });
+    expect(order).toEqual(['cleanup', 'relaunch', 'cleanup']);
+  });
+
+  it("a cancel finishes only after the cancelled attempt's containers are removed", async () => {
+    const agent = fakeAgent([init], { hang: true });
+    const stop = new AbortController();
+    let finishCleanup!: () => void;
+    const cleanup = vi.fn(() => new Promise<void>((r) => (finishCleanup = r)));
+    let done = false;
+    const running = runJob(job(agent.exe, { signal: stop.signal, done: () => false, cleanup })).then(() => (done = true));
+    await vi.waitFor(() => expect(agent.runs()).toBe(1));
+    stop.abort();
+    await vi.waitFor(() => expect(cleanup).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(done).toBe(false);
+    finishCleanup();
+    await running;
+    expect(agent.runs()).toBe(1);
+  });
+
+  it("never relaunches an ended attempt whose containers couldn't be removed", async () => {
+    const agent = fakeAgent([init], { hang: true });
+    const outcome = await runJob(job(agent.exe, { deadlineMs: 300, done: () => false, cleanup: async () => { throw new Error('Docker stopped.'); } }));
+    expect(outcome).toMatchObject({ ok: false, problem: 'infra' });
     expect(agent.runs()).toBe(1);
   });
 

@@ -24,7 +24,7 @@ const START_DESKTOP: Fix = {
 
 /** Installing Docker Desktop for the learner (§6.1). The phase line names what is happening now. */
 export const INSTALL = {
-  terms: "Docker Desktop is free for personal use. Docker's terms apply.",
+  terms: "Docker's terms apply.",
   termsUrl: 'https://www.docker.com/legal/docker-subscription-service-agreement/',
   phase: {
     downloading: 'Downloading Docker Desktop',

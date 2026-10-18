@@ -8,8 +8,8 @@ import { tempDir } from "./temp.js";
 
 /** Cross-process lock tests run the built store, so each worker is a real separate process. */
 const root = join(import.meta.dirname, "..");
-beforeAll(() => {
-  npm(["run", "build"], root);
+beforeAll(async () => {
+  await npm(["run", "build"], root);
 }, 120_000);
 
 const WORKER = `

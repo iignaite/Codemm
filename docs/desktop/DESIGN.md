@@ -49,7 +49,7 @@ The prototype's review card, streaks, predict questions, editable lessons and "L
 - No status dots, arrows or metadata (ids, versions, paths or timestamps).
 - Nothing should look like Claude's UI or copy Duolingo.
 - The tutor and every action are "Codemm". Agent names (Claude Code, Codex, Cursor) appear only on the connect screen.
-- The connect screen says "Codemm uses your agent and your plan." Every agent job starts from a learner action or the approved flow, and the bounds in §3.2 cap how much of the plan it uses.
+- The connect screen says "Codemm uses your agent and your account." It promises nothing about billing, since Codemm can't tell a plan from an API key. Every agent job starts from a learner action or the approved flow, and the bounds in §3.2 cap how much it uses.
 
 ## 2. Architecture
 
@@ -62,7 +62,9 @@ desktop/
     ipc.ts                  one handler per channel: check the sender, validate input, call one function, return a view
     views.ts                learner-safe projections of core results, and the reply filter (§2.2)
     state.ts                desktop.json in userData: chosen agent, executable path, tutor session ids
-    agent/agents.ts         per agent: launch arguments, stream parser, sign-in and version checks
+    agent/agents.ts         the agent CLIs (AGENT_CLIS), their shared types, and the tested versions
+    agent/claude.ts, codex.ts, cursor.ts  per agent: launch arguments, stream parser, sign-in and version checks
+    agent/stream.ts         the line-stream parsing the adapters share
     agent/bridge.ts         spawn, line parsing, cancellation, status commands (proved in spikes/agent-bridge)
     agent/jobs.ts           job kinds: brief, tools, deadline, retry bound, done check (§3.2)
   src/renderer/             screens only; no Node, no file or process access
@@ -89,7 +91,7 @@ desktop/
 - **IPC.** Every IPC result is built in `views.ts` from core results that are already learner-safe: `getExercise`, `CheckView`, `progress`, `getRoadmap`, `getLesson`, `listTracks`, and the learner file reads. Hidden results carry only an index and a status, as in core §4.2.
 - **Agent events.** Only `text` events from tutor and roadmap-change turns reach the renderer. For other jobs the renderer sees a job state: `running`, `done` or `failed`. Every job also sends its progress (§4.11): a stage, fixed step labels, web searches and pages, counts and times, never a tool's arguments or results.
 - **Never forwarded.** Author, setup and lesson job streams, tool arguments and results, agent stderr, and status-command output.
-- **Reply filter.** Before forwarding text, main compares it with the current exercise's solution, mutants, hidden tests and expected outputs. If any normalized line of at least 24 characters from that material appears verbatim, the message is replaced with "Codemm held back a reply that showed hidden material." This is a backstop, not proof: a paraphrase passes it.
+- **Reply filter.** Before forwarding text, main compares it with the solution, mutants, hidden tests and expected outputs of every exercise in the course: the turn's own course for a tutor reply, whatever course is approved by the time it ends. It checks every exercise, because the tutor can open any of them. If any normalized line of at least 24 characters from that material appears verbatim, the message is replaced with "Codemm held back a reply that showed hidden material." If the material can't be loaded, nothing can be checked, so the message is held back too. Job steps, research pages and saved roadmap sources get the same check, and are dropped instead. This is a backstop, not proof: a paraphrase passes it.
 - **Honor system.** As in core §1 and §4.2, grading is on the honor system, and hidden tests are hidden from the agent's tools, not from the computer. §3.1 says how much each agent can still read (decision 10).
 
 ## 3. The agent bridge
@@ -140,7 +142,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
   - On Windows: `taskkill /pid <pid> /t /f`, awaited.
   - A job that is already cancelled never starts.
   - If the group survives, or `taskkill` fails, the job fails with "Codemm couldn't stop your agent. Quit Codemm to stop it."
-  - After a cancel or crash, main runs the core's leftover-container cleanup (`doctor --fix`'s rule: only containers whose owner is gone).
+  - After an attempt Codemm ends (a cancel, the deadline, or a failure that stops the agent), the job awaits the core's leftover-container cleanup before it relaunches or finishes (`doctor --fix`'s rule: only containers whose owner is gone). If one is still there, the job isn't relaunched and fails as an infrastructure failure. An agent that survived its cancel is reported at once, before any cleanup. The app also runs it at start and when quitting, for a crash.
 - **Robustness.**
   - A stream line that is malformed or makes the parser throw is skipped.
   - A line over 1 MB is dropped before parsing.
@@ -151,7 +153,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 
 - Codemm never opens an agent's credential files or keychain entries.
 - Sign-in uses the agent's own status command. Only a yes or no leaves the bridge.
-- Signing in uses the agent's own login, never Codemm. A signed-out row says "Sign in to Codex, then try again." with the CLI's own sign-in command (`claude auth login`, `codex login`, `cursor-agent login`), and a **Sign in** button that starts that login where the learner sees it (`signIn.ts`):
+- Signing in uses the agent's own login, never Codemm. A signed-out row says "Sign in to Codex, then try again." with a **Sign in** button that starts that login where the learner sees it (`signIn.ts`):
   - Claude Code: in a Terminal window on macOS (a one-line `.command` file holding the quoted path), or its own console window on Windows.
   - Codex and Cursor: their login opens the browser.
   - Codemm never reads, stores or types credentials.
@@ -172,9 +174,9 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
   4. It runs the binary's own `install`, which puts the launcher in `~/.local/bin`.
   - Downloads are capped per file: 1 KB for the version, 1 MB for the manifest and the scripts, 2 GB for a binary.
 - **Codex.** OpenAI's install script is about 1,300 lines (release-asset SHA-256 checks, its package layout, PATH setup), so Codemm runs it rather than re-implement it: `/bin/sh <file>` on macOS, `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <file>` on Windows, with `CODEX_NON_INTERACTIVE=1`. The script itself verifies its download's SHA-256. Afterwards Codemm requires OpenAI's signature on the installed binary: Apple team `2DC432GLL2` (the same Apple-anchored requirement), or Authenticode `O="OpenAI OpCo, LLC"`. That check comes after the script ran, so it is defense in depth, not a gate. OpenAI publishes no checksum or signature for the script itself.
-- **Nothing unverified runs.** While Codemm is installing or checking an agent, or after an install left something unverified (a rejected binary, or whatever a failed Codex script left), Codemm runs nothing of it this session: not `--version`, the sign-in check, Sign in or a job. Try again installs again. An agent the learner installed themselves is theirs to trust, as in a terminal; so is a leftover found after a relaunch, since the install's state isn't kept.
+- **Nothing unverified runs.** Once Codemm starts installing an agent, it runs nothing of it this session until an install is done. Any failed attempt keeps it blocked, since it may have left a binary nothing checked, and a later failure never clears an earlier rejection. Nothing starts: not `--version`, the sign-in check, Sign in, a job or its relaunch, each checked right before it starts. Claude Code's Sign in on a Mac runs in Terminal a moment later, so its script runs only the file Codemm allowed when the learner clicked, never one an install put there since. Try again installs again. An agent the learner installed themselves is theirs to trust, as in a terminal; so is a leftover found after a relaunch, since the install's state isn't kept.
 - **Verified against real releases.** The Windows signers were read from Anthropic's `claude.exe` and OpenAI's `codex.exe`. An opt-in test (`agentInstall.real.test.ts`) downloads both for real and checks them without installing.
-- **States.** Downloading (with progress), checking, installing, then done or a plain reason: offline, low disk (1 GB), unverified, or the installer didn't finish, each with Try again. An agent Codemm installed gets its sign-in check at once, and connects once signed in.
+- **States.** Downloading (with progress), checking, installing, then done or a plain reason: offline, low disk (1 GB), unverified ("Codemm couldn't verify the installation. Try again.", which claims nothing about what ran), or the installer didn't finish, each with Try again. An agent Codemm installed gets its sign-in check at once, and connects once signed in.
 - **Never automatic.** Large downloads and third-party terms wait for the learner's click.
 - A native executable runs directly.
 - A JavaScript entry point (a `#!/usr/bin/env node` launcher, like the npm-installed Codex) runs as `ELECTRON_RUN_AS_NODE=1 <app executable> <script>`, so no system Node is needed.
@@ -265,6 +267,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - Move changes order only. It is refused, with "Needs ‹title› first", when it would put a topic above one it requires. Move works without dragging.
   - Remove is refused when another topic requires it ("‹title› needs this topic"). Core also rejects removing a concept that an exercise, event or lesson uses; the lesson part is new. Prerequisites are never rewritten silently.
   - Prerequisite changes go through "Ask Codemm for changes".
+  - While "Ask Codemm for changes" or Go deeper runs, the learner's own edits wait: rename, remove, move, drag and add are off, and an open rename closes unsaved. Codemm changes the roadmap as it stood, so its result never overwrites an edit made meanwhile.
 - **A fresh start after a new prerequisite.** When a re-save adds a prerequisite to a concept that is stuck, `save_roadmap` appends `{ kind: "retry", at, concept }`. Replaying a `retry` resets that concept's fail streak and leaves mastery unchanged. Without it, the concept would be stuck again as soon as the new prerequisite was mastered.
 
 ### 4.3 Lessons
@@ -342,7 +345,7 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 
 ### 4.9 Research sources and progress
 
-- **Progress.** One stream parser in `agent/agents.ts` reads both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. The research job's steps travel with its progress (§4.11). The research screen lists them quietly, the latest first and fading as they age, with a step count.
+- **Progress.** The stream parsers in `agent/claude.ts` and `agent/codex.ts`, with the shared steps in `agent/stream.ts`, read both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. The research job's steps travel with its progress (§4.11). The research screen lists them quietly, the latest first and fading as they age, with a step count.
 - **Reads become sources.** When research has saved the roadmap, the https pages it read join the agent's own `sources` (at most 10), saved through core's roadmap rules.
 
 - **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
@@ -397,6 +400,18 @@ Every long step shows its live progress, so the learner always knows where it is
   - The tutor rail: "Codemm is thinking…" and the turn's latest step.
 - **Mock.** `CODEMM_MOCK=slow-jobs` holds each stage over a few reads, so every state can be seen; `quiet-jobs` also shows the quiet line.
 
+### 4.12 Usage and cost
+
+- **Source:** only what the agent CLIs already print. Codemm never calls a model and never reads a credential.
+  - Claude Code's `result` line: tokens (input, cache writes, cache reads, output) and `total_cost_usd`, its own estimate.
+  - Codex's `turn.completed` usage: tokens, no cost.
+  - Cursor's `result` usage, when present: tokens, no cost.
+- **Parser:** the stream parsers (`agent/claude.ts`, `codex.ts`, `cursor.ts`) emit `{ type: 'usage', input, output, cachedInput?, costUsd? }`, where `input` counts every input token and `cachedInput` the ones read from cache. Jobs pass each report to `Job.onUsage` with its session.
+- **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs). It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs.
+  - Only tutor sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor session (a crashed turn can report 0) and adds only the rise.
+  - One app process owns userData, as with `desktop.json`: two instances writing at the same moment could lose one report.
+- **Screen:** the course map's side column shows a small Usage card for the approved course, once an agent has run for it: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. It's read again whenever the map reads the course. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so with a cost it says only "Claude's own estimate." It says nothing about billing.
+
 ## 5. Failure states
 
 Infrastructure failures record nothing. Learner-caused outcomes are graded as `error` and recorded (core §4.3, §7).
@@ -443,8 +458,8 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 - **Docker stopping mid-session.** A check or setup that loses Docker fails as an infrastructure failure, records nothing, and opens this screen.
 - **Docker's slow first start.** Setup and checks started while Docker is starting (in the 3 minutes after Codemm opened or installed it) wait for the daemon before failing, and record nothing. With a stopped Docker they fail at once as not counted.
 - **Install what's missing** (`features/setup/Setup.tsx`). On a first run with Docker not installed, or no agent installed, Welcome's one primary action is **Install what's missing**.
-  - Its screen lists what will be installed, with each maker's terms and the agent to install (Claude Code by default, or Codex). Nothing downloads until the learner clicks Install what's missing.
-  - It then runs the Docker install and the agent install side by side, each showing its progress and result.
+  - Its screen lists what will be installed (Docker Desktop says "Not installed"), with each maker's terms and the agent to install (Claude Code by default, or Codex). The terms line names no price. Nothing downloads until the learner clicks Install what's missing.
+  - It then runs the Docker install and the agent install side by side, each showing its progress and result. If Docker's 3 minutes to start end with Docker still stopped, Docker's card shows Check this computer's step instead, with Open Docker Desktop and Check now.
   - The learner then sees Docker's terms window, then the agent's sign-in (enabled once Docker's install has handed over to Docker), in that order.
   - Once Docker is ready and the agent is connected, Codemm moves on to the goal.
   - Install Docker (below), each agent's Install and Get it myself, and "Do it myself" stay for doing it one at a time.
@@ -456,7 +471,7 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
      Otherwise it deletes the download and says so.
   3. macOS: Docker.app is copied to /Applications with `ditto` and opened. If the copy isn't allowed, the disk image opens in Finder for the learner to drag. Windows: Docker's installer runs with its own window, where Windows asks for permission.
   4. Codemm never accepts Docker's terms or asks for a password: Docker's own window does both on its first start, and the screen says so.
-  5. The screen shows the download's progress, then each step. A stop says why: offline, low disk, not signed by Docker, Windows needs a restart, or the installer didn't finish. Every command is an argument array, and the download is deleted afterwards.
+  5. The screen shows the download's progress, then each step. A stop says why: offline, low disk, not signed by Docker, Windows needs a restart, or the installer didn't finish. Every command is an argument array, macOS's own tools (`codesign`, `spctl`, `hdiutil`, `ditto`, `mv`, `open`) by absolute path so none earlier on PATH stands in, and the download is deleted afterwards.
 - **Offline or low disk during setup.** These count as infrastructure failures: nothing is recorded and no agent attempt is spent.
   - **Disk.** Before building, `installProposal` checks that the volume holding `$CODEMM_HOME` has at least 5 GB free, failing with "Not enough disk space".
   - **Build output.** A failed build whose output matches a known offline or disk-full marker (for example "no space left on device", "could not resolve host" or "network is unreachable") is an infrastructure failure. Any other failed build is a gate failure.
@@ -502,8 +517,8 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 - **Where:** electron-updater 6.8.10 (MIT) on GitHub Releases. `packaging.cjs` sets `publish` to this repository, so each build carries an `app-update.yml`; the build itself never publishes (`--publish never`).
 - **When:** at start and every 6 hours, in an installed app only. A prerelease build sees prereleases; a stable build sees stable releases only (`allowPrerelease` follows the running version). Prereleases ship only as `alpha` or `beta` (`releaseTag` refuses others): electron-updater moves those channels on to the next stable release, but not a custom one such as `rc`.
 - **Notice:** one `role="status"` region at the foot of the sidebar, so a screen reader hears the news without a focus move. The renderer reads the status on each screen and every 30 seconds until there is something to show.
-- **Signed builds** download a new version in the background. It's ready only once the platform has checked it: on macOS, when Squirrel.Mac has fetched it and checked its signature (Electron's own `update-downloaded`, not electron-updater's earlier one). A failed check goes back to quiet. Then the sidebar offers **Restart to update**. It first stops Codemm's agent jobs and removes its containers, the same shutdown quitting waits for, and only then starts the installer, which may end the app at once.
-- **Unsigned builds** can't install one (macOS refuses an unsigned update), so they never download. The sidebar says "A new version is available." with a link to that release's page, which opens in the browser. A version goes into the link only if it looks like a release tag.
+- **Signed builds** download a new version in the background. It's ready only once the platform has checked it: on macOS, when Squirrel.Mac has fetched it and checked its signature (Electron's own `update-downloaded`, not electron-updater's earlier one). A failed check goes back to quiet. Then the sidebar says "A new version is ready." and offers **Restart to update**. It first stops Codemm's agent jobs and removes its containers, the same shutdown quitting waits for, and only then starts the installer, which may end the app at once.
+- **Unsigned builds** can't install one (macOS refuses an unsigned update), so they never download. The sidebar says "A new version is available." with a link, **Get it**, to that release's page, which opens in the browser. The version is in the link, never in the words. A version goes into the link only if it looks like a release tag.
 - **Signed or not** is decided at build time: `packaging.cjs` records `codemm.signed` in the packaged `package.json`, from that platform's own signing settings. A build that says it's signed must be: `forceCodeSigning` makes it fail rather than ship unsigned when no signing identity is found.
 - **Installing only what's signed.** On macOS, Squirrel.Mac checks the downloaded app's signature against the running app's designated requirement before it installs. On Windows, Codemm replaces electron-updater's signature check, which lets an update through when PowerShell can't run, with one that fails closed. It needs a valid Authenticode signature from the publisher the build names, and refuses the update on any error. The signer's name is read only when it's plain: one with characters outside printable ASCII, quotes, backslashes or multi-valued parts is refused rather than matched on a guess at Windows' quoting (Codemm's own certificate has a plain name; anyone else's update would be installed by hand). Windows PowerShell runs by its full path (`main/windows.ts`), never by name, and the file reaches it through the environment, never inside the command.
 - **Release workflow:** it attaches the `latest*.yml` feeds (and any channel feeds, such as `beta-mac.yml`), the Mac zips that Squirrel.Mac updates from, and the blockmaps, beside the installers. The release stays a draft until the owner publishes it, so no app sees it before then.
@@ -528,7 +543,7 @@ Each item is verified by an automated test unless marked *journey* or *release*.
 |---|---|
 | D1 | **Distribution.** On a version tag, the release workflow builds the macOS dmg (Apple Silicon and Intel) and the Windows installer and attaches them to a draft GitHub Release. On a macOS runner and a Windows runner, each with no Node or npm on `PATH`, the packaged app: launches to the welcome screen; starts the bundled `codemm mcp` through `ELECTRON_RUN_AS_NODE`, which a test client calls `list_tracks` on; and launches a fake JavaScript agent the same way, on Windows through an npm `.cmd` shim. |
 | D2 | **Renderer security.** The window has `contextIsolation`, `sandbox`, no `nodeIntegration` and the §2.1 CSP. In the renderer, `require` and `process` are undefined, a remote image in a lesson makes no request, and navigation and new windows are denied. IPC from any frame other than the main window's top frame is rejected. |
-| D3 | **IPC contract.** Every IPC channel is declared in `shared/api.ts`. Each handler validates its input and calls one function. Unknown channels and bad input are rejected. |
+| D3 | **IPC contract.** Every IPC channel is declared in `shared/api.ts`. Each handler validates its input and calls one function. Unknown channels and bad input are rejected. Text fields take no more than main accepts (`shared/limits.ts`: goal 200, what you know 500, topic name 200, a request or question 2,000, a note 20,000 characters) and say "Up to N characters." once full, so ordinary typing never reaches "Bad input". |
 | D4 | **Learner-safe boundary.** An exercise whose solution, mutants, hidden tests and expected outputs hold canary strings is authored through a recorded author stream. Every IPC handler is driven, and no renderer-bound payload or app log holds a canary. A tutor reply that quotes a canary line is held back. |
 | D5 | **Agent bridge.** For Claude Code and Codex: launch arguments match §3.1, and recorded streams parse to the expected events, while malformed lines produce none. A cancelled job resolves only after its whole process group is gone, including a child that ignores SIGTERM, and a job cancelled before it starts never spawns. Overlong lines are dropped. Status commands stop at their deadline and cap. There is no stdin and no shell. No desktop code reads credential files or variables, and sign-in output (for example, an email address) never reaches IPC or logs. |
 | D6 | **Versions and the minimum model.** Each tested version's `--version` output parses to its full token. An untested version, including a prerelease, shows the warning and doesn't block. A connected agent offers only its bench-tested models, with the recommended one preselected. The choice is saved in `desktop.json`, and every job for that agent launches with it (`--model` or `-m`). A model that isn't on the list is refused. |
@@ -583,7 +598,7 @@ Work test-first. For each behavior, write a failing test, make it pass simply, t
 Cut from 1.0 by the owner's scope ledger:
 
 - **Lessons:** predict questions, and learner edits of lesson text. Notes stay. (Runnable examples are in 1.0: §4.3.)
-- **Usage:** recording agent usage and showing cost per topic. Lesson caching stays (§4.3).
+- **Usage:** cost per topic. Totals per course and job kind are in 1.0 (§4.12); lesson caching stays (§4.3).
 - The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
 - **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.8).
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.

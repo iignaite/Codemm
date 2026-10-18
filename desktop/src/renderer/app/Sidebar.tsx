@@ -9,6 +9,7 @@ import { useApi } from './api';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
 import { continueRoute } from './course';
+import { ExternalLink } from '../ui/ExternalLink';
 
 type Section = 'learn' | 'practice' | 'tracks';
 
@@ -89,19 +90,20 @@ function UpdateNotice() {
   const api = useApi();
   const { route, fail } = useRouter();
   // Read until there is something to say: main checks at start and every 6 hours, so news can come at any time.
-  const { data: update } = useLoad(() => api.update(), [route], (u) => u.kind === 'available' || u.kind === 'ready', 30_000);
+  const { data: update } = useLoad(() => api.update(), [route], { settled: (u) => u.kind === 'available' || u.kind === 'ready', every: 30_000 });
   // One status region stays in place, so a screen reader hears the news when it arrives, without a focus move.
   return (
     <div role="status" aria-label="Codemm updates" className={update?.kind === 'available' || update?.kind === 'ready' ? 'update' : undefined}>
       {update?.kind === 'available' && (
         <>
           <span>A new version is available.</span>
-          <a href={update.url} target="_blank" rel="noreferrer">Get Codemm {update.version}</a>
+          {/* The version is in the link, never in the words. */}
+          <ExternalLink href={update.url}>Get it</ExternalLink>
         </>
       )}
       {update?.kind === 'ready' && (
         <>
-          <span>Codemm {update.version} is ready.</span>
+          <span>A new version is ready.</span>
           <Button onClick={() => void api.restartToUpdate().catch(fail)}>Restart to update</Button>
         </>
       )}

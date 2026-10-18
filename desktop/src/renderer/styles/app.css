@@ -45,7 +45,8 @@ button, input, textarea { font: inherit; color: inherit; }
 .btn.text { background: transparent; color: var(--ink); padding: 0 10px; }
 .btn.lg { height: 50px; padding: 0 24px; font-size: 15px; }
 .ibtn { width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px; border: none; background: transparent; display: grid; place-items: center; cursor: pointer; }
-.ibtn:hover { background: var(--soft); }
+.ibtn:hover:not(:disabled) { background: var(--soft); }
+.ibtn:disabled { opacity: .45; cursor: default; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
 .card.on { border: 2px solid var(--green-ink); }
 .card.info { background: var(--blue-soft); border-color: var(--blue-line); color: var(--blue-ink); }
@@ -59,6 +60,20 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .row:first-child { border-top: none; }
 .row.off { color: var(--faint); }
 .stack { display: flex; flex-direction: column; gap: 12px; }
+/* Layout set by class, not inline: a column's spacing and width. */
+.stack.tight { gap: 8px; }
+.stack.snug { gap: 10px; }
+.stack.loose { gap: 14px; }
+.stack.wide { gap: 22px; }
+.fill { flex: 1; }
+.page-head { display: flex; align-items: center; gap: 20px; }
+.goal-form { width: 680px; }
+.setup-page { width: 620px; }
+/* Setup's cards have no status icon to line up with, and their lines sit in the card's own gap. */
+.setup-page .fix { padding-left: 0; }
+.setup-page .check p { margin: 0; }
+.note-form { max-width: 600px; }
+.rename { flex: 1; display: flex; gap: 8px; }
 .actions { display: flex; align-items: center; gap: 10px; }
 .quiet-text { font-size: 14px; color: var(--muted); }
 .alert { color: var(--orange-ink); font-size: 14px; }
@@ -115,6 +130,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .menu { position: absolute; left: 8px; top: 48px; z-index: 3; padding: 6px; display: flex; flex-direction: column; box-shadow: 0 12px 30px rgba(14, 39, 84, .18); transform-origin: top left; }
 .menu .btn { justify-content: flex-start; }
 .add { height: 52px; border: 2px dashed var(--ctl); border-radius: 14px; background: transparent; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; cursor: pointer; }
+.add:disabled { opacity: .55; cursor: default; }
 
 /* ---------- Dialog ---------- */
 .scrim { position: fixed; inset: 36px 0 0 0; z-index: 10; background: rgba(11, 31, 68, .45); display: grid; place-items: center; animation: fade .3s ease-out backwards; }
@@ -186,10 +202,11 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .rhead .h3 { color: var(--orange-ink); }
 .tline { display: flex; gap: 12px; align-items: center; font-size: 15px; font-weight: 600; }
 .cmp { display: inline-flex; gap: 8px; margin-left: 6px; font: 500 13px var(--mono); }
-.cmd { padding: 1px 6px; border-radius: 6px; background: var(--soft); color: var(--ink); font: 500 13px var(--mono); user-select: all; }
 .cmp span { padding: 4px 10px; border-radius: 6px; }
 .cmp .e { background: var(--green-soft); color: var(--green-ink); }
 .cmp .f { background: var(--orange-soft); color: var(--orange-ink); }
+/* An error's reason keeps its lines, so a traceback's caret still points at the mistake. */
+.cmp .why { white-space: pre-wrap; }
 .hid { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
 .hid b { color: var(--ink); font-weight: 600; }
 .hid .x { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; }
@@ -310,6 +327,7 @@ button.grow.link:hover { background: var(--soft); }
 .looking { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
 .looking ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
 .looking li { overflow-wrap: anywhere; }
+.looking li.now { color: var(--ink); }
 
 .example { margin: 14px 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
 .example .file { font-size: 13px; color: var(--muted); }
@@ -321,6 +339,11 @@ button.grow.link:hover { background: var(--soft); }
 a.inline { color: inherit; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
 a.inline:hover { color: var(--ink); }
 
+/* Usage on the course map (§4.12): label and value in two columns. */
+.usage dl { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0; font-size: 14px; }
+.usage dt { color: var(--muted); }
+.usage dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.usage p { margin: 0; font-size: 13px; }
 /* A new version, at the foot of the sidebar (§7.2). */
 .side .update { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; padding: 12px; border: 1px solid var(--navy-line); border-radius: 10px; color: var(--navy-text); font-size: 13px; }
 .side .update a { color: #9AF0B8; font-weight: 600; }
@@ -351,6 +374,9 @@ a.inline:hover { color: var(--ink); }
 .job.compact { gap: 8px; width: 100%; font-size: 12.5px; }
 .job.compact .job-time { font-size: 12px; }
 .job.compact .job-step { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* An install's words say what to do (accept Docker's terms in its window), so they wrap rather than cut. */
+.job.compact.install-fill { align-items: center; font-size: 14px; }
+.job.compact.install-fill .job-step { white-space: normal; overflow: visible; }
 /* A lesson or activity being written: its icon and label on one line, its progress beneath, at the label's start. */
 .outline .item.writing { position: relative; flex-direction: column; align-items: stretch; gap: 8px; }
 /* In the outline, the time sits on the label's line, right-aligned, so the step has the whole second line. */

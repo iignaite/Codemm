@@ -3,20 +3,16 @@
 // bridge; everything returned goes through views.ts.
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { isSafeLink } from './links';
 import {
   AGENT_FAILED,
   CHANGED,
   OFFLINE,
   PLAN_LIMIT,
-  REBUILD,
   REPAIR,
   SIGNED_OUT,
   UNSTOPPABLE,
   type CheckProgress,
   type JobProgress,
-  type RunOutput,
-  type RunResult,
   type CodemmApi,
   type Computer,
   type Concept,
@@ -33,11 +29,14 @@ import { runJob as realRunJob, type Job, type JobKind, type JobOutcome, type Job
 import type { connector } from './connect';
 import { infraOf, kindOf } from './core/failures';
 import { errorFields, SafeError } from './errors';
-import type { CoreApp, CoreProgramRun, CoreProgress, CoreRoadmap } from './core/types';
+import type { CoreApp, CoreProgress, CoreRoadmap } from './core/types';
 import { courseView, currentConcept, otherReady, type Setup } from './courseView';
 import { noLog, type Log } from './log';
+import { asNotCounted } from './notCounted';
+import { programs } from './programs';
 import type { desktopState } from './state';
-import { activityView, checkView, filterReply, hiddenLines, tryView } from './views';
+import type { usageStore } from './usage';
+import { HELD_BACK, activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
 
 export interface LiveDeps {
   core: CoreApp;
@@ -55,6 +54,8 @@ export interface LiveDeps {
   /** A Codemm-owned folder for agents that read their config from the working directory (Cursor). */
   agentDir?: string;
   runJob?: (job: Job) => Promise<JobOutcome>;
+  /** What the agents reported using, per course and job kind (usage.ts). */
+  usage?: ReturnType<typeof usageStore>;
   /** Lifecycle and detection events only (log.ts). */
   log?: Log;
   /** Resolves once Docker isn't starting any more (§6.1). */
@@ -73,22 +74,6 @@ const PROPOSAL_BOUND = 3;
 const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
 /** Why background work stalled: an infrastructure failure is a plain failure the learner retries. */
 const stallOf = (problem: JobProblem = 'failed'): NonNullable<CourseView['stalled']> => (problem === 'infra' ? 'failed' : problem);
-const NOT_COUNTED: Record<'docker' | 'disk' | 'offline', string> = {
-  docker: "Docker isn't running.",
-  disk: 'Docker ran out of disk space.',
-  offline: "Docker couldn't reach the network.",
-};
-
-/** An infrastructure failure during Try it or Check isn't counted (§5). */
-/** Run's programs at once, across windows: each holds a container. */
-const MAX_PROGRAMS = 4;
-
-function notCounted(error: unknown): string | null {
-  if (kindOf(error) === 'image-missing') return REBUILD;
-  const kind = infraOf(error);
-  return kind ? NOT_COUNTED[kind] : null;
-}
-
 /** core store.ts's damaged-record errors: the learner repairs them; a retry can't (§5). */
 function repairable(e: unknown): unknown {
   if (kindOf(e) === 'damaged') (e as Error).message = `${REPAIR}\n${(e as Error).message}`;
@@ -153,27 +138,35 @@ export function createLive(d: LiveDeps): Live {
     }
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
-  const trackName = (ref: string) => ref.split('@')[0];
-  const roadmapView = (r: CoreRoadmap): Roadmap => ({
-    goal: r.goal, track: trackName(r.track), installed: installed(r.track), concepts: r.concepts.map((c) => ({ id: c.id, title: c.title, requires: [...c.requires] })),
-    // Core accepts only https sources; main checks again before anything reaches the window (§2.1).
-    sources: (r.sources ?? []).filter((s) => isSafeLink(s.url)).map((s) => ({ title: s.title, url: s.url })),
-  });
-  /** The activity the learner last opened: the workspace's current one is the draft's while a draft is active. */
-  let opened: string | undefined;
-  /** The hidden material of an activity: the one named, else the one the learner is on. */
-  const hidden = (activity?: string): string[] => {
-    const workspace = core.readWorkspace(ws);
-    const course = approved() ?? workspace.course;
-    const current = activity ?? opened ?? (workspace.course === course ? workspace.current : undefined);
-    if (!course || !current) return [];
+  /** A roadmap as shown. Its sources are agent text too, so one that quotes hidden material, or can't be checked, is dropped. */
+  const roadmapShown = (r: CoreRoadmap): Roadmap => {
+    const view = roadmapView(r, installed(r.track));
+    const filter = hidden();
+    return { ...view, sources: view.sources.filter((s) => shown(s.title, filter) === s.title && shown(s.url, filter) === s.url) };
+  };
+  /**
+   * The hidden lines of every exercise in a course (the approved one by default), to check agent text against (§2.2).
+   * Every exercise, not only the current one: the tutor can open any of them (get_exercise). Null when any can't be
+   * loaded: then nothing can be checked, so nothing goes out.
+   */
+  const hidden = (inCourse?: string): string[] | null => {
+    const course = inCourse ?? approved() ?? core.readWorkspace(ws).course;
+    if (!course) return [];
     try {
-      const { record, files } = core.readExercise(course, current);
-      return hiddenLines(files, record.expected);
+      return hiddenLines(core.listExercises(ws, course).flatMap((e) => core.hiddenMaterial(course, e.exercise)));
     } catch {
-      return [];
+      return null;
     }
   };
+  /** Agent text as it may be shown: held back when it quotes hidden material, or when that can't be checked. */
+  const shown = (text: string, filter: string[] | null) => (filter ? filterReply(text, filter) : HELD_BACK);
+  /** The course whose hidden material a job's text is checked against: the one approved when the job starts. */
+  const protectedCourse = () => approved() ?? core.readWorkspace(ws).course;
+  /**
+   * Whether text may be shown, checked against that course's hidden material as it is when the text arrives: an
+   * exercise saved while a job runs counts too.
+   */
+  const safeIn = (course: string | undefined) => (text: string) => !course || shown(text, hidden(course)) === text;
 
   /** The roadmap not approved yet: the active course, unless it is the approved one. */
   function draft(): CoreRoadmap | null {
@@ -218,8 +211,7 @@ export function createLive(d: LiveDeps): Live {
       const began = Date.now();
       log('job-start', { kind, lane, agent: id });
       // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
-      const filter = hidden();
-      const tracker = jobTracker(kind, { concept, retry, shows: (text) => filterReply(text, filter) === text });
+      const tracker = jobTracker(kind, { concept, retry, shows: safeIn(protectedCourse()) });
       trackers.set(key, tracker);
       tellJob(tracker.snapshot());
       // An author's save runs the exercise gates in its server; the server names the running gate in this file.
@@ -246,7 +238,10 @@ export function createLive(d: LiveDeps): Live {
         signal: stop.signal,
         done,
         blocked: () => unstoppable,
-        signedIn: () => d.connect.recheck(id, exe),
+        signedIn: () => d.connect.recheck(id),
+        usable: () => d.connect.usable(id),
+        // A cancelled or stopped attempt's gate container is removed before a relaunch or the end (§5).
+        cleanup: () => core.cleanupLeftovers(),
         onEvent: (e) => {
           tracker.event(e);
           // A save that ended leaves its last gate in the file; the next save starts from none.
@@ -260,6 +255,7 @@ export function createLive(d: LiveDeps): Live {
           tellJob(tracker.snapshot());
         },
         onSource,
+        onUsage: (u) => recordUsage(course, kind, u),
       }).finally(() => {
         gates?.stop();
         trackers.delete(key);
@@ -407,47 +403,18 @@ export function createLive(d: LiveDeps): Live {
   const progressOf = (run?: string) => ({ phase, done, total, test }: CheckProgress) =>
     progressListeners.forEach((l) => l({ ...(run ? { run } : {}), phase, done, total, ...(phase === 'visible' && test ? { test: finished(test) } : {}) }));
 
-  // Run's programs, by run id (§4.10). What they print goes to whoever listens; main sends it to the window that started each.
-  const programs = new Map<string, { program?: CoreProgramRun; stopped: boolean; cancel?: () => void }>();
-  const runListeners = new Set<(o: RunOutput) => void>();
-  const tell = (o: RunOutput) => runListeners.forEach((l) => l(o));
-  type StartProgram = (output: (text: string, stream: 'stdout' | 'stderr') => void, options: { onStart: (stage: 'build' | 'run', limitMs: number) => void }) => Promise<CoreProgramRun>;
-
-  /** One Run, an activity's or a lesson example's: its output tagged with `run`, and stoppable before it has started. */
-  async function program(run: string, startProgram: StartProgram): Promise<RunResult> {
-    if (programs.has(run)) throw new SafeError('Bad input');
-    if (programs.size >= MAX_PROGRAMS) throw new SafeError('Too many programs are running. Stop one, then try again.');
-    const entry: { program?: CoreProgramRun; stopped: boolean; cancel?: () => void } = { stopped: false };
-    programs.set(run, entry);
+  /** What a job's agent reported using, under its course and kind (§4.12). Never stops the job. */
+  function recordUsage(course: string | undefined, kind: Job['kind'], u: Parameters<NonNullable<Job['onUsage']>>[0]) {
+    if (!d.usage || !course) return;
     try {
-      const r = await new Promise<Awaited<CoreProgramRun['done']> | undefined>((resolve, reject) => {
-        let starting = false;
-        // Stopped while waiting for Docker: it ends now, frees its place, and never starts.
-        entry.cancel = () => !starting && resolve(undefined);
-        // Tracked until the program has ended, so quitting waits for its container and files to go.
-        whenDockerReady(async () => {
-          if (entry.stopped) return undefined;
-          starting = true;
-          const program = await startProgram((text, stream) => tell({ run, stream, text }), { onStart: (stage, limitMs) => tell({ run, started: stage, limitMs }) });
-          entry.program = program;
-          // Stopped while it was starting.
-          if (entry.stopped) program.kill();
-          return program.done;
-        }).then(resolve, reject);
-      });
-      if (!r) return { kind: 'ran', exit: 137, timedOut: false, stopped: true, flooded: false, outOfMemory: false };
-      return { kind: 'ran', exit: r.exit, ...(r.stage ? { stage: r.stage } : {}), timedOut: r.timedOut, stopped: r.stopped ?? false, flooded: r.flooded, outOfMemory: r.outOfMemory ?? false };
+      d.usage.record(course, kind, u, u.session);
     } catch (e) {
-      const reason = notCounted(e);
-      if (reason) {
-        log('not-counted', { run: 'program', reason });
-        return { kind: 'not-run', reason };
-      }
-      throw e;
-    } finally {
-      programs.delete(run);
+      log('usage-error', errorFields(e));
     }
   }
+
+  // Run's programs, by run id (§4.10): programs.ts.
+  const programRuns = programs({ whenDockerReady, log });
 
   /** Research jobs that ended but whose sources aren't saved yet. */
   const finishing = new Set<string>();
@@ -474,10 +441,7 @@ export function createLive(d: LiveDeps): Live {
     async jobProgress() {
       return [...trackers.values()].map((t) => t.snapshot());
     },
-    onRunOutput(listener) {
-      runListeners.add(listener);
-      return () => void runListeners.delete(listener);
-    },
+    onRunOutput: (listener) => programRuns.onOutput(listener),
     async agents() {
       const agents = await d.connect.agents();
       log('agents', Object.fromEntries(agents.map((a) => [a.id, a.untested ? `${a.state}-untested` : a.state])));
@@ -533,7 +497,7 @@ export function createLive(d: LiveDeps): Live {
           if (outcome.problem && outcome.problem !== 'failed' && outcome.problem !== 'infra') throw problemError(outcome.problem);
           return { state: 'failed' };
         }
-        return { state: 'done', roadmap: roadmapView(core.getRoadmap(ws)) };
+        return { state: 'done', roadmap: roadmapShown(core.getRoadmap(ws)) };
       }
       if (!running.has(key) && !finishing.has(key)) {
         await d.connect.chosen();
@@ -541,8 +505,7 @@ export function createLive(d: LiveDeps): Live {
         const course = courseId(goal.topic, Date.now());
         const reads: { title: string; url: string }[] = [];
         // The same backstop as tutor replies (§2.2): a page that shows hidden material is no source.
-        const filter = hidden();
-        const safe = (text: string) => filterReply(text, filter) === text;
+        const safe = safeIn(protectedCourse());
         const onSource = (source: { title: string; url: string }) => {
           if (safe(source.url)) reads.push({ title: source.title.slice(0, 120), url: source.url });
         };
@@ -566,17 +529,18 @@ export function createLive(d: LiveDeps): Live {
     async reviseRoadmap(concepts, request) {
       await saveConcepts(concepts);
       const course = core.getRoadmap(ws).course;
+      // Checked against the course approved when the change starts, with any exercise saved meanwhile.
+      const protect = protectedCourse();
       const { outcome, changed, after } = await roadmapJob(course, briefs.roadmap(request), (before) => (turn) => turn.ok || JSON.stringify(core.getRoadmap(ws, course)) !== before);
       schedule();
-      const filter = hidden();
-      return { roadmap: roadmapView(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
+      const filter = protect ? hidden(protect) : [];
+      return { roadmap: roadmapShown(after), changed, text: outcome.text.map((t) => shown(t, filter)).join('\n\n') };
     },
 
     async approve(concepts) {
       await saveConcepts(concepts);
       const course = core.getRoadmap(ws).course;
       d.state.update((s) => ({ ...s, approved: course }));
-      opened = undefined;
       stalled = undefined;
       setup = { gateFailures: 0, installs: 0 };
       schedule();
@@ -584,7 +548,7 @@ export function createLive(d: LiveDeps): Live {
 
     async draft() {
       const roadmap = draft();
-      return roadmap && roadmapView(roadmap);
+      return roadmap && roadmapShown(roadmap);
     },
 
     async saveDraft(concepts) {
@@ -608,48 +572,53 @@ export function createLive(d: LiveDeps): Live {
 
     async install(digest) {
       const ref = core.progress(ws, approved()).track;
-      const proposal = setup.approved?.digest === digest ? setup.approved : latestProposal(ref);
+      // This install's own setup: approving another course replaces `setup`, and this one must not touch that.
+      const mine = setup;
+      const proposal = mine.approved?.digest === digest ? mine.approved : latestProposal(ref);
       if (!proposal || proposal.digest !== digest) throw new SafeError('The setup changed. Look at it again.');
-      setup.approved = proposal;
-      setup.problem = undefined;
-      setup.installs++;
+      mine.approved = proposal;
+      mine.problem = undefined;
+      mine.installs++;
       // Codemm builds and checks the approved files: the setup's later stages (§4.11).
       const tracker = jobTracker('setup');
       trackers.set(`install:${ref}`, tracker);
       tracker.reach(1);
       tellJob(tracker.snapshot());
-      setup.installing = dockerReady()
-        .then(() =>
-          core.installProposal(ref, digest, (p) => {
-            // Counts only: the build's steps, then its checks.
-            if (p.phase === 'building') tracker.reach(1, { done: p.done, total: p.total });
-            else tracker.reach(2);
-            tellJob(tracker.snapshot());
-          }),
-        )
+      // Tracked and guarded like every container operation: quitting waits for it, its failure handling included, and
+      // one still waiting for Docker when quitting starts never runs.
+      mine.installing = tracked(whenDockerReady(() =>
+        core.installProposal(ref, digest, (p) => {
+          // Counts only: the build's steps, then its checks.
+          if (p.phase === 'building') tracker.reach(1, { done: p.done, total: p.total });
+          else tracker.reach(2);
+          tellJob(tracker.snapshot());
+        }),
+      )
         .then(() => {
-          setup.approved = undefined;
+          mine.approved = undefined;
         })
         .catch(async (e: Error) => {
+          // Quitting isn't a failed setup: nothing is recorded and the proposal stays.
+          if (stopping) return;
           // This computer's problems keep the proposal for Try again; nothing is recorded and no agent runs (§6.1).
           const kind = infraOf(e);
           log('setup-failed', { problem: kind ?? 'gates' });
           if (kind) {
-            setup.problem = kind;
+            mine.problem = kind;
             return;
           }
-          setup.approved = undefined;
-          setup.gateFailures++;
-          setup.lastGateProblem = e.message;
+          mine.approved = undefined;
+          mine.gateFailures++;
+          mine.lastGateProblem = e.message;
           // The next proposal is asked for only once this one is gone (it waits for the track lock).
           await core.dropProposal(ref).catch(() => undefined);
         })
         .finally(() => {
           trackers.delete(`install:${ref}`);
           tellJob({ ...tracker.snapshot(), ended: true });
-          setup.installing = undefined;
+          mine.installing = undefined;
           schedule();
-        });
+        }));
     },
 
     async retrySetup() {
@@ -664,20 +633,14 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async lesson(id) {
-      const { examples, ...lesson } = core.getLesson(ws, id, approved());
-      return { ...lesson, examples: examples.map((files) => ({ files: Object.entries(files).map(([path, text]) => ({ path, text })) })) };
+      return lessonView(core.getLesson(ws, id, approved()));
     },
 
     async runExample(lessonId, index) {
       try {
-        return { kind: 'ran', ...(await whenDockerReady(() => core.runExample(ws, lessonId, index, approved()))) };
+        return exampleRunView(await whenDockerReady(() => core.runExample(ws, lessonId, index, approved())));
       } catch (e) {
-        const reason = notCounted(e);
-        if (reason) {
-          log('not-counted', { run: 'example', reason });
-          return { kind: 'not-run', reason };
-        }
-        throw e;
+        return asNotCounted(e, log, 'example', 'not-run');
       }
     },
     saveNotes: (id, notes) => core.saveNotes(ws, id, notes, approved()),
@@ -690,7 +653,6 @@ export function createLive(d: LiveDeps): Live {
       const course = core.getRoadmap(ws, approved()).course;
       const slug = exerciseFor(concept, course);
       if (!slug) throw new SafeError('This activity isn’t ready yet.');
-      opened = slug;
       const exercise = await core.getExercise(ws, slug, course);
       return activityView(exercise, core.readLearnerFiles(ws, slug, course), concept);
     },
@@ -708,25 +670,14 @@ export function createLive(d: LiveDeps): Live {
       try {
         return tryView(await whenDockerReady(() => core.testExercise(ws, activityId, approved(), progressOf(run))));
       } catch (e) {
-        const reason = notCounted(e);
-        if (reason) {
-          log('not-counted', { run: 'try', reason });
-          return { kind: 'not-counted', reason };
-        }
-        throw e;
+        return asNotCounted(e, log, 'try', 'not-counted');
       }
     },
 
-    runProgram: (activityId, run) => program(run, (output, options) => core.runInteractive(ws, activityId, approved(), output, options)),
-    runExampleLive: (lessonId, index, run) => program(run, (output, options) => core.runExampleLive(ws, lessonId, index, approved(), output, options)),
-    sendRunInput: async (run, text) => programs.get(run)?.program?.write(text) ?? false,
-    async stopRun(run) {
-      const entry = programs.get(run);
-      if (!entry) return;
-      entry.stopped = true;
-      entry.cancel?.();
-      entry.program?.kill();
-    },
+    runProgram: (activityId, run) => programRuns.start(run, (output, options) => core.runInteractive(ws, activityId, approved(), output, options)),
+    runExampleLive: (lessonId, index, run) => programRuns.start(run, (output, options) => core.runExampleLive(ws, lessonId, index, approved(), output, options)),
+    sendRunInput: (run, text) => programRuns.input(run, text),
+    stopRun: (run) => programRuns.stop(run),
 
     async check(activityId, run) {
       try {
@@ -739,12 +690,7 @@ export function createLive(d: LiveDeps): Live {
         schedule();
         return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false, later: otherReady(progress, concepts) });
       } catch (e) {
-        const reason = notCounted(e);
-        if (reason) {
-          log('not-counted', { run: 'check', reason });
-          return { kind: 'not-counted', reason };
-        }
-        throw e;
+        return asNotCounted(e, log, 'check', 'not-counted');
       }
     },
 
@@ -763,8 +709,9 @@ export function createLive(d: LiveDeps): Live {
       });
       tutorTurns = turn.catch(() => undefined);
       const outcome = await turn;
-      const filter = hidden('activityId' in place ? place.activityId : undefined);
-      return outcome.text.map((t) => ({ from: 'codemm' as const, text: filterReply(t, filter) }));
+      // Checked against this turn's course, whatever course is approved by now.
+      const filter = hidden(course);
+      return outcome.text.map((t) => ({ from: 'codemm' as const, text: shown(t, filter) }));
     },
 
     async skip(concept) {
@@ -780,9 +727,15 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async rebuild(ref) {
-      await core.rebuildTrack(ref);
+      // Tracked and guarded like the install, so quitting waits for it.
+      await whenDockerReady(() => core.rebuildTrack(ref));
     },
 
+    // The course on screen: the approved one, as course() shows, not a draft being researched.
+    async usage() {
+      const course = approved();
+      return course && d.usage ? d.usage.course(course) : null;
+    },
     // Updates are main's (updates.ts), which answers these in place of live.
     update: async () => ({ kind: 'none' }),
     restartToUpdate: async () => undefined,
@@ -790,11 +743,7 @@ export function createLive(d: LiveDeps): Live {
     async stop() {
       stopping = true;
       log('quit', { jobs: running.size, runs: runs.size });
-      for (const entry of programs.values()) {
-        entry.stopped = true;
-        entry.cancel?.();
-        entry.program?.kill();
-      }
+      programRuns.stopAll();
       await cancel(() => true);
       await Promise.all([...runs].map((r) => r.catch(() => undefined)));
       await core.cleanupLeftovers().catch(() => undefined);

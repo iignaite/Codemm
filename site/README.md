@@ -12,7 +12,7 @@ test/     node:test suites
 
 - **The installers stay on GitHub Releases.** `public/main.js` reads the release list from the GitHub API in the visitor's browser, cached for 10 minutes in the tab, and links each installer straight to GitHub. Nothing is hosted on Vercel.
 - **Which release:** the newest published stable release, or the newest beta until there is one. Drafts are never shown.
-- **Which button:** the visitor's computer picks the main one (Apple Silicon Mac, Intel Mac, or Windows), with the others listed below it. Phones and Linux get every installer listed. A Mac whose chip the browser doesn't report gets Apple Silicon first, with Intel right below.
+- **Which button:** the visitor's computer picks the main one (Apple Silicon Mac, Intel Mac, or Windows), with the others listed below it. Phones and Linux get every installer listed. A Mac whose chip the browser doesn't report (Safari and Firefox never do) gets Apple Silicon and Intel as two equal buttons, with a line on how to tell them apart.
 - **Betas:** a beta release (a GitHub prerelease) shows a Beta label and the one-time steps to open an unsigned build.
 - **No published release** shows "Coming soon" with a link to the GitHub repository.
 - **GitHub unreachable:** the button links to the Releases page.
@@ -45,7 +45,7 @@ Then open http://localhost:4317.
 cd site && npm test
 ```
 
-The tests cover OS detection, which release and installer are offered, that every button is the asset's own GitHub URL, the no-release case, the build, and that the site stays static, with no forms and no tracking beyond Web Analytics. `.github/workflows/site.yml` runs them on pull requests that touch `site/`.
+The tests cover OS detection, the Mac chip choice, the copy (it says only what Codemm checks), that the orbit starts no animation with reduced motion, which release and installer are offered, that every button is the asset's own GitHub URL, the no-release case, the build, and that the site stays static, with no forms and no tracking beyond Web Analytics. `.github/workflows/site.yml` runs them on pull requests that touch `site/`.
 
 ## Deploy
 

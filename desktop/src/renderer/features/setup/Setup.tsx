@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import type { Agent, AgentId, Computer, DockerInstall } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { Failed } from '../../app/Shell';
-import { timing, useLoad } from '../../app/useLoad';
+import { Failed, Stale } from '../../app/Problems';
+import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
-import { INSTALL } from '../computer/fixes';
+import { FIXES, INSTALL } from '../computer/fixes';
 import { InstallProgress, running } from '../connect/Connect';
+import { DockerProgress } from '../computer/DockerProgress';
+import { ExternalLink } from '../../ui/ExternalLink';
 
 /** Each agent's maker and terms, for the learner's go-ahead. */
 const TERMS: Partial<Record<AgentId, { vendor: string; url: string }>> = {
@@ -35,7 +37,7 @@ export function Setup() {
   const [wanted, setWanted] = useState<{ docker: boolean; agent?: AgentId }>();
   const [choice, setChoice] = useState<AgentId>('claude');
   // Once started, follow both installs, and look again when the learner comes back from a sign-in or Docker's window.
-  const { data, error, reload } = useLoad(async () => ({ computer: await api.computer(), agents: await api.agents() }), [wanted], () => !wanted, timing.pollMs, true);
+  const { data, error, stale, reload } = useLoad(async () => ({ computer: await api.computer(), agents: await api.agents() }), [wanted], { settled: () => !wanted, onFocus: true });
   const agent = wanted?.agent ? data?.agents.find((a) => a.id === wanted.agent) : undefined;
   const ready = Boolean(wanted && data && (!wanted.docker || data.computer.ready) && (!wanted.agent || agent?.state === 'connected'));
   useEffect(() => {
@@ -68,9 +70,10 @@ export function Setup() {
   }
 
   const install = data.computer.install;
+  const dockerInstalled = data.computer.checks.find((c) => c.id === 'docker-installed')?.state === 'ok';
   return (
     <main className="center">
-      <div className="stack" style={{ width: 620, gap: 22 }}>
+      <div className="stack wide setup-page">
         <h1 className="h1 a-up">Set up this computer</h1>
         <p className="sub a-up" style={stagger(1)}>Codemm installs what's missing, each from its maker.</p>
         <ul className="stack plain">
@@ -79,20 +82,29 @@ export function Setup() {
               <div className="check-head">
                 {data.computer.ready && <Status kind="ok" size={24} />}
                 <b>Docker Desktop</b>
+                {!wanted && <span className="check-state problem">Not installed</span>}
               </div>
               {!wanted ? (
-                <p className="quiet-text">{INSTALL.terms} <a className="inline" href={INSTALL.termsUrl} target="_blank" rel="noreferrer">Read them</a></p>
+                <p className="quiet-text">{INSTALL.terms} <ExternalLink className="inline" href={INSTALL.termsUrl}>Read them</ExternalLink></p>
               ) : data.computer.ready ? (
                 <span className="quiet-text">Ready</span>
-              ) : install?.phase === 'downloading' ? (
-                <Progress label={INSTALL.phase.downloading} fraction={install.progress ?? 0} />
               ) : install?.phase === 'failed' ? (
                 <div className="fix">
                   <p className="alert" role="alert">{INSTALL.problem[install.problem ?? 'failed']}</p>
                   {INSTALL.retry.has(install.problem) && <div className="actions"><Button onClick={() => act(() => api.installDocker())}>Try again</Button></div>}
                 </div>
+              ) : !install && dockerInstalled ? (
+                // Docker's start window ended and it still isn't running: Check this computer's own step.
+                <div className="fix">
+                  <p>{FIXES[data.computer.platform]['docker-running'].steps.join(' ')}</p>
+                  <div className="actions">
+                    <Button onClick={() => act(() => api.openDocker())}>Open Docker Desktop</Button>
+                    <Button variant="ghost" onClick={reload}>Check now</Button>
+                  </div>
+                </div>
               ) : (
-                <div className="busy"><Status kind="run" size={18} />{install?.phase === 'checking' ? INSTALL.phase.checking : install?.phase === 'installing' ? INSTALL.phase.installing[data.computer.platform] : INSTALL.phase.starting}</div>
+                // Until Docker's first state arrives, its download is just starting: never "Opening Docker" yet.
+                <DockerProgress install={install ? { ...install, phase: install.phase } : { phase: 'downloading', progress: 0 }} platform={data.computer.platform} />
               )}
             </li>
           )}
@@ -100,11 +112,11 @@ export function Setup() {
             <li className="card check a-up" style={stagger(3)} aria-label="Agent">
               <div className="check-head">
                 {agent?.state === 'connected' && <Status kind="ok" size={24} />}
-                <b>{agent ? agent.name : 'Your agent'}</b>
+                <b id="agent-t">{agent ? agent.name : 'Your agent'}</b>
               </div>
               {!wanted ? (
                 <>
-                  <div className="depth" role="radiogroup" aria-label="Which agent">
+                  <div className="depth" role="radiogroup" aria-labelledby="agent-t">
                     {choices.map((a) => (
                       <label key={a.id} className={`opt${choice === a.id ? ' on' : ''}`}>
                         <input type="radio" name="agent" value={a.id} checked={choice === a.id} onChange={() => setChoice(a.id)} />
@@ -113,7 +125,7 @@ export function Setup() {
                     ))}
                   </div>
                   {TERMS[choice] && (
-                    <p className="quiet-text">{choices.find((a) => a.id === choice)?.name} is from {TERMS[choice]!.vendor}. Its terms apply. <a className="inline" href={TERMS[choice]!.url} target="_blank" rel="noreferrer">Read them</a></p>
+                    <p className="quiet-text">{choices.find((a) => a.id === choice)?.name} is from {TERMS[choice]!.vendor}. Its terms apply. <ExternalLink className="inline" href={TERMS[choice]!.url}>Read them</ExternalLink></p>
                   )}
                 </>
               ) : agent?.state === 'connected' ? (
@@ -140,18 +152,8 @@ export function Setup() {
           </div>
         )}
       </div>
+      {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }
 
-function Progress({ label, fraction }: { label: string; fraction: number }) {
-  const percent = Math.round(fraction * 100);
-  return (
-    <div className="stack" style={{ gap: 8 }}>
-      <span>{label} {percent}%</span>
-      <div className="bar" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
-        <i style={{ width: `${percent}%` }} />
-      </div>
-    </div>
-  );
-}

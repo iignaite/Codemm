@@ -22,6 +22,28 @@ describe('how deep the roadmap goes', () => {
   });
 });
 
+describe('fields with a limit', () => {
+  it('keeps the goal and what the learner knows within their limits, and says so, so research never gets bad input', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    await api.connect('claude');
+    const asked: { topic: string; known: string }[] = [];
+    const research = api.research;
+    api.research = (goal) => (asked.push(goal), research(goal));
+    renderApp({ to: 'goal' }, api);
+    const goal = await screen.findByRole('textbox', { name: 'What do you want to learn?' });
+    await user.click(goal);
+    await user.paste('a'.repeat(250));
+    expect(goal).toHaveValue('a'.repeat(200));
+    expect(screen.getByText('Up to 200 characters.')).toBeInTheDocument();
+    await user.click(screen.getByRole('textbox', { name: 'What you already know (optional)' }));
+    await user.paste('b'.repeat(600));
+    expect(screen.getByText('Up to 500 characters.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+    await waitFor(() => expect(asked[0]).toMatchObject({ topic: 'a'.repeat(200), known: 'b'.repeat(500) }));
+  });
+});
+
 describe('choose journey', () => {
   it('takes a goal and what the learner knows, researches, then opens the course editor', async () => {
     const user = userEvent.setup();
