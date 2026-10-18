@@ -7,7 +7,7 @@ Codemm 1.0 replaces v1 (the Electron desktop app) with a small CLI and MCP serve
 | v1 | 1.0 |
 |---|---|
 | Electron + Next.js desktop app | `codemm` CLI and MCP server; your editor and agent are the UI |
-| Called OpenAI, Anthropic, Gemini or Ollama with your API keys | Never calls a model; Claude Code, Codex or Cursor does the writing on your own plan |
+| Called OpenAI, Anthropic, Gemini or Ollama with your API keys | Never calls a model; Claude Code, Codex or Cursor does the writing with your own account |
 | Built-in judges for Java, Python, C++ and SQL | Ships no languages; your agent installs any language or framework as a track |
 | Single generated activities | A roadmap with prerequisites, adaptive difficulty and mastery |
 | Reference solutions checked in Docker | Plus: the starter must fail, mutants must be caught, and the reference must be fast and deterministic |

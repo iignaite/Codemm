@@ -6,6 +6,8 @@ import { Emm } from './Emm';
 import { Field } from './Field';
 import { JobBar } from './JobBar';
 import { Markdown } from './Markdown';
+import { Limit } from './Limit';
+import { LIMITS } from '../../shared/limits';
 
 function Entry({ m }: { m: Message }) {
   if (m.from === 'you') return <p className="you a-up"><b>You:</b> {m.text}</p>;
@@ -42,9 +44,10 @@ export function Rail({ messages, onAsk, busy = false, answering, name, children 
       <div className="cfoot">
         {children}
         <form className="composer" onSubmit={submit}>
-          <Field aria-label="Ask Codemm" placeholder="Ask Codemm" value={text} onChange={(e) => setText(e.target.value)} />
+          <Field aria-label="Ask Codemm" placeholder="Ask Codemm" value={text} maxLength={LIMITS.words} onChange={(e) => setText(e.target.value)} />
           <Button type="submit" disabled={busy}>Send</Button>
         </form>
+        <Limit value={text} max={LIMITS.words} />
       </div>
     </aside>
   );
