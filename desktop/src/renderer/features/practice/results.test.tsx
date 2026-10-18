@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { REBUILD } from '../../../shared/api';
 import type { CoreCheckView } from '../../../main/core/types';
 import { checkView, tryView } from '../../../main/views';
@@ -69,6 +69,27 @@ describe('Results with real core result shapes', () => {
     const reason = within(results()).getByText((_, el) => el?.textContent === traceback && el.tagName === 'SPAN' && el.children.length === 0);
     expect(getComputedStyle(reason).whiteSpace).toBe('pre-wrap');
     sheet.remove();
+  });
+
+  it('says a wrong answer printed nothing, rather than an empty found', () => {
+    const silent: CoreCheckView = { ...core, tests: [{ name: 'visible/02', status: 'fail', actual: '' }] };
+    render(<Results shown={{ kind: 'try', result: tryView(silent) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(results()).toHaveTextContent('found (no output)');
+  });
+
+  it('brings a finished Check into view, at once with reduced motion', () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: q === '(prefers-reduced-motion: reduce)' }));
+    try {
+      const view = render(<Results shown={{ kind: 'busy', label: 'Checking' }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+      expect(scroll).not.toHaveBeenCalled();
+      view.rerender(<Results shown={{ kind: 'check', result: checkView(core, { stuck: false, mastered: false, later: true }), keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+      expect(scroll).toHaveBeenCalledWith({ block: 'nearest', behavior: 'auto' });
+    } finally {
+      vi.unstubAllGlobals();
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 
   it('names tests by the name the exercise uses, without the set prefix', () => {

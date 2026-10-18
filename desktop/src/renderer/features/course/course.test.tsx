@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -201,5 +203,20 @@ describe('course editor', () => {
     await user.click(screen.getByRole('button', { name: 'Approve' }));
     expect(await screen.findByRole('heading', { name: 'JavaScript basics' })).toBeInTheDocument();
     expect(await screen.findByRole('dialog', { name: 'Set up React on this computer?' })).toBeInTheDocument();
+  });
+});
+
+describe('a long roadmap', () => {
+  it('keeps Approve on screen: its row stays at the bottom while the roadmap scrolls', async () => {
+    // The real stylesheet (tests run from desktop/), so the computed style is the one the window uses.
+    const sheet = document.createElement('style');
+    sheet.textContent = readFileSync(resolve('src/renderer/styles/app.css'), 'utf8');
+    document.head.append(sheet);
+    const { roadmap } = await mockWithRoadmap();
+    renderApp({ to: 'course', roadmap });
+    const approve = await screen.findByRole('button', { name: 'Approve' });
+    expect(getComputedStyle(approve.parentElement!).position).toBe('sticky');
+    expect(getComputedStyle(approve.parentElement!).bottom).toBe('-40px');
+    sheet.remove();
   });
 });
