@@ -69,6 +69,31 @@ describe('install what is missing', () => {
   });
 });
 
+describe("Docker after Codemm's install", () => {
+  it('says Docker Desktop is not installed before anything starts, with its terms and no pricing', async () => {
+    renderApp({ to: 'setup' }, mac('no-docker'));
+    const docker = await screen.findByRole('listitem', { name: 'Docker Desktop' });
+    expect(within(docker).getByText('Not installed')).toBeInTheDocument();
+    expect(docker).toHaveTextContent("Docker's terms apply. Read them");
+    expect(docker).not.toHaveTextContent(/free/i);
+  });
+
+  it("once Docker's start window ends with Docker still stopped, offers to open it and check again, never a new download", async () => {
+    const user = userEvent.setup();
+    renderApp({ to: 'setup' }, mac('docker-wont-start'));
+    await user.click(await screen.findByRole('button', { name: "Install what's missing" }));
+    const docker = await screen.findByRole('listitem', { name: 'Docker Desktop' });
+    // Installed, but Docker didn't answer within its start window: Codemm's install status is gone.
+    expect(await within(docker).findByRole('button', { name: 'Open Docker Desktop' }, { timeout: 4000 })).toBeInTheDocument();
+    expect(within(docker).getByText('Open Docker Desktop, then wait until it says it is running.')).toBeInTheDocument();
+    expect(within(docker).getByRole('button', { name: 'Check now' })).toBeInTheDocument();
+    expect(within(docker).queryByRole('progressbar')).not.toBeInTheDocument();
+    // Opened, Docker starts, and Setup goes on.
+    await user.click(within(docker).getByRole('button', { name: 'Open Docker Desktop' }));
+    expect(await screen.findByRole('heading', { name: 'What do you want to learn?' }, { timeout: 4000 })).toBeInTheDocument();
+  });
+});
+
 describe('a look that fails after one worked', () => {
   it('keeps what is missing on screen when a later look fails, says so, and Try again looks again', async () => {
     const user = userEvent.setup();

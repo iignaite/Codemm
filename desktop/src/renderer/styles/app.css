@@ -68,6 +68,9 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .page-head { display: flex; align-items: center; gap: 20px; }
 .goal-form { width: 680px; }
 .setup-page { width: 620px; }
+/* Setup's cards have no status icon to line up with, and their lines sit in the card's own gap. */
+.setup-page .fix { padding-left: 0; }
+.setup-page .check p { margin: 0; }
 .note-form { max-width: 600px; }
 .rename { flex: 1; display: flex; gap: 8px; }
 .actions { display: flex; align-items: center; gap: 10px; }
