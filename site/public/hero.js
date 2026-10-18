@@ -19,11 +19,11 @@ if (stage) {
     ['#7383F7', '#4A57DB', '#D6DBFD', '#5F6EF0'], // Codex
     ['#636B7A', '#3B414D', '#CDD2DB', '#4F5664'], // Cursor
   ];
-  const START_MS = 1400; // Emm wakes first
-  const WALK_MS = 3600;
-  const STRIKE_MS = 170;
-  const PULL_MS = 320;
-  const REST_MS = 1000;
+  const START_MS = 800; // Emm wakes first
+  const WALK_MS = 1600;
+  const STRIKE_MS = 110;
+  const PULL_MS = 220;
+  const REST_MS = 450;
 
   let paused = false;
   let visible = true;
@@ -99,8 +99,8 @@ if (stage) {
     } else if (phase === 'walk') {
       const p = Math.min(1, t / WALK_MS);
       const x = startX + (reachX - startX) * p;
-      const hop = Math.abs(Math.sin(p * Math.PI * 8)) * g.size * 0.14;
-      place(el, x, g.groundY - g.size - hop, 1, 1, Math.sin(p * Math.PI * 16) * 4);
+      const hop = Math.abs(Math.sin(p * Math.PI * 5)) * g.size * 0.14;
+      place(el, x, g.groundY - g.size - hop, 1, 1, Math.sin(p * Math.PI * 10) * 4);
       if (p >= 1) { phase = 'strike'; since = clock; }
     } else if (phase === 'strike' || phase === 'pull') {
       tongue.hidden = false;
