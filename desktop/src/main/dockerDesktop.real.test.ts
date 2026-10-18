@@ -19,7 +19,7 @@ describe.skipIf(!real)("Docker's real download (opt-in)", () => {
       // Everything up to the signature checks is real; installing and opening are not.
       run: async (file, args, opts) => {
         ran.push([file, ...args].join(' '));
-        if (file === 'ditto' || file === 'mv' || file === 'open') return { code: 0, output: '' };
+        if (['/usr/bin/ditto', '/bin/mv', '/usr/bin/open'].includes(file)) return { code: 0, output: '' };
         return deps.run(file, args, opts);
       },
       exists: (p) => p !== '/Applications/Docker.app' && deps.exists(p),
@@ -29,6 +29,7 @@ describe.skipIf(!real)("Docker's real download (opt-in)", () => {
     expect(desktop.status()).toEqual({ phase: 'starting' });
     expect(progress.at(-1)).toBe(1);
     expect(ran.filter((c) => /^(\/usr\/bin\/codesign|\/usr\/sbin\/spctl) /.test(c))).toHaveLength(3);
+    expect(ran.every((c) => c.startsWith('/'))).toBe(true);
     expect(deps.exists(dir)).toBe(false);
   });
 });
