@@ -243,7 +243,7 @@ tests/visible/...            io: NN.in only · unit: test files
 tests/hidden/...
 ```
 
-A failure goes back to the caller with the failing gate and capped output. Hidden inputs and expected outputs never appear in diagnostics returned to tools. Neither does anything the reference or a mutant printed, since building or running them runs hidden code: a reference failure names its phase, exit codes and statuses: visible tests by name (io cases only by the inputs the author gave), hidden ones by number, and a failed build by the track's build command and what to check.
+A failure goes back to the caller with the failing gate and capped output. Hidden inputs and expected outputs never appear in diagnostics returned to tools. Neither does anything the reference or a mutant printed, since building or running them runs hidden code: a reference failure names its phase, exit codes and statuses: visible tests by name (io cases only by the inputs the author gave), hidden ones by number, and a failed build by the track's build command and what to check. A track gate's failure shows the last lines of what the track's own build or probes printed (track files only, never an exercise's), and that output never sets the failure's kind.
 
 **Track gates:**
 1. The files are valid, each style's pass probe and probe tests total at most 64 KB (authors receive them as the track's example), and `id@version` is either new or identical to the installed one, in which case the install is a no-op.

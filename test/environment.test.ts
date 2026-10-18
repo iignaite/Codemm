@@ -93,7 +93,19 @@ describe.runIf(posix)("installing a track", () => {
   it("shows the end of a probe's own output, so the agent can see why its test runner found nothing", async () => {
     fakeDocker("notests");
     const unit = readFileMap(join(import.meta.dirname, "fixtures", "tracks", "shell-unit"));
-    await expect(app.saveTrack(unit)).rejects.toThrow(/Gate "probe pass"[\s\S]*No test files found, exiting with code 1/);
+    const failure = app.saveTrack(unit);
+    await expect(failure).rejects.toThrow(/Gate "probe pass"[\s\S]*No test files found, exiting with code 1/);
+    // Shown once, even when a test's message already carries the runner's output.
+    const message = await failure.then(() => "", (e: Error) => e.message);
+    expect(message.match(/No test files found/g)).toHaveLength(1);
+  });
+
+  it("blames the track, not this computer, when a probe's own output mentions a full disk", async () => {
+    fakeDocker("notests-disk");
+    const unit = readFileMap(join(import.meta.dirname, "fixtures", "tracks", "shell-unit"));
+    const failure = await app.saveTrack(unit).then(() => ({ kind: "none", message: "" }), (e: { kind?: string; message: string }) => e);
+    expect(failure.message).toMatch(/Gate "probe pass"[\s\S]*no space left on device/);
+    expect(failure.kind).not.toBe("disk");
   });
 
   it("reports a setup's build steps, then its checks, as phases and counts only", async () => {

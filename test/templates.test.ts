@@ -28,7 +28,9 @@ describe("author instructions (codemm-author subagent)", () => {
   it("tells a unit track to find its tests in $TESTS and never hide its runner's failure, without naming a language", () => {
     for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
       expect(text).toMatch(/find the test files in `\$TESTS`/);
-      expect(text).toMatch(/never hide the runner's own failure \(no `\|\| true`\)/);
+      expect(text).toMatch(/Never hide the runner's own failure, such as finding no test files: a report that lists no tests fails/);
+      // Exiting 0 with a report is required, so the rule can't also forbid what does that.
+      expect(text).not.toMatch(/\|\| true/);
       expect(text).toMatch(/a report that lists no tests fails/);
     }
   });

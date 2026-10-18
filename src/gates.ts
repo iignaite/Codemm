@@ -13,10 +13,11 @@ import {
 
 /** A gate failed. The message names the gate and never contains hidden inputs or outputs. */
 export class GateError extends CodemmError {
-  constructor(gate: string, details: string) {
-    // A failure whose details show this computer's problem (a probe out of disk, a build that lost Docker) isn't
-    // the track's: its kind tells the desktop to keep the proposal.
-    super(`Gate "${gate}" failed: ${details}`, infraKind(details));
+  constructor(gate: string, details: string, output = "") {
+    // A failure whose details show this computer's problem (a build that lost Docker) isn't the track's: its kind
+    // tells the desktop to keep the proposal. What the track's own code printed never sets the kind: a probe that
+    // fills its /tmp says "no space left on device" too.
+    super(`Gate "${gate}" failed: ${details}${output}`, infraKind(details));
   }
 }
 
@@ -53,7 +54,11 @@ function tail(text: string): string {
   // Cut by bytes, dropping a character the cut split.
   return bytes.length > 4096 ? `…${bytes.subarray(-4096).toString("utf8").replace(/^\uFFFD+/, "")}` : lines;
 }
-const printed = (text: string) => (text.trim() ? `\nIt printed (the end):\n${tail(text)}` : "");
+/** What a run printed, unless the lines above (\`shown\`) already show it. */
+function printed(text: string, shown = ""): string {
+  const end = tail(text).trim();
+  return end && !shown.includes(end) ? `\nIt printed:\n${end}` : "";
+}
 
 /** What a probe's run printed: a unit runner's own output, or io's build output and each case's errors. */
 function probeOutput(runs: Runs): string {
@@ -144,7 +149,7 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
     builtId = built.imageId ?? "";
     // Offline, out of disk or no runtime isn't the track's fault, so it's no gate failure.
     if (built.problem) throw new CodemmError(built.problem.message, built.problem.kind);
-    if (!built.ok) throw new GateError("build", `the image didn't build.${printed(built.log)}`);
+    if (!built.ok) throw new GateError("build", "the image didn't build.", printed(built.log));
   } finally {
     rmSync(context, { recursive: true, force: true });
   }
@@ -160,11 +165,15 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
     const exp = { expected: p.expected };
     const passRuns = await runSets(track, p.style, p.pass, { visible: p.inputs });
     const pass1 = gradeRuns(p.style, passRuns, exp);
-    if (!allPass(pass1)) throw new GateError("probe pass", `the ${p.style} pass probe should pass every test:\n${summarize(pass1)}${printed(probeOutput(passRuns))}`);
+    if (!allPass(pass1)) {
+      const tests = `\n${summarize(pass1)}`;
+      throw new GateError("probe pass", `the ${p.style} pass probe should pass every test:`, tests + printed(probeOutput(passRuns), tests));
+    }
     const failRuns = await runSets(track, p.style, p.fail, { visible: p.inputs });
     const failed = gradeRuns(p.style, failRuns, exp);
     if (!failed.some((t) => t.status === "fail") || failed.some((t) => t.status === "error")) {
-      throw new GateError("probe fail", `the ${p.style} fail probe should fail at least one test without errors:\n${summarize(failed)}${printed(probeOutput(failRuns))}`);
+      const tests = `\n${summarize(failed)}`;
+      throw new GateError("probe fail", `the ${p.style} fail probe should fail at least one test without errors:`, tests + printed(probeOutput(failRuns), tests));
     }
     const pass2 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }), exp);
     if (JSON.stringify(pass1) !== JSON.stringify(pass2)) throw new GateError("deterministic", `the ${p.style} pass probe gave different results on a second run.`);
@@ -248,7 +257,7 @@ export async function verifyExercise(
     if (visibleBuild && visibleBuild.exit !== 0) {
       throw new GateError(
         "reference passes",
-        `the reference doesn't build (exit ${visibleBuild.exit}) with the track's build command (\`${track.build}\`). ` +
+        `the reference doesn't build (exit ${visibleBuild.exit})${track.build ? ` with the track's build command (\`${track.build}\`)` : ""}. ` +
           `Check that solution/ holds exactly the track's learner files (${track.files.join(", ")}) and builds with the track's toolchain. ` +
           "Codemm doesn't show the build output, because it can quote the reference.",
       );
