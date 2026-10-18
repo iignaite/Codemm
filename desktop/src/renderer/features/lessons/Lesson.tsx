@@ -114,7 +114,7 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
           <h1 className="h1 a-up">{lesson.title}</h1>
           {!editing && (
             <Button variant="ghost" className="a-up" style={stagger(1)} onClick={() => setEditing(true)}>
-              <Icon name="pencil" color="#0E2754" size={17} />
+              <Icon name="pencil" color="var(--ink)" size={17} />
               {notes ? 'Edit note' : 'Add a note'}
             </Button>
           )}
@@ -129,7 +129,7 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
         ) : (
           notes && (
             <div className="my-note a-up" style={stagger(5)}>
-              <Icon name="pencil" color="#7A5C00" size={17} />
+              <Icon name="pencil" color="var(--note-ink)" size={17} />
               <span><b>My note:</b> {notes}</span>
             </div>
           )
