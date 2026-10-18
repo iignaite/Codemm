@@ -23,6 +23,13 @@ describe("tutor instructions (AGENTS.md section)", () => {
     for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) expect(text).toMatch(/pass probe must also pass within a third of `time_ms`/);
   });
 
+  it("tells a track author to COPY its scripts from the track's files, not write them in the Dockerfile", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).toMatch(/put any script or config the track needs in the track's own files and \`COPY\` it/i);
+      expect(text).toMatch(/never create files inside the Dockerfile with heredocs or long \`echo\` chains/i);
+    }
+  });
+
   it("shows how a roadmap pins its track", () => {
     expect(AGENTS_SECTION).toMatch(/exactly as `list_tracks` shows it/);
   });
