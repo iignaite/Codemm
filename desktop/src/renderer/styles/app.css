@@ -241,8 +241,9 @@ button.grow.link:hover { background: var(--soft); }
 .bar { position: relative; height: 8px; border-radius: 4px; background: #E4E9F1; overflow: hidden; }
 .bar > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--green-ink); animation: grow 1.1s var(--ease) backwards; animation-delay: var(--d, .35s); }
 .complete { width: 760px; display: flex; flex-direction: column; align-items: center; gap: 26px; text-align: center; }
-.complete .pills { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: 100%; }
-.complete .pill { height: 36px; font-size: 13.5px; }
+/* As many columns as fit, and a long title wraps inside its badge. */
+.complete .pills { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr)); gap: 8px; width: 100%; }
+.complete .pill { height: auto; min-height: 36px; padding: 6px 11px; font-size: 13.5px; white-space: normal; }
 
 /* ---------- Tracks ---------- */
 .track-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 16px; max-width: 1040px; }
@@ -411,7 +412,15 @@ h1[tabindex="-1"]:focus { outline: none; }
   .reader { padding: 24px 20px; }
   .reader .head { flex-wrap: wrap; }
   .etool { height: auto; min-height: 56px; flex-wrap: wrap; }
-  .etabs { height: 56px; }
-  .complete .pills { grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr)); }
-  .complete .pill { height: auto; min-height: 36px; padding: 6px 11px; white-space: normal; }
+  .etabs { height: auto; flex-wrap: wrap; }
+  .etab { height: 44px; }
+  /* A roadmap row: its title on the first line, its buttons under it on the right. */
+  .topic { height: auto; min-height: 54px; flex-wrap: wrap; padding: 6px 8px 6px 6px; }
+  .topic .name { flex: 1 1 calc(100% - 70px); overflow-wrap: anywhere; }
+  .topic .name + .ibtn { margin-left: auto; }
+  .outcome { flex-direction: column; align-items: flex-start; }
+  .outcome .won { white-space: normal; }
+  .tline, .cmp { flex-wrap: wrap; }
+  .cmp { margin-left: 0; }
+  .cmp span { overflow-wrap: anywhere; }
 }

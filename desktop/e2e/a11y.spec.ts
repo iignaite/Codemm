@@ -306,8 +306,8 @@ test('the activity reflows at 200% zoom: editor, Check and Codemm stay usable', 
 });
 
 /**
- * What sticks out past the window's sides, named by tag and class: nothing should, so the screen reflows (WCAG 1.4.10).
- * Code is exempt: it keeps its lines and scrolls inside its own box.
+ * What sticks out past the window's sides, or text that spills out of its own box, named by tag and class: nothing
+ * should, so the screen reflows (WCAG 1.4.10). Code is exempt: it keeps its lines and scrolls inside its own box.
  */
 const overflowing = (page: Page) =>
   page.evaluate(() => {
@@ -317,7 +317,11 @@ const overflowing = (page: Page) =>
       .filter((el) => {
         // Cut off or scrolled sideways, it's out of reach either way, so a clipping ancestor doesn't excuse it.
         const r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0 && (r.right > wide + 1 || r.left < -1);
+        if (r.width === 0 || r.height === 0) return false;
+        if (r.right > wide + 1 || r.left < -1) return true;
+        // Text that spills out of its own box paints over its neighbors.
+        const text = [...el.childNodes].some((n) => n.nodeType === Node.TEXT_NODE && n.textContent!.trim());
+        return text && getComputedStyle(el).overflowX === 'visible' && el.scrollWidth > el.clientWidth + 1;
       })
       .map((el) => `${el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? `.${el.className.split(' ').join('.')}` : ''}`)
       .slice(0, 5);
@@ -382,6 +386,9 @@ test('every screen reflows in the smallest window and at 200% and 400% zoom: not
   await button(page, 'Next').click();
   await expect(heading(page, 'Click Counter')).toBeVisible();
   await reflows(app, page, 'activity');
+  await button(page, 'Check').click();
+  await expect(page.getByRole('region', { name: 'Results' }).getByRole('heading', { name: '2 of 4 passed' })).toBeVisible();
+  await reflows(app, page, 'results');
   await button(page, 'Learn').click();
   await expect(page.getByRole('region', { name: 'Usage' })).toBeVisible({ timeout: 15_000 });
   await reflows(app, page, 'course map');
