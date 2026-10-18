@@ -472,6 +472,25 @@ describe('lessons', () => {
     expect(screen.queryByText('Old course note')).not.toBeInTheDocument();
   });
 
+  it('reopens a lesson with its saved note at once, while reads are slow (an activity being written)', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+    await screen.findByRole('heading', { name: 'useState', level: 1 });
+    await user.click(screen.getByRole('button', { name: 'Add a note' }));
+    await user.type(screen.getByRole('textbox', { name: 'My note' }), 'Kept note');
+    // From here on, lesson reads don't answer, as when background work keeps Codemm busy: the save's own re-read too.
+    api.lesson = () => new Promise(() => {});
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Kept note')).toBeInTheDocument();
+    // Away and back, as a learner would.
+    await user.click(screen.getByRole('button', { name: 'Learn' }));
+    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    await user.click(await screen.findByRole('button', { name: 'Read useState' }));
+    expect(screen.getByRole('heading', { name: 'useState', level: 1 })).toBeInTheDocument();
+    expect(screen.getByText('Kept note')).toBeInTheDocument();
+  });
+
   it('shows a saved note after reopening, even if an older read finishes later', async () => {
     const user = userEvent.setup();
     const { api } = await mockWithCourse();

@@ -59,11 +59,18 @@ export function Lesson({ lessonId }: { lessonId: string }) {
     cache.clear();
     reload();
   };
+  // A saved note drops older reads too, but this lesson stays cached with the note, so it reopens at once (§4.3),
+  // even while background work keeps the next read slow.
+  const noted = (notes: string) => {
+    cache.clear();
+    if (view) cache.set(lessonId, { ...view, lesson: { ...view.lesson, notes } }, cache.version());
+    reload();
+  };
   if (view) {
     return (
       <>
         <Sidebar slim />
-        <Reader {...view} onSaved={refresh} />
+        <Reader {...view} onSaved={refresh} onNoted={noted} />
         {view.course.stalled && <Stalled stalled={view.course.stalled} retry={refresh} />}
         {stale !== undefined && <Stale error={stale} retry={reload} />}
       </>
@@ -73,7 +80,7 @@ export function Lesson({ lessonId }: { lessonId: string }) {
   return <Sidebar slim />;
 }
 
-function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void }) {
+function Reader({ lesson, course, topic, onSaved, onNoted }: View & { onSaved: () => void; onNoted: (notes: string) => void }) {
   const api = useApi();
   const { go, fail } = useRouter();
   const [saved, setSaved] = useState<string>();
@@ -86,7 +93,7 @@ function Reader({ lesson, course, topic, onSaved }: View & { onSaved: () => void
     try {
       await api.saveNotes(lesson.id, text);
       setSaved(text);
-      onSaved();
+      onNoted(text);
       setEditing(false);
     } catch (e) {
       fail(e);
