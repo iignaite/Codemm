@@ -7,7 +7,8 @@ const WAIT_MS = 10_000;
 /**
  * Moves focus to the new screen's h1 after a route change, so a screen reader starts there (§1, WCAG AA). Never on
  * the first screen, and never over focus the learner or the screen gave since (the goal's text box, say). A screen
- * that is still loading gets its heading focused once it appears.
+ * that is still loading gets its heading focused once it appears, unless focus moved meanwhile: any move (a Tab, a
+ * click, a dialog focusing its button) means someone else chose, even if focus later falls back to the page.
  */
 export function useRouteFocus(route: Route, container: RefObject<HTMLElement | null>) {
   const first = useRef(true);
@@ -43,8 +44,10 @@ export function useRouteFocus(route: Route, container: RefObject<HTMLElement | n
     const stop = () => {
       watch.disconnect();
       clearTimeout(timer);
+      document.removeEventListener('focusin', stop);
     };
     watch.observe(root, { childList: true, subtree: true });
+    document.addEventListener('focusin', stop);
     return stop;
   }, [route, container]);
 }
