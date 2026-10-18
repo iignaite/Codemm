@@ -1,7 +1,5 @@
 // Test fakes for the live CodemmApi: an in-memory core with the shapes and
 // rules the desktop relies on, and agent jobs that act like their agents.
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CodemmApi, CourseView } from '../../shared/api';
 import type { Job, JobOutcome } from '../agent/jobs';
@@ -11,6 +9,7 @@ import type { CoreApp, CoreCheckView, CoreNextStep, CoreProgramRun } from '../co
 import { createLive, type LiveDeps } from '../live';
 import { createLog } from '../log';
 import { desktopState } from '../state';
+import { tempDir } from './temp';
 
 export const CANARY = 'printf("CANARY-SOLUTION-LINE %d", count + 1);';
 
@@ -227,7 +226,7 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
 export function live(over: Partial<Record<Job['kind'], Act>> = {}, deps: Partial<LiveDeps> = {}) {
   const { c, app } = fakeCore();
   const jobs = fakeJobs(c, over);
-  const dir = mkdtempSync(join(tmpdir(), 'codemm-live-'));
+  const dir = tempDir('codemm-live-');
   const state = desktopState(dir);
   const lookup = { find: (bin: string) => ({ path: `/bin/${bin}`, js: false }), signedIn: async () => true, version: async () => '2.1.283' };
   const connect = connector(lookup, state);

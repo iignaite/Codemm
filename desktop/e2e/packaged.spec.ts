@@ -1,8 +1,8 @@
 import { _electron as electron, expect, test } from '@playwright/test';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { callTool } from './mcp-client.mjs';
+import { tempDir } from './temp';
 
 // D1: the packaged app, with no Node or npm on PATH, launches to the welcome
 // screen, starts its bundled `codemm mcp` with itself as Node, and runs a
@@ -13,7 +13,7 @@ const windows = process.platform === 'win32';
 
 /** A fake Claude Code written in JavaScript, installed the way npm installs one. */
 function fakeAgent(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'codemm-agent-'));
+  const dir = tempDir('codemm-agent-');
   const script = `#!/usr/bin/env node
 const args = process.argv.slice(2).join(' ');
 if (args === '--version') console.log('2.1.283 (Claude Code)');
@@ -33,8 +33,8 @@ else if (args === 'auth status --json') console.log(JSON.stringify({ loggedIn: t
 test.skip(!exe || !resources, 'set CODEMM_PACKAGED and CODEMM_RESOURCES to a packaged build');
 
 test('packaged: welcome, bundled MCP server and a JavaScript agent, with no Node on PATH', async () => {
-  const home = mkdtempSync(join(tmpdir(), 'codemm-home-'));
-  const ws = mkdtempSync(join(tmpdir(), 'codemm-ws-'));
+  const home = tempDir('codemm-home-');
+  const ws = tempDir('codemm-ws-');
   const env = { ...process.env, PATH: fakeAgent(), CODEMM_HOME: home } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
 
