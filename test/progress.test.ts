@@ -83,6 +83,19 @@ describe.runIf(posix)("check progress", () => {
     for (const secret of ["hidden/01", "hidden/02", "hidden/03", "-1\\n", "7\\n"]) expect(out).not.toContain(secret);
   });
 
+  it("keeps a failing hidden io test's output and errors in, while a visible one's come out", async () => {
+    const ws = await installedExercise();
+    const hidden = join(store.exerciseDir("shell", "max-of-line"), "tests", "hidden");
+    for (const n of ["01", "02", "03"]) writeFileSync(join(hidden, `${n}.in`), `CANARY ${n}\n`);
+    fakeDocker("echoes");
+    const seen: CheckProgress[] = [];
+    const view = await app.checkExercise(ws, undefined, undefined, (p) => seen.push(p));
+    // The visible test shows what the program printed and its errors (the fake echoes the input on both).
+    expect(view.tests[0]).toEqual({ name: "visible/01", status: "error", message: expect.stringContaining("3 1 2"), actual: "3 1 2" });
+    expect(view.tests.slice(1)).toEqual([1, 2, 3].map((n) => ({ name: `hidden #${n}`, status: "error" })));
+    expect(JSON.stringify({ view, seen })).not.toContain("CANARY");
+  });
+
   it("reports the visible tests only for Try it", async () => {
     const ws = await installedExercise();
     fakeDocker("streams");
@@ -108,8 +121,23 @@ describe.runIf(posix)("check progress for unit exercises", () => {
     const ws = await unitExercise(["secret-edge-case"]);
     fakeDocker("streams");
     const view = await app.checkExercise(ws);
-    expect(view.tests.filter((t) => t.name.startsWith("hidden"))).toEqual([{ name: "hidden #1", status: expect.any(String) }]);
+    expect(view.tests.filter((t) => t.name.startsWith("hidden"))).toEqual([{ name: "hidden #1", status: "error" }]);
     expect(JSON.stringify(view)).not.toContain("secret");
+  });
+
+  it("keeps a failing hidden unit test's message in, while a visible one's comes out", async () => {
+    const ws = await unitExercise();
+    const tests = join(store.exerciseDir("units", "maxof"), "tests");
+    writeFileSync(join(tests, "visible", "first_is_max.sh"), "VISIBLE text");
+    for (const f of ["middle_is_max.sh", "all_negative.sh"]) writeFileSync(join(tests, "hidden", f), `CANARY ${f}`);
+    fakeDocker("echoes");
+    const seen: CheckProgress[] = [];
+    const view = await app.checkExercise(ws, undefined, undefined, (p) => seen.push(p));
+    expect(view.tests).toEqual([
+      { name: "visible/t", status: "fail", message: expect.stringContaining("VISIBLE text") },
+      { name: "hidden #1", status: "fail" },
+    ]);
+    expect(JSON.stringify({ view, seen })).not.toContain("CANARY");
   });
 });
 

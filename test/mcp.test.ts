@@ -156,13 +156,17 @@ describe.runIf(posix)("hidden data through the tools", () => {
         createdAt: new Date().toISOString(), expected: { "visible/01": "3\n", "hidden/01": "CANARY one\n", "hidden/02": "CANARY two\n", "hidden/03": "CANARY three\n" },
       },
     });
-    const { call } = await connect();
-    const outputs = [await call("get_exercise", { slug: "max-of-line" })];
-    writeFileSync(join(outputs[0].path, "main.sh"), "echo 3\n");
-    fakeDocker("streams");
-    outputs.push(await call("check", { slug: "max-of-line" }), await call("progress"), await call("next_step"), await call("get_roadmap"), await call("list_tracks"));
-    expect(outputs[1].tests.length).toBe(4);
-    const text = JSON.stringify(outputs);
+    const { client, call } = await connect();
+    const { path } = await call("get_exercise", { slug: "max-of-line" });
+    writeFileSync(join(path, "main.sh"), "echo 3\n");
+    // The fake prints each case's input as its output and errors, so a hidden case's would carry its canary.
+    fakeDocker("echoes");
+    expect((await call("check", { slug: "max-of-line" })).tests).toHaveLength(4);
+    // Whole responses, every content block and any structured content, not only the first text.
+    const calls: [string, Record<string, unknown>][] = [["get_exercise", { slug: "max-of-line" }], ["check", { slug: "max-of-line" }], ["progress", {}], ["next_step", {}], ["get_roadmap", {}], ["list_tracks", {}]];
+    const responses = [];
+    for (const [name, args] of calls) responses.push(await client.callTool({ name, arguments: args }));
+    const text = JSON.stringify(responses);
     expect(text).not.toContain("CANARY");
     expect(text).not.toMatch(/hidden\/0/);
   });
