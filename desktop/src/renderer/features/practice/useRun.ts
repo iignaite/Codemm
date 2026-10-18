@@ -76,8 +76,10 @@ export function useRun(begin: (run: string) => Promise<RunResult>, command: stri
         limits[o.started] = o.limitMs;
         setReady(true);
         setStatus(o.started === 'build' ? 'Building' : undefined);
-        setNow(Date.now());
-        setDeadline(o.started === 'run' ? Date.now() + o.limitMs : undefined);
+        // One reading of the clock: two could straddle a millisecond and show a second too many.
+        const at = Date.now();
+        setNow(at);
+        setDeadline(o.started === 'run' ? at + o.limitMs : undefined);
       } else terminal.current?.write(o.text, o.stream);
     });
     const session = { id, cancelled: false, off };
