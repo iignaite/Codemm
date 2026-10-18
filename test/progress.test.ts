@@ -49,8 +49,8 @@ describe.runIf(posix)("check progress", () => {
     expect(store.readEvents("shell")).toHaveLength(1);
   });
 
-  // Root writes anywhere, so a read-only folder can't stand in for a full disk there.
-  it.runIf(process.getuid?.() !== 0)("records nothing when the workspace can't be updated, so \"not counted\" stays true and a retry counts once", async () => {
+  // A read-only folder stands in for a full disk only on POSIX and for a non-root user: Windows ignores the mode, and root writes anywhere.
+  it.runIf(posix && process.getuid?.() !== 0)("records nothing when the workspace can't be updated, so \"not counted\" stays true and a retry counts once", async () => {
     const ws = await installedExercise();
     fakeDocker("streams");
     // A read-only workspace folder: grading still runs (it writes only inside exercises/), but codemm.json can't be
