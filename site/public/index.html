@@ -31,7 +31,6 @@
   <script type="module" src="/main.js"></script>
   <script type="module" src="/hero.js"></script>
   <script defer src="/_vercel/insights/script.js"></script>
-  <script defer src="/_vercel/speed-insights/script.js"></script>
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Codemm","applicationCategory":"EducationalApplication","operatingSystem":"macOS, Windows","description":"Enhance your coding journey with your own coding agent.","url":"%SITE_URL%/","image":"%SITE_URL%/og.png","license":"https://opensource.org/licenses/MIT","isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"author":{"@type":"Person","name":"Gaille Amolong"},"sameAs":["https://github.com/iignaite/Codemm"]}</script>
 </head>
 <body>
@@ -58,24 +57,15 @@
     <section class="hero wrap" aria-labelledby="title">
       <div class="hero-text">
         <h1 id="title">Supercharge your learning with Codemm.</h1>
-        <p class="lead">Lessons and exercises from your own coding agent, proven and graded by Codemm.</p>
+        <p class="lead">Lessons and exercises from your own coding agent, proven and graded by Codemm. Free and open source, for Mac and Windows.</p>
 
-        <form class="gate" id="get" method="post" action="/api/subscribe" novalidate>
-          <div class="field-row">
-            <label class="sr" for="email">Email</label>
-            <input id="email" name="email" type="email" inputmode="email" autocomplete="email" required maxlength="254" placeholder="Your email" aria-describedby="gate-note gate-status">
-            <button class="btn primary" id="gate-submit" type="submit" disabled>Get Codemm</button>
-          </div>
-          <div class="hp" aria-hidden="true">
-            <label for="company">Company</label>
-            <input id="company" name="company" type="text" tabindex="-1" autocomplete="off">
-          </div>
-          <p class="gate-status" id="gate-status" role="status" aria-live="polite"></p>
-          <p class="gate-note" id="gate-note">For Mac and Windows. We'll email you about releases; unsubscribe anytime.</p>
-          <noscript><p class="gate-note">The form needs JavaScript. The source is on <a href="https://github.com/iignaite/Codemm">GitHub</a>.</p></noscript>
-        </form>
-
-        <p class="source">Works with Claude Code, Codex and Cursor. Open source on <a href="https://github.com/iignaite/Codemm">GitHub</a>.</p>
+        <div class="download hero-download" id="get" data-download>
+          <a class="btn primary big" href="https://github.com/iignaite/Codemm/releases">
+            <span class="btn-label">Download</span>
+            <span class="btn-detail">From GitHub Releases</span>
+          </a>
+        </div>
+        <p class="source">Works with Claude Code, Codex or Cursor, on your own plan.</p>
       </div>
 
       <div class="orbit">
@@ -109,9 +99,9 @@
             </svg>
             <a class="core" href="#get" aria-label="Get Codemm"><img src="/favicon.svg" alt="" width="72" height="72"></a>
           </div>
-          <button class="agent" type="button" data-agent="0" aria-label="Claude Code"><img src="/img/agents/claude.svg" alt="" width="44" height="44"></button>
-          <button class="agent" type="button" data-agent="1" aria-label="Codex"><img src="/img/agents/codex.svg" alt="" width="44" height="44"></button>
-          <button class="agent" type="button" data-agent="2" aria-label="Cursor"><img src="/img/agents/cursor.svg" alt="" width="40" height="40"></button>
+          <button class="agent" type="button" data-agent="0">Claude Code</button>
+          <button class="agent" type="button" data-agent="1">Codex</button>
+          <button class="agent" type="button" data-agent="2">Cursor</button>
         </div>
         <button class="motion" type="button" aria-pressed="false" aria-label="Pause animation" hidden>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path class="i-pause" d="M8 5v14M16 5v14"/><path class="i-play" d="M7 5l12 7-12 7z"/></svg>
@@ -219,9 +209,23 @@
         <img class="final-mark" src="/favicon.svg" alt="" width="64" height="64">
         <h2 id="final">Start learning with Codemm.</h2>
         <p class="center-lead">Codemm launches your agent, on your own plan, with the model you choose. It never calls a model API, and never reads, stores or asks for your credentials.</p>
-        <div class="final-actions">
-          <a class="btn primary" href="#get">Get Codemm</a>
-          <a class="btn secondary" href="https://github.com/iignaite/Codemm">View the source</a>
+        <div class="download" data-download>
+          <a class="btn primary big" href="https://github.com/iignaite/Codemm/releases">
+            <span class="btn-label">Download</span>
+            <span class="btn-detail">From GitHub Releases</span>
+          </a>
+        </div>
+        <div class="after">
+          <section class="card beta" aria-labelledby="beta-title" data-beta hidden>
+            <h2 id="beta-title">Opening a beta build</h2>
+            <p>Beta builds aren't signed yet, so the first launch takes one extra step.</p>
+            <dl>
+              <dt>Mac</dt>
+              <dd>Open Codemm once, then choose System Settings, Privacy &amp; Security, Open Anyway.</dd>
+              <dt>Windows</dt>
+              <dd>In the SmartScreen prompt, choose More info, then Run anyway.</dd>
+            </dl>
+          </section>
         </div>
       </div>
     </section>
@@ -229,7 +233,7 @@
 
   <footer class="foot">
     <div class="wrap foot-in">
-      <p>© 2026 Gaille Amolong. Open source under the <a href="https://github.com/iignaite/Codemm/blob/main/LICENSE">MIT License</a>. We keep your email, that you agreed to release emails, and when. Page views are counted without cookies. Claude, Codex and Cursor are trademarks of their owners.</p>
+      <p>Codemm is free, open-source software under the <a href="https://github.com/iignaite/Codemm/blob/main/LICENSE">MIT License</a>, provided as is, without warranty. Claude Code, Codex and Cursor are trademarks of their owners; Codemm isn't affiliated with or endorsed by them.</p>
       <nav aria-label="Footer">
         <a href="https://github.com/iignaite/Codemm/blob/main/docs/README.md">Docs</a>
         <a href="https://github.com/iignaite/Codemm">GitHub</a>
