@@ -95,6 +95,22 @@ describe('course editor', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled());
   });
 
+  it('keeps a topic name and a requested change within their limits, and says so', async () => {
+    const { user } = await open();
+    await user.click(screen.getByRole('button', { name: 'Rename JSX' }));
+    const name = screen.getByRole('textbox', { name: 'Topic name' });
+    await user.clear(name);
+    await user.paste('n'.repeat(250));
+    expect(name).toHaveValue('n'.repeat(200));
+    expect(screen.getByText('Up to 200 characters.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    const request = screen.getByRole('textbox', { name: 'Ask Codemm for changes' });
+    await user.click(request);
+    await user.paste('r'.repeat(2500));
+    expect(request).toHaveValue('r'.repeat(2000));
+    expect(screen.getByText('Up to 2,000 characters.')).toBeInTheDocument();
+  });
+
   it('shows the change job\'s stages and latest step while Codemm changes the roadmap', async () => {
     let hear: (p: JobProgress) => void = () => undefined;
     const { api, roadmap, user } = await open(undefined, (a) => (a.onJobProgress = (listener) => ((hear = listener), () => undefined)));
