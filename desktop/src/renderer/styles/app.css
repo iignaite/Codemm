@@ -216,6 +216,8 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .gr .g { background: var(--green-ink); animation: draw .5s var(--ease) backwards; animation-delay: var(--d, .3s); }
 .grow { min-height: 50px; display: flex; align-items: center; gap: 16px; padding: 0 16px; font-size: 15.5px; font-weight: 500; }
 .grow.later { color: var(--faint); font-weight: 400; }
+button.grow.link { width: 100%; border: none; border-radius: 10px; background: transparent; color: inherit; font-family: inherit; text-align: left; cursor: pointer; }
+button.grow.link:hover { background: var(--soft); }
 .now-card { margin: 8px 0; padding: 14px 18px; display: flex; align-items: center; gap: 16px; border: 1.5px solid var(--green-ink); }
 .now-card b { flex: 1; font-size: 16px; }
 .soon { font-size: 13px; color: var(--muted); }
