@@ -310,8 +310,7 @@ export async function saveLesson(ws: string, input: unknown, bound?: string): Pr
  * the same interactive run as Run on an activity. Never recorded. A unit example runs as tests (runExample).
  */
 export async function runExampleLive(
-  ws: string, lessonId: string, index: number, output: (text: string, stream: "stdout" | "stderr") => void, bound?: string,
-  options: Parameters<typeof runProgram>[3] = {},
+  ws: string, lessonId: string, index: number, bound: string | undefined, output: (text: string, stream: "stdout" | "stderr") => void, options: ProgramOptions = {},
 ): Promise<ProgramRun> {
   const { record, examples } = store.readLesson(activeCourse(ws, bound).course, lessonId);
   const files = Number.isInteger(index) ? examples[index - 1] : undefined;

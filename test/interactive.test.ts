@@ -206,7 +206,7 @@ describe.runIf(posix)("live lesson examples", () => {
     lesson([{ "main.sh": "read -r x; echo $x\n" }]);
     fakeDocker("interactive");
     const out = { stdout: "", stderr: "" };
-    const run = await app.runExampleLive(ws, "echo", 1, (text, stream) => (out[stream] += text));
+    const run = await app.runExampleLive(ws, "echo", 1, undefined, (text, stream) => (out[stream] += text));
     run.write("Ada\n");
     expect(await run.done).toMatchObject({ exit: 0, timedOut: false });
     expect(out.stdout).toContain("hello Ada");
@@ -217,11 +217,11 @@ describe.runIf(posix)("live lesson examples", () => {
     const ws = await installedExercise();
     fakeDocker("interactive");
     lesson([{ "main.sh": "echo 1\n" }], "unit");
-    await expect(app.runExampleLive(ws, "echo", 2, () => undefined)).rejects.toThrow(/no example 2/);
-    await expect(app.runExampleLive(ws, "echo", 1, () => undefined)).rejects.toThrow(/runs as tests/);
+    await expect(app.runExampleLive(ws, "echo", 2, undefined, () => undefined)).rejects.toThrow(/no example 2/);
+    await expect(app.runExampleLive(ws, "echo", 1, undefined, () => undefined)).rejects.toThrow(/runs as tests/);
     rmSync(store.lessonDir("shell", "echo"), { recursive: true });
     lesson([{ "other.sh": "echo 1\n" }]);
-    await expect(app.runExampleLive(ws, "echo", 1, () => undefined)).rejects.toThrow(/exactly the track's learner files/);
+    await expect(app.runExampleLive(ws, "echo", 1, undefined, () => undefined)).rejects.toThrow(/exactly the track's learner files/);
   });
 });
 
