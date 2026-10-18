@@ -10,23 +10,30 @@ function fake(platform: NodeJS.Platform) {
     runtime: '/Applications/Codemm.app/Contents/MacOS/Codemm',
     tempDir: () => '/tmp/codemm-signin',
     write: (file, text) => void written.push({ file, text }),
+    inode: () => 4242,
     start: async (file, args, env) => void started.push({ file, args, ...(env ? { env } : {}) }),
   };
   return { signIn: agentSignIn(deps), started, written };
 }
 
 describe("the agent's own sign-in, where the learner sees it", () => {
-  it('Claude Code on a Mac: its login in a Terminal window, from a one-line script with the path quoted', async () => {
+  it('Claude Code on a Mac: its login in a Terminal window, from a short script with the path quoted', async () => {
     const f = fake('darwin');
     await f.signIn('claude', { path: "/Users/o'neil/.local/bin/claude", js: false });
-    expect(f.written).toEqual([{ file: '/tmp/codemm-signin/Sign in to Claude Code.command', text: "#!/bin/sh\nexec '/Users/o'\\''neil/.local/bin/claude' auth login\n" }]);
+    const path = "'/Users/o'\\''neil/.local/bin/claude'";
+    // Terminal runs it a moment later: only the file Codemm allowed at Sign in runs, not one an install put there since.
+    const pin = `[ "$(/usr/bin/stat -L -f %i ${path})" = 4242 ] || { echo 'Claude Code changed. Sign in again from Codemm.'; exit 1; }`;
+    expect(f.written).toEqual([{ file: '/tmp/codemm-signin/Sign in to Claude Code.command', text: `#!/bin/sh\n${pin}\nexec ${path} auth login\n` }]);
     expect(f.started).toEqual([{ file: '/usr/bin/open', args: ['/tmp/codemm-signin/Sign in to Claude Code.command'] }]);
   });
 
   it('a Node-script Claude Code on a Mac signs in with this app as Node, in Terminal too', async () => {
     const f = fake('darwin');
     await f.signIn('claude', { path: '/lib/node_modules/@anthropic-ai/claude-code/cli.js', js: true });
-    expect(f.written[0].text).toBe("#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec '/Applications/Codemm.app/Contents/MacOS/Codemm' '/lib/node_modules/@anthropic-ai/claude-code/cli.js' auth login\n");
+    expect(f.written[0].text.split('\n').slice(1, 3)).toEqual([
+      `[ "$(/usr/bin/stat -L -f %i '/lib/node_modules/@anthropic-ai/claude-code/cli.js')" = 4242 ] || { echo 'Claude Code changed. Sign in again from Codemm.'; exit 1; }`,
+      "ELECTRON_RUN_AS_NODE=1 exec '/Applications/Codemm.app/Contents/MacOS/Codemm' '/lib/node_modules/@anthropic-ai/claude-code/cli.js' auth login",
+    ]);
   });
 
   it('Claude Code on Windows: its login in its own console window', async () => {

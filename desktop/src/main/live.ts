@@ -225,7 +225,8 @@ export function createLive(d: LiveDeps): Live {
         signal: stop.signal,
         done,
         blocked: () => unstoppable,
-        signedIn: () => d.connect.recheck(id, exe),
+        signedIn: () => d.connect.recheck(id),
+        usable: () => d.connect.usable(id),
         onEvent: (e) => {
           tracker.event(e);
           // A save that ended leaves its last gate in the file; the next save starts from none.
