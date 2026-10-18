@@ -13,8 +13,11 @@ export type AgentEvent =
   /** The Codemm server failed to start. */
   | { type: 'server'; ok: false }
   | { type: 'done'; ok: boolean; error?: string }
-  /** What the agent is looking at: a web search, an https page, or one of Codemm's steps (research progress). */
-  | { type: 'progress'; step: ResearchStep };
+  /**
+   * What the agent is looking at: a web search, an https page, or one of Codemm's steps (research progress). `id` is
+   * the tool call of a page fetch still under way: it counts as a source only if that call succeeds.
+   */
+  | { type: 'progress'; step: ResearchStep; id?: string };
 
 /**
  * One step a job shows while it runs. `read` keeps the full https `href` for the roadmap's sources and shows only
@@ -35,14 +38,19 @@ const STEP_LABELS: Record<string, string> = {
 const searchOf = (query: unknown): ResearchStep[] =>
   typeof query === 'string' && query.trim() ? [{ kind: 'search', query: query.trim().slice(0, 120) }] : [];
 
-/** An https page as host and path; anything else (http, files) shows nothing. */
+/**
+ * An https page: shown as host and path, kept whole (query included, fragment dropped) for the roadmap's sources.
+ * Anything else (http, files) or a link over core's 2,000 characters shows nothing.
+ */
 export function readOf(url: unknown): ResearchStep | undefined {
   if (typeof url !== 'string') return undefined;
   try {
     const u = new URL(url);
     if (u.protocol !== 'https:' || u.username || u.password) return undefined;
+    const href = `https://${u.host}${u.pathname}${u.search}`;
+    if (href.length > 2000) return undefined;
     const path = u.pathname === '/' ? '' : u.pathname;
-    return { kind: 'read', url: `${u.host}${path}`.slice(0, 200), href: `https://${u.host}${u.pathname}` };
+    return { kind: 'read', url: `${u.host}${path}`.slice(0, 200), href };
   } catch {
     return undefined;
   }
@@ -148,8 +156,13 @@ const claude: AgentCli = {
       if (c?.type === 'text' && str(c.text)) return [{ type: 'text', text: c.text }];
       if (c?.type === 'tool_use' && str(c.id) && str(c.name)) {
         const input = (c.input ?? {}) as Record<string, unknown>;
-        const steps = c.name === 'WebSearch' ? searchOf(input.query) : c.name === 'WebFetch' ? [readOf(input.url)] : c.name.startsWith('mcp__codemm__') ? stepOf(c.name.slice(13)) : [];
-        return [{ type: 'tool_call', id: c.id, name: c.name.replace(/^mcp__(.+?)__/, '$1.') }, ...progress(steps)];
+        const call: AgentEvent = { type: 'tool_call', id: c.id, name: c.name.replace(/^mcp__(.+?)__/, '$1.') };
+        if (c.name === 'WebFetch') {
+          const read = readOf(input.url);
+          return read ? [call, { type: 'progress', step: read, id: c.id }] : [call];
+        }
+        const steps = c.name === 'WebSearch' ? searchOf(input.query) : c.name.startsWith('mcp__codemm__') ? stepOf(c.name.slice(13)) : [];
+        return [call, ...progress(steps)];
       }
       if (c?.type === 'tool_result' && str(c.tool_use_id)) {
         return [c.is_error === true ? { type: 'tool_result', id: c.tool_use_id, error: true, text: textOf(c.content) } : { type: 'tool_result', id: c.tool_use_id, error: false }];

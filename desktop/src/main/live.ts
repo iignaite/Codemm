@@ -161,7 +161,10 @@ export function createLive(d: LiveDeps): Live {
    * Runs one agent job in a lane: one foreground job and one background queue,
    * each one at a time (§3.2). The job starts only when its turn comes.
    */
-  function start(key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'], resume?: string, onProgress?: Job['onProgress']): Promise<JobOutcome> {
+  function start(
+    key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'], resume?: string,
+    onProgress?: Job['onProgress'], onSource?: Job['onSource'],
+  ): Promise<JobOutcome> {
     const existing = running.get(key);
     if (existing) return existing.outcome;
     if (stopping) return Promise.resolve({ ok: false, problem: 'failed', text: [] });
@@ -194,6 +197,7 @@ export function createLive(d: LiveDeps): Live {
         blocked: () => unstoppable,
         signedIn: () => d.connect.recheck(id, exe),
         onProgress,
+        onSource,
       });
       if (outcome.problem === 'unstoppable') unstoppable = true;
       log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
@@ -330,6 +334,8 @@ export function createLive(d: LiveDeps): Live {
 
   // Research progress goes to whoever listens (main sends it to the app window): searches, page hosts and paths, steps.
   const researchListeners = new Set<(p: ResearchProgress) => void>();
+  /** Research jobs that ended but whose sources aren't saved yet. */
+  const finishing = new Set<string>();
 
   /** After research saves the roadmap, the pages it read join the agent's own sources (§4.9), at most 10. */
   async function addReads(course: string, reads: { title: string; url: string }[]) {
@@ -385,23 +391,31 @@ export function createLive(d: LiveDeps): Live {
       const outcome = outcomes.get(key);
       if (outcome) {
         outcomes.delete(key);
+        finishing.delete(key);
         if (!outcome.ok) {
           if (outcome.problem && outcome.problem !== 'failed' && outcome.problem !== 'infra') throw problemError(outcome.problem);
           return { state: 'failed' };
         }
         return { state: 'done', roadmap: roadmapView(core.getRoadmap(ws)) };
       }
-      if (!running.has(key)) {
+      if (!running.has(key) && !finishing.has(key)) {
         await d.connect.chosen();
         // A new course, on a server that saves only it (§4.6).
         const course = courseId(goal.topic, Date.now());
         const reads: { title: string; url: string }[] = [];
+        // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
+        const filter = hidden();
+        const safe = (text: string) => filterReply(text, filter) === text;
         const onProgress = (step: ResearchStep) => {
-          if (step.kind === 'read' && step.href) reads.push({ title: step.url, url: step.href });
           const shown: ResearchProgress = step.kind === 'read' ? { kind: 'read', url: step.url } : step;
-          researchListeners.forEach((l) => l(shown));
+          if (safe(step.kind === 'search' ? step.query : step.kind === 'read' ? (step.href ?? step.url) : step.label)) researchListeners.forEach((l) => l(shown));
         };
-        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, undefined, onProgress)
+        const onSource = (source: { title: string; url: string }) => {
+          if (safe(source.url)) reads.push({ title: source.title.slice(0, 120), url: source.url });
+        };
+        // Research counts as running until its sources are saved, so a poll meanwhile starts no second agent.
+        finishing.add(key);
+        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, undefined, onProgress, onSource)
           .then(async (o) => {
             if (o.ok) await addReads(course, reads).catch((e: Error) => log('sources-error', errorFields(e)));
             outcomes.set(key, o);

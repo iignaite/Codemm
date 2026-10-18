@@ -65,6 +65,8 @@ export interface Job {
   deadlineMs?: number;
   /** Hears what the agent is looking at (research progress). */
   onProgress?: (step: ResearchStep) => void;
+  /** Hears each https page the agent read successfully, for the roadmap's sources. */
+  onSource?: (source: { title: string; url: string }) => void;
 }
 
 interface Attempt {
@@ -94,12 +96,25 @@ async function once(job: Job): Promise<Attempt> {
   let started = false;
   let infra: Attempt['infra'];
   const text: string[] = [];
+  const reads = new Map<string, { title: string; url: string }>();
   const onEvent = (e: AgentEvent) => {
     started = true;
     if (e.type === 'session') session = e.id;
     if (e.type === 'text') text.push(e.text);
     if (e.type === 'done') done = e;
-    if (e.type === 'progress') job.onProgress?.(e.step);
+    if (e.type === 'progress') {
+      job.onProgress?.(e.step);
+      // A Claude fetch counts once its call succeeds; a Codex page read arrives already done.
+      if (e.step.kind === 'read' && e.step.href) {
+        const source = { title: e.step.url, url: e.step.href };
+        if (e.id) reads.set(e.id, source);
+        else job.onSource?.(source);
+      }
+    }
+    if (e.type === 'tool_result' && reads.has(e.id)) {
+      if (!e.error) job.onSource?.(reads.get(e.id)!);
+      reads.delete(e.id);
+    }
     if (e.type === 'server') {
       infra = 'server';
       stop.abort();

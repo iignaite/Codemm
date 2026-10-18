@@ -15,7 +15,7 @@ describe('research progress from the stream (one parser for both CLIs)', () => {
     expect(steps('claude', 'claude-research.jsonl')).toEqual([
       { kind: 'step', label: 'Checking the installed tracks' },
       { kind: 'search', query: 'react roadmap 2026' },
-      { kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react' },
+      { kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react?ref=x' },
       { kind: 'step', label: 'Saving the roadmap' },
     ]);
   });
@@ -26,14 +26,21 @@ describe('research progress from the stream (one parser for both CLIs)', () => {
       { kind: 'search', query: 'site:react.dev/learn React Learn official tutorial thinking in React state effects refs context reducers' },
       { kind: 'search', query: 'Full Stack Open React curriculum official parts React state hooks routing testing' },
       { kind: 'step', label: 'Saving the roadmap' },
-      { kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react' },
+      { kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react?utm=x' },
     ]);
+  });
+
+  it('marks a Claude read with its tool call, so a source counts only after the fetch succeeds', () => {
+    const events = parseAll('claude', fixture('claude-research.jsonl'));
+    expect(events).toContainEqual({ type: 'progress', id: 't3', step: { kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react?ref=x' } });
   });
 
   it('caps a search at 120 characters, and keeps the full https url for sources', () => {
     const [step] = AGENT_CLIS.claude.parse!(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'x', name: 'WebSearch', input: { query: 'q'.repeat(300) } }] } })).flatMap((e) => (e.type === 'progress' ? [e.step] : []));
     expect(step).toEqual({ kind: 'search', query: 'q'.repeat(120) });
-    expect(readOf('https://roadmap.sh/react?utm=1#top')).toEqual({ kind: 'read', url: 'roadmap.sh/react', href: 'https://roadmap.sh/react' });
+    // Sources keep the query (it can name the document); only the fragment goes. Overlong links are dropped.
+    expect(readOf('https://docs.example.com/view?id=123#top')).toEqual({ kind: 'read', url: 'docs.example.com/view', href: 'https://docs.example.com/view?id=123' });
+    expect(readOf(`https://example.com/${'a'.repeat(2100)}`)).toBeUndefined();
     expect(readOf('ftp://x/y')).toBeUndefined();
   });
 });
