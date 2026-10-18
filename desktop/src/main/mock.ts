@@ -22,6 +22,7 @@ import { type CheckProgress, type ResearchProgress,
   type SetupProblem,
   type TestView,
   type Track,
+  type DockerInstall,
 } from '../shared/api';
 import { modelChoices, modelFor } from '../shared/models';
 import { addTopic } from '../shared/roadmap';
@@ -148,7 +149,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   /** Concepts skipped since their last check (§4.4). */
   const deferred = new Set<string>();
 
-  const docker = () => options.docker ?? 'ready';
+  // Installing or opening Docker moves the mock's Docker along, one step per check (§6.1).
+  let dockerNow: Docker | undefined;
+  let install: DockerInstall | undefined;
+  const INSTALL_STEPS: DockerInstall[] = [{ phase: 'downloading', progress: 0.6 }, { phase: 'checking' }, { phase: 'installing' }, { phase: 'starting' }];
+  const docker = () => dockerNow ?? options.docker ?? 'ready';
   const notCounted = () => ({ kind: 'not-counted' as const, reason: DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] });
   const find = <T>(map: Map<string, T>, key: string): T => {
     const value = map.get(key);
@@ -298,16 +303,34 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       return { ...agent, untested: Boolean(options.untested) && agent.state !== 'missing' };
     },
 
+    async installDocker() {
+      install = { phase: 'downloading', progress: 0 };
+    },
+
+    async openDocker() {
+      if (docker() === 'stopped') dockerNow = 'starting';
+    },
+
     async computer() {
       const platform = options.platform ?? hostPlatform();
       const d = docker();
+      const reported = install;
+      // The next check sees Docker one step further along.
+      if (install?.phase === 'starting') {
+        install = undefined;
+        dockerNow = 'ready';
+      } else if (install) {
+        install = INSTALL_STEPS[INSTALL_STEPS.findIndex((s) => JSON.stringify(s) === JSON.stringify(install)) + 1];
+        if (install?.phase === 'starting') dockerNow = 'starting';
+      } else if (dockerNow === 'starting') dockerNow = 'ready';
       const failing = { missing: 0, stopped: 1, starting: 1, 'windows-containers': 1, 'no-sandbox': 2, ready: Infinity }[d];
       const checks = (['docker-installed', 'docker-running', 'sandbox'] as const).map((id, i) => ({
         id,
         state: i < failing ? ('ok' as const) : i === failing ? ('problem' as const) : ('waiting' as const),
         ...(i === failing && (d === 'starting' || d === 'windows-containers') ? { detail: d } : {}),
       }));
-      return { platform, checks, ready: checks.every((c) => c.state === 'ok') };
+      const canInstall = platform !== 'linux';
+      return { platform, checks, ready: checks.every((c) => c.state === 'ok'), ...(canInstall ? { canInstall } : {}), ...(reported ? { install: reported } : {}) };
     },
 
     async tracks() {

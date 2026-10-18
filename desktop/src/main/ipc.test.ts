@@ -11,6 +11,8 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProgr
   connect: ['claude'],
   chooseModel: ['claude', 'opus'],
   computer: [],
+  installDocker: [],
+  openDocker: [],
   tracks: [],
   research: [{ topic: 'React', known: 'Python', depth: 'standard' }],
   reviseRoadmap: [concepts, 'Add testing'],

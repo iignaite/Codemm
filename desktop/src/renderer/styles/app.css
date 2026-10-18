@@ -296,3 +296,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .example pre { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--soft); font-family: var(--mono); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
 .example .run { display: flex; justify-content: flex-end; }
 .example pre.err { color: var(--orange-ink); }
+
+/* A link inside running text: the text's own color, underlined, with the usual focus ring. */
+a.inline { color: inherit; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
+a.inline:hover { color: var(--ink); }

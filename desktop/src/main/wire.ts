@@ -9,6 +9,7 @@ import { ask } from './agent/bridge';
 import { find, withDockerFolders } from './agent/find';
 import { computerCheck, waitWhileStarting } from './computer';
 import { connector } from './connect';
+import { dockerDesktop, nodeDesktopDeps } from './dockerDesktop';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
 import type { Log } from './log';
@@ -50,8 +51,12 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
   };
   findDocker();
 
+  const desktop = dockerDesktop(nodeDesktopDeps());
   const computer = computerCheck({
     find: findDocker,
+    startedAt: desktop.startedAt,
+    canInstall: desktop.canInstall,
+    install: desktop.status,
     info: async (docker) => (await ask(docker, RUNTIME_INFO, ({ code, output }) => ({ exit: code ?? -1, output }), { timeoutMs: 20_000 })) ?? { exit: -1, output: '' },
     sandbox: async () => (await core.doctor(false)).some((c) => c.name === 'network isolation' && c.ok),
     now: () => Date.now(),
@@ -66,6 +71,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     runtime,
     log,
     dockerReady: () => waitWhileStarting(computer, () => new Promise((r) => setTimeout(r, 3000))),
+    docker: desktop,
     server: codemmServer({ runtime, coreDir, ws, env: process.env }),
   });
 }

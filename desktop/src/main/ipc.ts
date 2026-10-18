@@ -49,6 +49,8 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onResearchProg
   connect: [oneOf('claude', 'codex', 'cursor')],
   chooseModel: [oneOf('claude', 'codex', 'cursor'), text(64, 1)],
   computer: [],
+  installDocker: [],
+  openDocker: [],
   tracks: [],
   research: [goal],
   reviseRoadmap: [concepts, words],

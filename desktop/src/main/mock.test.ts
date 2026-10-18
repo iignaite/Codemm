@@ -169,6 +169,7 @@ describe('mock: environment', () => {
     expect(await createMock({ docker: 'missing', platform: 'windows' }).computer()).toEqual({
       platform: 'windows',
       ready: false,
+      canInstall: true,
       checks: [
         { id: 'docker-installed', state: 'problem' },
         { id: 'docker-running', state: 'waiting' },
@@ -177,6 +178,27 @@ describe('mock: environment', () => {
     });
     expect((await createMock(scenario('docker-starting')).computer()).checks[1]).toEqual({ id: 'docker-running', state: 'problem', detail: 'starting' });
     expect((await createMock(scenario('windows-containers')).computer()).checks[1]).toEqual({ id: 'docker-running', state: 'problem', detail: 'windows-containers' });
+  });
+
+  it('installs Docker step by step, then it starts and the computer is ready', async () => {
+    const api = createMock({ docker: 'missing', platform: 'mac' });
+    await api.installDocker();
+    const seen: string[] = [];
+    for (let i = 0; i < 10 && seen.at(-1) !== 'ready'; i++) {
+      const c = await api.computer();
+      const now = c.ready ? 'ready' : `${c.install?.phase ?? '-'}:${c.checks.find((x) => x.state === 'problem')?.id ?? ''}`;
+      if (seen.at(-1) !== now) seen.push(now);
+    }
+    expect(seen).toEqual(['downloading:docker-installed', 'checking:docker-installed', 'installing:docker-installed', 'starting:docker-running', 'ready']);
+    expect((await createMock({ docker: 'missing', platform: 'linux' }).computer()).canInstall).toBeUndefined();
+  });
+
+  it('opens a stopped Docker, which starts, then runs', async () => {
+    const api = createMock({ docker: 'stopped', platform: 'mac' });
+    expect((await api.computer()).checks[1]).toEqual({ id: 'docker-running', state: 'problem' });
+    await api.openDocker();
+    expect((await api.computer()).checks[1]).toEqual({ id: 'docker-running', state: 'problem', detail: 'starting' });
+    expect((await api.computer()).ready).toBe(true);
   });
 
   it('sees Docker change while the app runs', async () => {
