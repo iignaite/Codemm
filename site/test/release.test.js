@@ -75,45 +75,54 @@ test('no published release means coming soon', () => {
   assert.deepEqual(downloads(null, { os: 'mac', arch: null }), { status: 'soon' });
 });
 
-const byId = (d) => [d.primary?.id, ...d.others.map((o) => o.id)];
+const ids = (list) => list.map((i) => i.id);
 
-test('a Mac with an unknown chip gets Apple Silicon first and Intel next', () => {
+test('a Mac whose chip is unknown gets Apple Silicon and Intel as equal choices', () => {
+  // Safari and Firefox never report the chip, so guessing would hand Intel Macs the wrong build.
   const d = downloads(release('v1.0.0-beta.1'), { os: 'mac', arch: null });
   assert.equal(d.status, 'ready');
   assert.equal(d.version, '1.0.0-beta.1');
   assert.equal(d.beta, true);
-  assert.deepEqual(byId(d), ['mac-arm64', 'mac-x64', 'win-x64']);
-  assert.equal(d.primary.url, 'https://github.com/iignaite/Codemm/releases/download/x/Codemm-1.0.0-beta.1-mac-arm64.dmg');
+  assert.deepEqual(ids(d.primaries), ['mac-arm64', 'mac-x64']);
+  assert.deepEqual(ids(d.others), ['win-x64']);
+  assert.equal(d.primaries[0].url, 'https://github.com/iignaite/Codemm/releases/download/x/Codemm-1.0.0-beta.1-mac-arm64.dmg');
 });
 
-test('an Intel Mac gets the Intel build first', () => {
-  const d = downloads(release('v1.0.0'), { os: 'mac', arch: 'x86' });
-  assert.equal(d.beta, false);
-  assert.deepEqual(byId(d), ['mac-x64', 'mac-arm64', 'win-x64']);
+test('a Mac that reports its chip gets that build alone as the main button', () => {
+  const arm = downloads(release('v1.0.0'), { os: 'mac', arch: 'arm' });
+  assert.equal(arm.beta, false);
+  assert.deepEqual(ids(arm.primaries), ['mac-arm64']);
+  assert.deepEqual(ids(arm.others), ['mac-x64', 'win-x64']);
+  const intel = downloads(release('v1.0.0'), { os: 'mac', arch: 'x86' });
+  assert.deepEqual(ids(intel.primaries), ['mac-x64']);
+  assert.deepEqual(ids(intel.others), ['mac-arm64', 'win-x64']);
 });
 
 test('Windows gets the Windows installer first', () => {
   const d = downloads(release('v1.0.0'), { os: 'windows', arch: null });
-  assert.deepEqual(byId(d), ['win-x64', 'mac-arm64', 'mac-x64']);
-  assert.equal(d.primary.url.endsWith('win-x64.exe'), true);
+  assert.deepEqual(ids(d.primaries), ['win-x64']);
+  assert.deepEqual(ids(d.others), ['mac-arm64', 'mac-x64']);
+  assert.equal(d.primaries[0].url.endsWith('win-x64.exe'), true);
 });
 
-test('other devices get no primary button, and every installer listed', () => {
+test('other devices get no main button, and every installer listed', () => {
   const d = downloads(release('v1.0.0'), { os: 'other', arch: null });
-  assert.equal(d.primary, null);
-  assert.deepEqual(d.others.map((o) => o.id), ['mac-arm64', 'mac-x64', 'win-x64']);
+  assert.deepEqual(d.primaries, []);
+  assert.deepEqual(ids(d.others), ['mac-arm64', 'mac-x64', 'win-x64']);
 });
 
 test('a release missing the matching installer offers what it has', () => {
   const r = release('v1.0.0', { assets: [asset('Codemm-1.0.0-win-x64.exe'), asset('Codemm-1.0.0-win-x64.exe.blockmap')] });
   const d = downloads(r, { os: 'mac', arch: 'arm' });
-  assert.equal(d.primary, null);
-  assert.deepEqual(d.others.map((o) => o.id), ['win-x64']);
+  assert.deepEqual(d.primaries, []);
+  assert.deepEqual(ids(d.others), ['win-x64']);
+  const half = downloads(release('v1.0.0', { assets: [asset('Codemm-1.0.0-mac-arm64.dmg')] }), { os: 'mac', arch: null });
+  assert.deepEqual(ids(half.primaries), ['mac-arm64']);
 });
 
 test('every download button is the release asset itself, so GitHub counts each download', () => {
   const r = release('v1.0.0');
   const d = downloads(r, { os: 'mac', arch: null });
-  const urls = [d.primary.url, ...d.others.map((o) => o.url)];
+  const urls = [...d.primaries, ...d.others].map((i) => i.url);
   assert.deepEqual(urls.sort(), r.assets.map((a) => a.browser_download_url).sort());
 });

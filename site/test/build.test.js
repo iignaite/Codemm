@@ -45,6 +45,12 @@ test('the site is static and collects no personal data', () => {
     assert.match(page, />Claude Code<\/button>/);
     assert.match(page, /Codemm isn't affiliated with or endorsed by them\./);
     assert.match(page, /provided as is, without warranty/);
+    // Say only what Codemm checks: exercises against their tests, which must reject the
+    // incorrect versions the agent wrote. Lessons aren't checked, and nothing is "proven".
+    assert.doesNotMatch(page, /\bprove[ns]?\b|\bproof that\b|every broken|own plan|guarantee/i);
+    assert.match(page, /checks each exercise against its tests/);
+    assert.match(page, /reject the incorrect versions your agent wrote/);
+    assert.match(page, /with your own account/);
     // The design rules allow no dots: no dotted or dashed strokes or borders.
     const css = readFileSync(join(out, 'styles.css'), 'utf8');
     assert.doesNotMatch(css, /stroke-dasharray|\b(dotted|dashed)\b/);
