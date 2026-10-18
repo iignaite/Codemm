@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { createMock, type MockOptions } from '../../../main/mock';
-import { renderApp } from '../../test-utils';
+import { mockWithCourse, mockWithRoadmap, renderApp } from '../../test-utils';
 
 describe('how deep the roadmap goes', () => {
   it('offers three depths, Standard first, and researches at the one chosen', async () => {
@@ -92,5 +92,26 @@ describe('choose journey', () => {
   it('does not start without a goal', async () => {
     renderApp({ to: 'goal' });
     expect(await screen.findByRole('button', { name: 'Start' })).toBeDisabled();
+  });
+});
+
+describe('resuming a roadmap', () => {
+  it('offers the roadmap that is not approved yet, and opens it with its edits', async () => {
+    const user = userEvent.setup();
+    const { api, roadmap } = await mockWithRoadmap();
+    await api.saveDraft([...roadmap.concepts.slice(0, -2), ...roadmap.concepts.slice(-2).reverse()]);
+    renderApp({ to: 'goal' }, api);
+    await user.click(await screen.findByRole('button', { name: 'Resume roadmap' }));
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    const topics = within(screen.getByRole('list')).getAllByRole('listitem').map((li) => li.getAttribute('aria-label'));
+    expect(topics.slice(-2)).toEqual(['Forms', 'Lists and keys']);
+  });
+
+  it('offers nothing to resume once the roadmap is approved', async () => {
+    const { api } = await mockWithCourse();
+    renderApp({ to: 'goal' }, api);
+    await screen.findByRole('textbox', { name: 'What do you want to learn?' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByRole('button', { name: 'Resume roadmap' })).not.toBeInTheDocument();
   });
 });

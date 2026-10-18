@@ -2,16 +2,10 @@
   "name": "codemm-site",
   "private": true,
   "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
+  "engines": { "node": ">=22" },
   "scripts": {
     "build": "node build.mjs",
-    "dev": "node --env-file=.env scripts/dev.mjs",
-    "migrate": "node --env-file=.env scripts/migrate.mjs",
+    "dev": "node scripts/dev.mjs",
     "test": "node --test 'test/*.test.js'"
-  },
-  "dependencies": {
-    "@libsql/client": "0.18.0"
   }
 }

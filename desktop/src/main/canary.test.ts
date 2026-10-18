@@ -35,6 +35,7 @@ describe('the learner-safe boundary (D4)', () => {
       call('computer'),
       call('tracks'),
       call('course'),
+      call('draft'),
       call('lesson', 'values-1'),
       call('saveNotes', 'values-1', 'my note'),
       call('markRead', 'values-1'),
@@ -52,6 +53,7 @@ describe('the learner-safe boundary (D4)', () => {
     ]);
     payloads.push(await call('reviseRoadmap', roadmap?.concepts ?? [{ id: 'values', title: 'Values', requires: [] }], 'Add testing'));
     payloads.push(await call('easier', 'state'));
+    payloads.push(await call('saveDraft', [{ id: 'values', title: 'Values', requires: [] }]));
     payloads.push(await call('approve', [{ id: 'values', title: 'Values', requires: [] }]));
     payloads.push(await call('research', { topic: 'React', known: '', depth: 'standard' }));
 

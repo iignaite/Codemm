@@ -139,10 +139,15 @@ export function createLive(d: LiveDeps): Live {
   /** The setup the learner approved, and how it went (§4.1). */
   let setup: { installing?: Promise<void>; approved?: Proposal; problem?: SetupProblem; gateFailures: number; lastGateProblem?: string; installs: number } = { gateFailures: 0, installs: 0 };
 
-  /** The course roadmap, or null when there's no course yet. A damaged record isn't "no course": it needs a repair (D14). */
-  const roadmapOrNull = (): CoreRoadmap | null => {
+  /**
+   * The course the learner approved. Learner reads and calls use it, so it stays the course until the learner
+   * approves another roadmap. A roadmap saved since then is a draft: the workspace's active course (§4.2).
+   */
+  const approved = () => d.state.read().approved;
+  /** A course's roadmap (the active one by default), or null when there's none. A damaged record isn't "no course": it needs a repair (D14). */
+  const roadmapOrNull = (course?: string): CoreRoadmap | null => {
     try {
-      return core.getRoadmap(ws);
+      return core.getRoadmap(ws, course);
     } catch (e) {
       if (e instanceof Error && /^No course in this workspace yet|^Course ".*" is missing from /.test(e.message)) return null;
       throw e;
@@ -155,8 +160,13 @@ export function createLive(d: LiveDeps): Live {
     // Core accepts only https sources; main checks again before anything reaches the window (§2.1).
     sources: (r.sources ?? []).filter((s) => isSafeLink(s.url)).map((s) => ({ title: s.title, url: s.url })),
   });
-  const hidden = (): string[] => {
-    const { course, current } = core.readWorkspace(ws);
+  /** The activity the learner last opened: the workspace's current one is the draft's while a draft is active. */
+  let opened: string | undefined;
+  /** The hidden material of an activity: the one named, else the one the learner is on. */
+  const hidden = (activity?: string): string[] => {
+    const workspace = core.readWorkspace(ws);
+    const course = approved() ?? workspace.course;
+    const current = activity ?? opened ?? (workspace.course === course ? workspace.current : undefined);
     if (!course || !current) return [];
     try {
       const { record, files } = core.readExercise(course, current);
@@ -166,7 +176,13 @@ export function createLive(d: LiveDeps): Live {
     }
   };
 
-  /** Saves the learner's edits through core's roadmap rules (§4.2). JSON is YAML. */
+  /** The roadmap not approved yet: the active course, unless it is the approved one. */
+  function draft(): CoreRoadmap | null {
+    const roadmap = roadmapOrNull();
+    return roadmap && roadmap.course !== approved() ? roadmap : null;
+  }
+
+  /** Saves the learner's edits to the active roadmap (the draft, if there is one) through core's roadmap rules (§4.2). JSON is YAML. */
   async function saveConcepts(concepts: Concept[]) {
     const current = core.getRoadmap(ws);
     const { goal, track, style, sources } = current;
@@ -313,8 +329,9 @@ export function createLive(d: LiveDeps): Live {
    */
   function schedule() {
     try {
-      const roadmap = roadmapOrNull();
-      if (!roadmap || d.state.read().approved !== roadmap.course) return;
+      const course = approved();
+      const roadmap = course ? roadmapOrNull(course) : null;
+      if (!roadmap) return;
       const progress = core.progress(ws, roadmap.course);
       const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
       if (state.state === 'proposing') {
@@ -360,13 +377,13 @@ export function createLive(d: LiveDeps): Live {
     return outcome;
   }
 
-  /** A roadmap change may move the course to another track: the old track's setup and author jobs stop, and its proposals go (§4.2). */
-  async function roadmapJob(brief: string, done: (before: string) => Job['done']) {
-    const before = core.getRoadmap(ws);
+  /** A roadmap change may move the course to another track: its setup and author jobs stop, and the old track's proposals go (§4.2). */
+  async function roadmapJob(course: string, brief: string, done: (before: string) => Job['done']) {
+    const before = core.getRoadmap(ws, course);
     const saved = JSON.stringify(before);
-    await cancel((key) => key.startsWith('setup:') || key.startsWith('author:'));
-    const outcome = await foreground(`roadmap:${before.course}`, 'roadmap', brief, before.course, done(saved));
-    const after = core.getRoadmap(ws);
+    await cancel((key) => key === `setup:${course}` || key.startsWith(`author:${course}:`));
+    const outcome = await foreground(`roadmap:${course}`, 'roadmap', brief, course, done(saved));
+    const after = core.getRoadmap(ws, course);
     if (after.track !== before.track) {
       await core.dropProposal(before.track);
       setup = { gateFailures: 0, installs: 0 };
@@ -541,7 +558,8 @@ export function createLive(d: LiveDeps): Live {
 
     async reviseRoadmap(concepts, request) {
       await saveConcepts(concepts);
-      const { outcome, changed, after } = await roadmapJob(briefs.roadmap(request), (before) => (turn) => turn.ok || JSON.stringify(core.getRoadmap(ws)) !== before);
+      const course = core.getRoadmap(ws).course;
+      const { outcome, changed, after } = await roadmapJob(course, briefs.roadmap(request), (before) => (turn) => turn.ok || JSON.stringify(core.getRoadmap(ws, course)) !== before);
       schedule();
       const filter = hidden();
       return { roadmap: roadmapView(after), changed, text: outcome.text.map((t) => filterReply(t, filter)).join('\n\n') };
@@ -551,15 +569,27 @@ export function createLive(d: LiveDeps): Live {
       await saveConcepts(concepts);
       const course = core.getRoadmap(ws).course;
       d.state.update((s) => ({ ...s, approved: course }));
+      opened = undefined;
       stalled = undefined;
       setup = { gateFailures: 0, installs: 0 };
       schedule();
     },
 
+    async draft() {
+      const roadmap = draft();
+      return roadmap && roadmapView(roadmap);
+    },
+
+    async saveDraft(concepts) {
+      if (!draft()) throw new SafeError('No roadmap to edit.');
+      await saveConcepts(concepts);
+    },
+
     /** A read: it starts nothing (D9). */
     async course() {
-      const roadmap = roadmapOrNull();
-      if (!roadmap || d.state.read().approved !== roadmap.course) return null;
+      const course = approved();
+      const roadmap = course ? roadmapOrNull(course) : null;
+      if (!roadmap) return null;
       const progress = core.progress(ws, roadmap.course);
       // The clock, not a learner action, made this review due, so nothing else would start its exercise (core §7).
       if (progress.next.kind === 'author' && progress.next.review) schedule();
@@ -570,7 +600,7 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async install(digest) {
-      const ref = core.progress(ws).track;
+      const ref = core.progress(ws, approved()).track;
       const proposal = setup.approved?.digest === digest ? setup.approved : latestProposal(ref);
       if (!proposal || proposal.digest !== digest) throw new SafeError('The setup changed. Look at it again.');
       setup.approved = proposal;
@@ -627,13 +657,13 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async lesson(id) {
-      const { examples, ...lesson } = core.getLesson(ws, id);
+      const { examples, ...lesson } = core.getLesson(ws, id, approved());
       return { ...lesson, examples: examples.map((files) => ({ files: Object.entries(files).map(([path, text]) => ({ path, text })) })) };
     },
 
     async runExample(lessonId, index) {
       try {
-        return { kind: 'ran', ...(await whenDockerReady(() => core.runExample(ws, lessonId, index))) };
+        return { kind: 'ran', ...(await whenDockerReady(() => core.runExample(ws, lessonId, index, approved()))) };
       } catch (e) {
         const reason = notCounted(e);
         if (reason) {
@@ -643,23 +673,24 @@ export function createLive(d: LiveDeps): Live {
         throw e;
       }
     },
-    saveNotes: (id, notes) => core.saveNotes(ws, id, notes),
+    saveNotes: (id, notes) => core.saveNotes(ws, id, notes, approved()),
     async markRead(id) {
-      await core.markLessonRead(ws, id);
+      await core.markLessonRead(ws, id, approved());
       schedule();
     },
 
     async activity(concept) {
-      const course = core.getRoadmap(ws).course;
+      const course = core.getRoadmap(ws, approved()).course;
       const slug = exerciseFor(concept, course);
       if (!slug) throw new SafeError('This activity isn’t ready yet.');
+      opened = slug;
       const exercise = await core.getExercise(ws, slug, course);
       return activityView(exercise, core.readLearnerFiles(ws, slug, course), concept);
     },
 
     async saveFile(activityId, path, text, digest) {
       try {
-        return (await core.writeLearnerFile(ws, activityId, path, text, digest)).digest;
+        return (await core.writeLearnerFile(ws, activityId, path, text, digest, approved())).digest;
       } catch (e) {
         if (/changed outside codemm/i.test((e as Error).message)) throw new Error(CHANGED);
         throw e;
@@ -668,7 +699,7 @@ export function createLive(d: LiveDeps): Live {
 
     async tryIt(activityId, run) {
       try {
-        return tryView(await whenDockerReady(() => core.testExercise(ws, activityId, undefined, progressOf(run))));
+        return tryView(await whenDockerReady(() => core.testExercise(ws, activityId, approved(), progressOf(run))));
       } catch (e) {
         const reason = notCounted(e);
         if (reason) {
@@ -679,8 +710,8 @@ export function createLive(d: LiveDeps): Live {
       }
     },
 
-    runProgram: (activityId, run) => program(run, (output, options) => core.runInteractive(ws, activityId, undefined, output, options)),
-    runExampleLive: (lessonId, index, run) => program(run, (output, options) => core.runExampleLive(ws, lessonId, index, undefined, output, options)),
+    runProgram: (activityId, run) => program(run, (output, options) => core.runInteractive(ws, activityId, approved(), output, options)),
+    runExampleLive: (lessonId, index, run) => program(run, (output, options) => core.runExampleLive(ws, lessonId, index, approved(), output, options)),
     sendRunInput: async (run, text) => programs.get(run)?.program?.write(text) ?? false,
     async stopRun(run) {
       const entry = programs.get(run);
@@ -692,9 +723,10 @@ export function createLive(d: LiveDeps): Live {
 
     async check(activityId, run) {
       try {
-        const view = await whenDockerReady(() => core.checkExercise(ws, activityId, undefined, progressOf(run)));
-        const concepts = core.listExercises(ws).find((e) => e.exercise === activityId)?.concepts ?? [];
-        const state = core.progress(ws).concepts.find((c) => concepts.includes(c.id));
+        const course = approved();
+        const view = await whenDockerReady(() => core.checkExercise(ws, activityId, course, progressOf(run)));
+        const concepts = core.listExercises(ws, course).find((e) => e.exercise === activityId)?.concepts ?? [];
+        const state = core.progress(ws, course).concepts.find((c) => concepts.includes(c.id));
         // A graded check can move the course on: the next topic's lesson and activity.
         schedule();
         return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false });
@@ -710,7 +742,7 @@ export function createLive(d: LiveDeps): Live {
 
     async ask(place, text) {
       const { id } = await d.connect.chosen();
-      const course = core.getRoadmap(ws).course;
+      const course = core.getRoadmap(ws, approved()).course;
       const key = `${course}|${id}`;
       const where = 'lessonId' in place ? `the lesson "${place.lessonId}" (get_lesson)` : `the activity "${place.activityId}" (get_exercise)`;
       // The learner's own code goes to their own agent; nothing hidden does.
@@ -723,18 +755,19 @@ export function createLive(d: LiveDeps): Live {
       });
       tutorTurns = turn.catch(() => undefined);
       const outcome = await turn;
-      const filter = hidden();
+      const filter = hidden('activityId' in place ? place.activityId : undefined);
       return outcome.text.map((t) => ({ from: 'codemm' as const, text: filterReply(t, filter) }));
     },
 
     async skip(concept) {
-      await core.skip(ws, concept);
+      await core.skip(ws, concept, approved());
       schedule();
     },
 
     async easier(concept) {
-      const title = core.getRoadmap(ws).concepts.find((c) => c.id === concept)?.title ?? concept;
-      await roadmapJob(briefs.easier(concept, title), (before) => () => JSON.stringify(core.getRoadmap(ws)) !== before);
+      const course = core.getRoadmap(ws, approved()).course;
+      const title = core.getRoadmap(ws, course).concepts.find((c) => c.id === concept)?.title ?? concept;
+      await roadmapJob(course, briefs.easier(concept, title), (before) => () => JSON.stringify(core.getRoadmap(ws, course)) !== before);
       schedule();
     },
 

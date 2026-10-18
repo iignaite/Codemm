@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CHANGED, UNSTOPPABLE } from '../shared/api';
+import { CHANGED, OFFLINE, UNSTOPPABLE } from '../shared/api';
 import { INTERNAL, safeError } from './errors';
 import { handler } from './ipc';
 import { createLog } from './log';
@@ -40,6 +40,20 @@ describe('errors at the IPC boundary (D4)', () => {
     await expect(handle({ fromApp: false }, 'agents', [])).rejects.toThrow('Unknown sender');
     await expect(handle(appFrame, 'nope', [])).rejects.toThrow('Unknown call');
     expect(readFileSync(t.logFile, 'utf8')).toContain('ipc-error method=unknown kind=desktop name=SafeError');
+  });
+
+  it('passes the offline code, so the screen can say the computer is offline', async () => {
+    const t = live({ research: () => ({ ok: false, problem: 'offline' }) });
+    await t.api.connect('claude');
+    const handle = handler(t.api, createLog(t.dir), (e: typeof appFrame) => e.fromApp);
+    const goal = { topic: 'React', known: '', depth: 'standard' };
+    const research = async () => {
+      for (let i = 0; i < 20; i++) {
+        if ((await handle(appFrame, 'research', [goal]) as { state: string }).state !== 'running') return;
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    };
+    await expect(research()).rejects.toThrow(OFFLINE);
   });
 
   it("passes the code for an agent Codemm couldn't stop", () => {
