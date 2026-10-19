@@ -150,3 +150,40 @@ describe("roadmap granularity", () => {
     expect(JOB_BRIEFS.research).toMatch(/real curricula or the official docs/);
   });
 });
+
+describe("diagrams in lessons", () => {
+  it("tells the lesson writer when a picture helps and how to draw it, short and without naming a language", () => {
+    const brief = JOB_BRIEFS.lesson;
+    expect(brief).toMatch(/Add a diagram only when a picture teaches better than words/);
+    expect(brief).toMatch(/control flow, a data structure, the steps of an algorithm or how cost grows/);
+    expect(brief).toMatch(/fenced block with info string `mermaid`/);
+    expect(brief).toMatch(/flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, pie or xychart/);
+    expect(brief).toMatch(/`accTitle` and a one-line `accDescr`/);
+    expect(brief).toMatch(/shown as code if it doesn't draw/);
+    expect(brief.split("\n").length).toBeLessThanOrEqual(25);
+  });
+
+  it("leaves diagrams to the lesson job: other briefs don't ask for them", () => {
+    for (const [kind, brief] of Object.entries(JOB_BRIEFS)) if (kind !== "lesson") expect(brief, kind).not.toMatch(/mermaid/);
+  });
+});
+
+describe("lesson examples and learner-facing text (learner walkthrough W-2)", () => {
+  it("tells the lesson writer that an example gets no input, holds exactly the track's learner files, and what to do otherwise", () => {
+    const brief = JOB_BRIEFS.lesson;
+    expect(brief).toMatch(/holding every file in `contract.files` and no other file/);
+    expect(brief).toMatch(/no input at all, so an example must not read any/);
+    expect(brief).toMatch(/An example that needs input goes in a plain code block/);
+    expect(brief.split("\n").length).toBeLessThanOrEqual(25);
+  });
+
+  it.each([
+    ["lesson", JOB_BRIEFS.lesson],
+    ["author", JOB_BRIEFS.author],
+    ["tutor", JOB_BRIEFS.tutor],
+    ["terminal tutor", AGENTS_SECTION],
+  ])("keeps arrows and emoji out of what the %s writes for the learner", (_label, text) => {
+    expect(text).toMatch(/no arrows \(→\) or emoji in sentences/);
+  });
+});
+

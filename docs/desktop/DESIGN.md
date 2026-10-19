@@ -58,6 +58,7 @@ desktop/
   src/shared/api.ts         the IPC contract: channel names, input and output types
   src/preload/preload.ts    contextBridge exposes `codemm.*` from api.ts; nothing else
   src/main/
+    boot.ts                 the entry point: one Codemm per profile
     main.ts                 window, app lifecycle, menu
     ipc.ts                  one handler per channel: check the sender, validate input, call one function, return a view
     views.ts                learner-safe projections of core results, and the reply filter (§2.2)
@@ -73,6 +74,7 @@ desktop/
 - **Core in-process.** Main imports the core's `app` module from the repo and bundles it. `app` stays the only place that holds use cases, so the CLI, the MCP server and the app share them.
 - **Two processes write course data.** These are main and the `codemm mcp` server that each agent job starts. The core's PID-based course, track and workspace locks already serialize them.
 - **One server per job.** Each job's MCP server is the app's own binary in Node mode: `ELECTRON_RUN_AS_NODE=1 <app executable> <resources>/core/cli.js mcp --workspace <ws> --course <course> --tools <list> --desktop`. The Electron `RunAsNode` fuse must stay on.
+- **One Codemm.** Opening Codemm again hands over to the one already open, which shows its window, restored if minimized. A launch while Codemm is quitting opens it again once it has stopped, except during Restart to update, whose installer opens it. The second launch quits before it starts any job, install or cleanup: `boot.ts` loads `main.ts` only when it holds Electron's single-instance lock, which is per profile (userData). So one process owns userData and the workspace's jobs.
 - **One workspace.** The app keeps one workspace (default `~/Codemm`) holding `codemm.json` and `exercises/`. The course, events and tracks stay under `$CODEMM_HOME`, as in core. `desktop.json` carries `format_version` and is written atomically, like every Codemm-owned file.
 
 ### 2.1 Renderer security
@@ -83,6 +85,7 @@ desktop/
   - An image with a remote URL renders as a plain link.
   - Links keep only `https:` URLs.
   - Code blocks are highlighted, never run.
+  - A diagram in a lesson is drawn to an image (§4.3), which runs no script and loads nothing. An inline drawing would need styles this CSP refuses.
 - **Navigation.** Navigation, `window.open` and webviews are denied. `shell.openExternal` opens a link only after a click, and only for `https:` URLs.
 - **IPC senders.** Every handler checks that `event.senderFrame` is the main window's top frame on `app://codemm`, and rejects anything else.
 
@@ -289,6 +292,14 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - an id: the earliest unread lesson.
   - absent: every lesson for the concept has been read.
   The activity stays locked, and the tutor teaches first, until the field is absent. The topic page and the lesson outline say why in words: "Opens after you finish the lessons". The author job can still run in the background, because the step names the activity. Lessons never change mastery.
+- **Diagrams.** A top-level fence whose info string is `mermaid` is a diagram or chart: a flowchart, sequence, state or class diagram, a pie chart or an xy chart. The lesson screen draws it where the author placed it, and core only stores it (core §5).
+  - **Local.** [Mermaid](https://github.com/mermaid-js/mermaid) (MIT) is bundled and loaded only when a lesson has a diagram; a lesson without one loads none of it. Nothing is fetched. Mermaid's default layout is ELK; Codemm sets dagre, and stubs out `elkjs` (`vite.config.mts`), the one bundled library under the EPL rather than MIT, ISC, BSD or Apache.
+  - **Safe.** The source is agent text. Mermaid draws it at its strict level (labels encoded, no callbacks) with the sizes capped, and directives in the source can't change the security level, the sizes, HTML labels, the theme, the layout or the font. The drawing is shown only as an `<img>` of a `data:` URL, which runs no script, follows no link and loads nothing, and links, pictures, frames and scripts are also dropped from it. A source over 20,000 characters isn't drawn. The CSP stays as it is; mermaid's attempts at inline styles while it measures text are refused and show as notices in DevTools.
+  - **Styled.** The light palette and Atkinson Hyperlegible Next, which travels inside the image, since an image can't use the page's fonts. The image has its natural size and never exceeds the page.
+  - **Accessible.** The image's text alternative is the diagram's `accTitle` and `accDescr` (the brief asks for both). Without them it is the source.
+  - **Broken.** A diagram that doesn't draw shows its source as a code block under "This diagram didn't draw. Here is its source." The rest of the lesson reads as usual.
+  - **Cached.** A drawing is kept, so a reopened lesson shows it at once (the lesson itself comes from the cache above).
+  - **Notices.** The renderer build writes the licenses of everything it bundles, mermaid and its dependencies included, to `licenses.md`; the installers carry it in their resources (`licenses.md`), as they carry the font licenses.
 - **Not verified.** Lesson text is checked for structure only, and examples only for a clean run. Only activities are "checked before you see it".
 - **Run.** Each example block shows its files and a Run button, and the example runs in the sandbox, never on the host, recording nothing. An io example runs as an activity's Run does (§4.10): `runExampleLive` through IPC, in the terminal pane with typed input and a countdown, and Run turns into Stop. A unit example runs once as tests through `runExample`, showing the output and errors (capped). `lesson` names the examples' style. A problem on this computer shows "This didn't run.", why, and what to do next: "Open Docker Desktop, then run again.", "Free up disk space, then run again." or "Connect to the internet, then run again." (`RUN_AGAIN` in `shared/api.ts`). A missing image already says to rebuild under Tracks.
 
@@ -409,7 +420,7 @@ Every long step shows its live progress, so the learner always knows where it is
 - **Parser:** the stream parsers (`agent/claude.ts`, `codex.ts`, `cursor.ts`) emit `{ type: 'usage', input, output, cachedInput?, costUsd? }`, where `input` counts every input token and `cachedInput` the ones read from cache. Jobs pass each report to `Job.onUsage` with its session.
 - **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs). It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs.
   - Only tutor sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor session (a crashed turn can report 0) and adds only the rise.
-  - One app process owns userData, as with `desktop.json`: two instances writing at the same moment could lose one report.
+  - One app process owns userData (§2), as with `desktop.json`, so no second instance writes it at the same moment.
 - **Screen:** the course map's side column shows a small Usage card for the approved course, once an agent has run for it: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. It's read again whenever the map reads the course. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so the cost's label, "Claude's estimate", is all it says: nothing about billing.
 
 ## 5. Failure states
@@ -551,7 +562,7 @@ Each item is verified by an automated test unless marked *journey* or *release*.
 | D6 | **Versions and the minimum model.** Each tested version's `--version` output parses to its full token. An untested version (another major, older than the oldest tested, or a prerelease) shows the warning and doesn't block; a later release of a tested major doesn't. A connected agent offers only its bench-tested models, with the recommended one preselected. The choice is saved in `desktop.json`, and every job for that agent launches with it (`--model` or `-m`). A model that isn't on the list is refused. |
 | D7 | **One consent.** With `--desktop`, `save_track` stores a proposal and builds nothing. Only `installProposal` builds, and only when the digest matches; a proposal whose files changed after the learner saw them is refused. Approving a roadmap never builds. |
 | D8 | **Roadmap.** `get_roadmap` round-trips. Rename, add, move and remove keep ids. A move is refused when a topic would come before one it requires, and a remove is refused for a required topic or one used by an exercise, event or lesson. An uninstalled track gives `setup`. The track can change until the course has exercises, and the change cancels the old track's jobs and proposals. Adding a prerequisite to a stuck concept records `retry`. |
-| D9 | **Lessons.** Save, get and notes work, and writes are locked, atomic and versioned. `get_lesson` records nothing; only `mark_lesson_read` records a read. The `lesson` field on `practice` and `author` steps is `null`, the earliest unread id, or absent, as §4.3 says. Reopening a saved lesson or activity starts no agent process. |
+| D9 | **Lessons.** Save, get and notes work, and writes are locked, atomic and versioned. `get_lesson` records nothing; only `mark_lesson_read` records a read. The `lesson` field on `practice` and `author` steps is `null`, the earliest unread id, or absent, as §4.3 says. Reopening a saved lesson or activity starts no agent process. A lesson's `mermaid` fences are drawn as images (flowchart, chart, sequence, state and class kinds), a broken one shows its source with a note, labels with markup draw as text, and a lesson without a diagram loads none of the library (renderer tests). |
 | D10 | **Skip.** Skip defers without changing mastery and never satisfies a prerequisite. With every candidate deferred, the earliest is chosen. `done` needs every concept mastered. After `retry`, a concept that was stuck isn't stuck, and its mastery is unchanged. |
 | D11 | **Activity.** A save with a stale digest is refused, and one through a symlinked path is refused. Run and Try it record nothing. Check of edited files that completes grading records one attempt; core §7's exceptions hold, so a check of unchanged starter files or an infrastructure failure records nothing. Tutor turns launch with no edit tools. |
 | D12 | **Jobs.** `codemm mcp --tools a,b` lists and accepts only `a` and `b`, and `--course` scopes course tools. Switching courses during an author job doesn't redirect its save. Done checks read records created after the job started, and a job whose save committed before a crash isn't relaunched. An author job is cancelled after 3 failed saves. Every job stops at its deadline, and a failed job is relaunched at most once. Cancelling during a check leaves no owned container behind. |

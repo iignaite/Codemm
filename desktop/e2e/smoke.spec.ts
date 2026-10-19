@@ -1,4 +1,5 @@
 import { expect, test } from './launch';
+import { spawn } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -128,6 +129,23 @@ test('errors cross IPC as their own message', async ({ launch }) => {
     return [await call('nope', []), await call('lesson', [42])];
   });
   expect(messages).toEqual(['Unknown call', 'Bad input']);
+  await app.close();
+});
+
+// §2: one Codemm per profile. A second launch quits before it starts anything, and the open window comes back.
+test('a second launch brings back the open window and quits', async ({ launch }) => {
+  const dir = realpathSync(tempDir('codemm-profile-'));
+  const { app, page } = await launch('', { args: [`--user-data-dir=${dir}`] });
+  await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
+  const minimized = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => w.isMinimized()));
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
+  await expect.poll(minimized).toEqual([true]);
+  // The same app on the same profile, as a learner opening Codemm again would start it.
+  const second = spawn(require('electron') as string, ['.', `--user-data-dir=${dir}`], { env: { ...process.env, CODEMM_MOCK: '' }, stdio: 'ignore' });
+  const exit = await Promise.race([new Promise((resolve) => second.on('exit', resolve)), new Promise((resolve) => setTimeout(() => resolve('still running'), 20_000))]);
+  second.kill();
+  expect(exit).toBe(0);
+  await expect.poll(minimized).toEqual([false]);
   await app.close();
 });
 

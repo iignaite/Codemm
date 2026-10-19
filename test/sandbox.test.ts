@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GateError } from "../src/gates.js";
-import { buildProblem, buildStep, runtimeCode, runtimeDown, runtimeHelp, runtimeIssue, runtimeProblem, runtimeState, runtimeStateOf, sandboxArgs, startHelp, startRefusal } from "../src/sandbox.js";
+import { buildProblem, buildStep, inspectRecord, runtimeCode, runtimeDown, runtimeHelp, runtimeIssue, runtimeProblem, runtimeState, runtimeStateOf, sandboxArgs, startHelp, startRefusal } from "../src/sandbox.js";
 
 describe("sandboxArgs", () => {
   const args = sandboxArgs(
@@ -276,5 +276,21 @@ describe("startRefusal", () => {
     const refusal = startRefusal(stderr);
     expect(refusal).toEqual({ code, why: expect.stringMatching(why) });
     expect(refusal.why).not.toMatch(/CANARY|var\/folders/);
+  });
+});
+
+describe("inspectRecord", () => {
+  it("reads Docker's and newer Podman's one-line record, among warnings", () => {
+    expect(inspectRecord('WARNING: something\n{"Id":"sha256:a","Config":{}}\n')).toEqual({ Id: "sha256:a", Config: {} });
+  });
+
+  it("reads Podman 4.3's indented array of records", () => {
+    const podman43 = JSON.stringify([{ Id: "sha256:b", Config: { Volumes: { "/data": {} } } }], null, 4);
+    expect(inspectRecord(podman43)).toEqual({ Id: "sha256:b", Config: { Volumes: { "/data": {} } } });
+  });
+
+  it("gives nothing for output that holds no record", () => {
+    expect(inspectRecord("template parsing error: map has no entry for key")).toBeUndefined();
+    expect(inspectRecord("")).toBeUndefined();
   });
 });

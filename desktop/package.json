@@ -7,7 +7,7 @@
   "license": "MIT",
   "author": "Codemm contributors",
   "homepage": "https://github.com/iignaite/Codemm",
-  "main": "out/main/main.js",
+  "main": "out/main/boot.js",
   "engines": {
     "node": ">=22"
   },
@@ -37,6 +37,7 @@
     "esbuild": "^0.28.2",
     "jsdom": "^26.1.0",
     "markdown-it": "^14.3.3",
+    "mermaid": "12.2.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "typescript": "~5.9.3",
