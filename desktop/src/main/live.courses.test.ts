@@ -137,6 +137,70 @@ describe('live CodemmApi: several courses (§4.13)', () => {
     expect(ran(t, 'author')).toEqual([react, python]);
   });
 
+  it.each([
+    ['still queued behind its own course', false],
+    ["already waiting for the author turn", true],
+  ])("stops a job waiting for another course's author turn at once: %s", async (_when, lessonDone) => {
+    const held = gate();
+    const t = live({ author: async (job, usual) => (boundOf(job).startsWith('react') && (await held.opened), usual()) });
+    t.c.tracks.push('react@1', 'python@1');
+    await approved(t, 'React');
+    await settle(async () => ran(t, 'author'), (r) => r.length === 1, "React's author");
+    const python = await approved(t, 'Python');
+    await settle(async () => ran(t, 'lesson'), (r) => r.includes(python), "Python's lesson");
+    if (lessonDone) await until(t.api, (c) => c.topics[0].lessons.some((l) => l.state === 'ready'));
+    // Python's activity waits for React's author job. "Try an easier one" cancels it without waiting for that turn.
+    const easier = t.api.easier('python-values').then(() => 'done');
+    expect(await Promise.race([easier, pause(500).then(() => 'waiting')])).toBe('done');
+    held.open();
+  });
+
+  it('saves a file to the course its activity was opened in, after a switch', async () => {
+    const t = live();
+    const activity = await practising(t);
+    const react = t.c.roadmap!.course;
+    await approved(t, 'Python');
+    t.c.bound.length = 0;
+    await t.api.saveFile(activity.id, activity.files[0].path, 'my edit', activity.files[0].digest);
+    expect(t.c.bound).toEqual([react]);
+  });
+
+  it('shares one setup between courses on the same track: one proposal, one install', async () => {
+    const held = gate();
+    const t = live({ research: (_job, usual) => (usual(), (t.c.roadmap!.track = 'react@1'), {}), setup: async (_job, usual) => (await held.opened, usual()) });
+    const react = await approved(t, 'React');
+    await settle(async () => ran(t, 'setup'), (r) => r.length === 1, "React's setup");
+    await approved(t, 'Vue');
+    await pause();
+    expect(ran(t, 'setup')).toHaveLength(1);
+    held.open();
+    const consent = await until(t.api, (c) => c.setup === 'consent');
+    let installs = 0;
+    const built = gate();
+    t.c.install = async (ref) => (installs++, await built.opened, t.c.tracks.push(ref), {});
+    await t.api.install(consent.proposal!.digest);
+    await t.api.switchCourse(react);
+    expect((await t.api.course())!.setup).toBe('installing');
+    built.open();
+    await until(t.api, (c) => c.setup === 'ready');
+    expect(installs).toBe(1);
+  });
+
+  it('starts the next work of the course a check was in, though another is on screen by its end', async () => {
+    const t = live();
+    const activity = await practising(t);
+    const react = t.c.roadmap!.course;
+    await t.api.saveFile(activity.id, activity.files[0].path, 'count + 1', activity.files[0].digest);
+    const graded = gate();
+    const check = t.app.checkExercise;
+    t.app.checkExercise = async (...args: Parameters<typeof check>) => (await graded.opened, check(...args));
+    const checking = t.api.check(activity.id, 'run-1');
+    await approved(t, 'Python');
+    graded.open();
+    await checking;
+    await settle(async () => t.jobs.ran.filter((j) => j.kind === 'lesson' && boundOf(j) === react).length, (n) => n === 2, "React's next lesson");
+  });
+
   it("resumes each course's own tutor session, and never makes a question wait for another course's turn", async () => {
     let held: ReturnType<typeof gate> | undefined;
     const t = live({

@@ -124,6 +124,8 @@ export function createLive(d: LiveDeps): Live {
     return q;
   };
   const outcomes = new Map<string, JobOutcome>();
+  /** The course each activity was opened in: a save that arrives after a switch still goes there (§4.13). */
+  const openedIn = new Map<string, string>();
   /** Background work that stopped, per course, and why: one course's stall never stops another's (§4.13). */
   const stalls = new Map<string, Stall>();
   let tutorTurnCount = 0;
@@ -150,11 +152,11 @@ export function createLive(d: LiveDeps): Live {
     );
   // Containers left by an earlier run of the app, whose owner is gone (§5).
   void core.cleanupLeftovers().catch(() => undefined);
-  /** Each course's setup (§4.1). */
+  /** Each track's setup (§4.1), shared by the courses on it (§4.13). */
   const setups = new Map<string, SetupRun>();
-  const setupOf = (course: string) => {
-    let run = setups.get(course);
-    if (!run) setups.set(course, (run = { gateFailures: 0, installs: 0 }));
+  const setupOf = (track: string) => {
+    let run = setups.get(track);
+    if (!run) setups.set(track, (run = { gateFailures: 0, installs: 0 }));
     return run;
   };
 
@@ -236,14 +238,20 @@ export function createLive(d: LiveDeps): Live {
    */
   function start(
     key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'],
-    { resume, onSource, concept, retry }: { resume?: string; onSource?: Job['onSource']; concept?: string; retry?: JobProgress['retry'] } = {},
+    { resume, onSource, concept, retry, settled }: {
+      resume?: string; onSource?: Job['onSource']; concept?: string; retry?: JobProgress['retry'];
+      /** Runs as the job ends, before its queue moves on: background work records its stall here. */
+      settled?: (result: JobOutcome | Error) => void;
+    } = {},
   ): Promise<JobOutcome> {
     const existing = running.get(key);
     if (existing) return existing.outcome;
     if (stopping) return Promise.resolve({ ok: false, problem: 'failed', text: [] });
     if (unstoppable) return Promise.resolve({ ok: false, problem: 'unstoppable', text: [] });
     const stop = new AbortController();
+    let launched = false;
     const job = async (): Promise<JobOutcome> => {
+      launched = true;
       // A cancelled job, or background work queued behind its course's stall, never launches.
       if (stop.signal.aborted || (lane === 'bg' && course !== undefined && stalls.has(course))) return { ok: false, problem: 'failed', text: [] };
       // Nor does any job while an agent Codemm couldn't stop may still run (§3.1).
@@ -309,9 +317,20 @@ export function createLive(d: LiveDeps): Live {
       log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
       return outcome;
     };
-    // An author job's save builds and checks the exercise in containers, so author jobs take turns across courses.
-    const turn = kind === 'author' ? () => queue('authors')(job) : job;
-    const outcome = queue(`${lane}:${course ?? ''}`)(turn).finally(() => running.delete(key));
+    // An author job's save builds and checks the exercise in containers, so author jobs take turns across courses. One
+    // cancelled while it waits for that turn ends at once, so stopping it never waits for another course's job.
+    const cancelled = () =>
+      new Promise<JobOutcome>((resolve) => stop.signal.addEventListener('abort', () => launched || resolve({ ok: false, problem: 'failed', text: [] }), { once: true }));
+    const turn = kind === 'author' ? () => (stop.signal.aborted ? job() : Promise.race([queue('authors')(job), cancelled()])) : job;
+    const run = () =>
+      turn().then(
+        (o) => (settled?.(o), o),
+        (e: Error) => {
+          settled?.(e);
+          throw e;
+        },
+      );
+    const outcome = queue(`${lane}:${course ?? ''}`)(run).finally(() => running.delete(key));
     running.set(key, { outcome, stop });
     return outcome;
   }
@@ -329,20 +348,16 @@ export function createLive(d: LiveDeps): Live {
     { lane = 'bg', concept, retry }: { lane?: 'fg' | 'bg'; concept?: string; retry?: JobProgress['retry'] } = {},
   ) {
     if (stopping || stalls.has(course) || running.has(key)) return;
-    const outcome = start(key, lane, kind, brief, course, done, { concept, retry });
-    const controller = running.get(key)?.stop;
-    // The first stall is the one the learner sees.
+    // The first stall is the one the learner sees. It is recorded before the queue moves on, so nothing queued behind it launches.
     const stall = (why: Stall) => void (stalls.has(course) || stalls.set(course, why));
-    outcome
-      .then((o) => {
-        if (!o.ok && !controller?.signal.aborted) stall(stallOf(o.problem));
-        // A finished job can make its course's next one due: the lesson before the activity, a proposal after gates.
-        else if (o.ok) schedule(course);
-      })
-      .catch((e: Error) => {
-        log('job-error', { job: kind, ...errorFields(e) });
-        stall(e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed');
-      });
+    const settled = (r: JobOutcome | Error) => {
+      if (r instanceof Error) {
+        log('job-error', { job: kind, ...errorFields(r) });
+        stall(r.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed');
+      } else if (!r.ok && !running.get(key)?.stop.signal.aborted) stall(stallOf(r.problem));
+    };
+    // A finished job can make its course's next one due: the lesson before the activity, a proposal after gates.
+    start(key, lane, kind, brief, course, done, { concept, retry, settled }).then((o) => o.ok && schedule(course), () => undefined);
   }
 
   /** Ends a course's stall and starts the work it still needs. */
@@ -366,7 +381,7 @@ export function createLive(d: LiveDeps): Live {
   /** One consent before setup (§4.1): propose, wait for the learner, build exactly what they saw. */
   function setupState(progress: CoreProgress): Setup {
     const ref = progress.track;
-    const setup = setupOf(progress.course);
+    const setup = setupOf(ref);
     if (installed(ref)) return { state: 'ready' };
     if (setup.installing) return { state: 'installing' };
     // A fixable failure keeps the approved proposal, so Try again builds the same files without asking again.
@@ -391,14 +406,14 @@ export function createLive(d: LiveDeps): Live {
       const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
       if (state.state === 'proposing') {
         const ref = progress.track;
-        const setup = setupOf(progress.course);
+        const setup = setupOf(ref);
         const before = new Set(core.listProposals().map((p) => p.digest));
         // Done once it proposed: the proposal may already be gone if the learner approved it and its gates failed.
         const installs = setup.installs;
         const proposed = () => setup.installs > installs || core.listProposals().some((p) => p.track === ref && !before.has(p.digest));
         // Another proposal after one failed its gates is a retry, within the bound (§3.2).
         const retry = setup.gateFailures > 0 ? { attempt: setup.gateFailures + 1, of: PROPOSAL_BOUND } : undefined;
-        background(`setup:${progress.course}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed, { retry });
+        background(`setup:${ref}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed, { retry });
       }
       work(progress, state.state === 'ready');
     } catch (e) {
@@ -437,12 +452,14 @@ export function createLive(d: LiveDeps): Live {
   async function roadmapJob(course: string, brief: string, done: (before: string) => Job['done']) {
     const before = core.getRoadmap(ws, course);
     const saved = JSON.stringify(before);
-    await cancel((key) => key === `setup:${course}` || key.startsWith(`author:${course}:`));
+    // The old track's setup belongs to this course alone unless another of the learner's courses is on it (§4.13).
+    const shared = coursesOf(d.state.read()).some((c) => c !== course && roadmapOrNull(c)?.track === before.track);
+    await cancel((key) => (!shared && key === `setup:${before.track}`) || key.startsWith(`author:${course}:`));
     const outcome = await foreground(`roadmap:${course}`, 'roadmap', brief, course, done(saved));
     const after = core.getRoadmap(ws, course);
-    if (after.track !== before.track) {
+    if (after.track !== before.track && !shared) {
       await core.dropProposal(before.track);
-      setups.delete(course);
+      setups.delete(before.track);
     }
     return { outcome, changed: JSON.stringify(after) !== saved, after };
   }
@@ -601,10 +618,11 @@ export function createLive(d: LiveDeps): Live {
 
     async approve(concepts) {
       await saveConcepts(concepts);
-      const course = core.getRoadmap(ws).course;
+      const { course, track } = core.getRoadmap(ws);
       // One of the learner's courses now, on screen (§4.13).
       d.state.update((s) => ({ ...s, approved: course, courses: [...coursesOf(s).filter((c) => c !== course), course] }));
-      setups.delete(course);
+      // Its setup starts fresh, unless another course on its track is installing it.
+      if (!setups.get(track)?.installing) setups.delete(track);
       resume(course);
     },
 
@@ -651,7 +669,7 @@ export function createLive(d: LiveDeps): Live {
     async install(digest) {
       const { course, track: ref } = core.progress(ws, approved());
       // This install's own setup: approving the course again replaces it, and this one must not touch that.
-      const mine = setupOf(course);
+      const mine = setupOf(ref);
       const proposal = mine.approved?.digest === digest ? mine.approved : latestProposal(ref, mine);
       if (!proposal || proposal.digest !== digest) throw new SafeError('The setup changed. Look at it again.');
       mine.approved = proposal;
@@ -705,7 +723,8 @@ export function createLive(d: LiveDeps): Live {
 
     async retrySetup() {
       const course = approved();
-      if (course) setups.delete(course);
+      const roadmap = course ? roadmapOrNull(course) : null;
+      if (roadmap) setups.delete(roadmap.track);
       resume(course);
     },
 
@@ -726,21 +745,23 @@ export function createLive(d: LiveDeps): Live {
     },
     saveNotes: (id, notes) => core.saveNotes(ws, id, notes, approved()),
     async markRead(id) {
-      await core.markLessonRead(ws, id, approved());
-      schedule();
+      const course = approved();
+      await core.markLessonRead(ws, id, course);
+      schedule(course);
     },
 
     async activity(concept) {
       const course = core.getRoadmap(ws, approved()).course;
       const slug = exerciseFor(concept, course);
       if (!slug) throw new SafeError('This activity isn’t ready yet.');
+      openedIn.set(slug, course);
       const exercise = await core.getExercise(ws, slug, course);
       return activityView(exercise, core.readLearnerFiles(ws, slug, course), concept);
     },
 
     async saveFile(activityId, path, text, digest) {
       try {
-        return (await core.writeLearnerFile(ws, activityId, path, text, digest, approved())).digest;
+        return (await core.writeLearnerFile(ws, activityId, path, text, digest, openedIn.get(activityId) ?? approved())).digest;
       } catch (e) {
         if (kindOf(e) === 'changed') throw new Error(CHANGED);
         throw e;
@@ -772,8 +793,8 @@ export function createLive(d: LiveDeps): Live {
         const progress = core.progress(ws, course);
         const state = progress.concepts.find((c) => concepts.includes(c.id));
         dockerWorked(course);
-        // A graded check can move the course on: the next topic's lesson and activity.
-        schedule();
+        // A graded check can move its course on: the next topic's lesson and activity.
+        schedule(course);
         return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false, later: otherReady(progress, concepts) });
       } catch (e) {
         return asNotCounted(e, log, 'check', 'not-counted');
@@ -800,15 +821,16 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async skip(concept) {
-      await core.skip(ws, concept, approved());
-      schedule();
+      const course = approved();
+      await core.skip(ws, concept, course);
+      schedule(course);
     },
 
     async easier(concept) {
       const course = core.getRoadmap(ws, approved()).course;
       const title = core.getRoadmap(ws, course).concepts.find((c) => c.id === concept)?.title ?? concept;
       await roadmapJob(course, briefs.easier(concept, title), (before) => () => JSON.stringify(core.getRoadmap(ws, course)) !== before);
-      schedule();
+      schedule(course);
     },
 
     async rebuild(ref) {
