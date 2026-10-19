@@ -231,21 +231,53 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .map-main { flex: 1; min-width: 0; padding: 36px 48px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
 .map-side { width: 360px; flex-shrink: 0; padding: 36px 24px; background: #fff; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px; overflow: auto; }
 .map-side .card { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
-.graph { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.gi { display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 14px; }
-.gr { position: relative; display: flex; justify-content: center; align-items: center; }
-.gr .lt, .gr .lb { position: absolute; left: 14px; width: 2px; background: var(--line); transform-origin: top; }
-.gr .lt { top: 0; height: calc(50% - 14px); }
-.gr .lb { top: calc(50% + 14px); bottom: 0; }
-.gr .g { background: var(--green-ink); animation: draw .5s var(--ease) backwards; animation-delay: var(--d, .3s); }
-.grow { min-height: 50px; display: flex; align-items: center; gap: 16px; padding: 0 16px; font-size: 15.5px; font-weight: 500; }
-.grow.later { color: var(--faint); font-weight: 400; }
-button.grow.link { width: 100%; border: none; border-radius: 10px; background: transparent; color: inherit; font-family: inherit; text-align: left; cursor: pointer; }
-button.grow.link:hover { background: var(--soft); }
-.now-card { margin: 8px 0; padding: 14px 18px; display: flex; align-items: center; gap: 16px; border: 1.5px solid var(--green-ink); }
-.now-card b { flex: 1; font-size: 16px; }
+.tally { margin: -4px 0 4px; color: var(--muted); font-size: 14px; }
+.tally b { margin-right: 2px; color: var(--ink); font: 600 34px/1 var(--display); }
+/* The path (Path.tsx): topics as leaves on Emm's branch, green as far as the learner has come. Each stop's --d times
+   its part of the sequence: the branch draws, the leaf lands, the title rises, and Emm lands on the current card. */
+.path-wrap { max-width: 760px; display: flex; flex-direction: column; }
+.path { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.stop { --lead: 0px; position: relative; display: grid; grid-template-columns: 56px minmax(0, 1fr); column-gap: 12px; align-items: center; }
+.stop.current { --lead: 58px; padding: var(--lead) 0 14px; }
+.vine { position: absolute; left: 25px; top: 0; bottom: 0; width: 6px; }
+.seg { position: absolute; left: 0; width: 6px; background: #D8DFEA; transform-origin: top; animation: fade .3s ease-out backwards; animation-delay: var(--d); }
+.seg.up { top: 0; height: calc(50% + var(--lead) / 2); }
+.seg.down { top: calc(50% + var(--lead) / 2); bottom: 0; }
+.seg.on { background: var(--green-ink); animation: draw .32s ease-out backwards; animation-delay: var(--d); }
+.seg.down.on { animation-delay: calc(var(--d) + 90ms); }
+.stop:first-child .seg.down { border-radius: 3px 3px 0 0; }
+.stop:last-child .seg.up { border-radius: 0 0 3px 3px; }
+.leaf { position: relative; z-index: 1; grid-column: 1; grid-row: 1; justify-self: center; width: 36px; height: 36px; display: grid; place-items: center; animation: pop .45s var(--ease) backwards; animation-delay: calc(var(--d) + 60ms); }
+.leaf .blade-art { position: absolute; inset: 0; overflow: visible; }
+.leaf.flip .blade-art { transform: scaleX(-1); }
+.leaf .blade { fill: #fff; stroke: var(--faint); stroke-width: 1.75; stroke-linejoin: round; }
+.leaf.mastered .blade { fill: var(--green-ink); stroke: var(--green-ink); }
+.leaf.now .blade { stroke: var(--green-ink); stroke-width: 2.5; }
+.leaf > :not(.blade-art) { position: relative; }
+.stop-row { grid-column: 2; grid-row: 1; min-height: 58px; display: flex; align-items: center; gap: 16px; animation: up .45s var(--ease) backwards; animation-delay: calc(var(--d) + 80ms); }
+.stop-name { flex: 1; min-width: 0; padding: 10px 14px; font-size: 15.5px; font-weight: 500; overflow-wrap: anywhere; }
+.stop.later .stop-name { color: var(--faint); font-weight: 400; }
+button.stop-name.link { border: none; border-radius: 10px; background: transparent; color: inherit; font-family: inherit; text-align: left; cursor: pointer; transition: background .2s; }
+button.stop-name.link:hover { background: var(--soft); }
+.stop-row .soon { flex-shrink: 0; padding-right: 14px; }
 .soon { font-size: 13px; color: var(--muted); }
-.now-card .done { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--green-ink); font-weight: 600; }
+.map-main > .setup-progress { max-width: 760px; }
+/* The current topic: its card, with Emm landed on its top edge, facing the topic. */
+.stop-card { grid-column: 2; grid-row: 1; position: relative; padding: 18px 20px; display: flex; align-items: center; gap: 18px; background: var(--card); border: 2px solid var(--green-ink); border-radius: 16px; box-shadow: 0 8px 24px rgba(14, 124, 53, .1); animation: up .5s var(--ease) backwards; animation-delay: calc(var(--d) + 140ms); }
+.perch { position: absolute; left: 22px; bottom: calc(100% - 11px); line-height: 0; transform-origin: 50% 100%; animation: land .6s var(--ease) backwards; animation-delay: calc(var(--d) + 520ms); }
+.perch .emm.ready, .perch .emm.look { animation: none; }
+.stop-main { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.stop-title { font: 600 19px/1.3 var(--display); overflow-wrap: anywhere; }
+.steps { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; font-size: 14px; color: var(--muted); }
+.step-bar { display: inline-flex; gap: 4px; }
+.step-bar i { width: 26px; height: 8px; border-radius: 4px; background: #E4E9F1; }
+.step-bar i.read, .step-bar i.passed { background: var(--green-ink); }
+.step-bar i.act { width: 40px; }
+.step-bar i.act.open { background: var(--green-soft); box-shadow: inset 0 0 0 2px var(--green-ink); }
+.step-bar i.writing { background: linear-gradient(90deg, #E8EDF4 0, #F7F9FC 50%, #E8EDF4 100%); background-size: 200px 100%; animation: shimmer 1.4s linear 2; }
+.steps .done { display: flex; align-items: center; gap: 6px; color: var(--green-ink); font-weight: 600; }
+/* A finished course: Emm cheers where the branch ends. */
+.path-end { padding: 6px 0 0 4px; line-height: 0; animation: land .6s var(--ease) backwards; animation-delay: calc(var(--d) + 200ms); transform-origin: 30% 100%; }
 .bar { position: relative; height: 8px; border-radius: 4px; background: #E4E9F1; overflow: hidden; }
 .bar > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--green-ink); animation: grow 1.1s var(--ease) backwards; animation-delay: var(--d, .35s); }
 .complete { width: 760px; display: flex; flex-direction: column; align-items: center; gap: 26px; text-align: center; }
@@ -275,6 +307,7 @@ button.grow.link:hover { background: var(--soft); }
 @keyframes twinkle { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .25; transform: scale(.5); } }
 @keyframes colorin { from { filter: grayscale(1); } }
 @keyframes lid { from { transform: scaleY(1); } }
+@keyframes land { 0% { opacity: 0; transform: translateY(-28px); } 55% { opacity: 1; transform: translateY(0) scale(1.05, .92); } 78% { transform: scale(.98, 1.03); } }
 .a-up { animation: up .5s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 120ms + var(--d, 0ms)); }
 .a-pop { animation: pop .45s var(--ease) backwards; animation-delay: calc(var(--i, 0) * 120ms + var(--d, 0ms)); }
 .emm { overflow: visible; flex-shrink: 0; transform-origin: 50% 100%; animation: bob 3.4s ease-in-out 2; }
@@ -397,7 +430,7 @@ a.inline:hover { color: var(--ink); }
 .outline .item.writing > .job, .outline .item.writing > .waiting { margin-left: 30px; width: auto; }
 .row.writing { flex-wrap: wrap; row-gap: 12px; }
 .row.writing > .job { flex: 1 0 calc(100% - 32px); margin-left: 32px; }
-.topic-page .card.setup-progress { padding: 18px 22px 20px; display: flex; flex-direction: column; gap: 14px; }
+.card.setup-progress { padding: 18px 22px 20px; display: flex; flex-direction: column; gap: 14px; }
 .thinking { flex-direction: column; gap: 8px; color: var(--muted); }
 .looking .job { max-width: 720px; }
 /* A new screen's heading takes focus for screen readers (useRouteFocus); it isn't a control, so it shows no ring. */
@@ -414,7 +447,7 @@ h1[tabindex="-1"]:focus { outline: none; }
   .welcome { flex-direction: column; gap: 24px; padding: 24px 20px; overflow-y: auto; }
   .welcome-text .h1 { font-size: 40px; }
   .welcome-art { flex: none; min-height: 240px; }
-  .actions, .agent, .page-head, .depth, .now-card { flex-wrap: wrap; }
+  .actions, .agent, .page-head, .depth, .stop-card { flex-wrap: wrap; }
   .goal-box { height: auto; min-height: 64px; flex-wrap: wrap; padding: 8px 10px 8px 18px; }
   .goal-box input { min-height: 46px; font-size: 18px; }
   .reader { padding: 24px 20px; }

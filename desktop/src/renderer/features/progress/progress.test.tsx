@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { CodemmApi } from '../../../shared/api';
 import { timing } from '../../app/useLoad';
-import { mockWithCourse, renderApp } from '../../test-utils';
+import { mockWithCourse, mockWithRoadmap, renderApp } from '../../test-utils';
 
 async function master(api: CodemmApi, topics: number) {
   for (let i = 0; i < topics; i++) {
@@ -137,6 +137,9 @@ describe('course map', () => {
     renderApp({ to: 'learn' }, api);
     await user.click(await screen.findByRole('button', { name: 'View course' }));
     const map = await screen.findByRole('list', { name: 'Topics' });
+    // Every leaf is mastered, and nothing is left to continue.
+    expect(within(map).getAllByRole('img', { name: 'Mastered' })).toHaveLength(course.topics.length);
+    expect(within(map).queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
     await user.click(within(map).getByRole('button', { name: 'JSX' }));
     expect(await screen.findByRole('heading', { name: 'JSX', level: 1 })).toBeInTheDocument();
   });
@@ -158,6 +161,99 @@ describe('course map', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Track python@3 offers unit, not style "io".');
     expect(alert).not.toHaveTextContent("Couldn't reach Codemm.");
+  });
+});
+
+describe('course path', () => {
+  const items = async () => within(await screen.findByRole('list', { name: 'Topics' })).getAllByRole('listitem');
+
+  it('is one list item per topic, marks where the learner is, and says how far into its lessons', async () => {
+    const { api, course } = await mockWithCourse();
+    await api.markRead(course.topics[0].lessons[0].id);
+    renderApp({ to: 'learn' }, api);
+    const all = await items();
+    expect(all).toHaveLength(course.topics.length);
+    expect(all[0]).toHaveAttribute('aria-current', 'step');
+    expect(all.slice(1).filter((li) => li.hasAttribute('aria-current'))).toEqual([]);
+    expect(all[0]).toHaveTextContent(`Lessons 1 of ${course.topics[0].lessons.length}`);
+  });
+
+  it('says the lessons are done once all are read', async () => {
+    const { api } = await mockWithCourse({ read: true });
+    renderApp({ to: 'learn' }, api);
+    const [first] = await items();
+    expect(within(first).getByText('Lessons')).toBeInTheDocument();
+    expect(first).not.toHaveTextContent(/of \d/);
+  });
+
+  it('keeps a skipped topic on the path as Later, and moves Now to the next topic ready', async () => {
+    const { api, course } = await mockWithCourse();
+    await api.skip(course.topics[0].id);
+    renderApp({ to: 'learn' }, api);
+    const all = await items();
+    expect(within(all[0]).getByRole('img', { name: 'Later' })).toBeInTheDocument();
+    const now = all.findIndex((li) => li.getAttribute('aria-current') === 'step');
+    expect(now).toBeGreaterThan(0);
+    expect(within(all[now]).getByRole('img', { name: 'Now' })).toBeInTheDocument();
+    expect(within(all[now]).getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+  });
+
+  it('puts an easier topic before the one it helps, as the one to do now', async () => {
+    const { api } = await mockWithCourse();
+    await master(api, 2);
+    const stuck = (await api.course())!.topics.find((t) => t.state === 'now')!;
+    await api.easier(stuck.id);
+    renderApp({ to: 'learn' }, api);
+    const all = await items();
+    expect(all[2]).toHaveTextContent(`${stuck.title}: first steps`);
+    expect(all[2]).toHaveAttribute('aria-current', 'step');
+    expect(within(all[3]).getByRole('img', { name: 'Later' })).toBeInTheDocument();
+  });
+
+  it('says a review is being written, with nothing to press until it is', async () => {
+    const { api } = await mockWithCourse();
+    await master(api, 2);
+    const real = (await api.course())!;
+    api.course = async () => ({ ...real, topics: real.topics.map((t, i) => (i === 0 ? { ...t, review: 'writing' as const, activity: 'writing' as const } : t.state === 'now' ? { ...t, state: 'later' as const } : t)) });
+    renderApp({ to: 'learn' }, api);
+    const [first] = await items();
+    expect(first).toHaveAttribute('aria-current', 'step');
+    expect(within(first).getByText('Writing the review')).toBeInTheDocument();
+    expect(within(first).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('shows setup progress while the track sets up, and the path stays usable', async () => {
+    const { api, roadmap } = await mockWithRoadmap({ slow: 2 });
+    await api.approve(roadmap.concepts);
+    renderApp({ to: 'learn' }, api);
+    const setup = await screen.findByRole('region', { name: 'Setting up React' }, { timeout: 10_000 });
+    expect(within(setup).getByRole('progressbar', { name: 'Setting up React' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+    // Once setup waits for consent, the topic page asks; the map stops showing progress.
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Setting up React' })).not.toBeInTheDocument(), { timeout: 10_000 });
+  });
+
+  it('counts the topics mastered', async () => {
+    const { api } = await mockWithCourse();
+    await master(api, 2);
+    renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('region', { name: 'Mastery' })).toHaveTextContent('2 of 8 topics');
+  });
+
+  it('goes along the path by keyboard: each mastered topic, then Continue, which Enter opens', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    await master(api, 2);
+    renderApp({ to: 'learn' }, api);
+    const map = await screen.findByRole('list', { name: 'Topics' });
+    const order: string[] = [];
+    for (let i = 0; i < 20 && order.length < 3; i++) {
+      await user.tab();
+      if (map.contains(document.activeElement)) order.push(document.activeElement!.textContent!);
+    }
+    expect(order).toEqual(['JavaScript basics', 'JSX', 'Continue']);
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('heading', { name: 'Components', level: 1 })).toBeInTheDocument();
   });
 });
 

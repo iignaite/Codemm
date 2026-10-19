@@ -329,7 +329,7 @@ With neither option, the server behaves as in core.
 Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In the app:
 
 - **Due.** A due review shows as "Review" on the course map and the topic page, and the activity opens with a "Review" label. If no unused exercise fits, an author job writes one (`review: true`), shown as the review being written. A review comes due with time, not with a learner action, so reading the course starts that job when it isn't running (an exception to D9's "reads start nothing", which is about reopening saved work). The course map and topic page re-read the course when the window regains focus, and every 10 minutes once settled, so a review that came due while the app was open shows up.
-- **Scheduled.** The mastery panel, and the completed-course screen, show "Review tomorrow" or "Review in N days" for a mastered topic. They never show dates. Overdue reviews wait their turn behind the one being offered, without a countdown.
+- **Scheduled.** The course map, beside the mastered topic on its path, and the completed-course screen show "Review tomorrow" or "Review in N days" for a mastered topic. They never show dates. Overdue reviews wait their turn behind the one being offered, without a countdown.
 - **Outcome.** A review is an ordinary Check. A pass keeps the topic mastered; a fail sends it back to practice.
 
 ### 4.8 Check progress
@@ -396,7 +396,7 @@ Every long step shows its live progress, so the learner always knows where it is
   - Research: the bar above the live list of searches and pages.
   - The course editor, while "Ask Codemm for changes" or Go deeper runs.
   - The topic page and the outline: a lesson or activity being written shows its job's stages (compact in the outline). A job still waiting its turn keeps the quiet shimmer.
-  - The topic page, during setup: proposing, then building and checking.
+  - The topic page and the course map, during setup: proposing, then building and checking.
   - The tutor rail: "Codemm is thinking…" and the turn's latest step.
 - **Mock.** `CODEMM_MOCK=slow-jobs` holds each stage over a few reads, so every state can be seen; `quiet-jobs` also shows the quiet line.
 
@@ -411,6 +411,27 @@ Every long step shows its live progress, so the learner always knows where it is
   - Only tutor sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor session (a crashed turn can report 0) and adds only the rise.
   - One app process owns userData, as with `desktop.json`: two instances writing at the same moment could lose one report.
 - **Screen:** the course map's side column shows a small Usage card for the approved course, once an agent has run for it: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. It's read again whenever the map reads the course. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so the cost's label, "Claude's estimate", is all it says: nothing about billing.
+
+### 4.13 The course map
+
+The map is the course as a path the learner moves along (`renderer/features/progress/`). It is playful in Codemm's own way, not a copy of another app's path: no zig-zag of round buttons, coins, flames or streak counts.
+
+- **Emm's branch.** The topics run down one vertical branch in roadmap order, an ordered list named "Topics". Each topic is a leaf on the branch:
+  - Mastered: a filled green leaf with a check. Its title opens the topic again, and "Review in 3 days" sits beside it.
+  - Now: an outlined green leaf with the code mark.
+  - Later: an outlined grey leaf with a lock.
+  - The leaf is an image named Mastered, Now or Later, so the state never depends on color alone.
+- **Green as far as the learner has come.** The branch is green up to the furthest topic reached and grey after it. A topic skipped on the way ("Come back later") stays a grey leaf on the green part.
+- **Emm sits at the current topic.** The topic Codemm offers now is a card, marked `aria-current="step"`: a due or in-progress review, otherwise the Now topic. Emm, in the track's color, sits on the card's top edge, facing the topic. Emm thinks when the topic is stuck and looks at a review. Emm is decorative; the card says everything in words.
+  - **Now:** the title, a bar with one step per lesson and one for the activity, "Lessons 1 of 3" (a check and "Lessons" once all are read), and Continue.
+  - **Review due:** the title and Review.
+  - **Review being written:** "Writing the review", with its job's progress once it runs (§4.11), and nothing to press.
+- **Easier and skip** change the path, not the map's controls. "Try an easier one" adds a topic before the stuck one, which becomes the one to do now. "Come back later" moves Now to the next topic ready. Both stay on the results screen (§3.2).
+- **Setup.** While the track sets up (proposing, then building and checking), a "Setting up React" card above the path shows the setup job's progress (§4.11). The path stays usable, since lessons can be read during setup. Consent, a failed setup and its retry stay on the topic page.
+- **Side column.** "Mastery" counts the topics mastered ("2 of 8 topics") above a bar per topic started, then the Usage card (§4.12).
+- **Finished.** A finished course opens on the completed-course screen. View course shows the path with every leaf mastered, nothing to continue, and Emm cheering where the branch ends.
+- **Motion.** The path fills and lands in order: each topic's part of the branch draws, its leaf pops on, its title rises, then the current card rises and Emm lands on it with a small squash. Under reduced motion nothing moves.
+- **Narrow windows.** Under 1000 px the side column goes under the path; under 760 px the card's button wraps under its title.
 
 ## 5. Failure states
 

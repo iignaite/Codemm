@@ -1,20 +1,16 @@
 import { useState } from 'react';
-import type { CourseView, TopicView, Usage } from '../../../shared/api';
+import type { CourseView, Usage } from '../../../shared/api';
 import { useApi } from '../../app/api';
-import { useRouter } from '../../app/router';
 import { Failed, Stale, Stalled } from '../../app/Problems';
 import { useCourse } from '../../app/useCourse';
 import { useLoad } from '../../app/useLoad';
-import { Button } from '../../ui/Button';
-import { Icon } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { Goal } from '../learn/Goal';
 import { Complete } from './Complete';
-import { continueRoute, reviewText } from '../../app/course';
+import { Path } from './Path';
+import { SetupProgress } from './SetupProgress';
 
-const STATE_LABEL = { mastered: 'Mastered', now: 'Now', later: 'Later' } as const;
-
-/** Lessons, then an activity, per topic, with mastery so far. */
+/** The course as a path the learner moves along, with mastery so far and what the agent used beside it. */
 export function CourseMap() {
   const api = useApi();
   const { data: course, error, stale, reload } = useCourse();
@@ -30,9 +26,8 @@ export function CourseMap() {
     <main className="main map">
       <div className="map-main">
         <h1 className="h2 a-up">{course.goal}</h1>
-        <ol className="graph" aria-label="Topics">
-          {course.topics.map((t, i) => <MapItem key={t.id} topic={t} index={i} course={course} />)}
-        </ol>
+        <SetupProgress course={course} />
+        <Path course={course} />
       </div>
       <Aside course={course} usage={usage ?? null} />
       {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
@@ -41,55 +36,20 @@ export function CourseMap() {
   );
 }
 
-function MapItem({ topic, index, course }: { topic: TopicView; index: number; course: CourseView }) {
-  const { go } = useRouter();
-  const prev = course.topics[index - 1];
-  const icon = { mastered: <Icon name="check" color="#0E7C35" />, now: <Icon name="code" color="#0E7C35" />, later: <Icon name="lock" color="#8492A9" size={17} /> }[topic.state];
-  return (
-    <li className="gi">
-      <div className="gr">
-        {prev && <span className={`lt${prev.state === 'mastered' ? ' g' : ''}`} />}
-        {index < course.topics.length - 1 && <span className={`lb${topic.state === 'mastered' ? ' g' : ''}`} />}
-        <span className={topic.state === 'mastered' ? 'a-pop' : undefined} style={stagger(index, 100)} role="img" aria-label={STATE_LABEL[topic.state]}>{icon}</span>
-      </div>
-      {topic.review ? (
-        <div className="card now-card a-up" style={stagger(0, 500)}>
-          <b>{topic.title}</b>
-          {topic.review === 'due' ? (
-            <Button onClick={() => go({ to: 'practice', concept: topic.id })}>Review</Button>
-          ) : (
-            <span className="shim" style={{ width: 96 }} role="img" aria-label="Writing the review" />
-          )}
-        </div>
-      ) : topic.state === 'now' ? (
-        <div className="card now-card a-up" style={stagger(0, 500)}>
-          <b>{topic.title}</b>
-          {topic.lessons.every((l) => l.state === 'read') && <span className="done"><Icon name="check" color="#0E7C35" size={14} />Lessons</span>}
-          <Button onClick={() => go(continueRoute(topic))}>Continue</Button>
-        </div>
-      ) : topic.state === 'mastered' ? (
-        // A mastered topic opens again: its lessons and the activity, to reread or practise.
-        <button type="button" className="grow mastered link" onClick={() => go({ to: 'topic', topicId: topic.id })}>{topic.title}</button>
-      ) : (
-        <div className={`grow ${topic.state}`}>{topic.title}</div>
-      )}
-    </li>
-  );
-}
-
 function Aside({ course, usage }: { course: CourseView; usage: Usage | null }) {
   const started = course.topics.filter((t) => t.state !== 'later');
+  const mastered = course.topics.filter((t) => t.state === 'mastered').length;
   return (
     <aside className="map-side">
       <section className="card a-up" style={stagger(1)} aria-labelledby="mastery-t">
         <h2 className="h3" id="mastery-t">Mastery</h2>
+        <p className="tally"><b>{mastered}</b> of {course.topics.length} topics</p>
         {started.map((t, i) => (
           <div key={t.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 14, fontWeight: 500 }}>{t.title}</span>
             <div className="bar" role="img" aria-label={`${t.title}: ${t.state === 'mastered' ? 'mastered' : 'in progress'}`}>
               <i style={{ width: `${Math.round(t.mastery * 100)}%`, ...stagger(0, 500 + i * 100) }} />
             </div>
-            {t.reviewIn && <span className="soon">{reviewText(t.reviewIn)}</span>}
           </div>
         ))}
       </section>
