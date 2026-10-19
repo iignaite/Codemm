@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CodemmApi } from '../shared/api';
 import { errorFields } from './errors';
+import { bringBack } from './instance';
 import { handler } from './ipc';
 import { openOutside } from './links';
 import { createLog } from './log';
@@ -101,6 +102,13 @@ function createWindow() {
   });
   void win.loadURL(`${ORIGIN}/index.html`);
 }
+
+// A second launch quit before it started anything (boot.ts): the learner gets this Codemm's window instead (§2).
+app.on('second-instance', () => {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) bringBack(win);
+  else if (app.isReady()) createWindow();
+});
 
 // Every web contents: no navigation, no webviews, and no new windows. A link opens
 // in the learner's browser, and only for https URLs (§2.1).

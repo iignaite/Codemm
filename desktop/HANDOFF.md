@@ -45,6 +45,7 @@ To click through a state, run `CODEMM_MOCK=no-docker npm start` (on Windows Powe
 src/shared/api.ts      the IPC contract (D3): every call, its learner-safe view, and the error codes
 src/shared/roadmap.ts  roadmap edit rules (§4.2): stable ids, refused moves and removals
 src/shared/models.json the recommended minimum model per agent, from docs/bench (§3.3)
+src/main/boot.ts       the entry point: a second launch shows the open window and quits
 src/main/main.ts       window, security settings, the IPC handler (sender check)
 src/main/ipc.ts        validates every call's method and arguments before Codemm sees them
 src/main/mock.ts       in-memory CodemmApi and its named environment scenarios
