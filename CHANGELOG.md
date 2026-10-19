@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Diagrams and charts in lessons.** Your agent can add a flowchart, a sequence, state or class diagram, a pie chart or an xy chart where a picture teaches better than words. The app draws them on this computer, in its own fonts and colors, with a text description for screen readers. A diagram that doesn't draw shows its source instead.
+
 ## 1.0.0-beta.2
 
 - **The sandbox check works with a firewall on.** Check this computer's "The sandbox works" no longer asks for a restart when Docker is fine. Its test server now runs in a container instead of on the computer, so the Mac or Windows firewall never blocks it.

@@ -16,13 +16,13 @@ export function SetupConsent({ track, proposal, error, busy = false, onClose, on
   return (
     <Dialog
       title={proposal.retry ? `Codemm has another way to set up ${track}.` : `Set up ${track} on this computer?`}
-      text="Setup runs code your agent wrote, with internet access. Graded runs are offline."
+      text={`${proposal.retry && proposal.why ? `${proposal.why} ` : ''}Setup runs code your agent wrote, with internet access. Graded runs are offline.`}
       art={<Emm mood="look" width={150} name={track} perch />}
       body={
         <>
         {error && <p className="alert" role="alert">{error}</p>}
         <details className="details">
-          <summary>Details</summary>
+          <summary>Show the files</summary>
           <p className="quiet-text">The build stops after 10 minutes, and has no memory or CPU limit.</p>
           {proposal.files.map((f) => (
             <section key={f.path} aria-label={f.path}>
@@ -35,7 +35,7 @@ export function SetupConsent({ track, proposal, error, busy = false, onClose, on
       }
       onClose={onClose}
     >
-      <Button variant="ghost" size="lg" onClick={onClose}>{proposal.retry ? 'Stop' : 'Not now'}</Button>
+      <Button variant="ghost" size="lg" onClick={onClose}>Not now</Button>
       <Button size="lg" disabled={busy} onClick={onSetUp}>Set up</Button>
     </Dialog>
   );

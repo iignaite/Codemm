@@ -24,7 +24,8 @@ test('packaged: welcome, bundled MCP server and a JavaScript agent, with no Node
   const out = await callTool({ command: exe!, args: [join(resources!, 'core', 'dist', 'cli.mjs'), 'mcp', '--workspace', ws, '--tools', 'list_tracks', '--desktop'], env: { ...env, PATH: '', ELECTRON_RUN_AS_NODE: '1' } }, 'list_tracks');
   expect(out).toBe('[]');
 
-  const app = await electron.launch({ executablePath: exe!, env });
+  // A profile of its own: Codemm runs once per profile, so a Codemm the learner has open never stands in for this one.
+  const app = await electron.launch({ executablePath: exe!, args: [`--user-data-dir=${tempDir('codemm-profile-')}`], env });
   const page = await app.firstWindow();
   await expect(page.getByRole('heading', { name: 'Learn anything.' })).toBeVisible();
   await page.getByRole('button', { name: 'Connect an agent', exact: true }).click();

@@ -15,7 +15,7 @@ case "$1" in
     echo "#1 [internal] load build definition from Dockerfile"
     # builds: the build succeeds and writes its image ID where --iidfile says, as docker does.
     if [ "$FAKE_DOCKER" = no-iid ]; then exit 0; fi
-    if [ "$FAKE_DOCKER" = builds ] || [ "$FAKE_DOCKER" = notests ] || [ "$FAKE_DOCKER" = notests-disk ] || [ "$FAKE_DOCKER" = unitoom ] || [ "$FAKE_DOCKER" = inspect-fails ]; then
+    if [ "$FAKE_DOCKER" = builds ] || [ "$FAKE_DOCKER" = notests ] || [ "$FAKE_DOCKER" = notests-disk ] || [ "$FAKE_DOCKER" = unitoom ] || [ "$FAKE_DOCKER" = inspect-fails ] || [ "$FAKE_DOCKER" = docker29 ]; then
       echo "#2 [1/3] FROM docker.io/library/alpine:3.20"
       echo "#3 [2/3] RUN apk add bash"
       echo "#4 [3/3] COPY . /opt/track"
@@ -32,7 +32,12 @@ case "$1" in
   image)
     [ "$FAKE_DOCKER" = no-image ] && { echo "Error response from daemon: No such image: sha256:fake" >&2; exit 1; }
     [ "$FAKE_DOCKER" = inspect-fails ] && { echo "error during connect: unexpected EOF" >&2; exit 1; }
-    echo "sha256:fake null" ;;
+    # docker29: Docker 29 leaves Config.Volumes out when an image declares none, so a template that names it fails.
+    case "$4" in
+      *Config.Volumes*) [ "$FAKE_DOCKER" = docker29 ] && { echo 'template parsing error: template: :1:22: executing "" at <.Config.Volumes>: map has no entry for key "Volumes"' >&2; exit 1; }
+        echo "sha256:fake null" ;;
+      *) if [ "$FAKE_DOCKER" = docker29 ]; then echo '{"Id":"sha256:fake","Config":{"Env":["PATH=/usr/bin"]}}'; else echo '{"Id":"sha256:fake","Config":{"Volumes":null}}'; fi ;;
+    esac ;;
   events) case "$FAKE_DOCKER" in oom|childoom|caseoom|unitoom) echo oom ;; esac ;;
   run)
     # Run scenarios act out the Run driver: its markers go to stderr, around the program's own output.
@@ -40,6 +45,8 @@ case "$1" in
     m() { printf '\n@@codemm-run %s\n' "$*" >&2; }
     # nospace: the container can't even start, because Docker's disk is full (a Run or a check alike).
     [ "$FAKE_DOCKER" = nospace ] && { echo "docker: Error response from daemon: mkdir /var/lib/docker/overlay2/x: no space left on device." >&2; exit 125; }
+    # nosh: an image without /bin/sh, which every run starts with.
+    [ "$FAKE_DOCKER" = nosh ] && { echo 'docker: Error response from daemon: failed to create task for container: OCI runtime create failed: runc create failed: unable to start container process: exec: "/bin/sh": stat /bin/sh: no such file or directory: unknown.' >&2; exit 127; }
     case "$FAKE_DOCKER" in
       interactive) m start run; printf 'name? '; read -r name; echo "hello $name"; echo "a warning" >&2; m end run 0; exit 0 ;;
       waits) m start run; while read -r line; do :; done; exit 0 ;;

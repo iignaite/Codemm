@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -222,6 +222,37 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     const q = await researched(s);
     await s.api.approve(q.roadmap!.concepts);
     expect(await until(s.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'disk' });
+  });
+
+  it("a lesson that couldn't be written keeps its row, says so, and blames no agent", async () => {
+    const t = live({ lesson: () => ({ ok: false, problem: 'failed' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(proposal!.digest);
+    const course = await until(t.api, (c) => c.stalled !== undefined);
+    expect(course.stalled).toBe('lesson');
+    expect(course.topics.flatMap((topic) => topic.lessons)).toContainEqual(expect.objectContaining({ title: 'Lesson', state: 'failed' }));
+    // Try again writes it again.
+    await t.api.retryJobs();
+    await until(t.api, () => t.jobs.ran.filter((j) => j.kind === 'lesson').length === 2);
+  });
+
+  it('a job that found its track image gone stalls as a rebuild, not as the agent failing', async () => {
+    const t = live({ lesson: () => ({ ok: false, problem: 'rebuild' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(proposal!.digest);
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'rebuild' });
+  });
+
+  it("a job Docker was too busy to answer stalls as busy, not stopped, and the log says which failure it was", async () => {
+    const t = live({ setup: () => ({ ok: false, problem: 'docker-busy', cause: 'runtime-busy' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'docker-busy' });
+    expect(readFileSync(t.logFile, 'utf8')).toMatch(/ job-end kind=setup ok=false problem=docker-busy cause=runtime-busy ms=\d+\n/);
   });
 
   it('keeps the first stall, and launches no queued background work after it', async () => {

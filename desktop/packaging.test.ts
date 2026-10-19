@@ -48,6 +48,13 @@ describe('packaging', () => {
     expect(packaging({}).files).toContain('!out/main/mock.js');
   });
 
+  it('carries the licenses of the fonts and of everything the renderer bundles, outside the archive', () => {
+    const from = (packaging({}).extraResources as { from: string }[]).map((r) => r.from);
+    expect(from).toContain('src/renderer/assets/fonts');
+    // vite.config.mts writes them to out/renderer/licenses.md (build.license).
+    expect(from).toContain('out/renderer/licenses.md');
+  });
+
   it('builds only macOS and Windows installers', () => {
     const config = packaging({}) as Record<string, unknown>;
     expect(config.linux).toBeUndefined();

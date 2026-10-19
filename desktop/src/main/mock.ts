@@ -329,7 +329,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     if (c.setup === 'proposing') {
       if (!busy(`${current}:setup`, 'setup')) {
         c.setup = 'consent';
-        c.proposal = { digest: digestOf(PROPOSAL_FILES.map((f) => f.text).join('')), retry: Boolean(c.proposal), files: PROPOSAL_FILES };
+        c.proposal = { digest: digestOf(PROPOSAL_FILES.map((f) => f.text).join('')), retry: Boolean(c.proposal), ...(c.proposal ? { why: "The last try didn't build." } : {}), files: PROPOSAL_FILES };
       }
     } else if (c.setup === 'installing' && !busy(`${current}:install`, 'install')) {
       if (options.setupProblem) {

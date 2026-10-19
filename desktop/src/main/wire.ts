@@ -61,8 +61,13 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     startedAt: desktop.startedAt,
     canInstall: desktop.canInstall,
     install: desktop.status,
-    // Asked of the Docker found here, asynchronously and bounded, so a stuck engine never blocks the app; core reads the answer.
-    state: async (docker) => core.runtimeStateOf((await ask(docker, core.RUNTIME_INFO, ({ code, output }) => ({ exit: code ?? -1, output }), { timeoutMs: 20_000 })) ?? { exit: -1, output: '' }),
+    // Asked of the Docker found here, asynchronously and bounded, so a stuck engine never blocks the app. Core reads the
+    // answer, and asks a silent engine once more, for longer, before calling it busy rather than stopped (§6.1).
+    state: async (docker) => {
+      const state = await core.runtimeState((timeoutMs) => ask(docker, core.RUNTIME_INFO, ({ code, output }) => ({ exit: code ?? -1, output }), { timeoutMs }));
+      // Check this computer has no busy row yet: there, an engine that never answered reads as not running.
+      return state === 'busy' ? 'down' : state;
+    },
     sandbox: () => core.networkIsolation(),
     now: () => Date.now(),
   }, process.platform, log);

@@ -26,13 +26,23 @@ export const REBUILD = 'This environment needs a rebuild. Rebuild it under Track
 /** Why a run wasn't counted, or didn't run, when this computer caused it (notCounted.ts). */
 export const NOT_COUNTED = {
   docker: "Docker isn't running.",
-  disk: 'Docker ran out of disk space.',
+  'docker-busy': 'Docker is busy or not answering.',
+  'docker-failed': "Docker couldn't run that.",
+  'docker-disk': 'Docker ran out of disk space.',
+  disk: 'This computer is out of disk space.',
   offline: "Docker couldn't reach the network.",
+  // A container Docker refused for a reason core named: what to change, since trying again won't help.
+  'docker-cpus': "Docker has fewer than the 2 CPUs a check uses. Give it more in Docker Desktop's settings.",
+  'docker-log-driver': "Docker's logging driver refused Codemm's log options. Set it to json-file or local in Docker's settings.",
+  'docker-file-sharing': "Docker can't share Codemm's run folders. Allow them in Docker Desktop's file sharing settings.",
 } as const;
 /** Run and lesson examples have no recovery screen, so their line says what to do next (§4.10). */
 export const RUN_AGAIN: Record<string, string> = {
   [NOT_COUNTED.docker]: 'Open Docker Desktop, then run again.',
-  [NOT_COUNTED.disk]: 'Free up disk space, then run again.',
+  [NOT_COUNTED['docker-busy']]: 'Wait a moment, then run again.',
+  [NOT_COUNTED['docker-failed']]: 'Run again, and restart Docker if it happens again.',
+  [NOT_COUNTED['docker-disk']]: 'Remove unused images in Docker Desktop, then run again.',
+  [NOT_COUNTED.disk]: 'Free some space, then run again.',
   [NOT_COUNTED.offline]: 'Connect to the internet, then run again.',
 };
 /** A run that didn't run: why, then what to do next. */
@@ -174,19 +184,25 @@ export interface RoadmapChange {
  * learner. `installing`: building the approved proposal.
  */
 export type SetupState = 'proposing' | 'consent' | 'installing' | 'ready' | 'failed';
-/** Why setup failed. `offline`, `disk` and `docker` are this computer's problems; `gates` means the proposals didn't pass. */
-export type SetupProblem = 'offline' | 'disk' | 'docker' | 'gates';
+/**
+ * Why setup failed. `gates` means the proposals didn't pass; the rest are this computer's problems: Docker stopped,
+ * busy and not answering, or answering but failing, Docker's disk or this computer's, or the network.
+ */
+export type SetupProblem = 'offline' | 'disk' | 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'gates';
 
 /** What the learner approves before setup: exactly the files Codemm will build (§4.1). */
 export interface Proposal {
   digest: string;
   /** True when an earlier proposal failed its gates: "Codemm has another way". */
   retry: boolean;
+  /** On a retry, why the last proposal failed, in Codemm's words (never its output). */
+  why?: string;
   files: { path: string; text: string }[];
 }
 
 export type TopicState = 'mastered' | 'now' | 'later';
-export type LessonState = 'writing' | 'ready' | 'read';
+/** `failed`: the job writing it stopped, and the learner tries again (§5). */
+export type LessonState = 'writing' | 'failed' | 'ready' | 'read';
 export type ActivityState = 'writing' | 'locked' | 'open' | 'passed';
 
 export interface TopicView {
@@ -215,7 +231,7 @@ export interface CourseView {
   topics: TopicView[];
   done: boolean;
   /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
-  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'disk' | 'failed' | 'unstoppable';
+  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'disk' | 'rebuild' | 'lesson' | 'failed' | 'unstoppable';
 }
 
 /** One of the learner's courses, to switch to (§4.13). The id is opaque and never shown. */

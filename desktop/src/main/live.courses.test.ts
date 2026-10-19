@@ -262,11 +262,11 @@ describe('live CodemmApi: several courses (§4.13)', () => {
     expect(heard.some((p) => p.kind === 'research')).toBe(true);
   });
 
-  it('ends a Docker stall once Check this computer passes, and starts the course again; other stalls stay', async () => {
-    let problem: 'docker' | 'plan-limit' | undefined = 'docker';
+  it.each(['docker', 'docker-busy', 'docker-failed'] as const)('ends a %s stall once Check this computer passes, and starts the course again; other stalls stay', async (stalled) => {
+    let problem: typeof stalled | undefined = stalled;
     const t = live({ setup: (_job, usual) => (problem ? { ok: false, problem } : usual()) });
     await approved(t, 'React');
-    await until(t.api, (c) => c.stalled === 'docker');
+    await until(t.api, (c) => c.stalled === stalled);
     problem = undefined;
     await t.api.computer();
     expect(await until(t.api, (c) => c.setup === 'consent')).not.toHaveProperty('stalled');
@@ -279,16 +279,16 @@ describe('live CodemmApi: several courses (§4.13)', () => {
     expect((await other.api.course())!.stalled).toBe('plan-limit');
   });
 
-  it("ends a course's Docker or disk stall once its check succeeds, and starts its work again", async () => {
+  it.each(['disk', 'docker-disk'] as const)("ends a course's %s stall once its check succeeds, and starts its work again", async (stalled) => {
     let full = false;
-    const t = live({ lesson: (_job, usual) => (full ? { ok: false, problem: 'disk' } : usual()) });
+    const t = live({ lesson: (_job, usual) => (full ? { ok: false, problem: stalled } : usual()) });
     const activity = await practising(t);
     const file = activity.files[0];
     await t.api.saveFile(activity.id, file.path, 'count + 1', file.digest);
     full = true;
     // Mastering the topic makes the next topic's lesson due; it fails on a full disk.
     await t.api.check(activity.id, 'run-1');
-    await until(t.api, (c) => c.stalled === 'disk');
+    await until(t.api, (c) => c.stalled === stalled);
     full = false;
     expect((await t.api.check(activity.id, 'run-2')).kind).toBe('graded');
     const course = await until(t.api, (c) => c.topics[1].lessons.some((l) => l.state === 'ready'));

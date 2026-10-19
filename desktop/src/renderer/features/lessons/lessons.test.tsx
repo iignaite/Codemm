@@ -61,8 +61,8 @@ describe('lesson examples', () => {
     const first = course.topics[0].lessons[0];
     const real = await api.lesson(first.id);
     api.lesson = async () => ({ ...real, markdown: '```example\n1\n```', examples: [{ files: [{ path: 'main.js', text: 'console.log(1)' }] }] });
-    const reasons = ["Docker isn't running.", 'Docker ran out of disk space.', "Docker couldn't reach the network."];
-    const next = ['Open Docker Desktop, then run again.', 'Free up disk space, then run again.', 'Connect to the internet, then run again.'];
+    const reasons = ["Docker isn't running.", 'Docker is busy or not answering.', 'Docker ran out of disk space.', 'This computer is out of disk space.', "Docker couldn't reach the network."];
+    const next = ['Open Docker Desktop, then run again.', 'Wait a moment, then run again.', 'Remove unused images in Docker Desktop, then run again.', 'Free some space, then run again.', 'Connect to the internet, then run again.'];
     let i = 0;
     api.runExample = async () => ({ kind: 'not-run', reason: reasons[i] });
     renderApp({ to: 'lesson', lessonId: first.id }, api);
@@ -149,7 +149,7 @@ describe('topic page and setup consent', () => {
     renderApp({ to: 'topic', topicId: TOPIC }, api);
     const dialog = await screen.findByRole('dialog', { name: 'Set up React on this computer?' });
     expect(dialog).toHaveTextContent('Setup runs code your agent wrote, with internet access. Graded runs are offline.');
-    await user.click(within(dialog).getByText('Details'));
+    await user.click(within(dialog).getByText('Show the files'));
     expect(within(dialog).getByRole('region', { name: 'Dockerfile' })).toHaveTextContent('FROM node:22-alpine');
     expect(dialog).toHaveTextContent('The build stops after 10 minutes, and has no memory or CPU limit.');
 
@@ -168,7 +168,7 @@ describe('topic page and setup consent', () => {
     renderApp({ to: 'topic', topicId: TOPIC }, api);
     await screen.findByRole('dialog');
     await user.tab({ shift: true });
-    expect(screen.getByText('Details')).toHaveFocus();
+    expect(screen.getByText('Show the files')).toHaveFocus();
   });
 
   it('shows the latest proposal again, inside the dialog, when the setup changed', async () => {
@@ -234,6 +234,17 @@ describe('topic page and setup consent', () => {
     expect(await screen.findByRole('heading', { name: 'Check this computer' })).toBeInTheDocument();
   });
 
+  it("says when Docker was busy during setup, with Stop and Try again: Docker isn't stopped", async () => {
+    const user = userEvent.setup();
+    const { api } = await approved({ setupProblem: 'docker-busy' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByRole('heading', { name: 'Docker is busy or not answering.' })).toBeInTheDocument();
+    expect(alert).toHaveTextContent('Wait a moment, then try again.');
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Stop', 'Try again']);
+  });
+
   it('asks again with a new proposal when the gates fail', async () => {
     const user = userEvent.setup();
     const { api } = await approved(scenario('setup-gates'));
@@ -242,7 +253,25 @@ describe('topic page and setup consent', () => {
     const alert = await screen.findByRole('alert');
     expect(within(alert).getByRole('heading', { name: "Couldn't set up React" })).toBeInTheDocument();
     await user.click(within(alert).getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByRole('dialog', { name: 'Codemm has another way to set up React.' })).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog', { name: 'Codemm has another way to set up React.' });
+    // It says why the last try failed, and declining only closes it, as on the first ask.
+    expect(dialog).toHaveTextContent("The last try didn't build.");
+    expect(within(dialog).getAllByRole('button').map((b) => b.textContent)).toEqual(expect.arrayContaining(['Not now', 'Set up']));
+  });
+
+  it("keeps a lesson that couldn't be written on its row, with Try again, and blames no agent", async () => {
+    const user = userEvent.setup();
+    const { api, course } = await mockWithCourse({ read: true });
+    const failed = { ...course, stalled: 'lesson' as const, topics: course.topics.map((t) => (t.id === TOPIC ? { ...t, activity: 'locked' as const, lessons: [{ id: `${TOPIC}-writing`, title: 'Lesson', state: 'failed' as const }] } : t)) };
+    let retried = 0;
+    api.course = async () => (retried ? course : failed);
+    api.retryJobs = async () => void retried++;
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const row = (await screen.findByText("Codemm couldn't write this lesson.")).closest('.row') as HTMLElement;
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check your agent' })).not.toBeInTheDocument();
+    await user.click(within(row).getByRole('button', { name: 'Try again' }));
+    expect(retried).toBe(1);
   });
 });
 
@@ -336,6 +365,20 @@ describe('background work that stopped', () => {
     expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Check this computer', 'Try again']);
     await user.click(within(alert).getByRole('button', { name: 'Check this computer' }));
     expect(await screen.findByRole('heading', { name: 'Check this computer' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['docker-busy', 'Docker is busy or not answering. Wait a moment, then try again.', ['Try again']],
+    ['docker-failed', "Docker couldn't run that. Try again, and restart Docker if it happens again.", ['Check this computer', 'Try again']],
+    ['docker-disk', 'Docker ran out of disk space. Remove unused images in Docker Desktop, then try again.', ['Try again']],
+    ['rebuild', 'This environment needs a rebuild. Rebuild it under Tracks.', ['Go to Tracks', 'Try again']],
+  ] as const)('says when Docker is up but %s, never that it stopped or to check the agent', async (stalled, said, buttons) => {
+    const { api } = await mockWithCourse({ stalled });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(said);
+    expect(alert).not.toHaveTextContent('Docker stopped');
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(buttons);
   });
 
   it('says the disk is full, with Try again and no Check your agent', async () => {

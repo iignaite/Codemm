@@ -354,6 +354,14 @@ button.grow.link:hover { background: var(--soft); }
 .example .run { display: flex; justify-content: flex-end; }
 .example pre.err { color: var(--orange-ink); }
 
+/* A lesson's diagram (§4.3): an image at its own size, never wider than the page; while it draws, the room it will take. */
+.diagram { margin: 14px 0; }
+.diagram img { display: block; max-width: 100%; height: auto; }
+.diagram.wait { min-height: 120px; }
+/* Mermaid measures a diagram's text in a box it adds to the page, and the CSP keeps out the styles it sets there; this is the text's size and font. */
+div[id^="ddiagram-"] { font: 16px var(--sans); }
+.diagram.failed p { margin: 0 0 8px; font-size: 14.5px; color: var(--muted); }
+
 /* A link inside running text: the text's own color, underlined, with the usual focus ring. */
 a.inline { color: inherit; text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
 a.inline:hover { color: var(--ink); }

@@ -28,6 +28,19 @@ export function tryView(core: CoreCheckView): TryResult {
 /** A track's name without its version: `react` for `react@1`. */
 export const trackName = (ref: string) => ref.split('@')[0];
 
+/**
+ * Why the last setup proposal failed, in Codemm's own words. Only the failed gate's name is read from core's message,
+ * never what the message quotes (the build's or the test runner's output).
+ */
+export function setupWhy(message: string | undefined): string | undefined {
+  if (message === undefined) return undefined;
+  const gate = /^Gate "([^"]+)" failed:/.exec(message)?.[1];
+  if (gate === 'build') return "The last try didn't build.";
+  if (gate === 'valid') return "The last try's files weren't valid.";
+  if (gate?.startsWith('probe') || gate === 'deterministic') return "The last try built, but its tests didn't work.";
+  return "The last try didn't pass Codemm's checks.";
+}
+
 /** A roadmap as the window sees it, named `title`. Core accepts only https sources; main checks again before anything reaches the window (§2.1). */
 export function roadmapView(r: CoreRoadmap, installed: boolean, title = r.goal): Roadmap {
   return {
