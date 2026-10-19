@@ -1,0 +1,95 @@
+name: Install test
+
+# A published release's own installers, installed the way a new learner installs them, on GitHub's
+# Windows, Intel Mac and Apple silicon Mac machines (desktop/e2e/install.spec.ts). These machines can't run
+# Docker Desktop, so Docker and a course stay with the hands-on runs (docs/desktop/journey-mac.md).
+on:
+  release:
+    types: [published]
+  # A change to the test itself runs it on the newest published release.
+  pull_request:
+    paths:
+      - ".github/workflows/install-test.yml"
+      - "desktop/e2e/install.spec.ts"
+      - "desktop/e2e/fake-agent.ts"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to install, e.g. v1.0.0-beta.2
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Install (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows, os: windows-latest, asset: "*-win-x64.exe", docker: windows-containers }
+          - { name: mac-intel, os: macos-15-intel, asset: "*-mac-x64.dmg", docker: missing }
+          - { name: mac-arm64, os: macos-latest, asset: "*-mac-arm64.dmg", docker: missing }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # Only the spec comes from the repository: the app under test is the release's own installer.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install the test driver
+        working-directory: desktop
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - name: Download the installer
+        shell: bash
+        run: |
+          if [ -z "$TAG" ]; then TAG="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')"; fi
+          echo "Installing $TAG"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "${{ matrix.asset }}" --dir installer
+      - name: Install (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem installer\*.exe | Select-Object -First 1
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
+          Start-Sleep -Seconds 5
+          Stop-Process -Name Codemm -Force -ErrorAction SilentlyContinue
+          $app = "$env:LOCALAPPDATA\Programs\Codemm\Codemm.exe"
+          if (-not (Test-Path $app)) { throw "Codemm isn't at $app" }
+          "CODEMM_INSTALLED=$app" >> $env:GITHUB_ENV
+          # A learner's PATH: Windows itself and Docker, with no Node, npm or Git.
+          $path = 'C:\Windows\System32;C:\Windows;C:\Windows\System32\WindowsPowerShell\v1.0'
+          $docker = Get-Command docker -ErrorAction SilentlyContinue
+          if ($docker) { $path += ';' + (Split-Path $docker.Source) }
+          "INSTALL_PATH=$path" >> $env:GITHUB_ENV
+      - name: Install (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          hdiutil attach installer/*.dmg -nobrowse -mountpoint /Volumes/Codemm-install
+          cp -R /Volumes/Codemm-install/Codemm.app /Applications/
+          hdiutil detach /Volumes/Codemm-install
+          echo "CODEMM_INSTALLED=/Applications/Codemm.app/Contents/MacOS/Codemm" >> "$GITHUB_ENV"
+          echo "INSTALL_PATH=/usr/bin:/bin:/usr/sbin:/sbin" >> "$GITHUB_ENV"
+      - name: Run the installed app
+        working-directory: desktop
+        shell: bash
+        env:
+          EXPECT_DOCKER: ${{ matrix.docker }}
+          INSTALL_SHOTS: ${{ runner.temp }}/install-shots
+        run: npx playwright test e2e/install.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: install-test-${{ matrix.name }}
+          path: ${{ runner.temp }}/install-shots
+          if-no-files-found: ignore
