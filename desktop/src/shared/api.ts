@@ -445,7 +445,10 @@ export interface CodemmApi {
 export type JobStep = { kind: 'search'; query: string } | { kind: 'read'; url: string } | { kind: 'step'; label: string };
 
 /** The agent jobs (§3.2): research, a roadmap change, setup, a lesson, an activity (author) and a tutor turn. */
-export type JobKind = 'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor';
+export type AgentJobKind = 'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor';
+
+/** Everything that reports progress (§4.11): the agent jobs, and Codemm's own rebuild of a track. */
+export type JobKind = AgentJobKind | 'rebuild';
 
 /**
  * A running job's progress (§4.11): its stage (an index into JOB_STAGES[kind]), its latest steps and how long it has
@@ -457,6 +460,8 @@ export interface JobProgress {
   kind: JobKind;
   /** The topic a lesson or author job writes for. */
   concept?: string;
+  /** The track's name (not its ref), for a rebuild. */
+  track?: string;
   stage: number;
   /** The latest steps, newest first, at most 8. */
   steps: JobStep[];

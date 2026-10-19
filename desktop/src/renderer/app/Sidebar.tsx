@@ -10,6 +10,7 @@ import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
 import { continueRoute } from './course';
 import { ExternalLink } from '../ui/ExternalLink';
+import { WorkNow } from './WorkNow';
 
 type Section = 'learn' | 'practice' | 'tracks';
 
@@ -66,6 +67,7 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
       <nav className="slim" aria-label="Main">
         <div className="lg"><Mark size={22} /></div>
         {nav}
+        <WorkNow course={course} slim />
         <UpdateNotice slim />
       </nav>
     );
@@ -74,6 +76,7 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
     <nav className="side" aria-label="Main">
       <div className="logo"><Logo height={22} onNavy /></div>
       {nav}
+      <WorkNow course={course} />
       <div className="foot">
         <UpdateNotice />
         {course ? (

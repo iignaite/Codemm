@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import type { JobProgress, JobStep } from '../../shared/api';
 import { JOB_STAGES } from '../../shared/progress';
 import type { HeardJob } from '../app/useJob';
 import { EmmFill } from './EmmFill';
+import { showJob } from './shownJobs';
 
 /** After this long with no event while the agent holds the turn, a quiet line says it is still working (§4.11). */
 export const QUIET_MS = 90_000;
@@ -34,7 +35,7 @@ export const fillOf = (p: JobProgress) => {
 export const partOf = (p: JobProgress) => (p.part && p.part.total > 0 ? (p.kind === 'setup' ? `Step ${p.part.done} of ${p.part.total}` : `${p.part.done} of ${p.part.total}`) : undefined);
 
 /** Ticks once a second, for the elapsed time. */
-function useNow() {
+export function useNow() {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -62,6 +63,8 @@ type Props = {
 export function JobBar({ job, label, compact = false, noLine = false, emm = true }: Props) {
   const { progress: p, at } = job;
   const now = useNow();
+  // This bar is the job's progress on screen: the sidebar stands down. Before paint, so it never shows both.
+  useLayoutEffect(() => showJob(p.job), [p.job]);
   const since = Math.max(0, now - at);
   const stages = JOB_STAGES[p.kind];
   const stage = Math.min(p.stage, stages.length - 1);

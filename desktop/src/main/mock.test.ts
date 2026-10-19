@@ -339,6 +339,23 @@ describe('mock: job progress (§4.11)', () => {
     expect((await api.course())!.setup).toBe('consent');
   });
 
+  it('a rebuild is a job of its own, named for its track: at once, or held when slow', async () => {
+    const { api } = await practising();
+    const heard: JobProgress[] = [];
+    api.onJobProgress((p) => heard.push(p));
+    await api.rebuild((await api.tracks())[0].ref);
+    expect(heard.map((p) => [p.kind, p.track, p.ended ?? false])).toEqual([['rebuild', 'React', false], ['rebuild', 'React', true]]);
+    expect(await api.jobProgress()).toEqual([]);
+
+    const options: MockOptions = {};
+    const slow = await practising(options);
+    options.slow = 1;
+    const rebuilding = slow.api.rebuild((await slow.api.tracks())[0].ref);
+    expect(await slow.api.jobProgress()).toEqual([expect.objectContaining({ kind: 'rebuild', track: 'React' })]);
+    await rebuilding;
+    expect(await slow.api.jobProgress()).toEqual([]);
+  });
+
   it('quiet: every job has been quiet for over 90 seconds', async () => {
     const api = createMock({ quiet: true });
     const heard: JobProgress[] = [];

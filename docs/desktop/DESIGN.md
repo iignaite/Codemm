@@ -373,9 +373,9 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 
 Every long step shows its live progress, so the learner always knows where it is and that it isn't stuck.
 
-- **One channel.** Every agent job (§3.2) reports on the one-way `codemm:job-progress` event, sent to the app's windows only. The preload exposes it as `onJobProgress`, and `invoke('onJobProgress')` is refused. `jobProgress()` lists the jobs running now, so a screen that opens mid-job gets its progress so far.
+- **One channel.** Every agent job (§3.2), and a track rebuild, reports on the one-way `codemm:job-progress` event, sent to the app's windows only. The preload exposes it as `onJobProgress`, and `invoke('onJobProgress')` is refused. `jobProgress()` lists the jobs running now, so a screen that opens mid-job gets its progress so far.
 - **What a report holds** (`JobProgress` in `shared/api.ts`). It is a whole snapshot, so a later one replaces an earlier one.
-  - An opaque id for this run of the job, its kind, and the topic for a lesson or author job.
+  - An opaque id for this run of the job, its kind, the topic for a lesson or author job, and the track's name (never its ref) for a rebuild.
   - The stage reached, an index into `JOB_STAGES` (`shared/progress.ts`).
   - The latest 8 steps, newest first, and a count of all of them. Steps come from the stream parser (§4.9): searches, pages as host and path, and a fixed label per Codemm tool. Searches and pages are shown for research only: another job's agent may still search (Codex has no switch for it), and what it looks up could carry an exercise still being written, which the reply filter doesn't know yet.
   - A retry: "Trying again (2 of 3)" after a failed save, within the bound in §3.2, or 2 of 2 when a failed job is relaunched.
@@ -387,18 +387,27 @@ Every long step shows its live progress, so the learner always knows where it is
   - The save tool (`save_roadmap`, `save_lesson`, `save_exercise`) reaches the last stage. A failed save goes back to the second stage and counts as a retry.
   - Setup stays on "Proposing the setup" while its agent runs. A tutor turn has one stage.
 - **Setup.** The setup job proposes; a proposal after one failed its gates starts as "Trying again (2 of 3)". Once the learner consents, Codemm's own install reports on the same channel: "Building" with core's "Step 3 of 7" (counts only, core §4.4), then "Checking the setup". While Codemm works, the agent isn't thinking.
+- **Rebuild.** A track's rebuild (§5) is Codemm's own job, the `rebuild` kind, started by `rebuild(ref)` and ended when it returns, failed or not. Core reports no steps for it, so it has the one stage, "Building and checking", and never a fraction. The report names the track. Quitting waits for it as before.
 - **Exercise gates.** An author job's server gets `--progress <userData>/progress/<job>.json` (core §8). While `save_exercise` runs, main reads the gate's name from that file every half second: "Codemm is checking that the reference passes", "… that the starter fails" or "… that the tests catch each broken version", as 1, 2 or 3 of 3. Only a known gate name is read; the file is cleared when a save ends and removed with the job.
 - **Safe.** The tracker keeps nothing from a tool's arguments or results, a file or Codemm's records. The reply filter (§2.2) drops a step that shows hidden material, as it does for tutor replies.
 - **Emm fills up** (`renderer/ui/JobBar.tsx`, `ui/EmmFill.tsx`). Progress is Emm, grey with its eye closed, filling with color from the tail to the head as the job reaches each stage. Each stage reached fills its share, a real fraction (build steps, gates) fills within it, and the last share is the job done (a one-stage tutor turn is half full). The fill edge breathes while the stage runs. A retry, or 90 seconds of quiet, dims Emm. Under reduced motion there is no breathing and the fill steps. The fill is a second copy of Emm's artwork clipped to the fraction, so it keeps Emm's exact shape. It is decorative; a `progressbar` around it carries the value and a text such as "Checking the exercise, 0:07".
   - **Full** (topic page, setup, research, the course editor): an 84 px Emm beside the named stages (done in green, the current one in blue, later ones muted) with the time so far, the latest step or "Trying again (2 of 3)" beneath, and "Still working: the agent is thinking." after 90 seconds with no event while the agent thinks. Research's heading Emm is its fill. Where no real fraction exists, it shows the stage and the step, never a percentage.
   - **Compact** (the outline, the tutor rail): a 32 px Emm and the latest step (or the stage); in the outline the time is right-aligned on the label's line. A retry reads "Try 2 of 3". In the outline, the lesson or activity keeps its icon and label on the first line, as the other rows do, and the progress line starts under the label.
 - **Where it shows.**
+  - **Every screen with the sidebar** (`app/WorkNow.tsx`, mounted once in `Sidebar.tsx`): any running job the screen doesn't show itself, under the main navigation. See below.
   - Research: the bar above the live list of searches and pages.
   - The course editor, while "Ask Codemm for changes" or Go deeper runs.
   - The topic page and the outline: a lesson or activity being written shows its job's stages (compact in the outline). A job still waiting its turn keeps the quiet shimmer.
   - The topic page, during setup: proposing, then building and checking.
   - The tutor rail: "Codemm is thinking…" and the turn's latest step.
-- **Mock.** `CODEMM_MOCK=slow-jobs` holds each stage over a few reads, so every state can be seen; `quiet-jobs` also shows the quiet line.
+  - The Tracks page: a rebuild's compact bar on its card, with the time so far. The card's Rebuild is off while it runs, also when the learner left and came back. A failure is said on the card: "Couldn't rebuild React.", or "You're offline. Connect to the internet, then try again." Core's own message, which can name exercises, is never shown. A damaged record still opens the repair banner.
+- **Sidebar.** The learner can leave the page a job started on and still see it.
+  - **What it lists.** Research, a roadmap change, setup, a rebuild, and a lesson or activity being written. Not a tutor turn: its answer belongs to its own screen. One job per kind and topic or track: the furthest along (a proposing agent can end its turn while the install runs).
+  - **Each job** is a button: a small Emm filling as in the bars, what it is ("Setting up Java", "Rebuilding React", "Writing a lesson on Variables", "Researching Java"), and beneath it the stage (for example "Building, step 3 of 7"; "Try 2 of 3" on a retry; "Still working" after 90 seconds of quiet). It shows no time. A retry or a quiet job dims Emm. In the slim sidebar only Emm shows, named by the same words, which also sit in its tooltip.
+  - **Clicking** opens the place the job belongs to: research and its goal, the roadmap's editor (or the course map when it isn't a draft), the current topic for setup, the topic for a lesson or activity, Tracks for a rebuild.
+  - **No duplicate.** Every `JobBar` on screen claims its job (`ui/shownJobs.ts`) before paint, and the sidebar leaves out claimed jobs. A screen that shows a job's bar, in whatever form, therefore never also has it in the sidebar, and a new place that shows a bar needs nothing more.
+  - It reads the same events as the bars (`useJobs`, which `useJob` takes its newest from) and adds no IPC. Research's reports carry no goal, so the sidebar remembers the goal the research screen last ran for.
+- **Mock.** `CODEMM_MOCK=slow-jobs` holds each stage over a few reads, and a rebuild for a few half seconds, so every state can be seen; `quiet-jobs` also shows the quiet line.
 
 ### 4.12 Usage and cost
 
@@ -420,7 +429,7 @@ Infrastructure failures record nothing. Learner-caused outcomes are graded as `e
 |---|---|---|
 | Docker missing, not running, still starting, or stopped mid-session | "This check wasn't counted." and Check this computer (§6.1) | nothing |
 | Offline or low disk during setup | "You're offline." or "Not enough disk space.", then Try again (§6.1) | nothing; no agent runs |
-| Track image missing or changed | "This environment needs a rebuild." with Go to Tracks; "Rebuild" on the track runs `rebuildTrack`, then says "Rebuilt." | nothing |
+| Track image missing or changed | "This environment needs a rebuild." with Go to Tracks; "Rebuild" on the track runs `rebuildTrack` with its progress on the card (§4.11), then says "Rebuilt."; a failure says "Couldn't rebuild React." | nothing |
 | No agent found, or signed out | the connect screen with its fix | nothing |
 | Agent plan limit reached | "Your agent's plan limit is reached. Try again later." | nothing; no relaunch |
 | Offline during an agent job (the agent can't reach its service, or a Codemm tool can't reach the network) | "You're offline. Connect to the internet, then try again." Try again | nothing; no relaunch |

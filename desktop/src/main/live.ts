@@ -728,8 +728,16 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async rebuild(ref) {
+      // A job of its own (§4.11): core reports no steps, so it has the one stage, and ends with the rebuild, failed or not.
+      const tracker = jobTracker('rebuild', { track: trackName(ref) });
+      tracker.reach(0);
+      trackers.set(`rebuild:${ref}`, tracker);
+      tellJob(tracker.snapshot());
       // Tracked and guarded like the install, so quitting waits for it.
-      await whenDockerReady(() => core.rebuildTrack(ref));
+      await whenDockerReady(() => core.rebuildTrack(ref)).finally(() => {
+        trackers.delete(`rebuild:${ref}`);
+        tellJob({ ...tracker.snapshot(), ended: true });
+      });
     },
 
     // The course on screen: the approved one, as course() shows, not a draft being researched.

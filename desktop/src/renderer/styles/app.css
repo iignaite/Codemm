@@ -358,6 +358,17 @@ a.inline:hover { color: var(--ink); }
 /* A new version, at the foot of the sidebar (§7.2). */
 .side .update { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; padding: 12px; border: 1px solid var(--navy-line); border-radius: 10px; color: var(--navy-text); font-size: 13px; }
 .side .update a { color: #9AF0B8; font-weight: 600; }
+/* Codemm's running jobs under the navigation (§4.11): Emm filling, what it is, and its stage. */
+.work { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.work-job { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 10px; border: 1px solid var(--navy-line); border-radius: 10px; background: transparent; color: var(--navy-text); text-align: left; cursor: pointer; transition: background .2s; }
+.work-job:hover { background: rgba(255, 255, 255, .06); }
+/* Emm's unfilled part is grey: on navy it needs more body to be seen. */
+.work-job .emm-fill .emm-base { opacity: .6; }
+.work-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; line-height: 1.3; }
+.work-what { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: #fff; font-weight: 600; font-size: 13px; }
+.work-stage { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--navy-muted); }
+.slim .work { align-items: center; margin-top: 6px; }
+.slim .work-job { width: 44px; height: 44px; padding: 0; justify-content: center; }
 /* Job progress (§4.11): Emm fills from grey to green, tail to head, as the job reaches each stage. */
 .emm-fill { position: relative; display: inline-block; flex-shrink: 0; line-height: 0; }
 .emm-fill .emm { animation: none; }

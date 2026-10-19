@@ -107,7 +107,7 @@ const step = (label: string): JobStep => ({ kind: 'step', label });
 type Beat = { stage: number; step?: JobStep; codemm?: true; retry?: JobProgress['retry']; part?: JobProgress['part'] };
 const CHECKING = step('Codemm is checking the exercise');
 const gate = (n: number, label: string, retry?: JobProgress['retry']): Beat => ({ stage: 2, step: step(label), codemm: true, part: { done: n, total: 3 }, ...(retry ? { retry } : {}) });
-const BEATS: Record<Exclude<JobKind, 'research'> | 'install', Beat[]> = {
+const BEATS: Record<Exclude<JobKind, 'research' | 'rebuild'> | 'install', Beat[]> = {
   roadmap: [{ stage: 0 }, { stage: 1, step: step('Reading the roadmap') }, { stage: 2, step: step('Saving the roadmap'), codemm: true }],
   setup: [{ stage: 0 }, { stage: 0, step: step('Checking the installed tracks') }, { stage: 0, step: step('Proposing the setup'), codemm: true }],
   install: [1, 2, 3, 4, 5].map((done): Beat => ({ stage: 1, codemm: true, part: { done, total: 5 } })).concat([{ stage: 2, codemm: true }]),
@@ -798,8 +798,16 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       advance();
     },
 
+    // A job of its own, named for its track (§4.11); slow holds it for `slow` half seconds, so its states can be seen.
     async rebuild(ref) {
-      if (!tracks.some((t) => t.ref === ref)) throw new Error(`Unknown track: ${ref}`);
+      const track = tracks.find((t) => t.ref === ref);
+      if (!track) throw new Error(`Unknown track: ${ref}`);
+      const job = `mock-${++jobCount}`;
+      const started = Date.now();
+      const at = (): JobProgress => ({ job, kind: 'rebuild', track: track.name, stage: 0, steps: [], count: 0, thinking: false, elapsedMs: Date.now() - started, idleMs: 0 });
+      tellJob(at());
+      if (options.slow) await new Promise((r) => setTimeout(r, options.slow! * 500));
+      tellJob({ ...at(), ended: true });
     },
 
     // What a few jobs might report, to see the Usage section; nothing is counted.
