@@ -23,7 +23,7 @@ case "$1" in
     echo "3.20@sha256:d9e8: Pulling from library/alpine"
     if [ -n "$PULL_ERROR" ]; then echo "$PULL_ERROR" >&2; exit 1; fi
     exit 0 ;;
-  inspect) echo "172.17.0.2" ;;
+  inspect) echo '{"Id":"c1","NetworkSettings":{"Networks":{"bridge":{"IPAddress":"172.17.0.2"}}}}' ;;
   rm) exit 0 ;;
   run)
     case " $* " in *" -d "*) echo "cafebabe"; exit 0 ;; esac

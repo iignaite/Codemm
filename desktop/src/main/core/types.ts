@@ -85,8 +85,11 @@ export interface CoreApp {
   networkIsolation(): Promise<{ name: string; ok: boolean; detail: string; kind?: 'offline' | 'disk' | 'docker' }>;
   /** core sandbox.ts: the arguments that ask the engine for its version and kind of containers. */
   RUNTIME_INFO: string[];
-  /** core sandbox.ts: reads that answer as missing, down, Windows containers or ready. */
-  runtimeStateOf(r: { exit: number; output: string }): 'missing' | 'down' | 'windows' | 'ready';
+  /**
+   * core sandbox.ts: asks that within a bound (null: no answer in time), once more for longer if the engine is silent,
+   * and reads the answer as missing, down, busy (never answered), Windows containers or ready.
+   */
+  runtimeState(ask: (timeoutMs: number) => Promise<{ exit: number; output: string } | null>): Promise<'missing' | 'down' | 'busy' | 'windows' | 'ready'>;
   readWorkspace(ws: string): { course?: string; current?: string };
   /** An exercise's solution, mutants, hidden tests and hidden expected outputs, for the reply filter only. */
   hiddenMaterial(course: string, slug: string): string[];

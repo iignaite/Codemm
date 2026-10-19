@@ -63,6 +63,13 @@ describe('lessonParts', () => {
     expect((first as { html: string }).html).toContain('Text');
   });
 
+  it('cuts the lesson at a top-level mermaid fence, and leaves one inside a list or another fence as code', () => {
+    const parts = lessonParts('Before\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\nAfter\n\n- item\n\n  ```mermaid\n  flowchart TD\n  ```\n\n````md\n```mermaid\nx\n```\n````\n');
+    expect(parts.map((p) => ('diagram' in p ? 'diagram' : 'html'))).toEqual(['html', 'diagram', 'html']);
+    expect(parts[1]).toEqual({ diagram: 'flowchart TD\n  A --> B' });
+    expect((parts[2] as { html: string }).html).toContain('<pre><code class="language-mermaid">');
+  });
+
   it('shows, never runs, an example fence inside another fence or indented', () => {
     const parts = lessonParts(`\`\`\`\`md\n${fence(1)}\n\`\`\`\`\n\n    \`\`\`example\n    2\n    \`\`\`\n`);
     expect(parts.every((p) => 'html' in p)).toBe(true);

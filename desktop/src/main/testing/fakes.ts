@@ -19,7 +19,8 @@ type FakeRoadmap = { course: string; goal: string; track: string; style: string;
 const DOCKER_DOWN = "The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.";
 
 /** An error as core throws it: a CodemmError, with its kind when it has one (src/errors.ts). */
-export const coreError = (message: string, kind?: CoreErrorKind) => Object.assign(new Error(message), { name: 'CodemmError', ...(kind ? { kind } : {}) });
+/** A CodemmError as core throws it: with its kind, and for this computer's problems its code (core src/errors.ts INFRA). */
+export const coreError = (message: string, kind?: CoreErrorKind, code?: string) => Object.assign(new Error(message), { name: 'CodemmError', ...(kind ? { kind } : {}), ...(code ? { code } : {}) });
 
 /** A program that asks for a name and greets it; stops when killed. */
 function greeter(output: (text: string, stream: 'stdout' | 'stderr') => void, options?: { onStart?: (stage: 'build' | 'run', limitMs: number) => void }): CoreProgramRun {
@@ -114,7 +115,7 @@ export function fakeCore() {
     JOB_BRIEFS,
     networkIsolation: async () => ({ name: 'network isolation', ok: true, detail: 'blocked' }),
     RUNTIME_INFO: ['info'],
-    runtimeStateOf: () => 'ready',
+    runtimeState: async () => 'ready',
     readWorkspace: () => ({ course: c.roadmap?.course, current: c.current }),
     hiddenMaterial: () => [CANARY, 'printf("CANARY-MUTANT-LINE %d", count + 2);', 'CANARY-HIDDEN-INPUT-LINE with enough length', 'CANARY-EXPECTED-OUTPUT-LINE 42'],
     listTracks: () => c.tracks.map((track) => ({ track, styles: ['io'], files: ['main.c'] })),

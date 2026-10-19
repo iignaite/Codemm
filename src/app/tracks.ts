@@ -1,7 +1,7 @@
-import { CodemmError } from "../errors.js";
+import { CodemmError, infraError } from "../errors.js";
 import { assertPortablePaths, type FileMap, validateFileMap } from "../files.js";
 import { checkTrackFiles, type TrackProgress, verifyExercise, verifyTrack } from "../gates.js";
-import { cli as sandboxCli } from "../sandbox.js";
+import { runtimeCode, runtimeDown, cli as sandboxCli } from "../sandbox.js";
 import { type TrackRecord } from "../schemas.js";
 import * as store from "../store.js";
 import { installedTrack, quietly } from "./shared.js";
@@ -144,7 +144,11 @@ export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exer
       throw new CodemmError(`The rebuilt image behaves differently, so it wasn't accepted:\n${changed.join("\n")}`);
     }
     const tagged = await sandboxCli(["tag", verified.imageId, old.image]);
-    if (tagged.exit !== 0) throw new CodemmError(`Couldn't promote the rebuilt image, so nothing changed: ${tagged.output.trim().slice(0, 300)}`);
+    if (tagged.exit !== 0) {
+      const down = await runtimeDown();
+      if (down) throw infraError(down.message, down.code);
+      throw infraError(`Couldn't promote the rebuilt image, so nothing changed: ${tagged.output.trim().slice(0, 300)}`, runtimeCode(tagged.output, "image-id"));
+    }
     store.writeTrackRecord(ref, track);
     // The image keeps its installed tag, so dropping the candidate tag only untags it.
     await sandboxCli(["image", "rm", candidate]);

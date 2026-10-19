@@ -37,7 +37,7 @@ Each state has a mock scenario, a test, and a specific next step on screen. Infr
 
 Check this computer runs three checks in order: Docker is installed, Docker is running, and the sandbox works. Only the first failing check shows its fix. It re-checks every 5 seconds, and at once when the window regains focus, until all three pass.
 
-To click through a state, run `CODEMM_MOCK=no-docker npm start` (on Windows PowerShell: `$env:CODEMM_MOCK="no-docker"; npm start`). Packaged builds ignore the flag. `CODEMM_MOCK=slow-jobs` slows every agent job so its staged progress can be seen, and `quiet-jobs` adds the 90-second quiet line.
+To click through a state, run `CODEMM_MOCK=no-docker npm start` (on Windows PowerShell: `$env:CODEMM_MOCK="no-docker"; npm start`). Packaged builds ignore the flag. A development run shares an installed Codemm's profile, and Codemm runs once per profile, so with Codemm open `npm start` only brings it to the front: quit Codemm first, or add `-- --user-data-dir=<a folder>`. `CODEMM_MOCK=slow-jobs` slows every agent job so its staged progress can be seen, and `quiet-jobs` adds the 90-second quiet line.
 
 ## Layout
 
@@ -45,6 +45,7 @@ To click through a state, run `CODEMM_MOCK=no-docker npm start` (on Windows Powe
 src/shared/api.ts      the IPC contract (D3): every call, its learner-safe view, and the error codes
 src/shared/roadmap.ts  roadmap edit rules (§4.2): stable ids, refused moves and removals
 src/shared/models.json the recommended minimum model per agent, from docs/bench (§3.3)
+src/main/boot.ts       the entry point: a second launch shows the open window and quits
 src/main/main.ts       window, security settings, the IPC handler (sender check)
 src/main/ipc.ts        validates every call's method and arguments before Codemm sees them
 src/main/mock.ts       in-memory CodemmApi and its named environment scenarios

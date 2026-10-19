@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CodemmApi } from '../shared/api';
 import { errorFields } from './errors';
+import { secondLaunch } from './instance';
 import { handler } from './ipc';
 import { openOutside } from './links';
 import { createLog } from './log';
@@ -35,7 +36,7 @@ const live = mock ? null : liveApi({ coreDir: app.isPackaged ? join(process.reso
 // Auto-update (§7.2): in an installed app, on GitHub Releases. In development only, CODEMM_UPDATE_FEED points the
 // check at a local feed instead, for tests; an installed app ignores it.
 const feed = app.isPackaged ? undefined : process.env.CODEMM_UPDATE_FEED;
-const updater = app.isPackaged || feed ? updates({ signed: signedBuild(), updater: electronUpdater(app.getVersion(), signedBuild(), feed), log, cleanup: () => shutdown() }) : undefined;
+const updater = app.isPackaged || feed ? updates({ signed: signedBuild(), updater: electronUpdater(app.getVersion(), signedBuild(), feed), log, cleanup: () => shutdown(true) }) : undefined;
 const codemm: CodemmApi = withUpdates(live ?? devMock());
 
 /** Whether this build was signed: packaging.cjs records it in the packaged package.json. */
@@ -102,6 +103,22 @@ function createWindow() {
   void win.loadURL(`${ORIGIN}/index.html`);
 }
 
+// A second launch quit before it started anything (boot.ts): the learner gets this Codemm's window instead, or, while
+// this one quits, Codemm again once it has stopped (§2).
+let relaunching = false;
+app.on('second-instance', () =>
+  secondLaunch({
+    quitting: stopping !== undefined,
+    updating,
+    win: BrowserWindow.getAllWindows()[0],
+    open: () => void (app.isReady() && createWindow()),
+    relaunch: () => {
+      if (!relaunching) app.relaunch();
+      relaunching = true;
+    },
+  }),
+);
+
 // Every web contents: no navigation, no webviews, and no new windows. A link opens
 // in the learner's browser, and only for https URLs (§2.1).
 app.on('web-contents-created', (_event, contents) => {
@@ -135,7 +152,10 @@ void app.whenReady().then(() => {
 // installer starts (updates.ts).
 let stopping: Promise<void> | undefined;
 let stopped = false;
-function shutdown(): Promise<void> {
+/** The shutdown is Restart to update's: the installer opens Codemm again. */
+let updating = false;
+function shutdown(forUpdate = false): Promise<void> {
+  updating ||= forUpdate;
   stopping ??= (live ? live.stop() : Promise.resolve()).catch(() => undefined).finally(() => {
     stopped = true;
   });

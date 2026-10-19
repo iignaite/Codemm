@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { doctor } from "../src/doctor.js";
 import { readFileMap } from "../src/files.js";
-import { buildImage, runtimeHelp, startHelp } from "../src/sandbox.js";
+import { buildImage, inspectImage, runtimeHelp, startHelp } from "../src/sandbox.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import * as store from "../src/store.js";
 import { fakeDocker, posix } from "./fake-docker.js";
@@ -115,6 +115,15 @@ describe.runIf(posix)("installing a track", () => {
     await expect(failure).rejects.not.toThrow(/Gate/);
   });
 
+  it("reads a Docker 29 image, which leaves out Config.Volumes when it declares none", async () => {
+    fakeDocker("docker29");
+    await expect(inspectImage("sha256:fake")).resolves.toEqual({ id: "sha256:fake", hasVolumes: false });
+    // Installing goes past the image check, to the checks this fake can't run.
+    await expect(app.saveTrack(track())).rejects.not.toThrow(/couldn't inspect|image record/);
+    fakeDocker("builds");
+    await expect(inspectImage("sha256:fake")).resolves.toEqual({ id: "sha256:fake", hasVolumes: false });
+  });
+
   it("reports a setup's build steps, then its checks, as phases and counts only", async () => {
     fakeDocker("builds");
     await app.proposeTrack(track());
@@ -159,6 +168,16 @@ describe.runIf(posix)("a check that loses Docker mid-run", () => {
     const ws = await installedExercise();
     fakeDocker(scenario);
     await expect(app.checkExercise(ws)).rejects.toThrow(message);
+    expect(store.readEvents("shell")).toEqual([]);
+  });
+});
+
+describe.runIf(posix)("a track image without /bin/sh", () => {
+  it("is the track's to fix, not Docker's, and records nothing", async () => {
+    const ws = await installedExercise();
+    fakeDocker("nosh");
+    const failure = await app.checkExercise(ws).catch((e: Error) => e);
+    expect(failure).toMatchObject({ name: "CodemmError", kind: undefined, code: undefined, message: expect.stringMatching(/^The track image can't run \/bin\/sh \(exit 127\)/) });
     expect(store.readEvents("shell")).toEqual([]);
   });
 });

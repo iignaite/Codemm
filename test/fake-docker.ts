@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { vi } from "vitest";
 import { tempDir } from "./temp.js";
 
-export type Scenario = "missing" | "down" | "offline" | "disk-full" | "stops" | "drops" | "oom" | "killed" | "builds" | "no-iid" | "interactive" | "untileof" | "waits" | "ignores" | "exits124" | "euro" | "forges" | "quickkill" | "timesout" | "exits138" | "buildtimesout" | "childoom" | "streams" | "echoes" | "no-image" | "nospace" | "leaks-build" | "leaks" | "leaks-start" | "notests" | "notests-disk" | "srcout" | "inspect-fails" | "caseoom" | "casekill" | "unitoom";
+export type Scenario = "missing" | "down" | "offline" | "disk-full" | "stops" | "drops" | "oom" | "killed" | "builds" | "no-iid" | "interactive" | "untileof" | "waits" | "ignores" | "exits124" | "euro" | "forges" | "quickkill" | "timesout" | "exits138" | "buildtimesout" | "childoom" | "streams" | "echoes" | "no-image" | "nospace" | "leaks-build" | "leaks" | "leaks-start" | "notests" | "notests-disk" | "srcout" | "inspect-fails" | "docker29" | "caseoom" | "casekill" | "unitoom" | "nosh";
 
 /** Node can't run a shell script without a shell on Windows, so only "missing" works there. */
 export const posix = process.platform !== "win32";
