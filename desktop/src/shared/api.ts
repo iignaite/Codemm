@@ -202,6 +202,8 @@ export interface TopicView {
 }
 
 export interface CourseView {
+  /** The course's short name, when it has one: the map's heading, with the goal under it. */
+  name?: string;
   goal: string;
   track: string;
   setup: SetupState;

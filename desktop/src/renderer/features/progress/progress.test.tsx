@@ -260,6 +260,20 @@ describe('course path', () => {
     expect(again.container.querySelectorAll('.seg.on')).toHaveLength(0);
   });
 
+  it("heads the map with the course's short name and the goal under it, or the goal alone", async () => {
+    const { api } = await mockWithCourse();
+    const real = (await api.course())!;
+    const goal = 'I want to build interactive web apps with React for my final-year project';
+    api.course = async () => ({ ...real, goal, name: 'React' });
+    const view = renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('heading', { level: 1, name: 'React' })).toBeInTheDocument();
+    expect(within(screen.getByRole('main')).getByText(goal).tagName).toBe('P');
+    view.unmount();
+    api.course = async () => ({ ...real, goal });
+    renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('heading', { level: 1, name: goal })).toBeInTheDocument();
+  });
+
   it('counts the topics mastered', async () => {
     const { api } = await mockWithCourse();
     await master(api, 2);
@@ -291,33 +305,31 @@ describe('usage', () => {
     ...over,
   });
 
-  it("shows the course's tokens, and Claude's cost as its estimate once, with no claim about billing", async () => {
+  it("shows the course's estimated cost, with no agent name, token counts or claim about billing", async () => {
     const { api } = await mockWithCourse();
     api.usage = async () => usage();
     renderApp({ to: 'learn' }, api);
     const section = await screen.findByRole('region', { name: 'Usage' });
-    expect(section).toHaveTextContent('Tokens in182,400');
-    expect(section).toHaveTextContent('Tokens out12,300');
-    expect(section).toHaveTextContent("Claude's estimate$0.42");
-    // The row's label says it's an estimate; no footnote says it again.
-    expect(section.textContent!.match(/estimate/g)).toHaveLength(1);
-    // Codemm can't tell a plan from an API key, so it says nothing about either.
+    expect(section).toHaveTextContent('Estimated cost$0.42');
+    // Agent names stay on the connect screen, and token counts are the agent's bookkeeping.
+    expect(section).not.toHaveTextContent('Claude');
+    expect(section).not.toHaveTextContent(/token/i);
+    // Codemm can't tell a plan from an API key, so it says nothing about either, and promises nothing about charges.
     expect(section).not.toHaveTextContent('plan');
-    // No promise about charges: Codemm can't tell a plan from an API key.
     expect(section).not.toHaveTextContent('charge');
   });
 
-  it('shows no cost when none was reported, and refreshes as jobs finish', async () => {
+  it('shows nothing until the agent reports a cost, then refreshes as jobs finish', async () => {
     const { api } = await mockWithCourse();
     let total = { input: 10, output: 2, cachedInput: 0, costUsd: 0, runs: 1 };
     api.usage = async () => usage({ total });
     renderApp({ to: 'learn' }, api);
-    const section = await screen.findByRole('region', { name: 'Usage' });
-    expect(section).not.toHaveTextContent('estimate');
+    await screen.findByRole('list', { name: 'Topics' });
+    expect(screen.queryByRole('region', { name: 'Usage' })).not.toBeInTheDocument();
     // Whenever the map reads the course again (here: the window regains focus), it reads usage too.
-    total = { ...total, input: 500, runs: 2 };
+    total = { ...total, costUsd: 0.004, runs: 2 };
     window.dispatchEvent(new Event('focus'));
-    await waitFor(() => expect(section).toHaveTextContent('Tokens in500'));
+    expect(await screen.findByRole('region', { name: 'Usage' })).toHaveTextContent('Estimated costunder $0.01');
   });
 
   it('is hidden until an agent has run for the course', async () => {

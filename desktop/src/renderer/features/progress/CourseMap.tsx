@@ -25,7 +25,10 @@ export function CourseMap() {
   return (
     <main className="main map">
       <div className="map-main">
-        <h1 className="h2 a-up">{course.goal}</h1>
+        <div className="map-head a-up">
+          <h1 className="h2">{course.name ?? course.goal}</h1>
+          {course.name && <p className="sub">{course.goal}</p>}
+        </div>
         <SetupProgress course={course} />
         <Path course={course} />
       </div>
@@ -53,33 +56,26 @@ function Aside({ course, usage }: { course: CourseView; usage: Usage | null }) {
           </div>
         ))}
       </section>
-      {usage && usage.total.runs > 0 && <UsageCard usage={usage} />}
+      {usage && usage.total.costUsd > 0 && <UsageCard cost={usage.total.costUsd} />}
     </aside>
   );
 }
 
-const tokens = (n: number) => n.toLocaleString('en-US');
 const dollars = (n: number) => (n < 0.01 ? 'under $0.01' : `$${n.toFixed(2)}`);
 
-/** What the agent reported using for this course: tokens, and Claude's own cost estimate when it gave one (§4.12). */
-function UsageCard({ usage }: { usage: Usage }) {
-  const { total } = usage;
+/**
+ * What the agent estimated the course has cost so far, once it reported a cost (§4.12). Only the estimate: token
+ * counts are the agent's bookkeeping, agent names stay on the connect screen, and Codemm can't tell a plan from an
+ * API key, so it says nothing about billing.
+ */
+function UsageCard({ cost }: { cost: number }) {
   return (
     <section className="card usage a-up" style={stagger(2)} aria-labelledby="usage-t">
       <h2 className="h3" id="usage-t">Usage</h2>
       <dl>
-        <dt>Tokens in</dt>
-        <dd>{tokens(total.input)}</dd>
-        <dt>Tokens out</dt>
-        <dd>{tokens(total.output)}</dd>
-        {total.costUsd > 0 && (
-          <>
-            <dt>Claude's estimate</dt>
-            <dd>{dollars(total.costUsd)}</dd>
-          </>
-        )}
+        <dt>Estimated cost</dt>
+        <dd>{dollars(cost)}</dd>
       </dl>
-      {/* The row says it's Claude's estimate, and nothing more: Codemm can't tell a plan from an API key. */}
     </section>
   );
 }

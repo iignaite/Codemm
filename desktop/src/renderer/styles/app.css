@@ -58,10 +58,6 @@ button, input, textarea { font: inherit; color: inherit; }
 .field::placeholder { color: var(--faint); }
 textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: vertical; }
 .composer { display: flex; gap: 8px; align-items: center; }
-.actions.approve { justify-content: flex-end; }
-/* A long roadmap scrolls under its Approve, which stays at the bottom of the window. The editor's page has 40 px of
-   padding below it, so the row sticks into that padding and covers it. */
-.actions.approve { position: sticky; bottom: -40px; z-index: 1; padding: 12px 0 52px; background: var(--ground); }
 .row { display: flex; gap: 14px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line); font-size: 15px; font-weight: 500; }
 .row:first-child { border-top: none; }
 .row.off { color: var(--faint); }
@@ -128,6 +124,22 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .row .pill { margin-left: auto; }
 
 /* ---------- Course editor ---------- */
+/* The topics scroll above a footer of their own, so asking, Codemm's reply and Approve stay in view, uncovered. */
+.main.editor { overflow: hidden; }
+.editor-body { flex: 1; min-height: 0; overflow-y: auto; padding: 40px 20px 24px; display: flex; flex-direction: column; align-items: center; }
+.editor-col { width: 720px; max-width: 100%; }
+.editor-foot { flex: none; padding: 14px 20px 18px; display: flex; justify-content: center; background: var(--card); border-top: 1px solid var(--line); }
+.editor-foot [role="status"] { margin: 0; }
+.editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.editor-actions .composer { flex: 1 1 320px; }
+.editor-actions > .btn { margin-left: auto; }
+/* Sources sit under the heading as one quiet line, so a long roadmap doesn't hide them. */
+.editor .sources { margin: 0 0 4px; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: 13.5px; color: var(--muted); }
+.editor .sources h2 { margin: 0; font: 600 13.5px var(--sans); }
+.editor .sources ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13.5px; }
+.deeper { height: 32px; flex-shrink: 0; padding: 0 10px; border: none; border-radius: 8px; background: transparent; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font: 600 13px var(--sans); cursor: pointer; }
+.deeper:hover:not(:disabled) { background: var(--soft); color: var(--ink); }
+.deeper:disabled { opacity: .45; cursor: default; }
 .topics { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .topic { position: relative; height: 54px; padding: 0 8px 0 6px; display: flex; align-items: center; gap: 8px; }
 .topic .num { width: 22px; font: 600 13px var(--sans); color: var(--blue); }
@@ -231,6 +243,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .map-main { flex: 1; min-width: 0; padding: 36px 48px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
 .map-side { width: 360px; flex-shrink: 0; padding: 36px 24px; background: #fff; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px; overflow: auto; }
 .map-side .card { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.map-head { max-width: 760px; display: flex; flex-direction: column; gap: 6px; }
 .tally { margin: -4px 0 4px; color: var(--muted); font-size: 14px; }
 .tally b { margin-right: 2px; color: var(--ink); font: 600 34px/1 var(--display); }
 /* The path (Path.tsx): topics as leaves on Emm's branch, green as far as the learner has come. Each stop's --d times
@@ -439,6 +452,12 @@ h1[tabindex="-1"]:focus { outline: none; }
 /* A screen's column never outgrows the window, even with its width set inline (WCAG reflow). */
 .center > * { min-width: 0; max-width: 100%; }
 .main > .stack { max-width: calc(100% - 40px); }
+
+/* Short windows (200% zoom and more): the editor's footer joins the page's flow, so it never fills the window. */
+@media (max-height: 560px) {
+  .main.editor { overflow-y: auto; }
+  .editor-body { flex: none; overflow: visible; }
+}
 
 /* Narrow: under 760 px, a narrow window or 200% zoom and more. The sidebar slims (Sidebar.tsx), rows wrap, padding shrinks. */
 @media (max-width: 760px) {
