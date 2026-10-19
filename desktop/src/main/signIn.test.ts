@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -48,8 +49,8 @@ describe("the agent's own sign-in, where the learner sees it", () => {
     expect(f.started).toEqual([
       { file: POWERSHELL, args: ['-NoProfile', '-NonInteractive', '-Command', CONSOLE], env: { CODEMM_FILE: 'C:\\Users\\Ann Lee\\.local\\bin\\claude.exe', CODEMM_ARGS: 'auth login' } },
     ]);
-    // Start-Process opens it through the Windows shell, so a console program gets a window of its own.
-    expect(CONSOLE).toBe('Start-Process -FilePath $env:CODEMM_FILE -ArgumentList $env:CODEMM_ARGS');
+    // The Windows shell opens it, so a console program gets a window of its own.
+    expect(CONSOLE).toContain("New-Object Diagnostics.ProcessStartInfo $env:CODEMM_FILE, $env:CODEMM_ARGS; $i.UseShellExecute = $true");
     expect(f.written).toEqual([]);
   });
 
@@ -90,6 +91,13 @@ describe.runIf(process.platform === 'win32')('on this Windows, for real', () => 
     writeFileSync(script, `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.argv.slice(2)))`);
     await agentSignIn(nodeSignInDeps(process.execPath))('claude', { path: script, js: true });
     for (let i = 0; i < 100 && !existsSync(out); i++) await new Promise((r) => setTimeout(r, 300));
+    // If it never ran, PowerShell's own words say why.
+    const why = () => {
+      const env = { ...process.env, CODEMM_FILE: process.execPath, CODEMM_ARGS: `"${script}" auth login` };
+      const r = spawnSync(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', CONSOLE], { env, encoding: 'utf8', timeout: 30_000 });
+      return `PowerShell exit ${r.status}: ${r.stdout}${r.stderr}${r.error ?? ''}`;
+    };
+    expect(existsSync(out), existsSync(out) ? '' : why()).toBe(true);
     expect(JSON.parse(readFileSync(out, 'utf8'))).toEqual(['auth', 'login']);
   });
 });

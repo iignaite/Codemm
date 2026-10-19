@@ -29,9 +29,10 @@ const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const winQuote = (s: string) => (/\s/.test(s) ? `"${s}"` : s);
 /**
  * Opens a program through the Windows shell, as a double-click does, so a console program gets a console window of
- * its own. The program and its arguments arrive as environment variables, never inside the command text.
+ * its own. The program and its arguments arrive as environment variables, never inside the command text. .NET's
+ * Process.Start, as Docker's elevated install uses (dockerDesktop.ts).
  */
-export const CONSOLE = 'Start-Process -FilePath $env:CODEMM_FILE -ArgumentList $env:CODEMM_ARGS';
+export const CONSOLE = '$i = New-Object Diagnostics.ProcessStartInfo $env:CODEMM_FILE, $env:CODEMM_ARGS; $i.UseShellExecute = $true; $null = [Diagnostics.Process]::Start($i)';
 
 export function agentSignIn(d: SignInDeps) {
   return async (id: AgentId, exe: Executable): Promise<void> => {
@@ -68,7 +69,9 @@ export function nodeSignInDeps(runtime: string): SignInDeps {
     inode: (file) => statSync(file).ino,
     start: (file, args, env) =>
       new Promise((resolve, reject) => {
-        const child = spawn(file, args, { detached: true, stdio: 'ignore', env: { ...process.env, ...env } });
+        // On Windows, a detached program has no console at all, and one Codemm started shows none: hidden, it ends on its
+        // own (PowerShell, once it has opened the agent's console window).
+        const child = spawn(file, args, { detached: process.platform !== 'win32', windowsHide: true, stdio: 'ignore', env: { ...process.env, ...env } });
         child.once('error', reject);
         child.once('spawn', () => {
           child.unref();
