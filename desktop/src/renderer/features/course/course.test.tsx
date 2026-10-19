@@ -121,12 +121,16 @@ describe('course editor', () => {
     await user.click(screen.getByRole('button', { name: 'Rename JSX' }));
     await user.clear(screen.getByRole('textbox', { name: 'Topic name' }));
     await user.type(screen.getByRole('textbox', { name: 'Topic name' }), 'JSX basics{Enter}');
+    saved.length = 0;
     await user.click(screen.getByRole('button', { name: 'Go deeper on JSX basics' }));
     expect(await screen.findByRole('listitem', { name: 'JSX expressions' })).toBeInTheDocument();
     expect(names()).toContain('JSX basics');
     expect(names()).not.toContain('What is JSX?');
     expect(asked[0]).toContain('"JSX basics"');
-    expect(saved.at(-1)!.find((c) => c.id === 'jsx')!.title).toBe('JSX basics');
+    // The restored title is saved with the split, so the draft keeps it too.
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]!.map((c) => c.title)).toEqual(expect.arrayContaining(['JSX basics', 'JSX expressions']));
+    expect(saved[0]!.map((c) => c.title)).not.toContain('What is JSX?');
   });
 
   it('keeps a topic name and a requested change within their limits, and says so', async () => {

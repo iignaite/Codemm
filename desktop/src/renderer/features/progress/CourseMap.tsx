@@ -26,7 +26,7 @@ export function CourseMap() {
     <main className="main map">
       <div className="map-main">
         <div className="map-head a-up">
-          <h1 className="h2">{course.name ?? course.goal}</h1>
+          <h1 className="h2">{course.name || course.goal}</h1>
           {course.name && <p className="sub">{course.goal}</p>}
         </div>
         <SetupProgress course={course} />

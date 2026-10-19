@@ -128,7 +128,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .main.editor { overflow: hidden; }
 .editor-body { flex: 1; min-height: 0; overflow-y: auto; padding: 40px 20px 24px; display: flex; flex-direction: column; align-items: center; }
 .editor-col { width: 720px; max-width: 100%; }
-.editor-foot { flex: none; padding: 14px 20px 18px; display: flex; justify-content: center; background: var(--card); border-top: 1px solid var(--line); }
+.editor-foot { flex: none; max-height: 50%; overflow-y: auto; padding: 14px 20px 18px; display: flex; justify-content: center; background: var(--card); border-top: 1px solid var(--line); }
 .editor-foot [role="status"] { margin: 0; }
 .editor-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
 .editor-actions .composer { flex: 1 1 320px; }
@@ -141,9 +141,9 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .deeper:hover:not(:disabled) { background: var(--soft); color: var(--ink); }
 .deeper:disabled { opacity: .45; cursor: default; }
 .topics { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.topic { position: relative; height: 54px; padding: 0 8px 0 6px; display: flex; align-items: center; gap: 8px; }
+.topic { position: relative; min-height: 54px; padding: 0 8px 0 6px; display: flex; align-items: center; gap: 8px; }
 .topic .num { width: 22px; font: 600 13px var(--sans); color: var(--blue); }
-.topic .name { flex: 1; min-width: 0; font-size: 15px; font-weight: 500; }
+.topic .name { flex: 1; min-width: 0; font-size: 15px; font-weight: 500; overflow-wrap: anywhere; }
 .topic input.name { height: 38px; padding: 0 10px; border: 1px solid var(--ctl); border-radius: 8px; }
 .menu { position: absolute; left: 8px; top: 48px; z-index: 3; padding: 6px; display: flex; flex-direction: column; box-shadow: 0 12px 30px rgba(14, 39, 84, .18); transform-origin: top left; }
 .menu .btn { justify-content: flex-start; }
@@ -485,7 +485,7 @@ h1[tabindex="-1"]:focus { outline: none; }
   /* A roadmap row: its title on the first line, its buttons under it on the right. */
   .topic { height: auto; min-height: 54px; flex-wrap: wrap; padding: 6px 8px 6px 6px; }
   .topic .name { flex: 1 1 calc(100% - 70px); overflow-wrap: anywhere; }
-  .topic .name + .ibtn { margin-left: auto; }
+  .topic .name + .deeper, .topic .name + .ibtn { margin-left: auto; }
   .outcome { flex-direction: column; align-items: flex-start; }
   .outcome .won { white-space: normal; }
   .tline, .cmp { flex-wrap: wrap; }

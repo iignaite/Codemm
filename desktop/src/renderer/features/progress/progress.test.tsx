@@ -269,7 +269,8 @@ describe('course path', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'React' })).toBeInTheDocument();
     expect(within(screen.getByRole('main')).getByText(goal).tagName).toBe('P');
     view.unmount();
-    api.course = async () => ({ ...real, goal });
+    // An empty name is no name.
+    api.course = async () => ({ ...real, goal, name: '' });
     renderApp({ to: 'learn' }, api);
     expect(await screen.findByRole('heading', { level: 1, name: goal })).toBeInTheDocument();
   });
