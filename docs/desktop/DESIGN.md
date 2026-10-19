@@ -279,6 +279,8 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - Remove is refused when another topic requires it ("‹title› needs this topic"). Core also rejects removing a concept that an exercise, event or lesson uses; the lesson part is new. Prerequisites are never rewritten silently.
   - Prerequisite changes go through "Ask Codemm for changes".
   - While "Ask Codemm for changes" or Go deeper runs, the learner's own edits wait: rename, remove, move, drag and add are off, and an open rename closes unsaved. Codemm changes the roadmap as it stood, so its result never overwrites an edit made meanwhile.
+  - Go deeper keeps the learner's title on the topic it splits. The request asks the agent to keep the topic, with its id and title, as the first piece; if the result keeps the id but retitles it, the app puts the learner's title back and saves the draft.
+- **The editor screen.** The topics scroll above a footer of their own, which holds the change's progress (§4.11), Codemm's reply or a refused edit's reason, "Ask Codemm for changes" and Approve. Nothing covers them, however long the roadmap. The footer takes at most half the window and scrolls past that, so a long reply never pushes Approve out of reach. In a window under 560 CSS px tall (200% zoom on most windows) the footer joins the page's flow instead. Each row says "Go deeper" in words; move, rename and remove are icons named on hover.
 - **A fresh start after a new prerequisite.** When a re-save adds a prerequisite to a concept that is stuck, `save_roadmap` appends `{ kind: "retry", at, concept }`. Replaying a `retry` resets that concept's fail streak and leaves mastery unchanged. Without it, the concept would be stuck again as soon as the new prerequisite was mastered.
 
 ### 4.3 Lessons
@@ -348,7 +350,7 @@ With neither option, the server behaves as in core.
 Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In the app:
 
 - **Due.** A due review shows as "Review" on the course map and the topic page, and the activity opens with a "Review" label. If no unused exercise fits, an author job writes one (`review: true`), shown as the review being written. A review comes due with time, not with a learner action, so reading the course starts that job when it isn't running (an exception to D9's "reads start nothing", which is about reopening saved work). The course map and topic page re-read the course when the window regains focus, and every 10 minutes once settled, so a review that came due while the app was open shows up.
-- **Scheduled.** The mastery panel, and the completed-course screen, show "Review tomorrow" or "Review in N days" for a mastered topic. They never show dates. Overdue reviews wait their turn behind the one being offered, without a countdown.
+- **Scheduled.** The course map, beside the mastered topic on its path, and the completed-course screen show "Review tomorrow" or "Review in N days" for a mastered topic. They never show dates. Overdue reviews wait their turn behind the one being offered, without a countdown.
 - **Outcome.** A review is an ordinary Check. A pass keeps the topic mastered; a fail sends it back to practice.
 
 ### 4.8 Check progress
@@ -368,7 +370,7 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 - **Reads become sources.** When research has saved the roadmap, the https pages it read join the agent's own `sources` (at most 10), saved through core's roadmap rules.
 
 - **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
-- **Showing.** The roadmap and course-edit screens show a quiet "Sources" list. Each link opens only after a click, in the system browser, through main's `shell.openExternal`, and main accepts only https links. Nothing loads inside the app window.
+- **Showing.** The roadmap and course-edit screens show a quiet "Sources" line under the heading, so a long roadmap never pushes it out of view. Each link opens only after a click, in the system browser, through main's `shell.openExternal`, and main accepts only https links. Nothing loads inside the app window.
 
 ### 4.10 Run and the terminal pane
 
@@ -415,7 +417,7 @@ Every long step shows its live progress, so the learner always knows where it is
   - Research: the bar above the live list of searches and pages.
   - The course editor, while "Ask Codemm for changes" or Go deeper runs.
   - The topic page and the outline: a lesson or activity being written shows its job's stages (compact in the outline). A job still waiting its turn keeps the quiet shimmer.
-  - The topic page, during setup: proposing, then building and checking.
+  - The topic page and the course map, during setup: proposing, then building and checking.
   - The tutor rail: "Codemm is thinking…" and the turn's latest step.
 - **Mock.** `CODEMM_MOCK=slow-jobs` holds each stage over a few reads, so every state can be seen; `quiet-jobs` also shows the quiet line.
 
@@ -429,7 +431,29 @@ Every long step shows its live progress, so the learner always knows where it is
 - **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs). It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs.
   - Only tutor sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor session (a crashed turn can report 0) and adds only the rise.
   - One app process owns userData (§2), as with `desktop.json`, so no second instance writes it at the same moment.
-- **Screen:** the course map's side column shows a small Usage card for the approved course, once an agent has run for it: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. It's read again whenever the map reads the course. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so the cost's label, "Claude's estimate", is all it says: nothing about billing.
+- **Screen:** the course map's side column shows a small Usage card for the approved course once the agent reported a cost: "Estimated cost" and the amount ("under $0.01" below a cent). It's read again whenever the map reads the course. Token counts aren't shown: they're the agent's bookkeeping, not something the learner acts on. The agent isn't named, since agent names stay on the connect screen. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so the card says nothing about billing. Codex and Cursor report tokens only, so with them the card doesn't show; the totals are still kept.
+
+### 4.14 The course map
+
+The map is the course as a path the learner moves along (`renderer/features/progress/`). It is playful in Codemm's own way, not a copy of another app's path: no zig-zag of round buttons, coins, flames or streak counts.
+
+- **Heading.** The course's title (the words the learner typed), with its goal under it in plain text when they differ. A course without a title has the goal as its heading.
+- **Emm's branch.** The topics run down one vertical branch in roadmap order, an ordered list named "Topics". Each topic is a leaf on the branch:
+  - Mastered: a filled green leaf with a check. Its title opens the topic again, and "Review in 3 days" sits beside it.
+  - Now: an outlined green leaf with the code mark.
+  - Later: an outlined grey leaf with a lock.
+  - The leaf is an image named Mastered, Now or Later, so the state never depends on color alone.
+- **Green where the learner has been.** The branch is green between topics the learner has reached (mastered, or the current one) and grey elsewhere. A topic passed over sits on grey: one skipped with "Come back later", or a locked one behind a current topic that jumped ahead.
+- **Emm sits at the current topic.** The topic Codemm offers now is a card, marked `aria-current="step"`: a due or in-progress review, otherwise the Now topic. Emm, in the track's color, sits on the card's top edge, facing the topic. Emm thinks when the topic is stuck and looks at a review. Emm is decorative; the card says everything in words.
+  - **Now:** the title, a bar with one step per lesson and one for the activity, "Lessons 1 of 3" (a check and "Lessons" once all are read), and Continue.
+  - **Review due:** the title and Review.
+  - **Review being written:** "Writing the review", replaced by its job's compact progress once the job runs (§4.11), and nothing to press.
+- **Easier and skip** change the path, not the map's controls. "Try an easier one" adds a topic before the stuck one, which becomes the one to do now. "Come back later" moves Now to the next topic ready. Both stay on the results screen (§3.2).
+- **Setup.** While the track sets up (proposing, then building and checking), a "Setting up React" card above the path shows the setup job's progress (§4.11). Until the job's first report arrives, one quiet line says "Preparing setup for React" or "Setting up React". The path stays usable, since lessons can be read during setup. Consent, a failed setup and its retry stay on the topic page.
+- **Side column.** "Mastery" counts the topics mastered ("2 of 8 topics") above a bar per topic started, then the Usage card (§4.12). A bar starts empty: before a topic's first check its mastery is only core's starting estimate (0.5), so the course view reports 0 until then.
+- **Finished.** A finished course opens on the completed-course screen. View course shows the path with every leaf mastered, nothing to continue, and Emm cheering where the branch ends.
+- **Motion.** The path fills and lands in order: each topic's part of the branch draws, its leaf pops on, its title rises, then the current card rises and Emm lands on it with a small squash. Topics after the eighth land together, so a long course takes no longer. Under reduced motion nothing moves.
+- **Narrow windows.** Under 1000 px the side column goes under the path. In narrow rows, a review date wraps under its topic and the card's button under its title.
 
 ## 5. Failure states
 
@@ -589,7 +613,7 @@ Each item is verified by an automated test unless marked *journey* or *release*.
 | D13 | **Check this computer and the environment matrix.** With the fake Docker and fake agent, each case shows its message and records nothing: missing Docker; not running; still starting (the starting message for 3 minutes after Codemm opened Docker, then the fix); installing Docker for the learner, including a download not signed by Docker; Windows containers; stopping mid-check; offline during setup; low disk during setup; no agent; signed out; plan limit. Offline, low disk and plan limit spend no agent retry. For the Docker cases, fixing the fake makes the screen pass on its own within one re-check, and repeated focus events never start a second check. The setup cases recover through Try again on the same proposal, and the agent cases through the connect screen. |
 | D14 | **Failure states.** Each row in §5 maps to a tested screen state. |
 | D15 | **UI rules and no language dispatch.** Rendering every screen shows agent names only on the connect screen, the tutor named "Codemm", and no ids, versions, paths or timestamps. Core A1's scan covers `desktop/`, and track names and colors come from `list_tracks` or the learner. |
-| D16 | **Accessibility (WCAG AA).** Every journey screen passes an automated accessibility check with no AA violations, and every control has a screen-reader name. The D17 flow completes with the keyboard alone. With reduced motion set, nothing animates. Every screen reflows down to 320 CSS pixels (400% zoom) and in the smallest window, 800 by 600: nothing but code sticks out past the window, and under 760 px the sidebar slims and the course map's side column goes under the topics. |
+| D16 | **Accessibility (WCAG AA).** Every journey screen passes an automated accessibility check with no AA violations, and every control has a screen-reader name. The D17 flow completes with the keyboard alone. With reduced motion set, nothing animates. Every screen reflows down to 320 CSS pixels (400% zoom) and in the smallest window, 800 by 600: nothing but code sticks out past the window, the course map's side column goes under the topics below 1000 px, and the sidebar slims below 760 px. |
 | D17 | *Journey*, on macOS with Docker Desktop, in the packaged app, for Claude Code and Codex: connect, Check this computer, goal, roadmap edit, approve, setup consent, lesson with a note, a failing check, a passing check, skip, and the course view. |
 | D18 | *Journey*, on the owner's Windows PC, from the downloaded installer: a whole small course, from connect to course complete. |
 | D19 | *Journey*, Cursor: attempted. If it can't be signed in and run, its connect row says it is experimental. |
