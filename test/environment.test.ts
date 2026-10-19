@@ -160,6 +160,16 @@ describe.runIf(posix)("a check that loses Docker mid-run", () => {
     expect(store.readEvents("shell")).toEqual([expect.objectContaining({ kind: "check", passed: 0, total: 4 })]);
   });
 
+  it("grades a memory-limit kill whose event the runtime publishes late", async () => {
+    const ws = await installedExercise();
+    fakeDocker("oom-late");
+    const r = await app.checkExercise(ws);
+    expect(r).toMatchObject({ passed: 0, total: 4, recorded: true });
+    expect(r.tests.every((t) => t.status === "error")).toBe(true);
+    expect(r.tests[0]!.message).toMatch(/memory limit/i);
+    expect(store.readEvents("shell")).toEqual([expect.objectContaining({ kind: "check", passed: 0, total: 4 })]);
+  });
+
   it.each([
     ["stops", /stopped during the run, so it wasn't counted.*Start Docker/s],
     ["drops", /failed during the run, so it wasn't counted/],

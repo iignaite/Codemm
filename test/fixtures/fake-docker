@@ -38,7 +38,9 @@ case "$1" in
         echo "sha256:fake null" ;;
       *) if [ "$FAKE_DOCKER" = docker29 ]; then echo '{"Id":"sha256:fake","Config":{"Env":["PATH=/usr/bin"]}}'; else echo '{"Id":"sha256:fake","Config":{"Volumes":null}}'; fi ;;
     esac ;;
-  events) case "$FAKE_DOCKER" in oom|childoom|caseoom|unitoom) echo oom ;; esac ;;
+  # oom-late: the runtime publishes the memory-kill event only after the first query (as newer engines can).
+  events) case "$FAKE_DOCKER" in oom|childoom|caseoom|unitoom) echo oom ;;
+    oom-late) if [ -e "$0.oomlate" ]; then echo oom; else : > "$0.oomlate"; fi ;; esac ;;
   run)
     # Run scenarios act out the Run driver: its markers go to stderr, around the program's own output.
     # interactive: asks for a name and greets it. waits/ignores: run until killed (no end marker).
@@ -165,7 +167,7 @@ case "$1" in
       exit 0
     fi
     # An outside kill can land after the driver already reported a case.
-    case "$FAKE_DOCKER" in oom) exit 137 ;; killed) printf '\n@@codemm case 01 0 2\n3\n'; exit 137 ;; esac
+    case "$FAKE_DOCKER" in oom|oom-late) exit 137 ;; killed) printf '\n@@codemm case 01 0 2\n3\n'; exit 137 ;; esac
     # One frame gets out, then the connection drops. With "stops" the daemon stays down.
     case "$FAKE_DOCKER" in stops) : > "$0.stopped" ;; drops) ;; *) exit 1 ;; esac
     printf '\n@@codemm build build 0 0\n'
