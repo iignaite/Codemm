@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
 import { SAY, problemOf } from '../../app/errors';
@@ -24,6 +24,11 @@ export function Tracks() {
   const [failed, setFailed] = useState<{ ref: string; text: string }>();
   // Rebuilds running now, also those started before the learner left and came back (§4.11).
   const rebuilds = useJobs((p) => p.kind === 'rebuild', []);
+  const here = useRef(true);
+  useEffect(() => {
+    here.current = true;
+    return () => void (here.current = false);
+  }, []);
   if (error) return <Failed error={error} retry={reload} />;
   if (!tracks) return null;
 
@@ -35,9 +40,10 @@ export function Tracks() {
       await api.rebuild(ref);
       setRebuilt(ref);
     } catch (e) {
-      // A damaged record has its banner; any other failure is said on the card, in Codemm's words (core's name exercises).
+      // A damaged record has its banner, and so has a failure after the learner left: no card is there to say it.
+      // Any other failure is said on the card, in Codemm's words (core's name exercises).
       const problem = problemOf(e);
-      if (problem === 'repair' || problem === 'connect') fail(e);
+      if (problem === 'repair' || problem === 'connect' || !here.current) fail(e);
       else setFailed({ ref, text: problem === 'offline' ? SAY.offline : `Couldn't rebuild ${name}.` });
     } finally {
       setRebuilding(undefined);

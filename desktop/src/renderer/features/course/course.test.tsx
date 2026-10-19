@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { SIGNED_OUT, type CodemmApi, type JobProgress, type Roadmap, type RoadmapChange } from '../../../shared/api';
 import type { MockOptions } from '../../../main/mock';
-import { mockWithRoadmap, renderApp } from '../../test-utils';
+import { jobAt, jobBus, mockWithRoadmap, renderApp } from '../../test-utils';
 
 const names = () => within(screen.getByRole('list')).getAllByRole('listitem').map((li) => li.getAttribute('aria-label'));
 
@@ -134,10 +134,13 @@ describe('course editor', () => {
     let finish: (c: RoadmapChange) => void = () => undefined;
     api.reviseRoadmap = () => new Promise((r) => (finish = r));
     await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Testing{Enter}');
-    act(() => hear({ job: 'j1', kind: 'roadmap', stage: 1, steps: [{ kind: 'step', label: 'Reading the roadmap' }], count: 1, thinking: true, elapsedMs: 3000, idleMs: 0 }));
+    const job: JobProgress = { job: 'j1', kind: 'roadmap', stage: 1, steps: [{ kind: 'step', label: 'Reading the roadmap' }], count: 1, thinking: true, elapsedMs: 3000, idleMs: 0 };
+    act(() => hear(job));
     const bar = await screen.findByRole('group', { name: 'Changing the roadmap' });
     expect(within(bar).getByText('Reading the roadmap')).toBeInTheDocument();
     expect(within(bar).getByRole('listitem', { current: 'step' })).toHaveTextContent('Changing the roadmap');
+    // A job ends before the call that waits for it returns.
+    act(() => hear({ ...job, ended: true }));
     await act(async () => finish({ roadmap, changed: false, text: 'No change.' }));
     expect(screen.queryByRole('group', { name: 'Changing the roadmap' })).not.toBeInTheDocument();
   });
@@ -203,6 +206,26 @@ describe('course editor', () => {
     await user.click(screen.getByRole('button', { name: 'Approve' }));
     expect(await screen.findByRole('heading', { name: 'JavaScript basics' })).toBeInTheDocument();
     expect(await screen.findByRole('dialog', { name: 'Set up React on this computer?' })).toBeInTheDocument();
+  });
+});
+
+describe('a roadmap change that started elsewhere', () => {
+  it('locks the editor opened meanwhile, and reads the draft again when the change ends', async () => {
+    const { api, roadmap } = await mockWithRoadmap();
+    const tell = jobBus(api);
+    const running = jobAt('r1', 'roadmap');
+    tell(running);
+    renderApp({ to: 'course', roadmap }, api);
+    expect(await screen.findByRole('group', { name: 'Changing the roadmap' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add a topic' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Ask Codemm for changes' })).toBeDisabled();
+
+    // The change landed in the draft, which this screen opened before it did.
+    api.draft = async () => ({ ...roadmap, concepts: [...roadmap.concepts, { id: 'testing', title: 'Testing', requires: [] }] });
+    act(() => tell({ ...running, ended: true }));
+    expect(await screen.findByText('Testing')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
   });
 });
 

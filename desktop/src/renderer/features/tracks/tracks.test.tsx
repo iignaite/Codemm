@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { OFFLINE, REPAIR } from '../../../shared/api';
@@ -57,5 +57,19 @@ describe('tracks', () => {
     };
     await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
     expect(await screen.findByRole('alert')).toHaveTextContent("Codemm's records need a repair.");
+  });
+
+  it('says a rebuild failed on the banner when the learner has left the page by then', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    let fail!: (error: Error) => void;
+    api.rebuild = () => new Promise<void>((_, reject) => (fail = reject));
+    renderApp({ to: 'tracks' }, api);
+    const react = await screen.findByRole('listitem', { name: 'React' });
+    await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
+    await user.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: 'Learn' }));
+    await screen.findByRole('heading', { name: 'React' });
+    act(() => fail(new Error('Docker stopped')));
+    expect(await screen.findByRole('alert')).toHaveTextContent("That didn't work. Try again.");
   });
 });

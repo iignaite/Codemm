@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Concept, Roadmap } from '../../../shared/api';
 import { addTopic, moveTopic, removeTopic, renameTopic } from '../../../shared/roadmap';
 import { useApi } from '../../app/api';
@@ -29,10 +29,25 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
   const dragFrom = useRef<string>(undefined);
   // "Ask Codemm for changes" and Go deeper run a roadmap-change job (§4.11).
   const job = useJob((p) => p.kind === 'roadmap', []);
+  // A change the learner started, left and came back to is running here too: the same locks apply (the sidebar opens
+  // this screen for it), and when it ends the draft it changed is read again.
+  const working = asking || Boolean(job);
+  const ran = useRef(false);
+  useEffect(() => {
+    if (job) ran.current = true;
+    else if (ran.current && !asking) {
+      ran.current = false;
+      api.draft().then((draft) => {
+        if (!draft) return;
+        setConcepts(draft.concepts);
+        setSources(draft.sources);
+      }, (err: unknown) => fail(err));
+    }
+  }, [job]);
 
   /** Applies an edit and saves it, so the draft survives leaving or closing Codemm; or says why it was refused. */
   function edit(change: (cs: Concept[]) => Concept[]) {
-    if (asking) return;
+    if (working) return;
     let next: Concept[];
     try {
       next = change(concepts);
@@ -62,7 +77,7 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
 
   /** "Go deeper": the same roadmap change, asking to split one topic into its smaller skills. */
   function deeper(title: string) {
-    if (!asking) void change(`Go deeper on "${title}": split it into the smaller skills it needs, each its own topic with its prerequisites.`);
+    if (!working) void change(`Go deeper on "${title}": split it into the smaller skills it needs, each its own topic with its prerequisites.`);
   }
 
   /** Codemm changes the roadmap as it stands now, so the learner's own edits wait until it's done (an open one closes). */
@@ -116,25 +131,25 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
               onMove={(to) => edit((cs) => moveTopic(cs, c.id, to))}
               onDragStart={() => (dragFrom.current = c.id)}
               onDrop={() => dragFrom.current && edit((cs) => moveTopic(cs, dragFrom.current!, i))}
-              locked={asking}
+              locked={working}
             />
           ))}
           {adding && <TopicItem index={concepts.length} count={concepts.length + 1} title="" editing onEdit={() => {}} onRename={add} />}
         </ol>
-        {asking && job && <JobBar job={job} label="Changing the roadmap" />}
-        <p className={asking ? 'quiet-text' : 'alert'} role="status">{asking ? (job ? '' : 'Updating the roadmap…') : notice}</p>
-        <button className="add a-up" type="button" style={stagger(0, 100)} disabled={adding || asking} onClick={() => setAdding(true)}>
+        {job && <JobBar job={job} label="Changing the roadmap" />}
+        <p className={working ? 'quiet-text' : 'alert'} role="status">{working ? (job ? '' : 'Updating the roadmap…') : notice}</p>
+        <button className="add a-up" type="button" style={stagger(0, 100)} disabled={adding || working} onClick={() => setAdding(true)}>
           <Icon name="plus" color="#0E2754" size={16} />
           Add a topic
         </button>
         <form className="composer a-up" style={{ ...stagger(1, 100), marginTop: 10 }} onSubmit={ask}>
-          <Field aria-label="Ask Codemm for changes" placeholder="Ask Codemm for changes" value={request} maxLength={LIMITS.words} disabled={asking} onChange={(e) => setRequest(e.target.value)} />
-          <Button type="submit" variant="ghost" size="lg" disabled={!request.trim() || asking}>Apply</Button>
+          <Field aria-label="Ask Codemm for changes" placeholder="Ask Codemm for changes" value={request} maxLength={LIMITS.words} disabled={working} onChange={(e) => setRequest(e.target.value)} />
+          <Button type="submit" variant="ghost" size="lg" disabled={!request.trim() || working}>Apply</Button>
         </form>
         <Limit value={request} max={LIMITS.words} />
         {/* A typed request is applied or cleared first, so approving never drops it. */}
         <div className="actions approve a-up" style={stagger(2, 100)}>
-          <Button size="lg" disabled={concepts.length === 0 || editing !== undefined || adding || asking || request.trim() !== ''} onClick={approve}>Approve</Button>
+          <Button size="lg" disabled={concepts.length === 0 || editing !== undefined || adding || working || request.trim() !== ''} onClick={approve}>Approve</Button>
         </div>
         {sources.length > 0 && (
           <section className="sources a-up" style={stagger(3, 100)} aria-labelledby="sources-t">

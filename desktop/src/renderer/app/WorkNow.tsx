@@ -1,6 +1,6 @@
 // Codemm's long jobs, from every screen (§4.11): what each one is and its stage, under the main navigation. A screen
 // that shows a job's own bar owns it (ui/shownJobs.ts), so the sidebar shows only the others.
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { CodemmApi, CourseView, Goal, JobProgress } from '../../shared/api';
 import { JOB_STAGES } from '../../shared/progress';
 import { EmmFill } from '../ui/EmmFill';
@@ -64,18 +64,20 @@ async function placeOf(p: JobProgress, course: Course, api: CodemmApi): Promise<
 }
 
 /**
- * The jobs to list: none a screen shows a bar for, no tutor turn (its answer is on its own screen), and one job of a
- * kind for a topic or track, the furthest along (a proposing agent can end its turn while the install runs).
+ * The jobs to list: one job per kind and topic or track, the furthest along (a proposing agent can end its turn while
+ * the install runs), and none of a group a screen shows a bar for, nor a tutor turn (its answer is on its own screen).
  */
 function listed(jobs: HeardJob[], shown: ReadonlySet<string>): HeardJob[] {
-  const best = new Map<string, HeardJob>();
+  const groups = new Map<string, { best: HeardJob; shown: boolean }>();
   for (const job of jobs) {
     const { kind, job: id, concept, track, stage } = job.progress;
-    if (kind === 'tutor' || shown.has(id)) continue;
+    if (kind === 'tutor') continue;
     const key = `${kind}:${concept ?? track ?? ''}`;
-    if (!best.has(key) || stage >= best.get(key)!.progress.stage) best.set(key, job);
+    const group = groups.get(key);
+    const best = !group || stage >= group.best.progress.stage ? job : group.best;
+    groups.set(key, { best, shown: shown.has(id) || Boolean(group?.shown) });
   }
-  return [...best.values()];
+  return [...groups.values()].filter((g) => !g.shown).map((g) => g.best);
 }
 
 /** The running jobs that no screen shows. Wide: Emm filling, what it is and its stage. Slim: Emm alone, named for screen readers. */
@@ -107,8 +109,19 @@ function WorkJob({ job, course, slim }: { job: HeardJob; course: Course; slim: b
   const stage = stageOf(p, quiet);
   const label = `${what}, ${stage}`;
   const open = () => placeOf(p, course, api).then(go, fail);
+  // A job that ends under the keyboard's focus hands it to the navigation, not to nowhere.
+  const button = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(
+    () => () => {
+      if (button.current && button.current === document.activeElement) {
+        const nav = button.current.closest('nav');
+        (nav?.querySelector<HTMLElement>('[aria-current="page"]') ?? nav?.querySelector<HTMLElement>('.nav'))?.focus();
+      }
+    },
+    [],
+  );
   return (
-    <button type="button" className="work-job" aria-label={label} title={slim ? label : undefined} onClick={() => void open()}>
+    <button ref={button} type="button" className="work-job" aria-label={label} title={slim ? label : undefined} onClick={() => void open()}>
       <EmmFill value={fillOf(p)} width={slim ? 32 : 28} dim={Boolean(p.retry) || quiet} />
       {!slim && (
         <span className="work-text">

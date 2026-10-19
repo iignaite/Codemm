@@ -18,8 +18,8 @@ describe('running jobs in the sidebar (§4.11)', () => {
     await api.approve(roadmap.concepts);
     renderApp({ to: 'topic', topicId: TOPIC }, api);
     await screen.findByRole('group', { name: 'Setting up React' });
-    // The topic page shows the whole bar, so the sidebar doesn't repeat it.
-    expect(working()).not.toBeInTheDocument();
+    // The topic page shows the whole bar, so the sidebar doesn't repeat it (its other bars take a moment to mount).
+    await waitFor(() => expect(working()).not.toBeInTheDocument());
 
     await goTo(user, 'Tracks');
     const job = await within(sidebar()).findByRole('button', { name: 'Setting up React, Proposing the setup' });
@@ -141,5 +141,34 @@ describe('running jobs in the sidebar (§4.11)', () => {
     // Another topic's lesson has no bar on this page.
     act(() => tell(jobAt('l2', 'lesson', { concept: 'other' })));
     expect(within(working()!).getAllByRole('button')).toHaveLength(1);
+  });
+
+  it("leaves a setup to the topic page that shows it, whichever of its overlapping jobs the page follows", async () => {
+    const { api } = await mockWithCourse({ read: true });
+    const real = (await api.course())!;
+    api.course = async () => ({ ...real, setup: 'installing' as const });
+    const tell = jobBus(api);
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await screen.findByRole('heading', { name: 'JavaScript basics' });
+    // The install runs while the proposing agent still ends its turn: the page follows the install.
+    act(() => tell(jobAt('install', 'setup', { stage: 1, thinking: false })));
+    act(() => tell(jobAt('proposal', 'setup', { stage: 0 })));
+    expect(await screen.findByRole('group', { name: 'Setting up React' })).toBeInTheDocument();
+    expect(working()).not.toBeInTheDocument();
+  });
+
+  it('hands the keyboard focus to the navigation when the job it is on ends', async () => {
+    const { api } = await mockWithCourse({ read: true });
+    const tell = jobBus(api);
+    renderApp({ to: 'learn' }, api);
+    await screen.findByRole('heading', { name: 'React' });
+    const rebuilding = jobAt('rb', 'rebuild', { track: 'React', stage: 0, thinking: false });
+    act(() => tell(rebuilding));
+    const job = within(working()!).getByRole('button');
+    act(() => job.focus());
+    expect(job).toHaveFocus();
+    act(() => tell({ ...rebuilding, ended: true }));
+    expect(working()).not.toBeInTheDocument();
+    expect(within(sidebar()).getByRole('button', { name: 'Learn' })).toHaveFocus();
   });
 });
