@@ -63,8 +63,10 @@ describe('diagrams in a lesson', { timeout: 60_000 }, () => {
     const root = svg.documentElement;
     expect(Number(root.getAttribute('width'))).toBeGreaterThan(0);
     expect(root.getAttribute('height')).toBeTruthy();
-    expect(svg.querySelector('style')?.textContent).toContain('"Atkinson Hyperlegible Next"');
-    expect(svg.querySelector('style')?.textContent).toContain('data:font/woff2;base64,');
+    const css = [...svg.querySelectorAll('style')].map((style) => style.textContent).join('\n');
+    expect(css).toContain('data:font/woff2;base64,');
+    // The font travels in the image, and mermaid's own rules use it.
+    expect(css.match(/font-family:\s*"?Atkinson Hyperlegible Next/g)!.length).toBeGreaterThan(1);
     // The code block for the fence is gone, and the text around it stays.
     expect(screen.queryByText('flowchart TD', { exact: false })).toBeNull();
     expect(screen.getByText('Before')).toBeInTheDocument();
@@ -103,7 +105,7 @@ describe('diagrams in a lesson', { timeout: 60_000 }, () => {
     expect(screen.getByText('Before')).toBeInTheDocument();
     expect(screen.getByText('After')).toBeInTheDocument();
     // Mermaid's own error drawing is left out, and so is anything it leaves in the page.
-    expect(document.querySelector('[id^="dmermaid"], [id^="d-"], .error-icon')).toBeNull();
+    expect(document.querySelector('[id^="ddiagram-"], .error-icon')).toBeNull();
   });
 
   it('draw agent-written labels as inert text: no markup, script, handler or remote reference survives', async () => {
@@ -137,6 +139,33 @@ describe('diagrams in a lesson', { timeout: 60_000 }, () => {
       }
     }
     expect(svg.querySelectorAll('text').length).toBeGreaterThan(0);
+  });
+
+  it('keep the settings of the app, whatever the source says', async () => {
+    const loud = '%%{init: {"htmlLabels": true, "theme": "dark", "layout": "elk", "look": "neo", "themeVariables": {"primaryColor": "#ff0000"}}}%%\nflowchart TD\n  A[Start] --> B[End]';
+    const { api, id } = await lessonSaying(`# T\n\n\`\`\`mermaid\n${loud}\n\`\`\``);
+    const { container } = renderApp({ to: 'lesson', lessonId: id }, api);
+    const img = await waitFor(() => {
+      const found = container.querySelector<HTMLElement>('figure.diagram img');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    const svg = drawn(img);
+    expect(svg.querySelector('foreignObject')).toBeNull();
+    expect(svg.documentElement.outerHTML).not.toMatch(/#ff0000/i);
+    const { default: mermaid } = await import('mermaid');
+    // What directives in the source can't touch: mermaid's own list, and the settings of this app on top of it.
+    expect(mermaid.mermaidAPI.getSiteConfig().secure).toEqual(expect.arrayContaining(['securityLevel', 'maxTextSize', 'maxEdges', 'htmlLabels', 'theme', 'themeVariables', 'themeCSS', 'look', 'layout', 'fontFamily']));
+    expect(mermaid.mermaidAPI.getConfig()).toMatchObject({ securityLevel: 'strict', htmlLabels: false, layout: 'dagre', look: 'classic', theme: 'base', maxTextSize: 20_000 });
+  });
+
+  it('show the source of a diagram too large to draw, not a box that says so', async () => {
+    const big = `flowchart TD\n${Array.from({ length: 1500 }, (_, i) => `  N${i} --> N${i + 1}`).join('\n')}`;
+    expect(big.length).toBeGreaterThan(20_000);
+    const { api, id } = await lessonSaying(`# T\n\n\`\`\`mermaid\n${big}\n\`\`\``);
+    const { container } = renderApp({ to: 'lesson', lessonId: id }, api);
+    expect(await screen.findByText("This diagram didn't draw. Here is its source.")).toBeInTheDocument();
+    expect(container.querySelector('.diagram img')).toBeNull();
   });
 
   it('draw once, and reopen at once', async () => {

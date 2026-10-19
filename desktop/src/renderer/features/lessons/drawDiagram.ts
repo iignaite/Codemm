@@ -49,6 +49,9 @@ const p = palette;
 // Pie slices are light, so one label color reads on all of them.
 const slices = [p['blue-line'], p['green-line'], p['orange-line'], p.note, p['blue-soft'], p.line];
 
+/** What mermaid will draw; its own limit is 50,000. A 64 KB lesson can't hold a diagram that takes the window with it. */
+const MAX_TEXT = 20_000;
+
 let ready = false;
 function setup() {
   if (ready) return;
@@ -57,12 +60,19 @@ function setup() {
     startOnLoad: false,
     securityLevel: 'strict',
     suppressErrorRendering: true,
-    // A 64 KB lesson can't hold a diagram that takes the window with it.
-    maxTextSize: 20_000,
+    maxTextSize: MAX_TEXT,
     maxEdges: 150,
     htmlLabels: false,
+    // Directives in the source can change any key not listed here (mermaid already locks securityLevel, the sizes and
+    // a few more). These are the ones that would undo the settings of this file.
+    secure: ['htmlLabels', 'theme', 'themeVariables', 'themeCSS', 'look', 'layout', 'fontFamily'],
+    // Mermaid's default layout is ELK, which isn't bundled (stubs/elk.ts); dagre is the classic one, and `classic` the flat look.
+    layout: 'dagre',
+    look: 'classic',
     theme: 'base',
     fontFamily: FONT,
+    // Charts are shorter than mermaid's 700 by 500, which is tall beside a paragraph.
+    xyChart: { width: 640, height: 360 },
     themeVariables: {
       background: p.card,
       fontFamily: FONT,
@@ -95,6 +105,9 @@ function setup() {
       activationBkgColor: p['blue-line'],
       activationBorderColor: p.blue,
       ...Object.fromEntries(slices.map((color, i) => [`pie${i + 1}`, color])),
+      pieTitleTextSize: '20px',
+      pieSectionTextSize: '16px',
+      pieLegendTextSize: '16px',
       pieTitleTextColor: p.ink,
       pieSectionTextColor: p.ink,
       pieLegendTextColor: p.ink,
@@ -124,8 +137,10 @@ let drawings = 0;
 
 /** Draws the source, or rejects when mermaid can't. */
 export async function drawDiagram(source: string): Promise<Drawn> {
+  // Over the limit, mermaid draws a box saying so instead of failing, and the learner would lose the source.
+  if (source.length > MAX_TEXT) throw new Error('The diagram is too large to draw');
   setup();
-  // Text is measured in the page, so the fonts must be in before it is.
+  // Text is measured in the page (in a box that app.css sets to this font), so the fonts must be in before it is.
   await Promise.all([400, 700].map((weight) => document.fonts?.load(`${weight} 16px "${FAMILY}"`)));
   const { svg } = await mermaid.render(`diagram-${++drawings}`, source);
   return image(svg, source);
@@ -140,8 +155,8 @@ function image(svg: string, source: string): Drawn {
   root.setAttribute('width', String(Math.ceil(box[2])));
   root.setAttribute('height', String(Math.ceil(box[3])));
   root.removeAttribute('style');
-  // Nothing in the image points outside it: a link keeps its label but loses its address, and pictures and scripts go.
-  for (const el of root.querySelectorAll('a, image, script')) {
+  // Nothing in the image points outside it: a link keeps its label but loses its address, and pictures, frames and scripts go.
+  for (const el of root.querySelectorAll('a, image, img, iframe, script')) {
     if (el.localName === 'a') el.replaceWith(...el.childNodes);
     else el.remove();
   }

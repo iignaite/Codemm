@@ -83,7 +83,7 @@ desktop/
   - An image with a remote URL renders as a plain link.
   - Links keep only `https:` URLs.
   - Code blocks are highlighted, never run.
-  - A diagram in a lesson is drawn to an image (§4.3). That is how it works within this CSP, and it runs nothing.
+  - A diagram in a lesson is drawn to an image (§4.3), which runs no script and loads nothing. An inline drawing would need styles this CSP refuses.
 - **Navigation.** Navigation, `window.open` and webviews are denied. `shell.openExternal` opens a link only after a click, and only for `https:` URLs.
 - **IPC senders.** Every handler checks that `event.senderFrame` is the main window's top frame on `app://codemm`, and rejects anything else.
 
@@ -291,8 +291,8 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - absent: every lesson for the concept has been read.
   The activity stays locked, and the tutor teaches first, until the field is absent. The topic page and the lesson outline say why in words: "Opens after you finish the lessons". The author job can still run in the background, because the step names the activity. Lessons never change mastery.
 - **Diagrams.** A top-level fence whose info string is `mermaid` is a diagram or chart: a flowchart, sequence, state or class diagram, a pie chart or an xy chart. The lesson screen draws it where the author placed it, and core only stores it (core §5).
-  - **Local.** [Mermaid](https://github.com/mermaid-js/mermaid) (MIT) is bundled and loaded only when a lesson has a diagram; a lesson without one loads none of it. Nothing is fetched. Its optional ELK layout, the one bundled library under the EPL rather than MIT, ISC, BSD or Apache, is stubbed out (`vite.config.mts`); a diagram that asks for it shows its source.
-  - **Safe.** The source is agent text, so it is drawn at mermaid's strict level (labels encoded, no callbacks, and the source can't loosen that), with the sizes capped, and shown only as an `<img>` of a `data:` URL, which runs no script, follows no link and loads nothing. Links, pictures and scripts are also dropped from the drawing. The CSP stays as it is.
+  - **Local.** [Mermaid](https://github.com/mermaid-js/mermaid) (MIT) is bundled and loaded only when a lesson has a diagram; a lesson without one loads none of it. Nothing is fetched. Mermaid's default layout is ELK; Codemm sets dagre, and stubs out `elkjs` (`vite.config.mts`), the one bundled library under the EPL rather than MIT, ISC, BSD or Apache.
+  - **Safe.** The source is agent text. Mermaid draws it at its strict level (labels encoded, no callbacks) with the sizes capped, and directives in the source can't change the security level, the sizes, HTML labels, the theme, the layout or the font. The drawing is shown only as an `<img>` of a `data:` URL, which runs no script, follows no link and loads nothing, and links, pictures, frames and scripts are also dropped from it. A source over 20,000 characters isn't drawn. The CSP stays as it is; mermaid's attempts at inline styles while it measures text are refused and show as notices in DevTools.
   - **Styled.** The light palette and Atkinson Hyperlegible Next, which travels inside the image, since an image can't use the page's fonts. The image has its natural size and never exceeds the page.
   - **Accessible.** The image's text alternative is the diagram's `accTitle` and `accDescr` (the brief asks for both). Without them it is the source.
   - **Broken.** A diagram that doesn't draw shows its source as a code block under "This diagram didn't draw. Here is its source." The rest of the lesson reads as usual.
