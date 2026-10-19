@@ -28,8 +28,8 @@ test('installed: opens, installs both agents, and checks this computer', async (
   const env = { ...process.env, CODEMM_HOME: tempDir('codemm-home-'), PATH: process.env.INSTALL_PATH ?? process.env.PATH ?? '' } as Record<string, string>;
   for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS']) delete env[key];
 
-  let app: ElectronApplication;
-  let page: Page;
+  let app!: ElectronApplication;
+  let page!: Page;
   const launch = async (path = env.PATH) => {
     app = await electron.launch({ executablePath: exe!, args: [`--user-data-dir=${profile}`], env: { ...env, PATH: path } });
     page = await app.firstWindow();
@@ -57,7 +57,7 @@ test('installed: opens, installs both agents, and checks this computer', async (
     await shot(`${2 + i}-installed-${name.replace(' ', '-')}`);
     await expect(row.getByRole('alert'), `${name}'s install failed`).toHaveCount(0);
   }
-  await app!.close();
+  await app.close();
 
   // Neither installed agent is signed in, so Continue stays off: a signed-in stand-in goes first on PATH.
   await launch(`${fakeAgent()}${delimiter}${env.PATH}`);
@@ -73,5 +73,5 @@ test('installed: opens, installs both agents, and checks this computer', async (
     await expect(page.getByRole('listitem', { name: 'Docker is running' })).toContainText('Switch Docker Desktop to Linux containers', { timeout: 2 * MIN });
   }
   await shot('4-check-this-computer');
-  await app!.close();
+  await app.close();
 });
