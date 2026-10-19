@@ -23,5 +23,15 @@ export const SAY: Record<Exclude<Problem, 'connect'>, string> = {
   other: "That didn't work. Try again.",
 };
 
+/**
+ * What a failure says. Codemm's words for a known problem; for any other, the message main let through, which is
+ * learner-safe or the generic one (main/errors.ts), as its first line only: a longer one can name exercises.
+ */
+export function sayOf(error: unknown, problem: Exclude<Problem, 'connect'>): string {
+  if (problem !== 'other') return SAY[problem];
+  const first = (error instanceof Error ? error.message : '').split('\n')[0].trim().replace(/:$/, '.');
+  return first || SAY.other;
+}
+
 /** Core's repair guidance after a REPAIR code: safe text naming the damaged record and the fix. */
 export const repairDetail = (error: unknown) => (error instanceof Error ? error.message.split('\n').slice(1).join(' ') : '');

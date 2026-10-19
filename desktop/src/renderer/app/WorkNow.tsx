@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { CodemmApi, CourseView, Goal, JobProgress } from '../../shared/api';
 import { JOB_STAGES } from '../../shared/progress';
 import { EmmFill } from '../ui/EmmFill';
-import { fillOf, QUIET_MS, useNow } from '../ui/JobBar';
+import { fillOf, QUIET_MS, RETRYING, useNow } from '../ui/JobBar';
 import { useShownJobs } from '../ui/shownJobs';
 import { useApi } from './api';
 import { useRouter, type Route } from './router';
@@ -36,7 +36,7 @@ function whatOf(p: JobProgress, course: Course): string {
 
 /** Where it is: a retry, a quiet job, or its stage with the real fraction when there is one. */
 function stageOf(p: JobProgress, quiet: boolean): string {
-  if (p.retry) return `Try ${p.retry.attempt} of ${p.retry.of}`;
+  if (p.retry) return RETRYING;
   if (quiet) return 'Still working';
   const stages = JOB_STAGES[p.kind];
   const stage = stages[Math.min(p.stage, stages.length - 1)];

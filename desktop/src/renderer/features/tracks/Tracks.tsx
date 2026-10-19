@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
-import { SAY, problemOf } from '../../app/errors';
+import { SAY, problemOf, sayOf } from '../../app/errors';
 import { Failed } from '../../app/Problems';
 import { useJobs } from '../../app/useJob';
 import { useLoad } from '../../app/useLoad';
@@ -41,10 +41,14 @@ export function Tracks() {
       setRebuilt(ref);
     } catch (e) {
       // A damaged record has its banner, and so has a failure after the learner left: no card is there to say it.
-      // Any other failure is said on the card, in Codemm's words (core's name exercises).
+      // Any other failure is said on the card: what happened and what to do, as far as Codemm knows.
       const problem = problemOf(e);
       if (problem === 'repair' || problem === 'connect' || !here.current) fail(e);
-      else setFailed({ ref, text: problem === 'offline' ? SAY.offline : `Couldn't rebuild ${name}.` });
+      else {
+        const say = sayOf(e, problem);
+        const lead = `Couldn't rebuild ${name}.`;
+        setFailed({ ref, text: problem === 'offline' ? say : say === SAY.other ? lead : `${lead} ${say}` });
+      }
     } finally {
       setRebuilding(undefined);
     }

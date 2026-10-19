@@ -23,7 +23,9 @@ describe('JobBar (§4.11)', () => {
     const { rerender } = show(job({ steps: [{ kind: 'step', label: 'Reading the roadmap' }] }));
     expect(screen.getByText('Reading the roadmap')).toBeInTheDocument();
     rerender(<JobBar job={{ progress: job({ retry: { attempt: 2, of: 3 } }), at: Date.now() }} label="Writing the lesson" />);
-    expect(screen.getByText('Trying again (2 of 3)')).toBeInTheDocument();
+    expect(screen.getByText('Taking a little longer')).toBeInTheDocument();
+    // One calm line: the count of tries isn't the learner's to act on.
+    expect(document.body.textContent).not.toMatch(/2 of 3/);
     expect(document.body.textContent).not.toMatch(/%/);
   });
 
@@ -56,10 +58,16 @@ describe('JobBar (§4.11)', () => {
     expect((bar.querySelector('.emm-fill') as HTMLElement).style.getPropertyValue('--fill')).toBe('50%');
   });
 
+  it('a retry on a gate says only that it takes longer, with no counts', () => {
+    show(job({ kind: 'author', stage: 2, part: { done: 3, total: 3 }, retry: { attempt: 2, of: 3 }, steps: [{ kind: 'step', label: 'Codemm is checking that the tests catch each broken version' }] }));
+    expect(screen.getByText('Taking a little longer')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/\d of \d/);
+  });
+
   it('dims Emm while it tries again, and says so', () => {
     show(job({ stage: 1, retry: { attempt: 2, of: 3 } }));
     expect(document.querySelector('.emm-fill')).toHaveClass('dim');
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuetext', 'Trying again (2 of 3), 0:00');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuetext', 'Taking a little longer, 0:00');
   });
 
   it('says it is still working after 90 seconds with no event while the agent thinks', () => {
@@ -83,8 +91,11 @@ describe('JobBar (§4.11)', () => {
     rerender(<JobBar job={{ progress: job({ stage: 1 }), at: Date.now() }} label="Writing the lesson" compact />);
     expect(document.querySelector('.job-step')).toHaveTextContent('Writing the lesson');
     rerender(<JobBar job={{ progress: job({ stage: 1, retry: { attempt: 2, of: 3 } }), at: Date.now() }} label="Writing the lesson" compact />);
-    expect(document.querySelector('.job-step')).toHaveTextContent('Try 2 of 3');
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuetext', 'Trying again (2 of 3), 0:00');
+    expect(document.querySelector('.job-step')).toHaveTextContent('Taking a little longer');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuetext', 'Taking a little longer, 0:00');
+    // A gate's own sentence would wrap to lines here: the stage and the real fraction say it.
+    const gate = job({ kind: 'author', stage: 2, part: { done: 3, total: 3 }, steps: [{ kind: 'step', label: 'Codemm is checking that the tests catch each broken version' }] });
+    rerender(<JobBar job={{ progress: gate, at: Date.now() }} label="Writing the activity" compact />);
+    expect(document.querySelector('.job-step')).toHaveTextContent(/^Checking the exercise 3 of 3$/);
   });
-
 });

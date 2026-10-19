@@ -100,7 +100,7 @@ describe('running jobs in the sidebar (§4.11)', () => {
     act(() => tell(jobAt('l1', 'lesson', { concept: TOPIC, retry: { attempt: 2, of: 3 } })));
     act(() => tell(jobAt('a1', 'author', { concept: TOPIC, idleMs: 95_000 })));
     act(() => tell({ ...jobAt('r1', 'roadmap'), ended: true }));
-    expect(names()).toEqual(['Writing a lesson on JavaScript basics, Try 2 of 3', 'Writing an activity on JavaScript basics, Still working']);
+    expect(names()).toEqual(['Writing a lesson on JavaScript basics, Taking a little longer', 'Writing an activity on JavaScript basics, Still working']);
 
     await user.click(within(working()!).getByRole('button', { name: /^Writing a lesson/ }));
     expect(await screen.findByRole('heading', { name: 'JavaScript basics' })).toBeInTheDocument();

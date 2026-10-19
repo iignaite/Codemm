@@ -14,7 +14,7 @@ import { Setup } from '../features/setup/Setup';
 import { Tracks } from '../features/tracks/Tracks';
 import { Button } from '../ui/Button';
 import { ApiContext } from './api';
-import { SAY, problemOf } from './errors';
+import { problemOf, sayOf } from './errors';
 import { RouterContext, type Route, type Router } from './router';
 import { useRouteFocus } from './useRouteFocus';
 import { WithSide } from './Sidebar';
@@ -68,7 +68,7 @@ export function App({ api, start = { to: 'welcome' } }: { api: CodemmApi; start?
           return;
         }
         console.error(error);
-        setFailed({ text: SAY[problem], agent: problem === 'agent' });
+        setFailed({ text: sayOf(error, problem), agent: problem === 'agent' });
       },
     }),
     [route],

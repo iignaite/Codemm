@@ -29,11 +29,23 @@ describe('tracks', () => {
     renderApp({ to: 'tracks' }, api);
     const react = await screen.findByRole('listitem', { name: 'React' });
     await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
-    // The card says so in Codemm's words, not core's, and the page stays as it is.
-    expect(await within(react).findByText("Couldn't rebuild React.")).toBeInTheDocument();
+    // The card says what happened, the first line of core's message and not the exercises it lists.
+    expect(await within(react).findByText("Couldn't rebuild React. The rebuilt image behaves differently, so it wasn't accepted.")).toBeInTheDocument();
     expect(react).not.toHaveTextContent('ex-1');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(within(react).getByRole('button', { name: 'Rebuild' })).toBeEnabled();
+
+    // Docker's own reason and next step come through; a failure main only calls generic stays short.
+    api.rebuild = async () => {
+      throw new Error("Docker isn't running. Start Docker Desktop, then try again.");
+    };
+    await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
+    expect(await within(react).findByText("Couldn't rebuild React. Docker isn't running. Start Docker Desktop, then try again.")).toBeInTheDocument();
+    api.rebuild = async () => {
+      throw new Error("That didn't work. Try again.");
+    };
+    await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
+    expect(await within(react).findByText("Couldn't rebuild React.")).toBeInTheDocument();
 
     api.rebuild = rebuild;
     await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
@@ -69,7 +81,7 @@ describe('tracks', () => {
     await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
     await user.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: 'Learn' }));
     await screen.findByRole('heading', { name: 'React' });
-    act(() => fail(new Error('Docker stopped')));
-    expect(await screen.findByRole('alert')).toHaveTextContent("That didn't work. Try again.");
+    act(() => fail(new Error("Docker isn't running. Start Docker Desktop, then try again.")));
+    expect(await screen.findByRole('alert')).toHaveTextContent("Docker isn't running. Start Docker Desktop, then try again.");
   });
 });
