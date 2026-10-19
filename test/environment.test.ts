@@ -139,6 +139,20 @@ describe.runIf(posix)("installing a track", () => {
     ]);
   });
 
+  it("refuses a proposal whose base image doesn't exist, before it reaches the learner", async () => {
+    fakeDocker("builds");
+    const files = { ...track(), Dockerfile: track().Dockerfile!.replace(/^FROM .*$/m, "FROM nope:21-slim") };
+    await expect(app.proposeTrack(files)).rejects.toThrow(/nope:21-slim/);
+    expect(app.listProposals()).toEqual([]);
+    await expect(app.proposeTrack(track())).resolves.toMatchObject({ proposed: "shell-io@1" });
+  });
+
+  it("proposes anyway when the registry can't be asked, so the build reports it", async () => {
+    fakeDocker("offline");
+    const files = { ...track(), Dockerfile: track().Dockerfile!.replace(/^FROM .*$/m, "FROM nope:21-slim") };
+    await expect(app.proposeTrack(files)).resolves.toMatchObject({ proposed: "shell-io@1" });
+  });
+
   it("keeps a proposal when its install fails offline, so Try again needs no new consent", async () => {
     fakeDocker("offline");
     await app.proposeTrack(track());

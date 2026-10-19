@@ -174,5 +174,10 @@ case "$1" in
     echo "error waiting for container: unexpected EOF" >&2
     exit 125 ;;
   rm) exit 0 ;;
+  # manifest inspect: a registry answers for a base image. An image named nope:* doesn't exist; offline can't ask.
+  manifest)
+    case "$FAKE_DOCKER" in offline) echo "error during connect: dial tcp: lookup registry-1.docker.io: no such host" >&2; exit 1 ;; esac
+    case "$3" in nope:*|*/nope:*) echo "no such manifest: docker.io/library/$3" >&2; exit 1 ;; esac
+    echo '{"schemaVersion":2}' ;;
   *) exit 1 ;;
 esac

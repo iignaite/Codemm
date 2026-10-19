@@ -572,6 +572,38 @@ export async function inspectImage(tag: string): Promise<{ id: string; hasVolume
   return { id: record.Id, hasVolumes: !!volumes && Object.keys(volumes).length > 0 };
 }
 
+/** The images a Dockerfile builds from, once each and in order: not its own stages, scratch, or an image a build argument names. */
+export function baseImages(dockerfile: string): string[] {
+  const stages = new Set<string>();
+  const images: string[] = [];
+  for (const line of dockerfile.split(/\r?\n/)) {
+    const m = /^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?/i.exec(line);
+    if (!m) continue;
+    const image = m[1]!;
+    const own = stages.has(image.toLowerCase()) || image.toLowerCase() === "scratch" || image.includes("$");
+    if (!own && !images.includes(image)) images.push(image);
+    if (m[2]) stages.add(m[2].toLowerCase());
+  }
+  return images;
+}
+
+/**
+ * The base images the registry says don't exist. An answer it can't give (offline, no runtime, a registry that
+ * wants a login) counts nothing missing: the build then reports it.
+ */
+export async function missingBaseImages(dockerfile: string): Promise<string[]> {
+  // Asked side by side: each answer is a registry round trip.
+  const answers = await Promise.all(baseImages(dockerfile).map(async (image) => {
+    try {
+      const r = await cli(["manifest", "inspect", image], 30_000);
+      return r.exit !== 0 && /no such manifest|manifest unknown/i.test(r.output) ? image : undefined;
+    } catch {
+      return undefined;
+    }
+  }));
+  return answers.filter((image): image is string => image !== undefined);
+}
+
 /**
  * The record of `inspect --format '{{json .}}'`. Docker and Podman 4.4+ print one compact object per line, maybe among
  * warnings; Podman 4.3 and earlier print an indented array of records instead.
