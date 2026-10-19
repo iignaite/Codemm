@@ -41,6 +41,7 @@ describe('the learner-safe boundary (D4)', () => {
       { docker: { install: () => void docker.push('install'), open: async () => void docker.push('open') } },
     );
     const activity = await practising(t);
+    const onScreen = t.c.roadmap!.course;
     // The first lesson has an example, so Run on it takes its success path.
     Object.assign(t.c.lessons.find((l) => l.id === 'values-1')!, { examples: [{ 'main.c': 'int main(void) { return 0; }' }], style: 'io' });
     // What the renderer hears without asking: check, job and Run events.
@@ -71,6 +72,8 @@ describe('the learner-safe boundary (D4)', () => {
       openDocker: [],
       tracks: [],
       course: [],
+      courses: [],
+      switchCourse: [onScreen],
       draft: [],
       lesson: ['values-1'],
       saveNotes: ['values-1', 'my note'],

@@ -204,8 +204,9 @@ const slugOf = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-'
 export function createMock(options: MockOptions = {}): CodemmApi {
   const agents = AGENTS.map((a) => ({ ...a, state: (options.agents?.[a.id] === 'missing' ? 'missing' : options.connected === a.id ? 'connected' : 'not-connected') as Agent['state'] }));
   const tracks: Track[] = [];
-  const lessons = new Map<string, Lesson>();
-  const activities = new Map<string, { activity: Activity; fails: number }>();
+  // The course on screen: its lessons, activities, roadmap and view. Switching swaps them for another course's (§4.13).
+  let lessons = new Map<string, Lesson>();
+  let activities = new Map<string, { activity: Activity; fails: number }>();
   let research: { topic: string; calls: number; job: string; started: number } | null = null;
   /** The roadmap research wrote or the learner edited; a draft until approved. */
   let roadmap: Roadmap | null = null;
@@ -215,7 +216,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   let course: CourseView | null = null;
   let checks = 0;
   /** Concepts skipped since their last check (§4.4). */
-  const deferred = new Set<string>();
+  let deferred = new Set<string>();
+  /** Every approved course, by id, and the one on screen. */
+  const kept = new Map<string, { course: CourseView; approved: Roadmap; lessons: typeof lessons; activities: typeof activities; deferred: typeof deferred }>();
+  let current = '';
 
   // Installing or opening Docker moves the mock's Docker along, one step per check (§6.1).
   let dockerNow: Docker | undefined;
@@ -323,11 +327,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   // Background jobs advance one step each time the UI reads the course.
   function tick(c: CourseView) {
     if (c.setup === 'proposing') {
-      if (!busy('setup', 'setup')) {
+      if (!busy(`${current}:setup`, 'setup')) {
         c.setup = 'consent';
         c.proposal = { digest: digestOf(PROPOSAL_FILES.map((f) => f.text).join('')), retry: Boolean(c.proposal), files: PROPOSAL_FILES };
       }
-    } else if (c.setup === 'installing' && !busy('install', 'install')) {
+    } else if (c.setup === 'installing' && !busy(`${current}:install`, 'install')) {
       if (options.setupProblem) {
         c.setup = 'failed';
         c.setupProblem = options.setupProblem;
@@ -340,8 +344,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     const now = c.topics.find((t) => t.state === 'now');
     if (!now) return;
     const writing = now.lessons.find((l) => l.state === 'writing');
-    if (writing && !busy(`lesson:${now.id}`, 'lesson', now.id)) writing.state = 'ready';
-    if (now.activity === 'writing' && c.setup === 'ready' && !busy(`author:${now.id}`, 'author', now.id)) now.activity = 'locked';
+    if (writing && !busy(`${current}:lesson:${now.id}`, 'lesson', now.id)) writing.state = 'ready';
+    if (now.activity === 'writing' && c.setup === 'ready' && !busy(`${current}:author:${now.id}`, 'author', now.id)) now.activity = 'locked';
     unlock(now.id);
   }
 
@@ -638,11 +642,25 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       roadmap = { ...roadmap, concepts: structuredClone(edited) };
       approved = structuredClone(roadmap);
       drafting = false;
-      lessons.clear();
-      activities.clear();
+      lessons = new Map();
+      activities = new Map();
+      deferred = new Set();
       course = { goal: roadmap.goal, track: roadmap.track, setup: roadmap.installed ? 'ready' : 'proposing', done: false, topics: edited.map(addConcept) };
+      current = `course-${kept.size + 1}`;
+      kept.set(current, { course, approved, lessons, activities, deferred });
       advance();
       happen('approve');
+    },
+
+    async courses() {
+      return [...kept].map(([id, k]) => ({ id, goal: k.course.goal, track: k.course.track, current: id === current }));
+    },
+
+    async switchCourse(id) {
+      const k = kept.get(id);
+      if (!k) throw new Error('No such course.');
+      ({ course, approved, lessons, activities, deferred } = k);
+      current = id;
     },
 
     async draft() {

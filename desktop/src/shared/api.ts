@@ -213,6 +213,15 @@ export interface CourseView {
   stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'disk' | 'failed' | 'unstoppable';
 }
 
+/** One of the learner's courses, to switch to (§4.13). The id is opaque and never shown. */
+export interface CourseSummary {
+  id: string;
+  goal: string;
+  track: string;
+  /** The course on screen. */
+  current: boolean;
+}
+
 export interface Lesson {
   id: string;
   concept: string;
@@ -382,7 +391,7 @@ export interface CodemmApi {
   research(goal: Goal): Promise<Research>;
   /** Saves the learner's edits, then runs a roadmap-change job. */
   reviseRoadmap(concepts: Concept[], request: string): Promise<RoadmapChange>;
-  /** Saves the roadmap. If its track isn't installed, starts the setup job. */
+  /** Saves the roadmap, which becomes one of the learner's courses, on screen. If its track isn't installed, starts the setup job. */
   approve(concepts: Concept[]): Promise<void>;
   /** The roadmap written or edited but not approved yet, to resume. The approved course stays the course until then. */
   draft(): Promise<Roadmap | null>;
@@ -390,11 +399,15 @@ export interface CodemmApi {
   saveDraft(concepts: Concept[]): Promise<void>;
 
   course(): Promise<CourseView | null>;
+  /** The learner's courses, oldest first, with the one on screen marked (§4.13). */
+  courses(): Promise<CourseSummary[]>;
+  /** Puts another of the learner's courses on screen; the work it still needs starts. */
+  switchCourse(course: string): Promise<void>;
   /** Builds the proposal the learner saw. Also retries after an offline or low-disk failure. */
   install(digest: string): Promise<void>;
   /** Runs the setup job again, after its proposals failed their gates. */
   retrySetup(): Promise<void>;
-  /** Starts stalled background work again. */
+  /** Starts the stalled background work of the course on screen again. */
   retryJobs(): Promise<void>;
 
   lesson(id: string): Promise<Lesson>;

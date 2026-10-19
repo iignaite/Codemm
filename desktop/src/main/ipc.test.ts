@@ -23,6 +23,8 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' 
   draft: [],
   saveDraft: [concepts],
   course: [],
+  courses: [],
+  switchCourse: ['react-1'],
   install: ['a'.repeat(64)],
   retrySetup: [],
   retryJobs: [],
@@ -70,6 +72,7 @@ describe('dispatch', () => {
       expect(() => dispatch(echo, 'lesson', [id])).toThrow('Bad input');
     }
     expect(() => dispatch(echo, 'connect', ['gemini'])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'switchCourse', ['../react-1'])).toThrow('Bad input');
     expect(() => dispatch(echo, 'saveNotes', ['values-1', 'x'.repeat(20_001)])).toThrow('Bad input');
     expect(() => dispatch(echo, 'ask', [{ activityId: 'a' }, ''])).toThrow('Bad input');
     expect(() => dispatch(echo, 'ask', [{ lessonId: 'a', activityId: 'b' }, 'Why?'])).toThrow('Bad input');

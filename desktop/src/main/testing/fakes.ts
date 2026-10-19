@@ -74,8 +74,8 @@ export function fakeCore() {
     review: undefined as undefined | { concept: string; exercise: string },
     /** A mastered concept due for review with no unused exercise: core asks for one (author, review: true). */
     reviewWithout: undefined as string | undefined,
-    install: async (_ref: string, _digest: string): Promise<unknown> => {
-      c.tracks.push('react@1');
+    install: async (ref: string, _digest: string): Promise<unknown> => {
+      c.tracks.push(ref);
       return {};
     },
     checks: [] as string[],
@@ -170,7 +170,7 @@ export function fakeCore() {
       onProgress?.({ phase: 'checking' });
       return c.install(ref, digest);
     },
-    dropProposal: async () => void (c.proposals = []),
+    dropProposal: async (ref) => void (c.proposals = c.proposals.filter((p) => p.track !== ref)),
     getLesson: (_ws, id, bound) => (c.bound.push(bound), { examples: [], ...c.lessons.find((l) => l.id === id)! }),
     // Run: asks for a name and greets it; stops when killed.
     runInteractive: async (_ws, slug, bound, output, options) => {
@@ -211,45 +211,53 @@ export function fakeCore() {
   return { c, app };
 }
 
-/** Fake agent jobs: each does what its job's agent would do through Codemm's tools. */
-type Act = (job: Job) => Partial<JobOutcome> | Promise<Partial<JobOutcome>>;
+/** The course a job's server is bound to (`--course`): its tools save there, as core requires. */
+export const boundOf = (job: Job) => {
+  const args = job.server([]).args;
+  return args[args.indexOf('--course') + 1];
+};
+
+/** Fake agent jobs: each does what its job's agent would do through Codemm's tools. An override can fall back to `usual`. */
+type Act = (job: Job, usual: () => Partial<JobOutcome> | Promise<Partial<JobOutcome>>) => Partial<JobOutcome> | Promise<Partial<JobOutcome>>;
 
 export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Record<Job['kind'], Act>> = {}) {
   const ran: Job[] = [];
-  const act: Record<Job['kind'], Act> = {
+  const usual: Record<Job['kind'], (job: Job) => Partial<JobOutcome>> = {
     research: (job) => {
-      // Saves under the course its server is bound to, as core requires.
-      const args = job.server([]).args;
-      c.roadmap = { course: args[args.indexOf('--course') + 1], goal: 'React', track: 'react@1', style: 'io', concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }] };
+      // React is the tests' usual goal; another goal gets its own track and topic ids, as a second course would.
+      const topic = /The learner wants to learn: (.*)/.exec(job.brief)?.[1] ?? 'React';
+      const slug = topic.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const [values, state] = topic === 'React' ? ['values', 'state'] : [`${slug}-values`, `${slug}-state`];
+      c.roadmap = { course: boundOf(job), goal: topic, track: `${slug}@1`, style: 'io', concepts: [{ id: values, title: 'Values', requires: [] }, { id: state, title: 'State', requires: [values] }] };
       return {};
     },
     roadmap: (job) => {
-      // Changes the course its server is bound to.
-      const args = job.server([]).args;
-      c.courses.get(args[args.indexOf('--course') + 1])!.concepts.push({ id: 'testing', title: 'Testing', requires: [] });
+      c.courses.get(boundOf(job))!.concepts.push({ id: 'testing', title: 'Testing', requires: [] });
       return { text: ['Added Testing.'] };
     },
-    setup: () => {
-      c.proposals.push({ track: 'react@1', digest: 'a'.repeat(64), created: new Date().toISOString(), files: { Dockerfile: 'FROM node:22', 'track.yaml': 'id: react' } });
+    setup: (job) => {
+      // Proposes the track the brief names.
+      const track = /Propose exactly the track `([^`]+)`/.exec(job.brief)?.[1] ?? 'react@1';
+      c.proposals.push({ track, digest: (track === 'react@1' ? 'a' : 'b').repeat(64), created: new Date().toISOString(), files: { Dockerfile: 'FROM node:22', 'track.yaml': `id: ${track.split('@')[0]}` } });
       return {};
     },
-    lesson: () => {
-      const concept = (c.roadmap!.concepts.find((x) => !c.mastered.has(x.id)) ?? c.roadmap!.concepts[0]).id;
+    lesson: (job) => {
+      const r = c.courses.get(boundOf(job))!;
+      const concept = (r.concepts.find((x) => !c.mastered.has(x.id)) ?? r.concepts[0]).id;
       c.lessons.push({ id: `${concept}-1`, concept, title: `About ${concept}`, markdown: '# About\n\nText.', notes: '' });
       return {};
     },
-    author: () => {
-      const concept = c.roadmap!.concepts.find((x) => !c.mastered.has(x.id))!.id;
+    author: (job) => {
+      const concept = c.courses.get(boundOf(job))!.concepts.find((x) => !c.mastered.has(x.id))!.id;
       c.exercises.set(`${concept}-${c.writes === 1 ? 'easy' : `d${c.writes}`}-1`, { concept, file: 'int main() { /* yours */ }', digest: '0'.repeat(64), created: new Date().toISOString(), difficulty: c.writes });
       return {};
     },
     tutor: () => ({ text: ['Look at what you add.'], session: 'session-1' }),
-    ...over,
   };
   const runJob = async (job: Job): Promise<JobOutcome> => {
     ran.push(job);
     await new Promise((r) => setTimeout(r, 1));
-    const out = await act[job.kind](job);
+    const out = await (over[job.kind] ?? usual[job.kind])(job, () => usual[job.kind](job));
     if (out.ok === false) return { ok: false, text: [], ...out };
     return { ok: await job.done({ ok: true }), text: [], ...out };
   };

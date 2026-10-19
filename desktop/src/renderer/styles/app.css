@@ -26,6 +26,13 @@ button, input, textarea { font: inherit; color: inherit; }
 /* A long goal shows two lines; screen readers still read all of it. */
 .pick .goal { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.35; }
 .pick.none { color: var(--navy-muted); font-weight: 500; }
+/* The learner's courses (§4.13): the one on screen keeps the box; the others are plain rows until hovered. */
+.courses { display: flex; flex-direction: column; gap: 4px; }
+button.pick { width: 100%; background: transparent; color: inherit; text-align: left; cursor: pointer; transition: background .2s; }
+button.pick:hover { background: rgba(255, 255, 255, .06); }
+button.pick:not([aria-current]) { border-color: transparent; color: var(--navy-text); font-weight: 500; }
+.slim-courses { align-items: center; }
+.slim .nav[aria-current="true"] { background: var(--navy-2); }
 .badge { width: 30px; height: 30px; flex-shrink: 0; border-radius: 8px; color: #fff; display: grid; place-items: center; font: 700 14px var(--mono); }
 .slim { width: 68px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 0; background: var(--navy); }
 .slim .nav { width: 44px; height: 44px; padding: 0; justify-content: center; }

@@ -38,7 +38,7 @@ function Screen({ route }: { route: Route }) {
     case 'topic':
       return <WithSide><TopicPage topicId={route.topicId} /></WithSide>;
     case 'learn':
-      return <WithSide><CourseMap /></WithSide>;
+      return <WithSide><CourseMap key={route.course} /></WithSide>;
     case 'tracks':
       return <WithSide><Tracks /></WithSide>;
     case 'lesson':
