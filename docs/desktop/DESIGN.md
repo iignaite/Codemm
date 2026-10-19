@@ -58,6 +58,7 @@ desktop/
   src/shared/api.ts         the IPC contract: channel names, input and output types
   src/preload/preload.ts    contextBridge exposes `codemm.*` from api.ts; nothing else
   src/main/
+    boot.ts                 the entry point: one Codemm per profile
     main.ts                 window, app lifecycle, menu
     ipc.ts                  one handler per channel: check the sender, validate input, call one function, return a view
     views.ts                learner-safe projections of core results, and the reply filter (§2.2)
@@ -73,6 +74,7 @@ desktop/
 - **Core in-process.** Main imports the core's `app` module from the repo and bundles it. `app` stays the only place that holds use cases, so the CLI, the MCP server and the app share them.
 - **Two processes write course data.** These are main and the `codemm mcp` server that each agent job starts. The core's PID-based course, track and workspace locks already serialize them.
 - **One server per job.** Each job's MCP server is the app's own binary in Node mode: `ELECTRON_RUN_AS_NODE=1 <app executable> <resources>/core/cli.js mcp --workspace <ws> --course <course> --tools <list> --desktop`. The Electron `RunAsNode` fuse must stay on.
+- **One Codemm.** Opening Codemm again hands over to the one already open, which shows its window, restored if minimized. A launch while Codemm is quitting opens it again once it has stopped, except during Restart to update, whose installer opens it. The second launch quits before it starts any job, install or cleanup: `boot.ts` loads `main.ts` only when it holds Electron's single-instance lock, which is per profile (userData). So one process owns userData and the workspace's jobs.
 - **One workspace.** The app keeps one workspace (default `~/Codemm`) holding `codemm.json` and `exercises/`. The course, events and tracks stay under `$CODEMM_HOME`, as in core. `desktop.json` carries `format_version` and is written atomically, like every Codemm-owned file.
 
 ### 2.1 Renderer security
@@ -418,7 +420,7 @@ Every long step shows its live progress, so the learner always knows where it is
 - **Parser:** the stream parsers (`agent/claude.ts`, `codex.ts`, `cursor.ts`) emit `{ type: 'usage', input, output, cachedInput?, costUsd? }`, where `input` counts every input token and `cachedInput` the ones read from cache. Jobs pass each report to `Job.onUsage` with its session.
 - **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs). It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs.
   - Only tutor sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor session (a crashed turn can report 0) and adds only the rise.
-  - One app process owns userData, as with `desktop.json`: two instances writing at the same moment could lose one report.
+  - One app process owns userData (§2), as with `desktop.json`, so no second instance writes it at the same moment.
 - **Screen:** the course map's side column shows a small Usage card for the approved course, once an agent has run for it: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. It's read again whenever the map reads the course. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so the cost's label, "Claude's estimate", is all it says: nothing about billing.
 
 ## 5. Failure states

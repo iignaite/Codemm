@@ -7,7 +7,7 @@
   "license": "MIT",
   "author": "Codemm contributors",
   "homepage": "https://github.com/iignaite/Codemm",
-  "main": "out/main/main.js",
+  "main": "out/main/boot.js",
   "engines": {
     "node": ">=22"
   },
