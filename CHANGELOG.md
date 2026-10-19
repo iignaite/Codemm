@@ -1,6 +1,11 @@
 # Changelog
 
-## 1.0.0-beta.1 (unreleased)
+## 1.0.0-beta.2
+
+- **The sandbox check works with a firewall on.** Check this computer's "The sandbox works" no longer asks for a restart when Docker is fine. Its test server now runs in a container instead of on the computer, so the Mac or Windows firewall never blocks it.
+- **Just after Docker starts**, a failed sandbox check says Codemm is still checking instead of asking for a restart, and the app log records why the check failed.
+
+## 1.0.0-beta.1
 
 The first beta of the Codemm desktop app, built on the 1.0 core below. The installers are unsigned, so each needs one extra step to open: Open Anyway on macOS, and More info, then Run anyway, on Windows.
 
