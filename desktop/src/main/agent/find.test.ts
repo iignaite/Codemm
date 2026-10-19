@@ -99,7 +99,8 @@ describe('find (§3.1)', () => {
 
   it("also looks in Podman's installer folder, and Homebrew's, where Colima's Docker client lives", () => {
     const usual = folders(posix('', '/Users/someone'));
-    expect(usual).toEqual(expect.arrayContaining(['/opt/podman/bin', '/opt/homebrew/bin', '/usr/local/bin', '/Users/someone/.orbstack/bin', '/Users/someone/.rd/bin']));
+    // Home folders are joined with this machine's separator, as find does.
+    expect(usual).toEqual(expect.arrayContaining(['/opt/podman/bin', '/opt/homebrew/bin', '/usr/local/bin', join('/Users/someone', '.orbstack', 'bin'), join('/Users/someone', '.rd', 'bin')]));
     // Windows keeps its own list.
     expect(folders({ platform: 'win32', path: '', home: 'C:\\Users\\someone' })).not.toContain('/opt/podman/bin');
   });
