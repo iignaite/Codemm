@@ -9,10 +9,12 @@ import { tmpdir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
 import type { AgentId, AgentInstall } from '../shared/api';
 import type { Executable } from './agent/bridge';
-import { nodeDesktopDeps, OfflineError, type DesktopDeps } from './dockerDesktop';
+import { nodeDesktopDeps, type DesktopDeps, type Network } from './dockerDesktop';
+import { OfflineError } from './download';
 import { POWERSHELL } from './windows';
 
-export interface AgentInstallDeps extends DesktopDeps {
+/** Docker's downloader and processes, without what only Docker's install uses. */
+export interface AgentInstallDeps extends Omit<DesktopDeps, 'list' | 'modifiedAt' | 'tempRoot'> {
   readText(file: string): string;
   sha256(file: string): Promise<string>;
   makeExecutable(file: string): void;
@@ -183,9 +185,9 @@ export function agentInstaller(d: AgentInstallDeps) {
 }
 
 /** The real computer: Docker's downloader and processes, plus file checks. */
-export function nodeAgentDeps(find: (bin: string) => Executable | null): AgentInstallDeps {
+export function nodeAgentDeps(find: (bin: string) => Executable | null, network: Network): AgentInstallDeps {
   return {
-    ...nodeDesktopDeps(),
+    ...nodeDesktopDeps(network),
     tempDir: () => mkdtempSync(join(tmpdir(), 'codemm-agent-')),
     readText: (file) => readFileSync(file, 'utf8').slice(0, 1_000_000),
     sha256: (file) =>

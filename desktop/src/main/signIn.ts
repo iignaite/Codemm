@@ -1,12 +1,14 @@
 // Starts an agent's own sign-in where the learner sees it (DESIGN §3.1). Codemm never reads, stores or types
-// credentials: Claude Code's login runs in a terminal window, and Codex's and Cursor's open the browser.
-// Every program starts from an argument array; the one file Codemm writes holds only quoted paths and a number.
+// credentials: Claude Code's login runs in a terminal window (Terminal on a Mac, a console window on Windows), and
+// Codex's and Cursor's open the browser. Every program starts from an argument array; the one file Codemm writes
+// holds only quoted paths and a number.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import type { AgentId } from '../shared/api';
 import type { Executable } from './agent/bridge';
+import { POWERSHELL } from './windows';
 
 export interface SignInDeps {
   platform: NodeJS.Platform;
@@ -23,12 +25,20 @@ export interface SignInDeps {
 const LOGIN: Record<AgentId, string[]> = { claude: ['auth', 'login'], codex: ['login'], cursor: ['login'] };
 /** A POSIX shell word: the path, single-quoted. */
 const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+/** A Windows command-line word: a path with a space, double-quoted (Windows paths never hold a quote). */
+const winQuote = (s: string) => (/\s/.test(s) ? `"${s}"` : s);
+/**
+ * Opens a program through the Windows shell, as a double-click does, so a console program gets a console window of
+ * its own. The program and its arguments arrive as environment variables, never inside the command text. .NET's
+ * Process.Start, as Docker's elevated install uses (dockerDesktop.ts).
+ */
+export const CONSOLE = '$i = New-Object Diagnostics.ProcessStartInfo $env:CODEMM_FILE, $env:CODEMM_ARGS; $i.UseShellExecute = $true; $null = [Diagnostics.Process]::Start($i)';
 
 export function agentSignIn(d: SignInDeps) {
   return async (id: AgentId, exe: Executable): Promise<void> => {
     const args = LOGIN[id];
-    // Claude Code asks for its login in a terminal. On a Mac, Terminal runs a one-line script; on Windows, a console
-    // program started on its own gets its own window.
+    // Claude Code asks for its login in a terminal. On a Mac, Terminal runs a one-line script; on Windows, it opens
+    // in a console window of its own. A program started straight from Codemm would have no window to show it in.
     if (id === 'claude' && d.platform === 'darwin') {
       const file = posix.join(d.tempDir(), 'Sign in to Claude Code.command');
       // A Node-script agent runs with this app as Node, as its jobs do.
@@ -37,6 +47,12 @@ export function agentSignIn(d: SignInDeps) {
       const pin = `[ "$(/usr/bin/stat -L -f %i ${quote(exe.path)})" = ${d.inode(exe.path)} ] || { echo 'Claude Code changed. Sign in again from Codemm.'; exit 1; }`;
       d.write(file, `#!/bin/sh\n${pin}\n${command} ${args.join(' ')}\n`);
       await d.start('/usr/bin/open', [file]);
+      return;
+    }
+    if (id === 'claude' && d.platform === 'win32') {
+      // Windows opens it at once, so nothing can replace the file in between, as Terminal's moment allows on a Mac.
+      const [file, words, env] = exe.js ? [d.runtime, [exe.path, ...args], { ELECTRON_RUN_AS_NODE: '1' }] : [exe.path, args, {}];
+      await d.start(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', CONSOLE], { CODEMM_FILE: file, CODEMM_ARGS: words.map(winQuote).join(' '), ...env });
       return;
     }
     if (exe.js) await d.start(d.runtime, [exe.path, ...args], { ELECTRON_RUN_AS_NODE: '1' });
@@ -53,7 +69,9 @@ export function nodeSignInDeps(runtime: string): SignInDeps {
     inode: (file) => statSync(file).ino,
     start: (file, args, env) =>
       new Promise((resolve, reject) => {
-        const child = spawn(file, args, { detached: true, stdio: 'ignore', env: { ...process.env, ...env } });
+        // On Windows, a detached program has no console at all, and one Codemm started shows none: hidden, it ends on its
+        // own (PowerShell, once it has opened the agent's console window).
+        const child = spawn(file, args, { detached: process.platform !== 'win32', windowsHide: true, stdio: 'ignore', env: { ...process.env, ...env } });
         child.once('error', reject);
         child.once('spawn', () => {
           child.unref();

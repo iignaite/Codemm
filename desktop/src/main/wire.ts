@@ -1,16 +1,19 @@
 // Builds the live CodemmApi (DESIGN §2): the bundled core in-process, agents
 // and Docker found on this computer, and agent jobs whose MCP server is the
 // bundled core run with this app as Node (§2, §7).
+import { app, net } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AGENT_CLIS } from './agent/agents';
 import { ask } from './agent/bridge';
+import { signedInOf } from './agent/signedIn';
 import { find, withDockerFolders } from './agent/find';
 import { computerCheck, waitWhileStarting } from './computer';
 import { agentInstaller, nodeAgentDeps } from './agentInstall';
 import { connector } from './connect';
-import { dockerDesktop, nodeDesktopDeps } from './dockerDesktop';
+import { dockerDesktop, nativeArch, nodeDesktopDeps } from './dockerDesktop';
+import { electronGet } from './download';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
 import type { Log } from './log';
@@ -33,13 +36,15 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
   const ws = workspaceOf(state.read(), homedir());
   mkdirSync(ws, { recursive: true });
   const runtime = process.execPath;
+  // Downloads go through Chromium's network stack (the system's proxy and certificates), for this computer's own chip.
+  const network = { get: electronGet(net.request), arch: nativeArch(process.arch, app.runningUnderARM64Translation) };
 
   // Claude Code and Codex, installed the vendor's own way into the learner's folders, then their own sign-in.
-  const installer = agentInstaller(nodeAgentDeps((bin) => find(bin)));
+  const installer = agentInstaller(nodeAgentDeps((bin) => find(bin), network));
   const connect = connector(
     {
       find: (bin) => find(bin),
-      signedIn: async (id, exe) => (await ask(exe, AGENT_CLIS[id].signIn.args, AGENT_CLIS[id].signIn.read)) === true,
+      signedIn: (id, exe) => signedInOf(id, exe),
       version: (id, exe) => ask(exe, AGENT_CLIS[id].version.args, AGENT_CLIS[id].version.read),
     },
     state,
@@ -55,9 +60,13 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
   };
   findDocker();
 
-  const desktop = dockerDesktop(nodeDesktopDeps());
+  const desktop = dockerDesktop(nodeDesktopDeps(network));
+  // What an install left when it failed, was declined, or Codemm quit midway.
+  void desktop.removeLeftovers();
   const computer = computerCheck({
     find: findDocker,
+    desktopInstalled: desktop.installed,
+    desktopRunning: desktop.running,
     startedAt: desktop.startedAt,
     canInstall: desktop.canInstall,
     install: desktop.status,

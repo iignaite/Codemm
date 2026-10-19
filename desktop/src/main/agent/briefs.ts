@@ -4,8 +4,13 @@
 import type { Depth } from '../../shared/api';
 import type { JobKind } from './jobs';
 
-/** Learner code given to the tutor, at most this many characters. */
-const CODE_MAX = 64 * 1024;
+/**
+ * The most characters of learner code a tutor brief carries, and of a failed proposal's problem a setup brief
+ * carries. A brief is one command-line argument, and Windows takes 32,767 characters for a whole command line, which
+ * quoting can double, so there they are smaller (§3.1).
+ */
+const ROOM = { code: 64 * 1024, problem: 16 * 1024 };
+const WINDOWS_ROOM = { code: 8 * 1024, problem: 4 * 1024 };
 
 /** The learner's chosen depth, as the research brief says it. */
 const DEPTH: Record<Depth, string> = {
@@ -14,7 +19,8 @@ const DEPTH: Record<Depth, string> = {
   'in-depth': 'in depth, about 25 to 30 topics',
 };
 
-export function briefsFrom(base: Record<JobKind, string>) {
+export function briefsFrom(base: Record<JobKind, string>, platform: NodeJS.Platform = process.platform) {
+  const room = platform === 'win32' ? WINDOWS_ROOM : ROOM;
   const brief = (kind: JobKind, ...details: (string | false | undefined)[]) => [base[kind], ...details.filter(Boolean)].join('\n\n');
   return {
     research: (course: string, topic: string, known: string, depth: Depth) =>
@@ -23,12 +29,12 @@ export function briefsFrom(base: Record<JobKind, string>) {
     easier: (concept: string, title: string) => brief('roadmap', `Make "${title}" (${concept}) easier: add one smaller topic that it requires.`),
     setup: (track: string, style: string, problem?: string) => {
       const [id, version] = track.split('@');
-      return brief('setup', `Propose exactly the track \`${track}\`: id \`${id}\`, version ${version}, offering style \`${style}\`.`, problem && `The last proposal failed its checks: ${problem}`);
+      return brief('setup', `Propose exactly the track \`${track}\`: id \`${id}\`, version ${version}, offering style \`${style}\`.`, problem && `The last proposal failed its checks: ${problem.slice(0, room.problem)}`);
     },
     lesson: (concept: string, title: string) => brief('lesson', `Concept: ${concept} (${title})`),
     author: () => brief('author'),
     tutor: (place: string, question: string, files?: Record<string, string>) => {
-      const code = files && Object.entries(files).map(([path, text]) => `${path}:\n\`\`\`\n${text}\n\`\`\``).join('\n\n').slice(0, CODE_MAX);
+      const code = files && Object.entries(files).map(([path, text]) => `${path}:\n\`\`\`\n${text}\n\`\`\``).join('\n\n').slice(0, room.code);
       return brief('tutor', `The learner is on ${place}.`, code && `Their code:\n\n${code}`, `They ask: ${question}`);
     },
   };
