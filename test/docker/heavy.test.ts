@@ -1,15 +1,18 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type FileMap, readFileMap, subMap } from "../../src/files.js";
 import { verifyExercise, verifyTrack } from "../../src/gates.js";
 import { gradeIoRun, recordOutput } from "../../src/grading.js";
 import { runIo } from "../../src/judge.js";
+import { cli } from "../../src/sandbox.js";
 import { type CourseRecord, parseRoadmapYaml, type TrackRecord } from "../../src/schemas.js";
 import { dockerUp, FIXTURES, fixtureTrack } from "./helpers.js";
 
 // Heavy tests (DESIGN §4.3): a million numbers in and out, seconds of CPU per test, and a JVM build tool run offline.
-// Each logs how long it took.
+// Each logs how long it took. The JVM track's image is about 600 MB with its Maven cache, so it runs only when asked
+// (CODEMM_BIG_IMAGES=1, as CI does) and is removed afterwards.
+const bigImages = process.env.CODEMM_BIG_IMAGES === "1";
 
 const course = (name: string): CourseRecord => ({ format_version: 1, course: "demo", ...parseRoadmapYaml(readFileSync(join(FIXTURES, "roadmaps", `${name}.yaml`), "utf8")) });
 const exercise = (name: string): FileMap => readFileMap(join(FIXTURES, "exercises", name));
@@ -78,11 +81,14 @@ describe.runIf(dockerUp)("heavy tests (Docker)", () => {
     }, LONG);
   });
 
-  describe("unit: a Maven and JUnit track, offline", () => {
+  describe.runIf(bigImages)("unit: a Maven and JUnit track, offline", () => {
     let java: TrackRecord;
     beforeAll(async () => {
       java = record(await timed("java-maven: track install (build and probes)", () => verifyTrack(fixtureTrack("java-maven").files, "codemm-test-java-maven:1")));
     }, LONG);
+    afterAll(async () => {
+      await cli(["image", "rm", "codemm-test-java-maven:1"]);
+    });
 
     it("gates a unit exercise, every test run offline in the sandbox", async () => {
       const r = await timed("java count-evens: exercise gates", () => verifyExercise(java, course("java-maven"), exercise("java-count-evens"), new Set()));

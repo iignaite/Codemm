@@ -427,7 +427,7 @@ The MCP tools and CLI commands are thin calls into one application module.
   - init merging; hook decisions; lock behavior.
 - **Docker integration**, with a POSIX-shell fixture track in both styles:
   - the judge, every gate, and the adversarial sandbox cases in A7;
-  - heavy tests: a million generated numbers in and out, seconds of CPU per case, and a Maven + JUnit track that builds its cache into the image and runs offline;
+  - heavy tests: a million generated numbers in and out, seconds of CPU per case, and a Maven + JUnit track that builds its cache into the image and runs offline (its image is about 600 MB, so it runs only with `CODEMM_BIG_IMAGES=1`, which CI sets);
   - atomic install and recovery;
   - these run in CI on Linux and locally where Docker is available.
 - **Packaging:** `npm pack`, then install the tarball into a temp folder, run `codemm --version`, and spawn `codemm mcp` as a real stdio server and call its tools.

@@ -48,3 +48,5 @@ jobs:
         run: npm test
         env:
           CODEMM_REQUIRE_DOCKER: "1"
+          # Fixtures with big images (the Maven + JUnit track, about 600 MB) run here, not in a default local run.
+          CODEMM_BIG_IMAGES: "1"
