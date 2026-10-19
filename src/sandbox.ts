@@ -572,12 +572,25 @@ export async function inspectImage(tag: string): Promise<{ id: string; hasVolume
   return { id: record.Id, hasVolumes: !!volumes && Object.keys(volumes).length > 0 };
 }
 
-/** The images a Dockerfile builds from, once each and in order: not its own stages, scratch, or an image a build argument names. */
+/**
+ * The images a Dockerfile builds from, once each and in order: not its own stages, scratch, or an image a build
+ * argument names. Lines inside a heredoc or after a line continuation are a command's text, not instructions.
+ */
 export function baseImages(dockerfile: string): string[] {
   const stages = new Set<string>();
   const images: string[] = [];
+  let heredoc: string | undefined;
+  let continued = false;
   for (const line of dockerfile.split(/\r?\n/)) {
-    const m = /^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?/i.exec(line);
+    if (heredoc !== undefined) {
+      if (line.trim() === heredoc) heredoc = undefined;
+      continue;
+    }
+    const wasContinued = continued;
+    continued = /\\\s*$/.test(line);
+    heredoc = /<<-?\s*["']?(\w+)["']?/.exec(line)?.[1];
+    if (wasContinued) continue;
+    const m = /^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?\s*$/i.exec(line);
     if (!m) continue;
     const image = m[1]!;
     const own = stages.has(image.toLowerCase()) || image.toLowerCase() === "scratch" || image.includes("$");
@@ -587,16 +600,21 @@ export function baseImages(dockerfile: string): string[] {
   return images;
 }
 
+/** An image from Docker Hub's official library (`alpine:3.20`, not `someone/alpine` or a registry's): all of them are public. */
+const officialImage = (image: string) => !image.split(/[:@]/)[0]!.includes("/");
+
 /**
- * The base images the registry says don't exist. An answer it can't give (offline, no runtime, a registry that
- * wants a login) counts nothing missing: the build then reports it.
+ * The base images the registry says don't exist: a tag it doesn't have, or an official image that isn't there. One
+ * top-level manifest request each, side by side. An answer it can't give (offline, no runtime or buildx, a private
+ * or namespaced repository it won't show) counts nothing missing: the build then reports it.
  */
 export async function missingBaseImages(dockerfile: string): Promise<string[]> {
-  // Asked side by side: each answer is a registry round trip.
   const answers = await Promise.all(baseImages(dockerfile).map(async (image) => {
     try {
-      const r = await cli(["manifest", "inspect", image], 30_000);
-      return r.exit !== 0 && /no such manifest|manifest unknown/i.test(r.output) ? image : undefined;
+      const r = await cli(["buildx", "imagetools", "inspect", "--raw", image], 30_000);
+      if (r.exit === 0) return undefined;
+      const gone = /: not found\b/i.test(r.output) || (officialImage(image) && /repository does not exist/i.test(r.output));
+      return gone ? image : undefined;
     } catch {
       return undefined;
     }

@@ -141,15 +141,18 @@ describe.runIf(posix)("installing a track", () => {
 
   it("refuses a proposal whose base image doesn't exist, before it reaches the learner", async () => {
     fakeDocker("builds");
-    const files = { ...track(), Dockerfile: track().Dockerfile!.replace(/^FROM .*$/m, "FROM nope:21-slim") };
-    await expect(app.proposeTrack(files)).rejects.toThrow(/nope:21-slim/);
+    const from = (image: string) => ({ ...track(), Dockerfile: track().Dockerfile!.replace(/^FROM .*$/m, `FROM ${image}`) });
+    await expect(app.proposeTrack(from("alpine:nope"))).rejects.toThrow(/alpine:nope/);
+    await expect(app.proposeTrack(from("nope:21-slim"))).rejects.toThrow(/nope:21-slim/);
     expect(app.listProposals()).toEqual([]);
+    // A namespaced repository the registry won't show may be private: the build decides.
+    await expect(app.proposeTrack(from("someone/private:1"))).resolves.toMatchObject({ proposed: "shell-io@1" });
     await expect(app.proposeTrack(track())).resolves.toMatchObject({ proposed: "shell-io@1" });
   });
 
   it("proposes anyway when the registry can't be asked, so the build reports it", async () => {
     fakeDocker("offline");
-    const files = { ...track(), Dockerfile: track().Dockerfile!.replace(/^FROM .*$/m, "FROM nope:21-slim") };
+    const files = { ...track(), Dockerfile: track().Dockerfile!.replace(/^FROM .*$/m, "FROM alpine:nope") };
     await expect(app.proposeTrack(files)).resolves.toMatchObject({ proposed: "shell-io@1" });
   });
 

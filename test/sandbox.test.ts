@@ -308,6 +308,12 @@ describe("baseImages", () => {
       "FROM scratch",
       "FROM ${BASE}",
       "FROM eclipse-temurin:21-jre",
+      "RUN <<EOF",
+      "from redis import Redis",
+      "FROM python:3.12",
+      "EOF",
+      "RUN echo \\",
+      "  FROM node:22",
     ].join("\n");
     expect(baseImages(dockerfile)).toEqual(["maven:3.9-eclipse-temurin-21", "eclipse-temurin:21-jre"]);
   });
