@@ -7,16 +7,17 @@ import { SAY, problemOf, repairDetail } from './errors';
 import { useRouter } from './router';
 import { useBusy } from './useBusy';
 
-/** This computer's problems behind a stall: the learner fixes them here, not in the agent. */
-const COMPUTER = {
+/** What a stall says when it isn't the agent's doing: this computer's problems, a rebuild, or a lesson that wasn't written. */
+const STALL = {
   docker: 'Docker stopped. Start Docker, then try again.',
   'docker-busy': 'Docker is busy or not answering. Wait a moment, then try again.',
   'docker-failed': "Docker couldn't run that. Try again, and restart Docker if it happens again.",
   'docker-disk': 'Docker ran out of disk space. Remove unused images in Docker Desktop, then try again.',
   disk: 'Not enough disk space. Free some space on this computer, then try again.',
   rebuild: REBUILD,
+  lesson: "Codemm couldn't write this lesson.",
 };
-const onComputer = (stalled: string): stalled is keyof typeof COMPUTER => stalled in COMPUTER;
+const named = (stalled: string): stalled is keyof typeof STALL => stalled in STALL;
 
 /** Background work stopped after its retry, and nothing was recorded (§5). A sign-out goes to connect instead. */
 export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['stalled']>; retry: () => void }) {
@@ -41,7 +42,7 @@ export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['s
 
   return (
     <div className="failed" role="alert">
-      {stalled === 'failed' ? "Codemm couldn't finish that." : onComputer(stalled) ? COMPUTER[stalled] : SAY[stalled]}
+      {stalled === 'failed' ? "Codemm couldn't finish that." : named(stalled) ? STALL[stalled] : SAY[stalled]}
       {stalled === 'failed' && <Button variant="text" onClick={() => go({ to: 'connect', then: route })}>Check your agent</Button>}
       {(stalled === 'docker' || stalled === 'docker-failed') && <Button variant="text" onClick={() => go({ to: 'computer', then: route })}>Check this computer</Button>}
       {stalled === 'rebuild' && <Button variant="text" onClick={() => go({ to: 'tracks' })}>Go to Tracks</Button>}

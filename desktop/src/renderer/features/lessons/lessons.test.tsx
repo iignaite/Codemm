@@ -149,7 +149,7 @@ describe('topic page and setup consent', () => {
     renderApp({ to: 'topic', topicId: TOPIC }, api);
     const dialog = await screen.findByRole('dialog', { name: 'Set up React on this computer?' });
     expect(dialog).toHaveTextContent('Setup runs code your agent wrote, with internet access. Graded runs are offline.');
-    await user.click(within(dialog).getByText('Details'));
+    await user.click(within(dialog).getByText('Show the files'));
     expect(within(dialog).getByRole('region', { name: 'Dockerfile' })).toHaveTextContent('FROM node:22-alpine');
     expect(dialog).toHaveTextContent('The build stops after 10 minutes, and has no memory or CPU limit.');
 
@@ -168,7 +168,7 @@ describe('topic page and setup consent', () => {
     renderApp({ to: 'topic', topicId: TOPIC }, api);
     await screen.findByRole('dialog');
     await user.tab({ shift: true });
-    expect(screen.getByText('Details')).toHaveFocus();
+    expect(screen.getByText('Show the files')).toHaveFocus();
   });
 
   it('shows the latest proposal again, inside the dialog, when the setup changed', async () => {
@@ -253,7 +253,25 @@ describe('topic page and setup consent', () => {
     const alert = await screen.findByRole('alert');
     expect(within(alert).getByRole('heading', { name: "Couldn't set up React" })).toBeInTheDocument();
     await user.click(within(alert).getByRole('button', { name: 'Try again' }));
-    expect(await screen.findByRole('dialog', { name: 'Codemm has another way to set up React.' })).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog', { name: 'Codemm has another way to set up React.' });
+    // It says why the last try failed, and declining only closes it, as on the first ask.
+    expect(dialog).toHaveTextContent("The last try didn't build.");
+    expect(within(dialog).getAllByRole('button').map((b) => b.textContent)).toEqual(expect.arrayContaining(['Not now', 'Set up']));
+  });
+
+  it("keeps a lesson that couldn't be written on its row, with Try again, and blames no agent", async () => {
+    const user = userEvent.setup();
+    const { api, course } = await mockWithCourse({ read: true });
+    const failed = { ...course, stalled: 'lesson' as const, topics: course.topics.map((t) => (t.id === TOPIC ? { ...t, activity: 'locked' as const, lessons: [{ id: `${TOPIC}-writing`, title: 'Lesson', state: 'failed' as const }] } : t)) };
+    let retried = 0;
+    api.course = async () => (retried ? course : failed);
+    api.retryJobs = async () => void retried++;
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const row = (await screen.findByText("Codemm couldn't write this lesson.")).closest('.row') as HTMLElement;
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check your agent' })).not.toBeInTheDocument();
+    await user.click(within(row).getByRole('button', { name: 'Try again' }));
+    expect(retried).toBe(1);
   });
 });
 

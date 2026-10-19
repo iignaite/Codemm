@@ -243,12 +243,12 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - It then runs gates 2 to 5 and installs exactly like `saveTrack`.
 - **The consent dialog.**
   - Text: "Set up React on this computer?" and "Setup runs code your agent wrote, with internet access. Graded runs are offline.", with Not now or Set up.
-  - Details shows the Dockerfile and track.yaml, the 10-minute build limit, and the fact that builds have no memory or CPU limit.
+  - "Show the files" opens the Dockerfile and track.yaml, the 10-minute build limit, and the fact that builds have no memory or CPU limit.
   - The topic page opens it. A lesson offers it as a "Set up React" banner, so reading never waits for consent.
   - A setup failure shows above the topic's lessons, which stay readable.
 - **Retries.**
   - **Build failure from the learner's machine.** If a build fails because the machine is offline or out of disk space (§6.1), nothing is recorded and no agent runs. Try again re-installs the same proposal, which needs no new consent because the digest is unchanged.
-  - **Gate failure.** If the gates fail, a new setup job gets the gate diagnostics, which hold no learner secrets, and proposes again within the bound in §3.2. A new proposal has new contents, so it asks again: "Codemm has another way to set up React." with Stop or Set up.
+  - **Gate failure.** If the gates fail, a new setup job gets the gate diagnostics, which hold no learner secrets, and proposes again within the bound in §3.2. A new proposal has new contents, so it asks again: "Codemm has another way to set up React." with Not now or Set up. Its text starts with why the last try failed, in Codemm's words from the failed gate's name alone, never its output: "The last try didn't build.", "The last try built, but its tests didn't work.", "The last try's files weren't valid." or "The last try didn't pass Codemm's checks."
 - **Outside the app.** Without `--desktop`, `save_track` behaves as in core: approving the call in the agent is the consent.
 
 ### 4.2 Roadmap draft and edits
@@ -425,7 +425,7 @@ Infrastructure failures record nothing. Learner-caused outcomes are graded as `e
 | Agent plan limit reached | "Your agent's plan limit is reached. Try again later." | nothing; no relaunch |
 | Offline during an agent job (the agent can't reach its service, or a Codemm tool can't reach the network) | "You're offline. Connect to the internet, then try again." Try again | nothing; no relaunch |
 | Docker stopped, busy or failing, or the disk full, during setup or an agent job (core or a Codemm tool says so) | Stopped (missing, not running, unreachable): "Docker stopped. Start Docker, then try again." with Check this computer and Try again. Busy (no answer even when asked again for longer, a check past the host's deadline, a container removal that didn't finish): "Docker is busy or not answering. Wait a moment, then try again." with Try again. Answering but failing (a container that couldn't start, a run the runtime failed, its credential helper, Windows containers, or an ended attempt's containers it didn't remove): "Docker couldn't run that. Try again, and restart Docker if it happens again." with Check this computer and Try again. Docker's disk: "Docker ran out of disk space. Remove unused images in Docker Desktop, then try again." This computer's disk: "Not enough disk space. Free some space on this computer, then try again." Each with Try again; a failed setup also offers Stop. Never Check your agent | nothing; no relaunch |
-| Another agent failure (model refused, crash, deadline) or not done by its check | "Codemm couldn't finish that." Try again, or Check your agent (opens connect) | nothing; saves are atomic |
+| Another agent failure (model refused, crash, deadline) or not done by its check | "Codemm couldn't finish that." Try again, or Check your agent (opens connect). A lesson job's failure keeps the lesson's row instead, saying "Codemm couldn't write this lesson." with Try again, and blames no agent | nothing; saves are atomic |
 | Track gates fail | "Couldn't set up React." A new proposal asks again; after the bound, Stop or Try again | nothing |
 | Author bound reached | "Couldn't write this activity." Try again | nothing |
 | Editor file changed outside Codemm | the editor reloads it | nothing |

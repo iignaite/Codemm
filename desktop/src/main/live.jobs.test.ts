@@ -224,6 +224,20 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     expect(await until(s.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'disk' });
   });
 
+  it("a lesson that couldn't be written keeps its row, says so, and blames no agent", async () => {
+    const t = live({ lesson: () => ({ ok: false, problem: 'failed' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(proposal!.digest);
+    const course = await until(t.api, (c) => c.stalled !== undefined);
+    expect(course.stalled).toBe('lesson');
+    expect(course.topics.flatMap((topic) => topic.lessons)).toContainEqual(expect.objectContaining({ title: 'Lesson', state: 'failed' }));
+    // Try again writes it again.
+    await t.api.retryJobs();
+    await until(t.api, () => t.jobs.ran.filter((j) => j.kind === 'lesson').length === 2);
+  });
+
   it('a job that found its track image gone stalls as a rebuild, not as the agent failing', async () => {
     const t = live({ lesson: () => ({ ok: false, problem: 'rebuild' }) });
     const r = await researched(t);

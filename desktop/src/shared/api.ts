@@ -192,11 +192,14 @@ export interface Proposal {
   digest: string;
   /** True when an earlier proposal failed its gates: "Codemm has another way". */
   retry: boolean;
+  /** On a retry, why the last proposal failed, in Codemm's words (never its output). */
+  why?: string;
   files: { path: string; text: string }[];
 }
 
 export type TopicState = 'mastered' | 'now' | 'later';
-export type LessonState = 'writing' | 'ready' | 'read';
+/** `failed`: the job writing it stopped, and the learner tries again (§5). */
+export type LessonState = 'writing' | 'failed' | 'ready' | 'read';
 export type ActivityState = 'writing' | 'locked' | 'open' | 'passed';
 
 export interface TopicView {
@@ -223,7 +226,7 @@ export interface CourseView {
   topics: TopicView[];
   done: boolean;
   /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
-  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'disk' | 'rebuild' | 'failed' | 'unstoppable';
+  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'disk' | 'rebuild' | 'lesson' | 'failed' | 'unstoppable';
 }
 
 export interface Lesson {

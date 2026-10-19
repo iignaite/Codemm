@@ -239,6 +239,23 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     expect(heard.filter((p) => p.kind === 'setup' && p.stage === 0).at(-1)!.retry).toEqual({ attempt: 2, of: 5 });
   });
 
+  it("says why the last proposal failed, from its gate's name, never its output", async () => {
+    const t = live();
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const consent = await until(t.api, (c) => c.setup === 'consent');
+    expect(consent.proposal).not.toHaveProperty('why');
+    const install = t.c.install;
+    t.c.install = async () => {
+      throw coreError('Gate "build" failed: the image didn\'t build.\nIt printed:\nCANARY-BUILD-LOG');
+    };
+    await t.api.install(consent.proposal!.digest);
+    t.c.install = install;
+    const again = await until(t.api, (c) => c.setup === 'consent' && c.proposal!.retry);
+    expect(again.proposal!.why).toBe("The last try didn't build.");
+    expect(JSON.stringify(again)).not.toContain('CANARY');
+  });
+
   it("shows a setup's build steps as counts, then its checks", async () => {
     const t = live();
     const heard: JobProgress[] = [];

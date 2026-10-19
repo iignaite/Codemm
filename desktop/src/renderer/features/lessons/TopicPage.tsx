@@ -34,7 +34,7 @@ export function TopicPage({ topicId }: { topicId: string }) {
         <h1 className="h1 a-up">{topic.title}</h1>
         {/* A failed setup says so above the lessons, which stay readable. */}
         {course.setup === 'failed' && <SetupFailed course={course} topicId={topicId} onRetry={reload} />}
-        <Items topic={topic} />
+        <Items topic={topic} onRetry={reload} />
         {(course.setup === 'proposing' || course.setup === 'installing') &&
           (setupJob ? (
             <section className="card setup-progress a-up" style={stagger(3, 300)} aria-labelledby="setup-progress-t">
@@ -46,15 +46,28 @@ export function TopicPage({ topicId }: { topicId: string }) {
           ))}
         <SetupOffer course={course} onChange={reload} />
       </div>
-      {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
+      {/* A lesson that wasn't written says so on its own row. */}
+      {course.stalled && !(course.stalled === 'lesson' && topic?.lessons.some((l) => l.state === 'failed')) && <Stalled stalled={course.stalled} retry={reload} />}
       {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
 }
 
-function Items({ topic }: { topic: TopicView }) {
-  const { go } = useRouter();
+function Items({ topic, onRetry }: { topic: TopicView; onRetry: () => void }) {
+  const api = useApi();
+  const { go, fail } = useRouter();
   const open = topic.activity === 'open' || topic.activity === 'passed';
+  // Try again runs once: a double click starts the lesson once.
+  const retrying = useBusy();
+  const retry = () =>
+    retrying.guard(async () => {
+      try {
+        await api.retryJobs();
+        onRetry();
+      } catch (e) {
+        fail(e);
+      }
+    });
   return (
     <div className="card">
       {topic.lessons.map((l, i) => (
@@ -64,6 +77,11 @@ function Items({ topic }: { topic: TopicView }) {
             <>
               <span className="fill">{l.title}</span>
               <Writing kind="lesson" concept={topic.id} label="Writing the lesson" />
+            </>
+          ) : l.state === 'failed' ? (
+            <>
+              <span className="fill">Codemm couldn't write this lesson.</span>
+              <Button variant="ghost" disabled={retrying.busy} onClick={retry}>Try again</Button>
             </>
           ) : (
             <>

@@ -36,7 +36,7 @@ import { asNotCounted } from './notCounted';
 import { programs } from './programs';
 import type { desktopState } from './state';
 import type { usageStore } from './usage';
-import { HELD_BACK, activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
+import { HELD_BACK, activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, setupWhy, trackName, tryView } from './views';
 
 export interface LiveDeps {
   core: CoreApp;
@@ -96,6 +96,8 @@ export function createLive(d: LiveDeps): Live {
   const lanes = { fg: Promise.resolve() as Promise<unknown>, bg: Promise.resolve() as Promise<unknown> };
   const outcomes = new Map<string, JobOutcome>();
   let stalled: CourseView['stalled'];
+  /** The concept whose lesson job's failure is the stall: its row stays, with Try again. */
+  let failedLesson: string | undefined;
   let tutorTurns: Promise<unknown> = Promise.resolve();
   let tutorTurnCount = 0;
   /** Set once an agent survived its cancel: no agent starts again until Codemm quits (§3.1). */
@@ -287,22 +289,29 @@ export function createLive(d: LiveDeps): Live {
     if (stopping || stalled || running.has(key)) return;
     const outcome = start(key, lane, kind, brief, course, done, { concept, retry });
     const controller = running.get(key)?.stop;
-    // The first stall is the one the learner sees.
+    // The first stall is the one the learner sees. A lesson its agent couldn't write says so on its own row; one whose
+    // agent or server didn't start (infra) still offers Check your agent.
+    const stall = (problem: JobProblem) => {
+      if (stalled) return;
+      stalled = kind === 'lesson' && problem === 'failed' ? 'lesson' : stallOf(problem);
+      failedLesson = concept;
+    };
     outcome
       .then((o) => {
-        if (!o.ok && !controller?.signal.aborted) stalled ??= stallOf(o.problem);
+        if (!o.ok && !controller?.signal.aborted) stall(o.problem ?? 'failed');
         // A finished job can make the next one due: the lesson before the activity, a proposal after gates.
         else if (o.ok) schedule();
       })
       .catch((e: Error) => {
         log('job-error', { job: kind, ...errorFields(e) });
-        stalled ??= e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed';
+        stall(e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed');
       });
   }
 
   function latestProposal(ref: string): Proposal | undefined {
     const latest = core.listProposals().filter((p) => p.track === ref).sort((a, b) => b.created.localeCompare(a.created))[0];
-    return latest && { digest: latest.digest, retry: setup.gateFailures > 0, files: Object.entries(latest.files).map(([path, text]) => ({ path, text })) };
+    const retry = setup.gateFailures > 0;
+    return latest && { digest: latest.digest, retry, ...(retry ? { why: setupWhy(setup.lastGateProblem) } : {}), files: Object.entries(latest.files).map(([path, text]) => ({ path, text })) };
   }
 
   /** One consent before setup (§4.1): propose, wait for the learner, build exactly what they saw. */
@@ -567,7 +576,7 @@ export function createLive(d: LiveDeps): Live {
       if (progress.next.kind === 'author' && progress.next.review) schedule();
       const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
       const jobs = new Set([...running.keys()].map((k) => k.replace(`:${roadmap.course}`, '')));
-      const view = courseView(progress, core.listLessons(ws, roadmap.course), state, jobs);
+      const view = courseView(progress, core.listLessons(ws, roadmap.course), state, jobs, undefined, stalled === 'lesson' ? failedLesson : undefined);
       return stalled ? { ...view, stalled } : view;
     },
 
