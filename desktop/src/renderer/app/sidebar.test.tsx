@@ -140,6 +140,17 @@ describe('courses (§4.13)', () => {
     expect(within(sidebar()).getByRole('button', { name: 'React' })).toHaveAttribute('aria-current', 'true');
   });
 
+  it('names two courses with the same words by their goals', async () => {
+    const api = await twoCourses();
+    api.courses = async () => [
+      { id: 'python-1', title: 'Python', goal: 'Python basics, briefly', track: 'python', current: true },
+      { id: 'python-2', title: 'Python', goal: 'Python in depth', track: 'python', current: false },
+    ];
+    renderApp({ to: 'tracks' }, api);
+    expect(await within(sidebar()).findByRole('button', { name: 'Python basics, briefly' })).toHaveAttribute('aria-current', 'true');
+    expect(within(sidebar()).getByRole('button', { name: 'Python in depth' })).toBeInTheDocument();
+  });
+
   it('opens the goal screen from New course', async () => {
     renderApp({ to: 'learn' }, await twoCourses());
     await userEvent.setup().click(await within(sidebar()).findByRole('button', { name: 'New course' }));

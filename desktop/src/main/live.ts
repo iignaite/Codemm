@@ -175,6 +175,16 @@ export function createLive(d: LiveDeps): Live {
     }
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
+  /** A course's track; none for a course whose roadmap can't be read. */
+  const trackOf = (course: string) => {
+    try {
+      return roadmapOrNull(course)?.track;
+    } catch {
+      return undefined;
+    }
+  };
+  /** The learner's courses on a track, and `course`: they share its setup (§4.13). */
+  const onTrack = (ref: string, course: string) => [...new Set([course, ...coursesOf(d.state.read()).filter((c) => trackOf(c) === ref)])];
   /** A course's name: the words the learner typed for it, or its goal (W-5). */
   const nameOf = (r: { course: string; goal: string }) => d.state.read().names?.[r.course] ?? r.goal;
   /** A roadmap as shown. Its sources are agent text too, so one that quotes hidden material, or can't be checked, is dropped. */
@@ -222,14 +232,17 @@ export function createLive(d: LiveDeps): Live {
 
   // Every job's progress goes to whoever listens (main sends it to the app window): stages, steps and time (§4.11).
   const jobListeners = new Set<(p: JobProgress) => void>();
-  const trackers = new Map<string, { tracker: JobTracker; course?: string }>();
+  /** Who hears a job: a course's own jobs, or a track's setup, which every course on that track hears. */
+  type Audience = { course?: string; track?: string };
+  const trackers = new Map<string, { tracker: JobTracker; audience: Audience }>();
   /** The window hears the jobs of the course on screen, research and the draft, but not another course's (§4.13). */
-  const heard = (course: string | undefined) => {
+  const heard = ({ course, track }: Audience) => {
     const s = d.state.read();
+    if (track) return s.approved !== undefined && trackOf(s.approved) === track;
     return !course || course === s.approved || !coursesOf(s).includes(course);
   };
-  const tellJob = (p: JobProgress, course: string | undefined) => {
-    if (heard(course)) jobListeners.forEach((l) => l(p));
+  const tellJob = (p: JobProgress, audience: Audience) => {
+    if (heard(audience)) jobListeners.forEach((l) => l(p));
   };
 
   /**
@@ -238,8 +251,10 @@ export function createLive(d: LiveDeps): Live {
    */
   function start(
     key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'],
-    { resume, onSource, concept, retry, settled }: {
+    { resume, onSource, concept, retry, settled, track }: {
       resume?: string; onSource?: Job['onSource']; concept?: string; retry?: JobProgress['retry'];
+      /** A track's setup: every course on the track hears its progress. */
+      track?: string;
       /** Runs as the job ends, before its queue moves on: background work records its stall here. */
       settled?: (result: JobOutcome | Error) => void;
     } = {},
@@ -247,8 +262,14 @@ export function createLive(d: LiveDeps): Live {
     const existing = running.get(key);
     if (existing) return existing.outcome;
     if (stopping) return Promise.resolve({ ok: false, problem: 'failed', text: [] });
-    if (unstoppable) return Promise.resolve({ ok: false, problem: 'unstoppable', text: [] });
+    if (unstoppable) {
+      // Background work that won't start still stalls its course, so the learner sees why (§3.1).
+      const outcome: JobOutcome = { ok: false, problem: 'unstoppable', text: [] };
+      settled?.(outcome);
+      return Promise.resolve(outcome);
+    }
     const stop = new AbortController();
+    const audience: Audience = track ? { track } : { course };
     let launched = false;
     const job = async (): Promise<JobOutcome> => {
       launched = true;
@@ -264,15 +285,15 @@ export function createLive(d: LiveDeps): Live {
       log('job-start', { kind, lane, agent: id });
       // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
       const tracker = jobTracker(kind, { concept, retry, shows: safeIn(protectedCourse()) });
-      trackers.set(key, { tracker, course });
-      tellJob(tracker.snapshot(), course);
+      trackers.set(key, { tracker, audience });
+      tellJob(tracker.snapshot(), audience);
       // An author's save runs the exercise gates in its server; the server names the running gate in this file.
       const gateFile = kind === 'author' && d.progressDir ? join(d.progressDir, `${tracker.id}.json`) : undefined;
       if (gateFile) mkdirSync(d.progressDir!, { recursive: true });
       const gates = gateFile
         ? watchGates(gateFile, (gate) => {
             tracker.gate(gate);
-            tellJob(tracker.snapshot(), course);
+            tellJob(tracker.snapshot(), audience);
           })
         : undefined;
       const outcome = await runJob({
@@ -298,20 +319,20 @@ export function createLive(d: LiveDeps): Live {
           tracker.event(e);
           // A save that ended leaves its last gate in the file; the next save starts from none.
           if (gates && e.type === 'tool_result' && !tracker.saving()) gates.clear();
-          tellJob(tracker.snapshot(), course);
+          tellJob(tracker.snapshot(), audience);
         },
         onRelaunch: () => {
           tracker.relaunch();
           // An attempt that crashed mid-save left its last gate behind.
           gates?.clear();
-          tellJob(tracker.snapshot(), course);
+          tellJob(tracker.snapshot(), audience);
         },
         onSource,
         onUsage: (u) => recordUsage(course, kind, u),
       }).finally(() => {
         gates?.stop();
         trackers.delete(key);
-        tellJob({ ...tracker.snapshot(), ended: true }, course);
+        tellJob({ ...tracker.snapshot(), ended: true }, audience);
       });
       if (outcome.problem === 'unstoppable') unstoppable = true;
       log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
@@ -345,11 +366,13 @@ export function createLive(d: LiveDeps): Live {
   /** Background work: a failure stalls it until the learner retries, instead of relaunching on every look. */
   function background(
     key: string, kind: JobKind, brief: string, course: string, done: Job['done'],
-    { lane = 'bg', concept, retry }: { lane?: 'fg' | 'bg'; concept?: string; retry?: JobProgress['retry'] } = {},
+    { lane = 'bg', concept, retry, track }: { lane?: 'fg' | 'bg'; concept?: string; retry?: JobProgress['retry']; track?: string } = {},
   ) {
     if (stopping || stalls.has(course) || running.has(key)) return;
+    // A track's setup belongs to every course on the track when it ends: they stall and move on together.
+    const courses = () => (track ? onTrack(track, course) : [course]);
     // The first stall is the one the learner sees. It is recorded before the queue moves on, so nothing queued behind it launches.
-    const stall = (why: Stall) => void (stalls.has(course) || stalls.set(course, why));
+    const stall = (why: Stall) => courses().forEach((c) => stalls.has(c) || stalls.set(c, why));
     const settled = (r: JobOutcome | Error) => {
       if (r instanceof Error) {
         log('job-error', { job: kind, ...errorFields(r) });
@@ -357,7 +380,7 @@ export function createLive(d: LiveDeps): Live {
       } else if (!r.ok && !running.get(key)?.stop.signal.aborted) stall(stallOf(r.problem));
     };
     // A finished job can make its course's next one due: the lesson before the activity, a proposal after gates.
-    start(key, lane, kind, brief, course, done, { concept, retry, settled }).then((o) => o.ok && schedule(course), () => undefined);
+    start(key, lane, kind, brief, course, done, { concept, retry, settled, track }).then((o) => o.ok && courses().forEach((c) => schedule(c)), () => undefined);
   }
 
   /** Ends a course's stall and starts the work it still needs. */
@@ -413,7 +436,7 @@ export function createLive(d: LiveDeps): Live {
         const proposed = () => setup.installs > installs || core.listProposals().some((p) => p.track === ref && !before.has(p.digest));
         // Another proposal after one failed its gates is a retry, within the bound (§3.2).
         const retry = setup.gateFailures > 0 ? { attempt: setup.gateFailures + 1, of: PROPOSAL_BOUND } : undefined;
-        background(`setup:${ref}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed, { retry });
+        background(`setup:${ref}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed, { retry, track: ref });
       }
       work(progress, state.state === 'ready');
     } catch (e) {
@@ -517,7 +540,7 @@ export function createLive(d: LiveDeps): Live {
       return () => void jobListeners.delete(listener);
     },
     async jobProgress() {
-      return [...trackers.values()].filter((t) => heard(t.course)).map((t) => t.tracker.snapshot());
+      return [...trackers.values()].filter((t) => heard(t.audience)).map((t) => t.tracker.snapshot());
     },
     onRunOutput: (listener) => programRuns.onOutput(listener),
     async agents() {
@@ -655,7 +678,7 @@ export function createLive(d: LiveDeps): Live {
       const s = d.state.read();
       return coursesOf(s).flatMap((id) => {
         const r = roadmapOrNull(id);
-        return r ? [{ id, title: nameOf(r), track: trackName(r.track), current: id === s.approved }] : [];
+        return r ? [{ id, title: nameOf(r), goal: r.goal, track: trackName(r.track), current: id === s.approved }] : [];
       });
     },
 
@@ -681,21 +704,21 @@ export function createLive(d: LiveDeps): Live {
       mine.installing = tracked(queue('builds')(() => {
         // Codemm builds and checks the approved files once its turn comes: the setup's later stages (§4.11).
         const t = (tracker = jobTracker('setup'));
-        trackers.set(`install:${ref}`, { tracker: t, course });
+        trackers.set(`install:${ref}`, { tracker: t, audience: { track: ref } });
         t.reach(1);
-        tellJob(t.snapshot(), course);
+        tellJob(t.snapshot(), { track: ref });
         return whenDockerReady(() =>
           core.installProposal(ref, digest, (p) => {
             // Counts only: the build's steps, then its checks.
             if (p.phase === 'building') t.reach(1, { done: p.done, total: p.total });
             else t.reach(2);
-            tellJob(t.snapshot(), course);
+            tellJob(t.snapshot(), { track: ref });
           }),
         );
       })
         .then(() => {
           mine.approved = undefined;
-          dockerWorked(course);
+          onTrack(ref, course).forEach(dockerWorked);
         })
         .catch(async (e: Error) => {
           // Quitting isn't a failed setup: nothing is recorded and the proposal stays.
@@ -715,9 +738,10 @@ export function createLive(d: LiveDeps): Live {
         })
         .finally(() => {
           trackers.delete(`install:${ref}`);
-          if (tracker) tellJob({ ...tracker.snapshot(), ended: true }, course);
+          if (tracker) tellJob({ ...tracker.snapshot(), ended: true }, { track: ref });
           mine.installing = undefined;
-          schedule(course);
+          // Every course on the track moves on.
+          onTrack(ref, course).forEach((c) => schedule(c));
         }));
     },
 

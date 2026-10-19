@@ -29,13 +29,15 @@ export function Courses({ slim = false }: { slim?: boolean }) {
     }
   }
 
+  // Two courses researched with the same words are told apart by their goals.
+  const name = (c: CourseSummary) => (courses.some((o) => o !== c && o.title === c.title) ? c.goal : c.title);
   const badge = (c: CourseSummary) => <span className="badge" style={{ background: hueColor(c.track) }} aria-hidden="true">{c.title[0]}</span>;
   return (
     <div className={slim ? 'courses slim-courses' : 'courses'}>
       {courses.map((c) => (
-        <button key={c.id} type="button" className={slim ? 'nav' : 'pick'} aria-current={c.current ? 'true' : undefined} aria-label={slim ? c.title : undefined} onClick={() => void open(c)}>
+        <button key={c.id} type="button" className={slim ? 'nav' : 'pick'} aria-current={c.current ? 'true' : undefined} aria-label={slim ? name(c) : undefined} onClick={() => void open(c)}>
           {badge(c)}
-          {!slim && <span className="goal">{c.title}</span>}
+          {!slim && <span className="goal">{name(c)}</span>}
         </button>
       ))}
       <button type="button" className="nav" aria-label={slim ? 'New course' : undefined} onClick={() => go({ to: 'goal' })}>

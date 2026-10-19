@@ -654,7 +654,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     },
 
     async courses() {
-      return [...kept].map(([id, k]) => ({ id, title: k.course.title, track: k.course.track, current: id === current }));
+      return [...kept].map(([id, k]) => ({ id, title: k.course.title, goal: k.course.goal, track: k.course.track, current: id === current }));
     },
 
     async switchCourse(id) {

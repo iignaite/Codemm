@@ -426,6 +426,16 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     expect(t.jobs.ran.filter((j) => j.kind === 'tutor')).toHaveLength(1);
   });
 
+  it('stalls background work as unstoppable once an agent could not be stopped', async () => {
+    const t = live({ tutor: () => ({ ok: false, problem: 'unstoppable' }) });
+    const activity = await practising(t);
+    await expect(t.api.ask({ activityId: activity.id }, 'Why?')).rejects.toThrow(UNSTOPPABLE);
+    await t.api.saveFile(activity.id, activity.files[0].path, 'count + 1', activity.files[0].digest);
+    // Mastering the topic makes the next lesson due: Codemm starts no agent, and says why.
+    await t.api.check(activity.id, 'run-1');
+    expect((await until(t.api, (c) => c.stalled !== undefined)).stalled).toBe('unstoppable');
+  });
+
   it('a job that was waiting for the agent lookup does not launch once another job turned out unstoppable', async () => {
     let release: () => void = () => {};
     const lookup = new Promise<void>((r) => (release = r));

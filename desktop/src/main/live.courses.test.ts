@@ -31,8 +31,8 @@ describe('live CodemmApi: several courses (§4.13)', () => {
     const react = await approved(t, 'React');
     const python = await approved(t, 'Python');
     expect(await t.api.courses()).toEqual([
-      { id: react, title: 'React', track: 'react', current: false },
-      { id: python, title: 'Python', track: 'python', current: true },
+      { id: react, title: 'React', goal: 'React', track: 'react', current: false },
+      { id: python, title: 'Python', goal: 'Python', track: 'python', current: true },
     ]);
     expect((await t.api.course())!.goal).toBe('Python');
     await t.api.switchCourse(react);
@@ -181,9 +181,26 @@ describe('live CodemmApi: several courses (§4.13)', () => {
     await t.api.install(consent.proposal!.digest);
     await t.api.switchCourse(react);
     expect((await t.api.course())!.setup).toBe('installing');
+    // React hears the shared install's progress, and moves on when it ends.
+    expect((await t.api.jobProgress()).some((p) => p.kind === 'setup' && p.stage > 0)).toBe(true);
     built.open();
     await until(t.api, (c) => c.setup === 'ready');
     expect(installs).toBe(1);
+    await settle(async () => ran(t, 'author'), (r) => r.includes(react), "React's activity");
+  });
+
+  it('stalls every course on a track when their shared setup fails', async () => {
+    const held = gate();
+    const t = live({ research: (_job, usual) => (usual(), (t.c.roadmap!.track = 'react@1'), {}), setup: async () => (await held.opened, { ok: false, problem: 'docker' }) });
+    const react = await approved(t, 'React');
+    await settle(async () => ran(t, 'setup'), (r) => r.length === 1, "React's setup");
+    await approved(t, 'Vue');
+    held.open();
+    await until(t.api, (c) => c.stalled === 'docker');
+    await t.api.switchCourse(react);
+    expect((await t.api.course())!.stalled).toBe('docker');
+    await pause();
+    expect(ran(t, 'setup')).toHaveLength(1);
   });
 
   it('starts the next work of the course a check was in, though another is on screen by its end', async () => {

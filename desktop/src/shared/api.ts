@@ -222,6 +222,8 @@ export interface CourseView {
 export interface CourseSummary {
   id: string;
   title: string;
+  /** Names the course when another has the same title. */
+  goal: string;
   track: string;
   /** The course on screen. */
   current: boolean;
