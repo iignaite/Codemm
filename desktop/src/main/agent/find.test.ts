@@ -2,7 +2,7 @@
 import { chmodSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dockerFolders, find, here, shimTarget, withDockerFolders, type Where } from './find';
+import { dockerFolders, find, folders, here, shimTarget, withDockerFolders, type Where } from './find';
 import { tempDir } from '../testing/temp';
 
 function tree() {
@@ -85,6 +85,23 @@ describe('find (§3.1)', () => {
       '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n"%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n',
     );
     expect(shimTarget(at('npm', 'codex.cmd'))?.replace(/\\/g, '/')).toMatch(/node_modules\/@openai\/codex\/bin\/codex\.js$/);
+  });
+
+  it("finds Docker where OrbStack, Rancher Desktop and Docker Desktop's own install link it (a GUI app's PATH has none of them)", () => {
+    for (const where of [['.orbstack', 'bin'], ['.rd', 'bin'], ['.docker', 'bin']]) {
+      const { at } = tree();
+      mkdirSync(at('home', ...where), { recursive: true });
+      // Any name will do: the folders don't depend on it, and a real `docker` on this machine would be found first.
+      writeFileSync(at('home', ...where, 'codemm-fake-engine'), 'binary');
+      expect(find('codemm-fake-engine', posix('/usr/bin', at('home')))).toEqual({ path: at('home', ...where, 'codemm-fake-engine'), js: false });
+    }
+  });
+
+  it("also looks in Podman's installer folder, and Homebrew's, where Colima's Docker client lives", () => {
+    const usual = folders(posix('', '/Users/someone'));
+    expect(usual).toEqual(expect.arrayContaining(['/opt/podman/bin', '/opt/homebrew/bin', '/usr/local/bin', '/Users/someone/.orbstack/bin', '/Users/someone/.rd/bin']));
+    // Windows keeps its own list.
+    expect(folders({ platform: 'win32', path: '', home: 'C:\\Users\\someone' })).not.toContain('/opt/podman/bin');
   });
 
   it("gives Docker's calls the folders its credential helpers live in, as well as the one it was found in", () => {
