@@ -21,11 +21,13 @@ export function Markdown({ text, className = 'md' }: { text: string; className?:
   return <div className={className} dangerouslySetInnerHTML={{ __html: md.render(text) }} />;
 }
 
-export type LessonPart = { html: string } | { example: number };
+export type LessonPart = { html: string } | { example: number } | { diagram: string };
 
 /**
  * A lesson rendered in one pass, cut at each example block: an unindented top-level fence (``` or ~~~) whose info
- * string is `example`, then one line holding N, then the closing fence, exactly as core finds them (core DESIGN §5).
+ * string is `example`, then one line holding N, then the closing fence, exactly as core finds them (core DESIGN §5),
+ * and at each diagram: a top-level fence whose info string is `mermaid`, which the lesson screen draws (§4.3). Either
+ * kind inside a list, a quote or another fence stays a code block.
  * Links and other references keep their definitions from anywhere in the lesson. With `dropTitle`, a leading
  * top-level heading is left out (the page shows the title above the lesson).
  */
@@ -46,6 +48,9 @@ export function lessonParts(text: string, dropTitle = false): LessonPart[] {
     if (token.type === 'fence' && token.level === 0 && block && token.info.trim() === 'example' && /^[ \t]*\d+[ \t]*\n$/.test(token.content)) {
       flush();
       parts.push({ example: Number(token.content.trim()) });
+    } else if (token.type === 'fence' && token.level === 0 && token.info.trim() === 'mermaid') {
+      flush();
+      parts.push({ diagram: token.content.replace(/\n$/, '') });
     } else {
       chunk.push(token);
     }

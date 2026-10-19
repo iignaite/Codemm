@@ -148,6 +148,15 @@ describe("--desktop with --course", () => {
   });
 });
 
+describe("the save_lesson description", () => {
+  it("says a lesson may hold diagrams and charts, and when", async () => {
+    const { client: c } = await connect({ tools: ["save_lesson"] });
+    const { description } = (await c.listTools()).tools[0];
+    expect(description).toMatch(/Diagrams and charts go in fenced blocks with info string mermaid/);
+    expect(description).toMatch(/only when a picture teaches better than words/);
+  });
+});
+
 describe("lesson tools", () => {
   it("saves, reads and acknowledges a lesson; reading records nothing", async () => {
     await app.saveRoadmap(ws, "first", roadmap("First"));
