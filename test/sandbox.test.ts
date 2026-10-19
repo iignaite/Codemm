@@ -189,6 +189,8 @@ describe("runtimeCode", () => {
     expect(runtimeCode("docker: Error response from daemon: dial tcp: network is unreachable.", "container-list")).toBe("offline");
     expect(runtimeCode("Error: could not resolve host registry-1.docker.io", "image-inspect")).toBe("offline");
     expect(runtimeCode("docker: Error response from daemon: Conflict.", "image-inspect")).toBe("image-inspect");
+    // Docker 29 leaves Config.Volumes out, and an inspect template that reads it fails: Docker answers, so it's no stopped runtime.
+    expect(runtimeCode('template: :1:12: executing "" at <.Config.Volumes>: map has no entry for key "Volumes"', "image-inspect")).toBe("image-inspect");
   });
 });
 

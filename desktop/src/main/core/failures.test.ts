@@ -37,6 +37,12 @@ describe("core's failure codes (src/errors.ts INFRA)", () => {
     expect(infraOf(infraError('Some wording.', code))).toEqual({ cause: code, infra: told[code] });
   });
 
+  it("tells an inspect that failed while Docker answers (Docker 29's template error) apart from a stopped Docker", () => {
+    const failed = infraError('The container runtime couldn\'t inspect the track image: template: :1:12: executing "" at <.Config.Volumes>: map has no entry for key "Volumes"', 'image-inspect');
+    expect(infraOf(failed)).toEqual({ cause: 'image-inspect', infra: 'docker-failed' });
+    expect(infra(`codemm:image-inspect\n${failed.message}`)).toEqual({ cause: 'image-inspect', infra: 'docker-failed' });
+  });
+
   it('reads the code after words an agent put before it on the first line', () => {
     expect(infra('Error: codemm:runtime-busy\nThe container runtime isn\'t answering.')).toEqual({ cause: 'runtime-busy', infra: 'docker-busy' });
     expect(infra('<tool_use_error>codemm:docker-disk\nDocker ran out of disk space.</tool_use_error>')).toEqual({ cause: 'docker-disk', infra: 'docker-disk' });
