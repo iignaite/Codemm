@@ -61,10 +61,17 @@ jobs:
         run: |
           $installer = Get-ChildItem installer\*.exe | Select-Object -First 1
           Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
+          # The installer may finish in a child process: wait for the app to appear wherever it installs.
+          $app = $null
+          foreach ($i in 1..60) {
+            $app = Get-ChildItem "$env:LOCALAPPDATA\Programs", $env:ProgramFiles -Recurse -Filter Codemm.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+            if ($app) { break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $app) { throw "Codemm.exe wasn't installed" }
+          Write-Host "Installed at $app"
           Start-Sleep -Seconds 5
           Stop-Process -Name Codemm -Force -ErrorAction SilentlyContinue
-          $app = "$env:LOCALAPPDATA\Programs\Codemm\Codemm.exe"
-          if (-not (Test-Path $app)) { throw "Codemm isn't at $app" }
           "CODEMM_INSTALLED=$app" >> $env:GITHUB_ENV
           # A learner's PATH: Windows itself and Docker, with no Node, npm or Git.
           $path = 'C:\Windows\System32;C:\Windows;C:\Windows\System32\WindowsPowerShell\v1.0'
