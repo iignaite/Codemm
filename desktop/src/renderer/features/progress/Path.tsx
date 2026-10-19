@@ -8,8 +8,9 @@ import { continueRoute, reviewText } from '../../app/course';
 import { Writing } from '../lessons/Writing';
 
 const STATE_LABEL = { mastered: 'Mastered', now: 'Now', later: 'Later' } as const;
-/** Each stop lands this long after the one before it, so the branch fills in order. */
+/** Each stop lands this long after the one before it, so the branch fills in order; past the first few, all at once. */
 const STEP_MS = 140;
+const STAGGERED = 8;
 
 /** The topic Codemm offers now: a due (or being written) review, otherwise the current topic. */
 function currentIndex(topics: TopicView[]): number {
@@ -18,19 +19,19 @@ function currentIndex(topics: TopicView[]): number {
 }
 
 /**
- * The course as a path along Emm's branch: each topic is a leaf, the branch is green as far as the learner has come,
- * and Emm sits on the topic Codemm offers now. A finished course has Emm at the branch's end.
+ * The course as a path along Emm's branch: each topic is a leaf, the branch is green between topics the learner has
+ * reached, and Emm sits on the topic Codemm offers now. A finished course has Emm at the branch's end.
  */
 export function Path({ course }: { course: CourseView }) {
   const { topics } = course;
   const at = currentIndex(topics);
-  // How far the branch is green: the furthest topic reached, so a topic skipped on the way stays a grey leaf on it.
-  const reached = Math.max(at, ...topics.map((t, i) => (t.state === 'mastered' ? i : -1)));
+  // Reached: mastered, or the current topic. A topic passed over (skipped, or locked behind the current one) sits on grey.
+  const reached = topics.map((t, i) => t.state === 'mastered' || i === at);
   return (
     <div className="path-wrap">
       <ol className="path" aria-label="Topics">
         {topics.map((t, i) => (
-          <Stop key={t.id} topic={t} index={i} current={i === at} track={course.track} up={i > 0 && i <= reached} down={i < topics.length - 1 && i < reached} last={i === topics.length - 1} />
+          <Stop key={t.id} topic={t} index={i} current={i === at} track={course.track} up={i > 0 && reached[i - 1] && reached[i]} down={i < topics.length - 1 && reached[i] && reached[i + 1]} last={i === topics.length - 1} />
         ))}
       </ol>
       {at < 0 && course.done && (
@@ -43,7 +44,7 @@ export function Path({ course }: { course: CourseView }) {
 }
 
 /** When a stop's part of the sequence starts: the CSS times the branch, leaf, title and Emm from it. */
-const timing = (i: number): CSSProperties => ({ '--d': `${i * STEP_MS}ms` }) as CSSProperties;
+const timing = (i: number): CSSProperties => ({ '--d': `${Math.min(i, STAGGERED) * STEP_MS}ms` }) as CSSProperties;
 
 type StopProps = { topic: TopicView; index: number; current: boolean; track: string; up: boolean; down: boolean; last: boolean };
 

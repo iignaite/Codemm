@@ -43,7 +43,7 @@ function Aside({ course, usage }: { course: CourseView; usage: Usage | null }) {
     <aside className="map-side">
       <section className="card a-up" style={stagger(1)} aria-labelledby="mastery-t">
         <h2 className="h3" id="mastery-t">Mastery</h2>
-        <p className="tally"><b>{mastered}</b> of {course.topics.length} topics</p>
+        <p className="tally"><b>{mastered}</b> of {course.topics.length} {course.topics.length === 1 ? 'topic' : 'topics'}</p>
         {started.map((t, i) => (
           <div key={t.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <span style={{ fontSize: 14, fontWeight: 500 }}>{t.title}</span>

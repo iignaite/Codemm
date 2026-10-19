@@ -233,6 +233,33 @@ describe('course path', () => {
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Setting up React' })).not.toBeInTheDocument(), { timeout: 10_000 });
   });
 
+  it('shows building once the learner consents', async () => {
+    const { api, roadmap } = await mockWithRoadmap({ slow: 2 });
+    await api.approve(roadmap.concepts);
+    let course = (await api.course())!;
+    while (course.setup !== 'consent') course = (await api.course())!;
+    await api.install(course.proposal!.digest);
+    renderApp({ to: 'learn' }, api);
+    const setup = await screen.findByRole('region', { name: 'Setting up React' }, { timeout: 10_000 });
+    await waitFor(() => expect(within(setup).getByText('Building')).toHaveAttribute('aria-current', 'step'));
+  });
+
+  it('is green only between topics reached, so topics passed over sit on grey', async () => {
+    // Mastered, mastered, then the current topic: the two joins between them are green, each drawn from both sides.
+    const { api, course } = await mockWithCourse();
+    await master(api, 2);
+    const { container, unmount } = renderApp({ to: 'learn' }, api);
+    await items();
+    expect(container.querySelectorAll('.seg.on')).toHaveLength(4);
+    unmount();
+    // Skipping the first topic moves Now past locked ones: nothing between them was reached.
+    const fresh = await mockWithCourse();
+    await fresh.api.skip(course.topics[0].id);
+    const again = renderApp({ to: 'learn' }, fresh.api);
+    await items();
+    expect(again.container.querySelectorAll('.seg.on')).toHaveLength(0);
+  });
+
   it('counts the topics mastered', async () => {
     const { api } = await mockWithCourse();
     await master(api, 2);
