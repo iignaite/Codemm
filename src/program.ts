@@ -1,12 +1,11 @@
 // Run (DESIGN §4.3): the learner's program, interactively, in the sandbox, with typed stdin and its output as it
 // comes. Never graded or recorded. The checks' test sets run in judge.ts.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { CodemmError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
 import { BUILD_SECONDS, type JudgeTrack, seconds } from "./judge.js";
+import { stageRunFolder } from "./runs.js";
 import { runtimeKind, startHelp, startSandboxed } from "./sandbox.js";
 
 /** How long Run lets a program wait for typing and run: a person types, so longer than a test case gets. */
@@ -57,7 +56,8 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
   if (!track.run) throw new CodemmError("This track has no run command, so Run isn't available.");
   const limitMs = limits.limitMs ?? RUN_LIMIT_MS;
   const buildLimitMs = limits.buildLimitMs ?? BUILD_SECONDS * 1000;
-  const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
+  const folder = stageRunFolder();
+  const dir = folder.dir;
   const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
   const say = (stream: "stdout" | "stderr", text: string) => text && output(text, stream);
   let ended: { stage: "build" | "run"; code: number } | undefined;
@@ -101,7 +101,7 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       { stdout: (b) => ((printed ||= b.length > 0), say("stdout", decoders.stdout.write(b))), stderr: (b) => markers.write(decoders.stderr.write(b)) },
     );
   } catch (e) {
-    rmSync(dir, { recursive: true, force: true });
+    folder.remove();
     throw e;
   }
   const done = started.done
@@ -126,7 +126,7 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       }
       throw new CodemmError(`The container runtime failed during the run. ${startHelp()}`, "docker");
     })
-    .finally(() => rmSync(dir, { recursive: true, force: true }));
+    .finally(folder.remove);
   return {
     write: started.write,
     end: started.end,

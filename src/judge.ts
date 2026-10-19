@@ -1,11 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
 import {
   CASE_OUTPUT_BYTES, type CaseFrames, type Expectation, type Frame, frameProgress, FrameReader, gradeRuns, type IoRun, type RawCase, type Runs, type TestResult, type TestSet, type UnitRun,
 } from "./grading.js";
+import { stageRunFolder } from "./runs.js";
 import { OUTPUT_CAP, runtimeDown, runtimeKind, startHelp, startSandboxed } from "./sandbox.js";
 
 /** What the judge needs from an installed track. */
@@ -99,7 +98,8 @@ async function runDriver(
   outputCap: number, onFrame?: (f: Frame) => void,
 ): Promise<{ frames: Frame[]; flooded: boolean; outOfMemory?: boolean; memoryKill?: boolean }> {
   const reader = new FrameReader(onFrame);
-  const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
+  const run = stageRunFolder();
+  const dir = run.dir;
   try {
     writeFileMap(join(dir, "src"), src);
     writeFileMap(join(dir, "tests"), tests);
@@ -148,7 +148,7 @@ async function runDriver(
     const memoryKill = frames.some((f) => f.exit === 137 && (f.kind === "case" || f.kind === "report") && !marked.has(f.name)) && (await started.hadOomKill());
     return { frames, flooded: result.flooded, ...(memoryKill ? { memoryKill } : {}) };
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    run.remove();
   }
 }
 
