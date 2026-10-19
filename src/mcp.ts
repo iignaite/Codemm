@@ -3,10 +3,20 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import * as app from "./app.js";
-import { CodemmError } from "./errors.js";
+import { CodemmError, infraError } from "./errors.js";
 import { assertId, type FileMap, validateFileMap } from "./files.js";
 
 type Result = { content: { type: "text"; text: string }[]; isError?: boolean };
+
+/**
+ * A failure's tool output. One that carries a code (this computer's problem) or a kind starts with the line
+ * `codemm:<code or kind>`, which only Codemm writes there: callers (the desktop) act on it, never on the wording or on
+ * any output the message quotes.
+ */
+const failed = (e: CodemmError): Result => {
+  const tag = e.code ?? e.kind;
+  return { isError: true, content: [{ type: "text", text: tag ? `codemm:${tag}\n${e.message}` : e.message }] };
+};
 
 /** Runs a use case and turns its result, or any error, into tool output the agent may see. */
 async function respond(work: () => unknown): Promise<Result> {
@@ -14,7 +24,9 @@ async function respond(work: () => unknown): Promise<Result> {
     const value = await work();
     return { content: [{ type: "text", text: JSON.stringify(value ?? { ok: true }, null, 2) }] };
   } catch (e) {
-    if (e instanceof CodemmError) return { isError: true, content: [{ type: "text", text: e.message }] };
+    if (e instanceof CodemmError) return failed(e);
+    // A write that ran out of space here is this computer's problem, not the agent's.
+    if ((e as NodeJS.ErrnoException).code === "ENOSPC") return failed(infraError("This computer ran out of disk space, so nothing was saved. Free some space, then retry.", "host-disk"));
     // Unexpected errors may carry internal data (paths, record contents); never pass their text to the agent.
     if (process.env.CODEMM_DEBUG === "1") process.stderr.write(`${(e as Error).stack ?? String(e)}\n`);
     return { isError: true, content: [{ type: "text", text: "Codemm hit an unexpected error. Run `codemm doctor`; set CODEMM_DEBUG=1 for details." }] };

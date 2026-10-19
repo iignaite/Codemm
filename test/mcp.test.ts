@@ -228,6 +228,8 @@ describe.runIf(posix)("reference-gate diagnostics through save_exercise", () => 
     const message = await failure(call, withCanary(readFileMap(join(fixtures, "exercises", "io-max"))));
     expect(message).toMatch(/container couldn't start/);
     expect(message).not.toContain("CANARY");
+    // This computer's problem says so on its first line, which only Codemm writes: the desktop reads that, never the wording.
+    expect(message).toMatch(/^codemm:container-start\n/);
   });
 
   it("a unit reference that fails is described by test and status, without its messages", async () => {

@@ -195,10 +195,20 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     const { proposal } = await until(t.api, (c) => c.setup === 'consent');
     const install = t.c.install;
     t.c.install = async () => {
-      throw coreError("The container runtime isn't running. Start Docker Desktop, then retry.", 'docker');
+      throw coreError("The container runtime isn't running. Start Docker Desktop, then retry.", 'docker', 'runtime-down');
     };
     await t.api.install(proposal!.digest);
     expect(await until(t.api, (c) => c.setup === 'failed')).toMatchObject({ setupProblem: 'docker', proposal: { digest: proposal!.digest } });
+    // A Docker that is up but doesn't answer is busy, not stopped. The log gets the cause's label, never core's text.
+    t.c.install = async () => {
+      throw coreError("The container runtime isn't answering. It may be busy (a large build): wait a minute, then retry.", 'docker', 'runtime-busy');
+    };
+    await t.api.install(proposal!.digest);
+    expect(await until(t.api, (c) => c.setupProblem === 'docker-busy')).toMatchObject({ setup: 'failed', proposal: { digest: proposal!.digest } });
+    const logged = readFileSync(t.logFile, 'utf8');
+    expect(logged).toMatch(/ setup-failed problem=docker cause=runtime-down\n/);
+    expect(logged).toMatch(/ setup-failed problem=docker-busy cause=runtime-busy\n/);
+    expect(logged).not.toMatch(/large build/);
     t.c.install = install;
     await t.api.install(proposal!.digest);
     await until(t.api, (c) => c.setup === 'ready');

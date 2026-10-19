@@ -1,6 +1,6 @@
 // What a screen shows when its work stopped (§5): background work that stalled, or data that couldn't load.
 import { useEffect } from 'react';
-import { SIGNED_OUT, type CourseView } from '../../shared/api';
+import { REBUILD, SIGNED_OUT, type CourseView } from '../../shared/api';
 import { Button } from '../ui/Button';
 import { useApi } from './api';
 import { SAY, problemOf, repairDetail } from './errors';
@@ -10,8 +10,13 @@ import { useBusy } from './useBusy';
 /** This computer's problems behind a stall: the learner fixes them here, not in the agent. */
 const COMPUTER = {
   docker: 'Docker stopped. Start Docker, then try again.',
+  'docker-busy': 'Docker is busy or not answering. Wait a moment, then try again.',
+  'docker-failed': "Docker couldn't run that. Try again, and restart Docker if it happens again.",
+  'docker-disk': 'Docker ran out of disk space. Remove unused images in Docker Desktop, then try again.',
   disk: 'Not enough disk space. Free some space on this computer, then try again.',
+  rebuild: REBUILD,
 };
+const onComputer = (stalled: string): stalled is keyof typeof COMPUTER => stalled in COMPUTER;
 
 /** Background work stopped after its retry, and nothing was recorded (§5). A sign-out goes to connect instead. */
 export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['stalled']>; retry: () => void }) {
@@ -36,9 +41,10 @@ export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['s
 
   return (
     <div className="failed" role="alert">
-      {stalled === 'failed' ? "Codemm couldn't finish that." : stalled === 'docker' || stalled === 'disk' ? COMPUTER[stalled] : SAY[stalled]}
+      {stalled === 'failed' ? "Codemm couldn't finish that." : onComputer(stalled) ? COMPUTER[stalled] : SAY[stalled]}
       {stalled === 'failed' && <Button variant="text" onClick={() => go({ to: 'connect', then: route })}>Check your agent</Button>}
-      {stalled === 'docker' && <Button variant="text" onClick={() => go({ to: 'computer', then: route })}>Check this computer</Button>}
+      {(stalled === 'docker' || stalled === 'docker-failed') && <Button variant="text" onClick={() => go({ to: 'computer', then: route })}>Check this computer</Button>}
+      {stalled === 'rebuild' && <Button variant="text" onClick={() => go({ to: 'tracks' })}>Go to Tracks</Button>}
       {/* An agent Codemm couldn't stop is still running: only quitting stops it (§3.1). */}
       {stalled !== 'unstoppable' && <Button variant="text" disabled={starting.busy} onClick={again}>Try again</Button>}
     </div>

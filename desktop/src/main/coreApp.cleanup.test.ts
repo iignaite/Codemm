@@ -1,15 +1,15 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 
-// Docker's answers, simulated: what the cleanup found and left, and whether the runtime is down.
-const docker = vi.hoisted(() => ({ result: { abandoned: 0, left: 0 } as { abandoned: number; left: number } | Error, down: undefined as string | undefined }));
+// Docker's answers, simulated: what the cleanup found and left, and the runtime's state.
+const docker = vi.hoisted(() => ({ result: { abandoned: 0, left: 0 } as { abandoned: number; left: number } | Error, state: 'ready' as string }));
 vi.mock('../../../src/sandbox', async (actual) => ({
   ...(await actual<typeof import('../../../src/sandbox')>()),
   removeAbandoned: async () => {
     if (docker.result instanceof Error) throw docker.result;
     return docker.result;
   },
-  runtimeDown: async () => docker.down,
+  runtimeState: async () => docker.state,
 }));
 
 const { cleanupLeftovers } = await import('../../scripts/core-entry');
@@ -27,13 +27,14 @@ describe("the bundled core's leftover cleanup", () => {
 
   it("succeeds when Docker isn't running: there's nothing it could have left", async () => {
     docker.result = new Error("Couldn't list Codemm's containers: Cannot connect to the Docker daemon.");
-    docker.down = "The container runtime isn't running.";
+    docker.state = 'down';
     await expect(cleanupLeftovers()).resolves.toBeUndefined();
   });
 
-  it('fails when Docker is running but the cleanup failed, a timeout included', async () => {
+  it.each(['ready', 'busy'])('fails when Docker is %s but the cleanup failed, a timeout included', async (state) => {
+    // A busy Docker may still run the containers it didn't list.
     docker.result = new Error("Couldn't list Codemm's containers: timed out after 60s.");
-    docker.down = undefined;
+    docker.state = state;
     await expect(cleanupLeftovers()).rejects.toThrow('timed out');
   });
 });

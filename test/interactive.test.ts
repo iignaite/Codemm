@@ -215,8 +215,9 @@ describe.runIf(posix)("a container that can't start for lack of disk", () => {
     const ws = await installedExercise();
     fakeDocker("nospace");
     const run = await app.runInteractive(ws, undefined, undefined, () => undefined);
-    await expect(run.done).rejects.toMatchObject({ kind: "disk", message: expect.stringMatching(/no space left on device/) });
-    await expect(app.checkExercise(ws)).rejects.toMatchObject({ kind: "disk" });
+    // Docker's own disk, named in Codemm's words.
+    await expect(run.done).rejects.toMatchObject({ kind: "disk", code: "docker-disk", message: expect.stringMatching(/^The container couldn't start \(Docker ran out of disk space\)/) });
+    await expect(app.checkExercise(ws)).rejects.toMatchObject({ kind: "disk", code: "docker-disk" });
     expect(store.readEvents("shell")).toEqual([]);
   });
 });

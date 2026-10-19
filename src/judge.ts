@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CodemmError } from "./errors.js";
+import { CodemmError, infraError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
 import { type CaseFrames, type Expectation, type Frame, frameProgress, gradeRuns, type IoRun, parseFrames, type RawCase, type Runs, type TestResult, type TestSet, type UnitRun } from "./grading.js";
-import { runtimeDown, runtimeKind, startHelp, startSandboxed } from "./sandbox.js";
+import { BUSY_HELP, lostRun, runtimeDown, startRefusal, startSandboxed } from "./sandbox.js";
 
 /** What the judge needs from an installed track. */
 export type JudgeTrack = {
@@ -18,9 +18,6 @@ export type JudgeTrack = {
 /** `onCase` hands over each io case as it finishes: pass it only for visible tests. */
 export type RunOptions = { timeMs?: number; deadlineMs?: number; onProgress?: (milestone: "built" | number) => void; onCase?: (c: CaseFrames) => void };
 
-
-/** Why a check's container couldn't start, in words the desktop's text classification reads the same way. */
-const START_FAILURES = { disk: "Docker ran out of disk space", offline: "Docker couldn't reach the network", docker: "the runtime refused it" };
 
 export const BUILD_SECONDS = 60;
 const SLACK_MS = 30_000;
@@ -91,29 +88,36 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       deadlineMs,
     }, onStdout ? { stdout: onStdout } : {});
     const result = await started.done;
-    if (result.cleanupFailed) throw new CodemmError("A check container couldn't be removed, so nothing was recorded. Run `codemm doctor --fix`, then retry.", "docker");
-    if (result.timedOut) throw new CodemmError("The check didn't finish in time, so nothing was recorded. Check that the container runtime is healthy and retry.", "docker");
-    // A flood is the program's doing and is graded; the host kill makes the exit code meaningless.
+    // A flood is the program's doing and is graded, even when removing its container was slow; the host kill makes the
+    // exit code meaningless.
     if (result.flooded) return { frames: [], flooded: true };
+    // The driver stops every case at its limit, so only a slow runtime reaches the host deadline.
+    if (result.timedOut) throw infraError(`The check didn't finish in time, so nothing was recorded. The container runtime may be slow. ${BUSY_HELP}`, "check-timeout");
+    if (result.cleanupFailed) throw infraError("A check container couldn't be removed, so nothing was recorded. Run `codemm doctor --fix`, then retry.", "container-remove");
     // The driver always ends with exit 0. Anything else means it was killed or the runtime failed, whatever was
     // printed so far. Only a memory-limit kill is the program's doing; everything else records nothing.
     if (result.exit !== 0) {
-      if (await runtimeDown()) throw new CodemmError(`The container runtime stopped during the run, so it wasn't counted. ${startHelp()}`, "docker");
+      const down = await runtimeDown();
+      if (down) throw lostRun(down, ", so it wasn't counted");
       if (result.oomKilled) return { frames: [], flooded: false, outOfMemory: true };
-      // Exit 125 is the runtime's own failure. Its stderr is read for the kind of failure but never shown: code that
+      // 126 and 127 before the driver printed anything: the image can't run its /bin/sh. That's the track's to fix.
+      if ((result.exit === 126 || result.exit === 127) && result.stdout.length === 0) {
+        throw new CodemmError(`The track image can't run /bin/sh (exit ${result.exit}), which every check runs in. Base it on an image that has sh, ${DRIVER_TOOLS.join(", ")}.`);
+      }
+      // Exit 125 is the runtime's own failure. Its stderr is read for why, as a fixed phrase, but never shown: code that
       // had already started can write there too, and a check runs hidden tests and hidden code.
       if (result.exit === 125 && result.stdout.length === 0) {
-        const kind = runtimeKind(result.stderr.trim().slice(0, 500));
-        throw new CodemmError(`The container couldn't start (${START_FAILURES[kind]}), so it wasn't counted. Run \`codemm doctor\`, then retry.`, kind);
+        const { code, why } = startRefusal(result.stderr.slice(0, 2000));
+        throw infraError(`The container couldn't start (${why}), so it wasn't counted. Run \`codemm doctor\`, then retry.`, code);
       }
-      if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.", "docker");
-      throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.", "docker");
+      if (result.exit === -1) throw infraError("The container couldn't start. Run `codemm doctor`.", /ENOENT/.test(result.stderr) ? "no-runtime" : "container-start");
+      throw infraError("The container runtime failed during the run, so it wasn't counted. Try again, and restart Docker if it happens again.", "runtime-failed");
     }
     const frames = parseFrames(result.stdout);
     // A working driver always reports at least one frame. None, or a runtime connection error, means the
     // runtime failed, not the learner's code, so nothing may be graded or recorded.
     if (frames.length === 0 || /cannot connect to the docker daemon|error during connect|connection refused/i.test(result.stderr)) {
-      throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.", "docker");
+      throw infraError("The container runtime failed during the run, so it wasn't counted. Try again, and restart Docker if it happens again.", "runtime-failed");
     }
     // Never echo a fatal frame's body: code in the container could forge one (DESIGN §4.2).
     if (frames.some((f) => f.kind === "fatal")) throw new CodemmError(`The track image is missing a tool Codemm needs: sh, ${DRIVER_TOOLS.join(", ")}.`);

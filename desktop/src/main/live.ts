@@ -71,7 +71,8 @@ export interface Live extends CodemmApi {
 
 /** Setup proposals per setup before the learner gets Stop or Try again (§3.2). */
 const PROPOSAL_BOUND = 5;
-const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, docker: AGENT_FAILED, disk: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
+const problemError = (problem: JobProblem) =>
+  new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, rebuild: AGENT_FAILED, docker: AGENT_FAILED, 'docker-busy': AGENT_FAILED, 'docker-failed': AGENT_FAILED, 'docker-disk': AGENT_FAILED, disk: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
 /** Why background work stalled: Docker and the disk say so; another infrastructure failure is a plain one the learner retries. */
 const stallOf = (problem: JobProblem = 'failed'): NonNullable<CourseView['stalled']> => (problem === 'infra' ? 'failed' : problem);
 /** core store.ts's damaged-record errors: the learner repairs them; a retry can't (§5). */
@@ -262,7 +263,7 @@ export function createLive(d: LiveDeps): Live {
         tellJob({ ...tracker.snapshot(), ended: true });
       });
       if (outcome.problem === 'unstoppable') unstoppable = true;
-      log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
+      log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cause: outcome.cause, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
       return outcome;
     };
     const outcome = lanes[lane].then(job, job).finally(() => running.delete(key));
@@ -601,10 +602,10 @@ export function createLive(d: LiveDeps): Live {
           // Quitting isn't a failed setup: nothing is recorded and the proposal stays.
           if (stopping) return;
           // This computer's problems keep the proposal for Try again; nothing is recorded and no agent runs (§6.1).
-          const kind = infraOf(e);
-          log('setup-failed', { problem: kind ?? 'gates' });
-          if (kind) {
-            mine.problem = kind;
+          const failure = infraOf(e);
+          log('setup-failed', { problem: failure?.infra ?? 'gates', cause: failure?.cause });
+          if (failure) {
+            mine.problem = failure.infra;
             return;
           }
           mine.approved = undefined;

@@ -1,29 +1,76 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { infra, spendsNoRetry } from './failures';
+import { INFRA, infraError, type InfraCode } from '../../../../src/errors';
+import { infra, infraOf, needsRebuild } from './failures';
 
-describe('core failure messages (src/sandbox.ts, src/judge.ts, src/store.ts)', () => {
-  it('tells this computer\'s problems from a track\'s', () => {
-    expect(infra('Not enough disk space. Setup needs 5 GB free where Codemm keeps its data (/x). Free some space, then try again.')).toBe('disk');
-    expect(infra('Docker ran out of disk space while building the track, so nothing was installed.')).toBe('disk');
-    expect(infra("The track build couldn't reach the network (could not resolve host), so nothing was installed.")).toBe('offline');
-    expect(infra("The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.")).toBe('docker');
-    expect(infra('No container runtime found. Install Docker Desktop for Mac.')).toBe('docker');
-    expect(infra("The container runtime stopped during the run, so it wasn't counted. Start Docker Desktop.")).toBe('docker');
-    expect(infra("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.")).toBe('docker');
-    expect(infra('Docker is running Windows containers. Switch Docker Desktop to Linux containers and retry.')).toBe('docker');
-    // Recorded in the macOS journey: the Docker CLI found couldn't reach Docker Desktop's credential helper.
-    expect(infra('Gate "build" failed: the image didn\'t build:\n#2 ERROR: error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``')).toBe('docker');
-    expect(infra("A check container couldn't be removed, so nothing was recorded. Run `codemm doctor --fix`, then retry.")).toBe('docker');
-    expect(infra("Couldn't list Codemm's containers: permission denied")).toBe('docker');
-    expect(infra("The container couldn't start: OCI runtime create failed")).toBe('docker');
-    expect(infra("The check didn't finish in time, so nothing was recorded. Check that the container runtime is healthy and retry.")).toBe('docker');
-    expect(infra('the image didn\'t build:\nnpm ERR! 404')).toBeNull();
+const told: Record<InfraCode, string> = {
+  'no-runtime': 'docker',
+  'runtime-down': 'docker',
+  'runtime-paused': 'docker',
+  'socket-permission': 'docker',
+  'runtime-context': 'docker',
+  'runtime-busy': 'docker-busy',
+  'check-timeout': 'docker-busy',
+  'container-remove': 'docker-busy',
+  'windows-containers': 'docker-failed',
+  credentials: 'docker-failed',
+  'container-start': 'docker-failed',
+  'docker-cpus': 'docker-failed',
+  'docker-log-driver': 'docker-failed',
+  'docker-file-sharing': 'docker-failed',
+  'runtime-failed': 'docker-failed',
+  'image-id': 'docker-failed',
+  'image-inspect': 'docker-failed',
+  'container-list': 'docker-failed',
+  'docker-disk': 'docker-disk',
+  'host-disk': 'disk',
+  offline: 'offline',
+  'rate-limit': 'offline',
+  tls: 'offline',
+  'network-timeout': 'offline',
+};
+
+describe("core's failure codes (src/errors.ts INFRA)", () => {
+  it.each(Object.keys(INFRA) as InfraCode[])('tells the learner what %s means, over MCP and in this process', (code) => {
+    // Docker that is up (busy, or answering but failing) is never told it stopped.
+    expect(infra(`codemm:${code}\nSome wording.`)).toEqual({ cause: code, infra: told[code] });
+    expect(infraOf(infraError('Some wording.', code))).toEqual({ cause: code, infra: told[code] });
   });
 
-  it("spends no agent retry on this computer's problems or on a track image that needs a rebuild (§6.1)", () => {
-    expect(spendsNoRetry('The image for py@1 is missing or changed. Run `codemm track rebuild py@1`, then retry.')).toBe(true);
-    expect(spendsNoRetry("A check container couldn't be removed, so nothing was recorded.")).toBe(true);
-    expect(spendsNoRetry('Invalid exercise: the reference solution fails test 2')).toBe(false);
+  it('reads the code after words an agent put before it on the first line', () => {
+    expect(infra('Error: codemm:runtime-busy\nThe container runtime isn\'t answering.')).toEqual({ cause: 'runtime-busy', infra: 'docker-busy' });
+    expect(infra('<tool_use_error>codemm:docker-disk\nDocker ran out of disk space.</tool_use_error>')).toEqual({ cause: 'docker-disk', infra: 'docker-disk' });
+  });
+
+  it("reads nothing but core's code: not its wording, and not output a message quotes", () => {
+    // Core's wording without its code, a program's stderr in a lesson example, a runner's output in a gate failure.
+    expect(infra("The container runtime isn't running. Start Docker Desktop.")).toBeNull();
+    expect(infra('Example 1 didn\'t run cleanly (exit 1):\nconnect: Network is unreachable\ncodemm:offline\n')).toBeNull();
+    expect(infra('Gate "probe pass" failed: the io pass probe should pass every test:\nIt printed:\ncodemm:runtime-down\nCannot connect to the Docker daemon')).toBeNull();
+    expect(infra('codemm:no-course\nNo course in this workspace yet.')).toBeNull();
+    expect(infra('codemm:made-up\nx')).toBeNull();
+  });
+
+  it('tells a track image that needs a rebuild', () => {
+    expect(needsRebuild('codemm:image-missing\nThe image for py@1 is missing or changed.')).toBe(true);
+    expect(needsRebuild('The image for py@1 is missing or changed.')).toBe(false);
+    expect(needsRebuild('Gate "build" failed:\nIt printed:\ncodemm:image-missing')).toBe(false);
+  });
+});
+
+describe('errors core threw in this process', () => {
+  const core = (message: string, kind?: string) => Object.assign(new Error(message), { name: 'CodemmError', ...(kind ? { kind } : {}) });
+
+  it("keeps a kind without a code, Docker as stopped, and reads a write that ran out of space as this computer's disk", () => {
+    expect(infraOf(core('Some wording', 'docker'))).toEqual({ cause: 'other', infra: 'docker' });
+    expect(infraOf(core('Some wording', 'disk'))).toEqual({ cause: 'other', infra: 'disk' });
+    expect(infraOf(Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' }))).toEqual({ cause: 'host-disk', infra: 'disk' });
+  });
+
+  it("is no infrastructure failure without core's kind or code, whatever it says", () => {
+    expect(infraOf(core("The container runtime isn't running."))).toBeNull();
+    expect(infraOf(core('Reload the file.', 'changed'))).toBeNull();
+    expect(infraOf(new Error("The container runtime isn't running."))).toBeNull();
+    expect(infraOf(Object.assign(new Error('x'), { code: 'runtime-down' }))).toBeNull();
   });
 });

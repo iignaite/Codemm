@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GateError } from "../src/gates.js";
-import { buildProblem, buildStep, runtimeHelp, runtimeKind, runtimeProblem, runtimeStateOf, sandboxArgs, startHelp } from "../src/sandbox.js";
+import { buildProblem, buildStep, runtimeCode, runtimeDown, runtimeHelp, runtimeIssue, runtimeProblem, runtimeState, runtimeStateOf, sandboxArgs, startHelp, startRefusal } from "../src/sandbox.js";
 
 describe("sandboxArgs", () => {
   const args = sandboxArgs(
@@ -89,14 +89,44 @@ describe("runtime guidance", () => {
 });
 
 describe("buildProblem", () => {
-  it("reads a network line that also names a disk problem as the disk, as the desktop always has", () => {
-    expect(buildProblem("not enough disk space; could not resolve host example.test")?.kind).toBe("disk");
+  it("reads a network line as the network, even when it also names Codemm's disk wording", () => {
+    expect(buildProblem("not enough disk space; could not resolve host example.test")).toMatchObject({ kind: "offline", code: "offline" });
   });
 
-  it("leaves a credential-helper failure to the build gate, which reads it as Docker's problem", () => {
+  it("leaves a certificate that expired, or names another host, to the track: that's the server's, not interception", () => {
+    expect(buildProblem("ERROR: failed to solve: tls: failed to verify certificate: x509: certificate has expired or is not yet valid")).toBeUndefined();
+    expect(buildProblem("curl: (60) SSL: no alternative certificate subject name matches target host name 'mirror.example'")).toBeUndefined();
+    expect(buildProblem("x509: certificate is valid for a.example, not b.example")).toBeUndefined();
+  });
+
+  it("blames Docker's credential helper, not the track, so the agent keeps its files", () => {
+    // Recorded in the macOS journey: the Docker CLI found couldn't reach Docker Desktop's credential helper.
     const log = '#2 ERROR: error getting credentials - err: exec: "docker-credential-osxkeychain": executable file not found in $PATH, out: ``';
-    expect(buildProblem(log)).toBeUndefined();
-    expect(new GateError("build", `the image didn't build:\n${log}`).kind).toBe("docker");
+    expect(buildProblem(`#1 [internal] load build definition\n${log}`)).toEqual({
+      kind: "docker",
+      code: "credentials",
+      message: expect.stringMatching(/^Docker couldn't run its credential helper \(.*docker-credential-osxkeychain.*\), so nothing was installed\..*not a problem with the track files.*restarting Docker Desktop/s),
+    });
+  });
+
+  it.each([
+    ["Docker Hub's rate limit", "rate-limit", "ERROR: failed to solve: node:22: failed to copy: httpReadSeeker: failed open: unexpected status code 429 Too Many Requests - Server message: toomanyrequests: You have reached your pull rate limit.", /^The track build hit Docker Hub's pull rate limit \(.*\), so nothing was installed\. .*sign in to Docker Desktop/s],
+    ["an intercepted certificate (Go)", "tls", "ERROR: failed to solve: alpine:3.20: failed to do request: Head \"https://registry-1.docker.io/v2/\": tls: failed to verify certificate: x509: certificate signed by unknown authority", /^The track build couldn't verify a server's certificate \(.*\), so nothing was installed\. A VPN, proxy or security software/s],
+    ["an intercepted certificate (pip)", "tls", "Could not fetch URL https://pypi.org/simple/pip/: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate", /^The track build couldn't verify a server's certificate/],
+    ["an intercepted certificate (npm)", "tls", "npm error code SELF_SIGNED_CERT_IN_CHAIN\nnpm error request to https://registry.npmjs.org/x failed, reason: self-signed certificate in certificate chain", /^The track build couldn't verify a server's certificate/],
+    ["an i/o timeout", "network-timeout", "ERROR: failed to solve: DeadlineExceeded: failed to fetch oauth token: Post \"https://auth.docker.io/token\": dial tcp 3.94.224.37:443: i/o timeout", /^The track build's connection timed out or dropped \(.*\), so nothing was installed\. .*VPN, proxy or firewall/s],
+    ["a TLS handshake timeout", "network-timeout", "ERROR: failed to solve: python:3.13: failed to resolve source metadata: Get \"https://registry-1.docker.io/v2/\": net/http: TLS handshake timeout", /^The track build's connection timed out or dropped/],
+    ["a cancelled request", "network-timeout", "Error response from daemon: Get \"https://registry-1.docker.io/v2/\": net/http: request canceled while waiting for connection (Client.Timeout exceeded while awaiting headers)", /^The track build's connection timed out or dropped/],
+    ["a pull cut short", "network-timeout", "ERROR: failed to solve: failed to copy: httpReadSeeker: failed open: failed to do request: Get \"https://production.cloudflare.docker.com/x\": unexpected EOF", /^The track build's connection timed out or dropped/],
+    ["a proxy that refuses", "offline", "ERROR: failed to solve: alpine:3.20: failed to do request: Head \"https://registry-1.docker.io/v2/\": proxyconnect tcp: dial tcp 127.0.0.1:3128: connect: connection refused", /^The track build couldn't reach the network \(.*\), so nothing was installed\. .*VPN, proxy or firewall/s],
+  ])("blames the network, not the track, for %s", (_, code, line, message) => {
+    const problem = buildProblem(`#5 [2/3] RUN install\n${line}\n#5 ERROR: process did not complete successfully`);
+    expect(problem).toEqual({ kind: "offline", code, message: expect.stringMatching(message) });
+    expect(problem!.message).toMatch(/not a problem with the track files/);
+  });
+
+  it("leaves an unexpected EOF that isn't a download to the track: a compiler says it about a broken file", () => {
+    expect(buildProblem("#7 1.204 ./main.go:9:1: syntax error: unexpected EOF, expected }\nERROR: process did not complete successfully: exit code: 1")).toBeUndefined();
   });
 
   it.each([
@@ -115,7 +145,7 @@ describe("buildProblem", () => {
 
   it("blames the disk, not the track, when Docker runs out of space", () => {
     expect(buildProblem("ERROR: failed to solve: write /var/lib/docker/tmp/x: no space left on device")).toEqual({
-      kind: "disk", message: expect.stringMatching(/ran out of disk space.*not a problem with the track files/s),
+      kind: "disk", code: "docker-disk", message: expect.stringMatching(/ran out of disk space.*not a problem with the track files.*larger disk/s),
     });
   });
 
@@ -153,13 +183,64 @@ describe("buildStep", () => {
   });
 });
 
-describe("runtimeKind", () => {
-  it("reads a runtime's own failure as out of disk or offline when it says so, and as Docker otherwise", () => {
-    expect(runtimeKind("docker: Error response from daemon: write /var/lib/docker/x: no space left on device.")).toBe("disk");
-    expect(runtimeKind("Error: not enough disk space")).toBe("disk");
-    expect(runtimeKind("docker: Error response from daemon: dial tcp: network is unreachable.")).toBe("offline");
-    expect(runtimeKind("Error: could not resolve host registry-1.docker.io")).toBe("offline");
-    expect(runtimeKind("docker: Error response from daemon: Conflict.")).toBe("docker");
+describe("runtimeCode", () => {
+  it("reads a runtime's own failure as Docker's disk or the network when it says so, and as the given code otherwise", () => {
+    expect(runtimeCode("docker: Error response from daemon: write /var/lib/docker/x: no space left on device.", "container-list")).toBe("docker-disk");
+    expect(runtimeCode("docker: Error response from daemon: dial tcp: network is unreachable.", "container-list")).toBe("offline");
+    expect(runtimeCode("Error: could not resolve host registry-1.docker.io", "image-inspect")).toBe("offline");
+    expect(runtimeCode("docker: Error response from daemon: Conflict.", "image-inspect")).toBe("image-inspect");
+  });
+});
+
+describe("runtimeState and runtimeDown", () => {
+  const ready = { exit: 0, output: "27.4.0|linux\n" };
+  const down = (output: string) => ({ exit: 0, output: `${output}\n|\n` });
+
+  it("asks a silent engine once more, for longer, then calls it busy, never stopped", async () => {
+    const asked: number[] = [];
+    expect(await runtimeState(async (ms) => (asked.push(ms), null))).toBe("busy");
+    expect(asked).toEqual([20_000, 60_000]);
+    const busy = await runtimeDown(async () => null);
+    expect(busy).toEqual({ code: "runtime-busy", message: expect.stringMatching(/^The container runtime isn't answering\. It may be busy.*wait a minute, then retry/s), help: expect.any(String) });
+    expect(busy!.message).not.toMatch(/isn't running/);
+  });
+
+  it("takes the second answer of an engine that was slow to wake", async () => {
+    const answers = [null, ready];
+    expect(await runtimeState(async () => answers.shift()!)).toBe("ready");
+  });
+
+  it("asks again, a moment later, an engine that answers it isn't ready: Docker Desktop does while it resumes", async () => {
+    const settling = [down("request returned Internal Server Error for API route and version http://%2Fdocker.sock/v1.47/info"), down("error during connect: Get \"http://docker/v1.47/info\": EOF")];
+    const asked: number[] = [];
+    expect(await runtimeState(async (ms) => (asked.push(ms), settling.shift() ?? ready), 0)).toBe("busy");
+    expect(asked).toEqual([20_000, 60_000]);
+    const answers = [settling[0] ?? down("Internal Server Error"), ready];
+    expect(await runtimeState(async () => answers.shift()!, 0)).toBe("ready");
+  });
+
+  it("asks once when the engine answers, even to say it's down", async () => {
+    const asked: number[] = [];
+    expect(await runtimeState(async (ms) => (asked.push(ms), { exit: 1, output: "Cannot connect to the Docker daemon" }))).toBe("down");
+    expect(asked).toEqual([20_000]);
+    expect(await runtimeDown(async () => ready)).toBeUndefined();
+  });
+
+  it.each([
+    ["Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?", "runtime-down", /^The container runtime isn't running\. Start Docker Desktop/],
+    ["Cannot connect to the Docker daemon at unix:///Users/me/.docker/run/docker.sock. Is the docker daemon running?", "runtime-down", /^The container runtime isn't running\./],
+    ["Error response from daemon: Docker Desktop is manually paused. Unpause it through the Whale menu.", "runtime-paused", /^Docker Desktop is paused\. Unpause Docker Desktop/],
+    ["permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock", "socket-permission", /docker group/],
+    ["Cannot connect to the Docker daemon at unix:///Users/me/.colima/default/docker.sock. Is the docker daemon running?", "runtime-context", /current context points at unix:\/\/\/Users\/me\/\.colima\/default\/docker\.sock.*docker context use/s],
+    ['context "orbstack": context not found: open /Users/me/.docker/contexts/meta/x/meta.json: no such file or directory', "runtime-context", /current context doesn't exist/],
+  ] as const)("names why a runtime that answered isn't running: %s", (output, code, message) => {
+    expect(runtimeIssue(down(output), "darwin")).toEqual({ code, message: expect.stringMatching(message), help: expect.any(String) });
+  });
+
+  it("codes every other state", () => {
+    expect(runtimeIssue({ exit: -1, output: "spawn docker ENOENT" })?.code).toBe("no-runtime");
+    expect(runtimeIssue({ exit: 0, output: "27.4.0|windows\n" })?.code).toBe("windows-containers");
+    expect(runtimeIssue(null)?.code).toBe("runtime-busy");
   });
 });
 
@@ -173,14 +254,25 @@ describe("runtimeStateOf", () => {
   });
 });
 
-describe("gate failures that are this computer's problem", () => {
-  it("carry the kind their details show, so setup keeps the proposal, and plain gate failures carry none", () => {
-    expect(new GateError("probe pass", "the io pass probe should pass every test:\n  01: error (write: no space left on device)").kind).toBe("disk");
-    expect(new GateError("build", "the image didn't build:\nfailed to create container runtime task").kind).toBe("docker");
-    expect(new GateError("build", "the image didn't build:\nCannot connect to the Docker daemon at unix:///var/run/docker.sock").kind).toBe("docker");
-    expect(new GateError("build", "the image didn't build:\nnot enough disk space").kind).toBe("disk");
-    expect(new GateError("build", "the image didn't build:\nDocker is running Windows containers").kind).toBe("docker");
-    expect(new GateError("build", "the image didn't build:\ncould not resolve host: deb.debian.org").kind).toBe("offline");
-    expect(new GateError("starter unsolved", "the unedited starter passes every test.").kind).toBeUndefined();
+describe("gate failures", () => {
+  it("are the track's or the exercise's, whatever their details or output say", () => {
+    // This computer's problems throw with their own code instead (buildProblem, the judge).
+    for (const said of ["01: error (write: no space left on device)", "failed to create container runtime task", "Cannot connect to the Docker daemon", "could not resolve host: deb.debian.org"]) {
+      expect(new GateError("probe pass", `the io pass probe should pass every test:\n  ${said}`, `\nIt printed:\n${said}`)).toMatchObject({ kind: undefined, code: undefined });
+    }
+  });
+});
+
+describe("startRefusal", () => {
+  it.each([
+    ["Error response from daemon: Range of CPUs is from 0.01 to 1.00, as there are only 1 CPUs available", "docker-cpus", /fewer than the 2 CPUs/],
+    ["Error response from daemon: failed to create task: unknown log opt 'max-size' for journald log driver", "docker-log-driver", /logging driver/],
+    ["docker: Error response from daemon: Mounts denied: The path /var/folders/x is not shared from the host and is not known to Docker.", "docker-file-sharing", /file sharing/],
+    ["docker: Error response from daemon: write /var/lib/docker/x: no space left on device.", "docker-disk", /^Docker ran out of disk space$/],
+    ["docker: Error response from daemon: OCI runtime create failed: CANARY-SECRET", "container-start", /^the runtime refused it$/],
+  ] as const)("names why the runtime refused a container in its own fixed words: %s", (stderr, code, why) => {
+    const refusal = startRefusal(stderr);
+    expect(refusal).toEqual({ code, why: expect.stringMatching(why) });
+    expect(refusal.why).not.toMatch(/CANARY|var\/folders/);
   });
 });

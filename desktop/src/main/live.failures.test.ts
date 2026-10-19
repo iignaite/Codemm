@@ -10,12 +10,12 @@ describe('live CodemmApi: failures and damaged records (§5)', () => {
     const core = (message: string, kind?: string) => Object.assign(new Error(message), { name: 'CodemmError', ...(kind ? { kind } : {}) });
     const check = t.app.checkExercise;
     t.app.checkExercise = async () => { throw core('Some new wording', 'disk'); };
-    expect(await t.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: 'Docker ran out of disk space.' });
+    expect(await t.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: 'This computer is out of disk space.' });
     t.app.checkExercise = async () => { throw core('Reworded too', 'image-missing'); };
     expect(await t.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: expect.stringMatching(/rebuild/i) });
     // A write that ran out of space on this computer, before core could say so.
     t.app.checkExercise = async () => { throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' }); };
-    expect(await t.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: 'Docker ran out of disk space.' });
+    expect(await t.api.check(activity.id)).toEqual({ kind: 'not-counted', reason: 'This computer is out of disk space.' });
     // Core's wording without its kind is not this computer's problem: it isn't hidden as "not counted".
     t.app.checkExercise = async () => { throw core("The container runtime isn't running."); };
     await expect(t.api.check(activity.id)).rejects.toThrow(/container runtime/);
