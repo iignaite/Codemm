@@ -32,7 +32,7 @@ import { errorFields, SafeError } from './errors';
 import type { CoreApp, CoreProgress, CoreRoadmap } from './core/types';
 import { courseView, currentConcept, otherReady, type Setup } from './courseView';
 import { noLog, type Log } from './log';
-import { asNotCounted } from './notCounted';
+import { asNotCounted, rebuildFailure } from './notCounted';
 import { programs } from './programs';
 import type { desktopState } from './state';
 import type { usageStore } from './usage';
@@ -734,10 +734,12 @@ export function createLive(d: LiveDeps): Live {
       trackers.set(`rebuild:${ref}`, tracker);
       tellJob(tracker.snapshot());
       // Tracked and guarded like the install, so quitting waits for it.
-      await whenDockerReady(() => core.rebuildTrack(ref)).finally(() => {
-        trackers.delete(`rebuild:${ref}`);
-        tellJob({ ...tracker.snapshot(), ended: true });
-      });
+      await whenDockerReady(() => core.rebuildTrack(ref))
+        .catch((e: unknown) => Promise.reject(rebuildFailure(e)))
+        .finally(() => {
+          trackers.delete(`rebuild:${ref}`);
+          tellJob({ ...tracker.snapshot(), ended: true });
+        });
     },
 
     // The course on screen: the approved one, as course() shows, not a draft being researched.

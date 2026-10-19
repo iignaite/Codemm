@@ -161,9 +161,10 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
 
     heard.length = 0;
     t.app.rebuildTrack = async () => {
-      throw new Error('Docker stopped');
+      throw coreError('The container runtime isn\'t running. Start Docker Desktop (or `podman machine start`).', 'docker');
     };
-    await expect(t.api.rebuild('react@1')).rejects.toThrow();
+    // This computer's problem reaches the learner as Codemm's words and a next step, not core's.
+    await expect(t.api.rebuild('react@1')).rejects.toThrow("Docker isn't running. Open Docker Desktop, then try again.");
     expect(heard.map((p) => [p.kind, p.ended ?? false])).toEqual([['rebuild', false], ['rebuild', true]]);
     expect(await t.api.jobProgress()).toEqual([]);
   });

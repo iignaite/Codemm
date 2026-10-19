@@ -89,7 +89,8 @@ function Reader({ lesson, course, topic, onSaved, onNoted }: View & { onSaved: (
   const chat = useConversation({ lessonId: lesson.id }, 'Ask about anything here.');
   const { prev, next } = neighbours(topic, lesson.id);
   // Next on the last lesson leads to the activity: while it is written, say so beside it (the outline shows how far it is).
-  const waiting = topic.lessons.at(-1)?.id === lesson.id && topic.activity === 'writing';
+  // Only when it really is: `writing` also stands for an activity that waits for setup, or whose work has stopped.
+  const waiting = topic.lessons.at(-1)?.id === lesson.id && topic.activity === 'writing' && course.setup === 'ready' && !course.stalled;
   const writing = topic.review ? 'review' : 'activity';
 
   async function save(text: string) {
