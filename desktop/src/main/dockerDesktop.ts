@@ -1,19 +1,25 @@
-// Installs and opens Docker Desktop for the learner (DESIGN §6.1). The installer comes only from Docker's own
-// download host, over https, and runs only if Docker signed it. Codemm never accepts Docker's terms or asks for a
-// password: Docker's own window does both. Every command is an argument array, never a shell.
+// Installs and opens Docker Desktop for the learner (DESIGN §6.1), on a macOS or Windows that Docker supports. The
+// installer comes only from Docker's own download host, over https, and runs only if Docker signed it. Codemm never
+// accepts Docker's terms or types a password: Docker's own window and Windows' permission prompt do that. Every
+// command is an argument array, never a shell.
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { createWriteStream, existsSync, mkdtempSync, rmSync, statfsSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, statfsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
-import { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import type { DockerInstall } from '../shared/api';
+import { downloader, OfflineError, type Get } from './download';
 import { POWERSHELL } from './windows';
 
 export interface DesktopDeps {
   platform: NodeJS.Platform;
+  /** This computer's own chip (nativeArch), not the one this build of Codemm emulates. */
   arch: string;
+  /** %ProgramFiles% and %LOCALAPPDATA% on Windows, where Docker Desktop installs for all users and for one. */
+  programFiles?: string;
+  localAppData?: string;
+  /** The OS temp folder, where tempDir() makes Codemm's download folders. */
+  tempRoot: string;
   tempDir(): string;
   freeBytes(dir: string): Promise<number>;
   /**
@@ -26,11 +32,11 @@ export interface DesktopDeps {
   /** Starts a program without waiting for it; rejects if it can't start. */
   launch(file: string, args: string[]): Promise<void>;
   exists(path: string): boolean;
+  list(dir: string): string[];
+  modifiedAt(path: string): number;
   remove(path: string): void;
   now(): number;
 }
-
-export class OfflineError extends Error {}
 
 const GiB = 1024 ** 3;
 /** After Codemm opens or installs Docker, how long a silent Docker counts as starting (computer.ts uses the same). */
@@ -43,13 +49,64 @@ const HDIUTIL = '/usr/bin/hdiutil';
 const DITTO = '/usr/bin/ditto';
 const MV = '/bin/mv';
 const OPEN = '/usr/bin/open';
+const RM = '/bin/rm';
+const PGREP = '/usr/bin/pgrep';
+const TASKLIST = 'C:\\Windows\\System32\\tasklist.exe';
+const SW_VERS = '/usr/bin/sw_vers';
+const REG = 'C:\\Windows\\System32\\reg.exe';
 /** Docker, Inc's Apple Developer team. */
 const DOCKER_TEAM = /^TeamIdentifier=9BNSXJN65R$/m;
-const WIN_DESKTOP = 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe';
+/** Where Docker Desktop installs for all users (Codemm's install), and for one user (Docker's own default). */
+const WIN_DESKTOP = 'Docker\\Docker\\Docker Desktop.exe';
+const WIN_USER_DESKTOP = 'Programs\\DockerDesktop\\Docker Desktop.exe';
+/**
+ * Codemm's own folders an install can leave behind: a staging folder in Applications (placeApp), and a download
+ * folder in the temp folder (tempDir) that a failed or declined install kept. How old one is before it counts as left.
+ */
+const STAGING = /^\.codemm-docker-[0-9a-f]{8}$/;
+const DOWNLOAD = /^codemm-docker-[A-Za-z0-9]{6}$/;
+const STALE_MS = 60 * 60_000;
 /** The path arrives as $env:CODEMM_FILE, so nothing outside this text is ever parsed as PowerShell. */
 const SIGNATURE = '$s = Get-AuthenticodeSignature -LiteralPath $env:CODEMM_FILE; "$($s.Status)|$($s.SignerCertificate.Subject)"';
+/**
+ * Docker's installer as administrator, in its own window: Windows asks the learner first. The path arrives as
+ * $env:CODEMM_FILE, and the installer's own exit code comes back. A learner who says no ends it with DECLINED.
+ * .NET's Process.Start keeps Windows' error as the inner exception, which Start-Process drops, and the wait is for
+ * the installer alone, not every process it leaves running.
+ */
+export const ELEVATED =
+  "$i = New-Object Diagnostics.ProcessStartInfo $env:CODEMM_FILE, 'install'; $i.Verb = 'runas'; $i.UseShellExecute = $true; " +
+  'try { $p = [Diagnostics.Process]::Start($i) } catch { $e = $_.Exception; while ($e) { if ($e.NativeErrorCode -eq 1223) { exit 1223 }; $e = $e.InnerException }; exit 1 }; ' +
+  'if (-not $p) { exit 1 }; $p.WaitForExit(); exit $p.ExitCode';
+/** ERROR_CANCELLED: the learner said no to Windows' permission prompt. */
+const DECLINED = 1223;
 /** Windows installer exit codes that mean "restart to finish". */
 const RESTART = new Set([3010, 1641]);
+
+/** Docker Desktop's documented minimums (release notes 4.49 and 4.48): macOS 14; Windows 10 22H2 or Windows 11 23H2. */
+const MACOS_MIN = 14;
+const WIN10_MIN = 19045;
+const WIN11 = 22000;
+const WIN11_MIN = 22631;
+
+/**
+ * Why this computer can't run Docker Desktop, from `sw_vers -productVersion` or Windows' CurrentVersion key; nothing
+ * when it can, or when the answer can't be read (Docker's own installer has the last word then). It never runs on
+ * Windows Server.
+ */
+export function systemProblem(platform: NodeJS.Platform, output: string): DockerInstall['problem'] {
+  if (platform === 'darwin') {
+    const major = Number(/^(\d+)\./m.exec(output)?.[1]);
+    return major < MACOS_MIN ? 'macos-version' : undefined;
+  }
+  const build = Number(/^\s*CurrentBuildNumber\s+REG_SZ\s+(\d+)/m.exec(output)?.[1]);
+  if (/^\s*InstallationType\s+REG_SZ\s+Server/m.test(output)) return 'windows-version';
+  if (!build) return undefined;
+  return build >= WIN11_MIN || (build >= WIN10_MIN && build < WIN11) ? undefined : 'windows-version';
+}
+
+/** The chip to download for: an x64 build under Rosetta, or under Windows' x64 emulation on Arm, runs on arm64. */
+export const nativeArch = (arch: string, translated: boolean) => (translated ? 'arm64' : arch);
 
 /** Signed, valid, and the signer's organization attribute is exactly Docker Inc. */
 export function dockerSigned(output: string): boolean {
@@ -75,8 +132,14 @@ export function dockerDesktop(d: DesktopDeps) {
   let running: Promise<void> = Promise.resolve();
   let busy = false;
   let started: number | undefined;
+  /** The folder of a checked installer the learner said no to running: Try again runs it, checked again, without downloading it twice. */
+  let declined: string | undefined;
 
   const ok = (r: { code: number | null }) => r.code === 0;
+  const desktops =
+    d.platform === 'darwin' ? [MAC_APP]
+    : d.platform === 'win32' ? [win32.join(d.programFiles ?? 'C:\\Program Files', WIN_DESKTOP), ...(d.localAppData ? [win32.join(d.localAppData, WIN_USER_DESKTOP)] : [])]
+    : [];
   const quietly = (path: string) => {
     try {
       d.remove(path);
@@ -84,6 +147,13 @@ export function dockerDesktop(d: DesktopDeps) {
       // Leftovers in a temp folder are harmless; the OS clears it.
     }
   };
+
+  /** Docker's documented minimum, checked before anything downloads. */
+  async function assertSupported() {
+    const r = d.platform === 'darwin' ? await d.run(SW_VERS, ['-productVersion']) : await d.run(REG, ['query', 'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion']);
+    const problem = ok(r) ? systemProblem(d.platform, r.output) : undefined;
+    if (problem) throw new Stop(problem);
+  }
 
   async function fetchTo(url: string, file: string, dir: string, needBytes: number) {
     if ((await d.freeBytes(dir)) < needBytes) throw new Stop('disk');
@@ -135,13 +205,14 @@ export function dockerDesktop(d: DesktopDeps) {
 
   async function windows(dir: string) {
     const exe = path.join(dir, 'DockerDesktopInstaller.exe');
-    await fetchTo(`https://desktop.docker.com/win/main/${chip}/Docker%20Desktop%20Installer.exe`, exe, dir, 8 * GiB);
+    if (!d.exists(exe)) await fetchTo(`https://desktop.docker.com/win/main/${chip}/Docker%20Desktop%20Installer.exe`, exe, dir, 8 * GiB);
     status = { phase: 'checking' };
     const signature = await d.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', SIGNATURE], { env: { CODEMM_FILE: exe } });
     if (!ok(signature) || !dockerSigned(signature.output)) throw new Stop('unverified');
     status = { phase: 'installing' };
-    // Its own window: Windows asks for permission, and the learner accepts Docker's terms there.
-    const result = await d.run(exe, ['install'], { timeoutMs: 60 * 60_000 });
+    // Its own window, as administrator: Windows asks for permission, and the learner accepts Docker's terms there.
+    const result = await d.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', ELEVATED], { env: { CODEMM_FILE: exe }, timeoutMs: 60 * 60_000 });
+    if (result.code === DECLINED) throw new Stop('declined');
     if (result.code !== null && RESTART.has(result.code)) throw new Stop('restart');
     if (!ok(result)) throw new Stop('failed');
   }
@@ -151,7 +222,7 @@ export function dockerDesktop(d: DesktopDeps) {
     if (d.platform === 'darwin') {
       if (!ok(await d.run(OPEN, ['-a', app]))) throw new Stop('failed');
     } else if (d.platform === 'win32') {
-      await d.launch(WIN_DESKTOP, []);
+      await d.launch(desktops.find((p) => d.exists(p)) ?? desktops[0], []);
     }
     started = d.now();
   }
@@ -163,7 +234,9 @@ export function dockerDesktop(d: DesktopDeps) {
       if (d.platform === 'darwin' && d.exists(MAC_APP)) {
         await openApp(MAC_APP);
       } else {
-        dir = d.tempDir();
+        await assertSupported();
+        dir = declined ?? d.tempDir();
+        declined = undefined;
         if (d.platform === 'darwin') await mac(dir);
         else await windows(dir);
         await openApp(MAC_APP);
@@ -171,7 +244,8 @@ export function dockerDesktop(d: DesktopDeps) {
       status = { phase: 'starting' };
     } catch (e) {
       const problem = e instanceof Stop ? e.problem : 'failed';
-      keep = problem === 'manual';
+      keep = problem === 'manual' || problem === 'declined';
+      if (problem === 'declined') declined = dir;
       status = { phase: 'failed', problem };
     } finally {
       if (dir && !keep) quietly(dir);
@@ -191,18 +265,38 @@ export function dockerDesktop(d: DesktopDeps) {
     /** The install, until Docker has had its startup window: after that, Check this computer speaks for Docker. */
     status: () => (status?.phase === 'starting' && started !== undefined && d.now() - started > STARTING_MS ? undefined : status),
     open: () => openApp('Docker'),
+    /** Docker Desktop's own app is here: a docker command alone (Homebrew's, say) isn't Docker Desktop. */
+    installed: () => desktops.some((p) => d.exists(p)),
+    /** Docker Desktop's app is running, opened by Codemm or the learner, whether or not its engine answers yet. */
+    async running() {
+      if (d.platform === 'darwin') return ok(await d.run(PGREP, ['-f', '/Applications/Docker.app/']));
+      if (d.platform === 'win32') return /"Docker Desktop\.exe"/i.test((await d.run(TASKLIST, ['/FI', 'IMAGENAME eq Docker Desktop.exe', '/NH', '/FO', 'CSV'])).output);
+      return false;
+    },
+    /**
+     * Removes what an install left when it failed, was declined, or Codemm quit midway: only Codemm's own folders, over
+     * an hour old (a younger one may be another Codemm's install). A Mac's staging copy of Docker is about 2 GB, so rm
+     * removes it, not the app's own process.
+     */
+    async removeLeftovers() {
+      const left = (dir: string, name: RegExp) => {
+        try {
+          return d.list(dir).filter((n) => name.test(n)).map((n) => path.join(dir, n)).filter((p) => d.now() - d.modifiedAt(p) > STALE_MS);
+        } catch {
+          // Can't be read: nothing of Codemm's can be found there either.
+          return [];
+        }
+      };
+      for (const download of left(d.tempRoot, DOWNLOAD)) quietly(download);
+      if (d.platform !== 'darwin') return;
+      for (const staging of left('/Applications', STAGING)) await d.run(RM, ['-rf', staging]);
+    },
     /** When Codemm last opened or installed Docker: a Docker that doesn't answer yet is starting. */
     startedAt: () => started,
     /** The current install, for tests and quitting. */
     done: () => running,
   };
 }
-
-const NETWORK = /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH/;
-const MAX_HOPS = 5;
-/** Docker Desktop and the agents are well under 2 GB; anything bigger isn't them. */
-const MAX_BYTES = 2 * GiB;
-const DOWNLOAD_DEADLINE_MS = 45 * 60_000;
 
 /** Docker's download host: every hop, redirects included, is https on docker.com. */
 export const isDockerHost = (url: string) => {
@@ -214,53 +308,31 @@ export const isDockerHost = (url: string) => {
   }
 };
 
-/** The real computer: Node's fetch, the disk, and argument-array processes. */
-export function nodeDesktopDeps(): DesktopDeps {
+/** The network to download through: Electron's in the app (electronGet), and this computer's own chip (nativeArch). */
+export interface Network {
+  get: Get;
+  arch: string;
+}
+
+/** The real computer: the network given, the disk, and argument-array processes. */
+export function nodeDesktopDeps({ get, arch }: Network): DesktopDeps {
+  const download = downloader(get);
   return {
     platform: process.platform,
-    arch: process.arch,
+    arch,
+    programFiles: process.env.ProgramFiles,
+    localAppData: process.env.LOCALAPPDATA,
+    tempRoot: tmpdir(),
     tempDir: () => mkdtempSync(join(tmpdir(), 'codemm-docker-')),
     freeBytes: async (dir) => {
       const s = statfsSync(dir);
       return s.bavail * s.bsize;
     },
-    async download(start, file, progress, allowed = isDockerHost, maxBytes = MAX_BYTES) {
-      const signal = AbortSignal.timeout(DOWNLOAD_DEADLINE_MS);
-      let url = start;
-      let res: Response | undefined;
-      // Each hop is checked before it's requested.
-      for (let hop = 0; hop <= MAX_HOPS; hop++) {
-        if (!allowed(url)) throw new Error('The download left the vendor’s site.');
-        try {
-          res = await fetch(url, { redirect: 'manual', signal });
-        } catch (e) {
-          const cause = (e as { cause?: { code?: string } }).cause?.code ?? '';
-          throw NETWORK.test(cause) ? new OfflineError(cause) : e;
-        }
-        const next = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
-        if (!next) break;
-        url = new URL(next, url).toString();
-        res = undefined;
-      }
-      if (!res) throw new Error('Too many redirects.');
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
-      const total = Number(res.headers.get('content-length')) || 0;
-      if (total > maxBytes) throw new Error('The download is larger than expected.');
-      let got = 0;
-      const count = new Transform({
-        transform(chunk: Buffer, _enc, done) {
-          got += chunk.length;
-          if (got > maxBytes) return done(new Error('The download is larger than expected.'));
-          if (total) progress(Math.min(1, got / total));
-          done(null, chunk);
-        },
-      });
-      await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), count, createWriteStream(file), { signal });
-      progress(1);
-    },
+    download: (url, file, progress, allowed = isDockerHost, maxBytes) => download(url, file, progress, allowed, maxBytes),
     run: (file, args, opts) =>
       new Promise((resolve) => {
-        const child = spawn(file, args, { env: { ...process.env, ...opts?.env }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: false });
+        // No console window: what needs a window (Docker's installer) gets its own through PowerShell.
+        const child = spawn(file, args, { env: { ...process.env, ...opts?.env }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
         let output = '';
         let settled = false;
         const finish = (code: number | null) => {
@@ -290,6 +362,8 @@ export function nodeDesktopDeps(): DesktopDeps {
         });
       }),
     exists: existsSync,
+    list: (dir) => readdirSync(dir),
+    modifiedAt: (path) => statSync(path).mtimeMs,
     remove: (path) => rmSync(path, { recursive: true, force: true }),
     now: () => Date.now(),
   };

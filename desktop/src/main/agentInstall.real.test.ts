@@ -5,12 +5,15 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { agentInstaller, nodeAgentDeps } from './agentInstall';
+import { fetchGet } from './download';
+
+const network = { get: fetchGet, arch: process.arch };
 
 const real = process.env.CODEMM_REAL_AGENT_DOWNLOAD === '1' && process.platform === 'darwin';
 
 describe.skipIf(!real)("the agents' real downloads (opt-in)", () => {
   it("downloads Claude Code's binary, and accepts it only because it matches Anthropic's manifest and signature", { timeout: 20 * 60_000 }, async () => {
-    const deps = nodeAgentDeps(() => ({ path: '/never/used', js: false }));
+    const deps = nodeAgentDeps(() => ({ path: '/never/used', js: false }), network);
     const ran: string[] = [];
     const progress: number[] = [];
     let dir = '';
@@ -36,7 +39,7 @@ describe.skipIf(!real)("the agents' real downloads (opt-in)", () => {
 
   it("downloads OpenAI's Codex script from OpenAI, and runs nothing", { timeout: 5 * 60_000 }, async () => {
     const codex = process.env.CODEMM_REAL_CODEX_BIN;
-    const deps = nodeAgentDeps(() => (codex ? { path: codex, js: false } : { path: '/no/codex', js: false }));
+    const deps = nodeAgentDeps(() => (codex ? { path: codex, js: false } : { path: '/no/codex', js: false }), network);
     let script = '';
     const ran: string[] = [];
     const installer = agentInstaller({

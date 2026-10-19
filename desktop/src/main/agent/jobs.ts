@@ -33,7 +33,7 @@ export const JOBS: Record<JobKind, JobSpec> = {
 export const SAVE_BOUND = 3;
 
 /** Network errors in an agent's `done` error: it couldn't reach its own service (§6.1). PLAN_LIMIT lives with the agents. */
-const OFFLINE = /connection error|ENOTFOUND|EAI_AGAIN|network is unreachable|could not resolve host|error sending request|connection lost/i;
+export const OFFLINE = /connection error|ENOTFOUND|EAI_AGAIN|network is unreachable|could not resolve host|error sending request|connection lost/i;
 
 /**
  * `docker`, `disk`: this computer's Docker or disk stopped a save. `infra`: the Codemm server or the agent failed to
@@ -72,7 +72,8 @@ export interface Job {
   /** False once Codemm has started installing this agent again: nothing of it launches until that install is done (§3.1). */
   usable?: () => boolean;
   /** Asked when a job fails for an unknown reason. */
-  signedIn: () => Promise<boolean>;
+  /** Null when the agent's sign-in check couldn't answer: a timeout, or offline. */
+  signedIn: () => Promise<boolean | null>;
   /**
    * Removes the containers of Codemm processes that are gone (core's removeAbandoned), after an attempt Codemm ended:
    * a cancelled job's gate container would otherwise run on beside the next one (§5).
@@ -208,7 +209,7 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     if (last.infra === 'offline' || (last.error && OFFLINE.test(last.error))) return { ok: false, problem: 'offline', text: last.text };
     if (last.infra === 'docker' || last.infra === 'disk') return { ok: false, problem: last.infra, text: last.text };
     if (last.infra === 'server' || last.infra === 'tool') return { ok: false, problem: 'infra', text: last.text };
-    if (!(await job.signedIn())) return { ok: false, problem: 'signed-out', text: last.text };
+    if ((await job.signedIn()) === false) return { ok: false, problem: 'signed-out', text: last.text };
     if (last.infra === 'unstarted') return { ok: false, problem: 'infra', text: last.text };
     // Its container may still run, so no relaunch joins it.
     if (!cleaned) return { ok: false, problem: 'infra', text: last.text };

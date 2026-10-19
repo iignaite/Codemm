@@ -1,6 +1,7 @@
 // "Check this computer" (DESIGN §6.1): Docker is installed, it's running with
 // Linux containers, and the sandbox works. Only the first failing row is a
-// problem; the ones after it wait.
+// problem; the ones after it wait. Where Codemm installs Docker Desktop, a
+// docker command alone, with no engine answering, isn't installed yet.
 import type { CheckId, Computer, ComputerCheck, DockerInstall, Platform } from '../shared/api';
 import type { Executable } from './agent/bridge';
 import { STARTING_MS } from './dockerDesktop';
@@ -10,13 +11,17 @@ export interface Probe {
   find(): Executable | null;
   /** Whether the found engine is there, running, and running Linux containers (core sandbox.ts runtimeStateOf). */
   state(docker: Executable): Promise<'missing' | 'down' | 'windows' | 'ready'>;
-  /** Core doctor's network-isolation check, with why it failed. */
-  sandbox(): Promise<{ ok: boolean; detail: string }>;
+  /** Core doctor's network-isolation check, with why it failed and, when known, the cause on this computer. */
+  sandbox(): Promise<{ ok: boolean; detail: string; kind?: 'offline' | 'disk' | 'docker' }>;
   now(): number;
   /** When Codemm last opened or installed Docker Desktop. Only then is a silent Docker "starting". */
   startedAt?(): number | undefined;
   /** Codemm can install Docker Desktop here, and the install it started. */
   canInstall?: boolean;
+  /** Docker Desktop's own app is here (a docker command can come without it). */
+  desktopInstalled?(): boolean;
+  /** Docker Desktop's app is running, whether or not its engine answers yet. */
+  desktopRunning?(): Promise<boolean>;
   install?(): DockerInstall | undefined;
 }
 
@@ -25,33 +30,46 @@ export const platformOf = (p: NodeJS.Platform): Platform => (p === 'darwin' ? 'm
 
 /**
  * A re-checkable check: it remembers a sandbox that passed. A Docker that doesn't answer is "starting" only for
- * 3 minutes after Codemm opened or installed it; otherwise it's stopped, and the fix is to open it (§6.1).
+ * 3 minutes after Codemm opened or installed it, or after this check first saw Docker Desktop's app running (the
+ * learner opened it); otherwise it's stopped, and the fix is to open it (§6.1).
  * A sandbox that fails within 3 minutes of Docker coming up is still being checked; after that, the fix is a restart.
  */
 export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.platform, log: Log = noLog): () => Promise<Computer> {
   let sandboxOk = false;
+  let reason: ComputerCheck['reason'];
   let down = false;
   let upAt: number | undefined;
+  /** When this check first saw Docker Desktop's app running with its engine down. */
+  let openAt: number | undefined;
   let lastReason: string | undefined;
   const recent = (at: number | undefined) => at !== undefined && probe.now() - at <= STARTING_MS;
 
-  async function failing(): Promise<{ at: number; detail?: ComputerCheck['detail'] } | null> {
+  async function failing(): Promise<{ at: number; detail?: ComputerCheck['detail']; reason?: ComputerCheck['reason'] } | null> {
     const docker = probe.find();
     const state = docker ? await probe.state(docker) : 'missing';
     if (state === 'missing' || state === 'down') down = true;
-    if (state === 'missing') return { at: 0 };
-    if (state === 'down') return { at: 1, ...(recent(probe.startedAt?.()) ? { detail: 'starting' as const } : {}) };
+    // Open Docker Desktop can't start an engine that isn't Docker Desktop's: install it instead.
+    if (state === 'missing' || (state === 'down' && probe.canInstall && probe.desktopInstalled?.() === false)) return { at: 0 };
+    if (state !== 'down') openAt = undefined;
+    else if (await probe.desktopRunning?.()) openAt ??= probe.now();
+    else openAt = undefined;
+    if (state === 'down') return { at: 1, ...(recent(probe.startedAt?.()) || recent(openAt) ? { detail: 'starting' as const } : {}) };
     if (state === 'windows') return { at: 1, detail: 'windows-containers' };
     if (down) [down, upAt] = [false, probe.now()];
     if (!sandboxOk) {
       const sandbox = await probe.sandbox();
       sandboxOk = sandbox.ok;
       // Logged when the reason changes, not on every re-check.
-      if (!sandbox.ok && sandbox.detail !== lastReason) log('sandbox', { reason: sandbox.detail });
+      if (!sandbox.ok && sandbox.detail !== lastReason) log('sandbox', { reason: sandbox.detail, ...(sandbox.kind ? { kind: sandbox.kind } : {}) });
       lastReason = sandbox.ok ? undefined : sandbox.detail;
+      const text = sandbox.detail.replace(/^inconclusive: /, '');
+      reason = !sandbox.ok && sandbox.kind ? { kind: sandbox.kind, text, ...(text !== sandbox.detail ? { inconclusive: true as const } : {}) } : undefined;
     }
     if (sandboxOk) return null;
-    return { at: 2, ...(recent(upAt) || recent(probe.startedAt?.()) ? { detail: 'checking' as const } : {}) };
+    // Offline or out of disk is no slow first container; anything else just after Docker came up is still being checked.
+    if (reason && reason.kind !== 'docker') return { at: 2, reason };
+    if (recent(upAt) || recent(probe.startedAt?.())) return { at: 2, detail: 'checking' };
+    return { at: 2, ...(reason ? { reason } : {}) };
   }
 
   return async () => {
@@ -60,7 +78,7 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
     const checks = ids.map((id, i): ComputerCheck => {
       if (!problem || i < problem.at) return { id, state: 'ok' };
       if (i > problem.at) return { id, state: 'waiting' };
-      return { id, state: 'problem', ...(problem.detail ? { detail: problem.detail } : {}) };
+      return { id, state: 'problem', ...(problem.detail ? { detail: problem.detail } : {}), ...(problem.reason ? { reason: problem.reason } : {}) };
     });
     const install = probe.install?.();
     return { platform: platformOf(platform), checks, ready: !problem, ...(probe.canInstall ? { canInstall: true } : {}), ...(install ? { install } : {}) };

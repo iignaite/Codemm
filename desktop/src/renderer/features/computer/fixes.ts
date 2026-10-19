@@ -29,19 +29,23 @@ export const INSTALL = {
   phase: {
     downloading: 'Downloading Docker Desktop',
     checking: "Checking it's from Docker…",
-    installing: { mac: 'Installing Docker…', windows: "Finish in Docker's installer.", linux: 'Installing Docker…' },
+    // Windows' permission prompt can open behind Codemm, flashing in the taskbar.
+    installing: { mac: 'Installing Docker…', windows: "Allow Docker's installer when Windows asks (look in the taskbar), then finish in its window.", linux: 'Installing Docker…' },
     starting: "Opening Docker. When it asks, accept Docker's terms in its window.",
   },
   problem: {
     offline: "You're offline. Connect to the internet, then try again.",
     disk: 'Not enough disk space. Free up a few GB, then try again.',
+    'macos-version': 'Docker Desktop needs macOS 14 or later. Update macOS to install it.',
+    'windows-version': "Docker Desktop needs Windows 10 22H2, or Windows 11 23H2 or later. It doesn't run on Windows Server.",
     unverified: "The download wasn't signed by Docker, so Codemm deleted it.",
     manual: 'Drag Docker to Applications in the window that opened.',
+    declined: 'Windows asks for permission to install Docker. Try again, and choose Yes.',
     restart: 'Restart Windows, then open Codemm again.',
     failed: "Docker's installer didn't finish.",
   } satisfies Record<NonNullable<DockerInstall['problem']>, string>,
   /** Problems where trying again can help; the others need the learner first. */
-  retry: new Set<DockerInstall['problem']>(['offline', 'disk', 'unverified', 'failed']),
+  retry: new Set<DockerInstall['problem']>(['offline', 'disk', 'unverified', 'declined', 'failed']),
 };
 
 /** A running problem with a known cause replaces the usual fix (§6.1). */
@@ -62,6 +66,15 @@ export const DETAILS: Record<NonNullable<ComputerCheck['detail']>, { fix: Fix; n
 
 const RESTART: Fix = {
   steps: ['Restart Docker, then check again.'],
+};
+
+/**
+ * The sandbox's self-test, when it knows the cause (§6.1): its own words, which say what to do. Restart Docker
+ * follows only what it saw without knowing why.
+ */
+export const REASON = {
+  fix: (r: NonNullable<ComputerCheck['reason']>): Fix => ({ steps: [r.text, ...(r.inconclusive ? RESTART.steps : [])] }),
+  notYet: { offline: "You're offline.", disk: 'Docker ran out of disk space.', docker: NOT_YET.sandbox } satisfies Record<NonNullable<ComputerCheck['reason']>['kind'], string>,
 };
 
 /** Step-by-step fixes per computer. Links go to Docker's official pages only. */

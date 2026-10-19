@@ -47,5 +47,11 @@ export const claude: AgentCli = {
     });
   },
   version: { args: ['--version'], read: versionRead(/^(\d+\.\d+\.\d+\S*)/m) },
-  signIn: { args: ['auth', 'status', '--json'], read: ({ output }) => json(output)?.loggedIn === true },
+  signIn: {
+    args: ['auth', 'status', '--json'],
+    read: ({ output }) => {
+      const loggedIn = json(output)?.loggedIn;
+      return typeof loggedIn === 'boolean' ? loggedIn : null;
+    },
+  },
 };

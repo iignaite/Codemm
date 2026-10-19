@@ -14,6 +14,7 @@ import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type 
   type Agent,
   type AgentId,
   type AgentInstall,
+  type ComputerCheck,
   type CheckResult,
   type CodemmApi,
   type Concept,
@@ -30,7 +31,7 @@ import { modelChoices, modelFor } from '../shared/models';
 import { AGENT_INFO } from './connect';
 import { addTopic } from '../shared/roadmap';
 
-type Docker = 'missing' | 'stopped' | 'starting' | 'windows-containers' | 'no-sandbox' | 'sandbox-checking' | 'ready';
+type Docker = 'missing' | 'stopped' | 'starting' | 'windows-containers' | 'no-sandbox' | 'sandbox-checking' | 'sandbox-offline' | 'sandbox-folder' | 'ready';
 
 export interface MockOptions {
   /** Read on every call, so a test can change it while the app runs. */
@@ -138,6 +139,20 @@ const DOCKER_DOWN: Record<Exclude<Docker, 'ready'>, string> = {
   'windows-containers': 'Docker Desktop is set to Windows containers.',
   'no-sandbox': "Codemm couldn't confirm the sandbox.",
   'sandbox-checking': "Codemm couldn't confirm the sandbox.",
+  'sandbox-offline': "Codemm couldn't confirm the sandbox.",
+  'sandbox-folder': "Codemm couldn't confirm the sandbox.",
+};
+
+/** The sandbox self-test's own words for a known cause, as core gives them (core §4.3). */
+const SANDBOX_REASON: Partial<Record<Docker, NonNullable<ComputerCheck['reason']>>> = {
+  'sandbox-offline': {
+    kind: 'offline',
+    text: "Docker couldn't reach the network to download the test image (dial tcp: lookup registry-1.docker.io: no such host). Connect to the internet, check any VPN, proxy or firewall, then try again.",
+  },
+  'sandbox-folder': {
+    kind: 'docker',
+    text: "Docker couldn't start a test container with Codemm's folder mounted (mounts denied). Codemm keeps what a check mounts in ~/.codemm/runs. If the engine says it can't see that folder, share it with the engine (Colima and Rancher Desktop share only your home folder by default), then try again.",
+  },
 };
 
 /** The connect screen's agents, as the connector describes them; Codemm installs Claude Code and Codex. */
@@ -581,12 +596,13 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         install = INSTALL_STEPS[INSTALL_STEPS.findIndex((s) => JSON.stringify(s) === JSON.stringify(install)) + 1];
         if (install?.phase === 'starting') dockerNow = 'starting';
       } else if (dockerNow === 'starting') dockerNow = 'ready';
-      const failing = { missing: 0, stopped: 1, starting: 1, 'windows-containers': 1, 'no-sandbox': 2, 'sandbox-checking': 2, ready: Infinity }[d];
+      const failing = { missing: 0, stopped: 1, starting: 1, 'windows-containers': 1, 'no-sandbox': 2, 'sandbox-checking': 2, 'sandbox-offline': 2, 'sandbox-folder': 2, ready: Infinity }[d];
       const checks = (['docker-installed', 'docker-running', 'sandbox'] as const).map((id, i) => ({
         id,
         state: i < failing ? ('ok' as const) : i === failing ? ('problem' as const) : ('waiting' as const),
         ...(i === failing && (d === 'starting' || d === 'windows-containers') ? { detail: d } : {}),
         ...(i === failing && d === 'sandbox-checking' ? { detail: 'checking' as const } : {}),
+        ...(i === failing && SANDBOX_REASON[d] ? { reason: SANDBOX_REASON[d] } : {}),
       }));
       const canInstall = platform !== 'linux';
       return { platform, checks, ready: checks.every((c) => c.state === 'ok'), ...(canInstall ? { canInstall } : {}), ...(reported ? { install: reported } : {}) };

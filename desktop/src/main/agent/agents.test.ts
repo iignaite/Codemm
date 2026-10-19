@@ -283,7 +283,10 @@ describe('status commands', () => {
     expect(AGENT_CLIS.claude.signIn.args).toEqual(['auth', 'status', '--json']);
     expect(AGENT_CLIS.claude.signIn.read({ code: 0, output: '{"loggedIn":true,"email":"x@y"}' })).toBe(true);
     expect(AGENT_CLIS.claude.signIn.read({ code: 1, output: '{"loggedIn":false}' })).toBe(false);
-    expect(AGENT_CLIS.claude.signIn.read({ code: 0, output: 'not json' })).toBe(false);
+    // Signed out only when the agent says so: an answer that isn't one can't tell (§3.1).
+    expect(AGENT_CLIS.claude.signIn.read({ code: 0, output: 'not json' })).toBeNull();
+    expect(AGENT_CLIS.codex.signIn.read({ code: 1, output: 'thread main panicked\n' })).toBeNull();
+    expect(AGENT_CLIS.cursor.signIn.read({ code: 1, output: 'Error: something broke\n' })).toBeNull();
     expect(AGENT_CLIS.codex.signIn.read({ code: 0, output: 'Logged in using ChatGPT\n' })).toBe(true);
     expect(AGENT_CLIS.codex.signIn.read({ code: 1, output: 'Not logged in\n' })).toBe(false);
     expect(AGENT_CLIS.cursor.signIn.read({ code: 0, output: '\u001b[2K Not logged in\n' })).toBe(false);
