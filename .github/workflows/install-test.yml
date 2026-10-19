@@ -35,7 +35,6 @@ jobs:
     timeout-minutes: 45
     env:
       TAG: ${{ inputs.tag || github.event.release.tag_name }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       # Only the spec comes from the repository: the app under test is the release's own installer.
       - uses: actions/checkout@v4
@@ -51,6 +50,9 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       - name: Download the installer
         shell: bash
+        # Only this step gets the token, so the app and the agents' installers never see it.
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ -z "$TAG" ]; then TAG="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')"; fi
           echo "Installing $TAG"
@@ -64,7 +66,7 @@ jobs:
           # The installer may finish in a child process: wait for the app to appear wherever it installs.
           $app = $null
           foreach ($i in 1..60) {
-            $app = Get-ChildItem "$env:LOCALAPPDATA\Programs", $env:ProgramFiles -Recurse -Filter Codemm.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+            $app = Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Filter Codemm.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
             if ($app) { break }
             Start-Sleep -Seconds 2
           }
