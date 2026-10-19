@@ -429,7 +429,7 @@ Every long step shows its live progress, so the learner always knows where it is
 
 The map is the course as a path the learner moves along (`renderer/features/progress/`). It is playful in Codemm's own way, not a copy of another app's path: no zig-zag of round buttons, coins, flames or streak counts.
 
-- **Heading.** The course's short name, with its goal under it in plain text. Until a course has a name, the goal is the heading.
+- **Heading.** The course's title (the words the learner typed), with its goal under it in plain text when they differ. A course without a title has the goal as its heading.
 - **Emm's branch.** The topics run down one vertical branch in roadmap order, an ordered list named "Topics". Each topic is a leaf on the branch:
   - Mastered: a filled green leaf with a check. Its title opens the topic again, and "Review in 3 days" sits beside it.
   - Now: an outlined green leaf with the code mark.

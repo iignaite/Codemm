@@ -218,8 +218,8 @@ export interface TopicView {
 }
 
 export interface CourseView {
-  /** The course's short name, when it has one: the map's heading, with the goal under it. */
-  name?: string;
+  /** The course's short title, the words the learner typed: the map's heading, with the goal under it when they differ. */
+  title?: string;
   goal: string;
   track: string;
   setup: SetupState;

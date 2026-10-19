@@ -260,19 +260,20 @@ describe('course path', () => {
     expect(again.container.querySelectorAll('.seg.on')).toHaveLength(0);
   });
 
-  it("heads the map with the course's short name and the goal under it, or the goal alone", async () => {
+  it("heads the map with the course's title and the goal under it, or the goal alone", async () => {
     const { api } = await mockWithCourse();
     const real = (await api.course())!;
     const goal = 'I want to build interactive web apps with React for my final-year project';
-    api.course = async () => ({ ...real, goal, name: 'React' });
+    api.course = async () => ({ ...real, goal, title: 'React' });
     const view = renderApp({ to: 'learn' }, api);
     expect(await screen.findByRole('heading', { level: 1, name: 'React' })).toBeInTheDocument();
     expect(within(screen.getByRole('main')).getByText(goal).tagName).toBe('P');
     view.unmount();
-    // An empty name is no name.
-    api.course = async () => ({ ...real, goal, name: '' });
+    // A course without its own words has the goal as its title: the goal shows once.
+    api.course = async () => ({ ...real, goal, title: goal });
     renderApp({ to: 'learn' }, api);
     expect(await screen.findByRole('heading', { level: 1, name: goal })).toBeInTheDocument();
+    expect(within(screen.getByRole('main')).getAllByText(goal)).toHaveLength(1);
   });
 
   it('counts the topics mastered', async () => {
