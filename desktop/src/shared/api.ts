@@ -140,6 +140,9 @@ export interface Concept {
 }
 
 export interface Roadmap {
+  /** The course's name: the words the learner typed for it, or the goal for a course without them (W-5). */
+  title: string;
+  /** The goal the agent wrote, shown under the name when they differ. */
   goal: string;
   /** The track's display name, from list_tracks or the agent's proposal. */
   track: string;
@@ -202,6 +205,8 @@ export interface TopicView {
 }
 
 export interface CourseView {
+  /** As in Roadmap: the learner's words, with the goal beside them. */
+  title: string;
   goal: string;
   track: string;
   setup: SetupState;
@@ -216,7 +221,7 @@ export interface CourseView {
 /** One of the learner's courses, to switch to (§4.13). The id is opaque and never shown. */
 export interface CourseSummary {
   id: string;
-  goal: string;
+  title: string;
   track: string;
   /** The course on screen. */
   current: boolean;

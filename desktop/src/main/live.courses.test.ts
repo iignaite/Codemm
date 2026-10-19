@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { JobProgress } from '../shared/api';
+import { desktopState } from './state';
 import { boundOf, live, practising, settle, until } from './testing/fakes';
 
 type Test = ReturnType<typeof live>;
@@ -30,8 +31,8 @@ describe('live CodemmApi: several courses (§4.13)', () => {
     const react = await approved(t, 'React');
     const python = await approved(t, 'Python');
     expect(await t.api.courses()).toEqual([
-      { id: react, goal: 'React', track: 'react', current: false },
-      { id: python, goal: 'Python', track: 'python', current: true },
+      { id: react, title: 'React', track: 'react', current: false },
+      { id: python, title: 'Python', track: 'python', current: true },
     ]);
     expect((await t.api.course())!.goal).toBe('Python');
     await t.api.switchCourse(react);
@@ -45,6 +46,21 @@ describe('live CodemmApi: several courses (§4.13)', () => {
     expect(t.c.bound.every((b) => b === react)).toBe(true);
     await expect(t.api.switchCourse('elsewhere')).rejects.toThrow();
     expect((await t.api.course())!.goal).toBe('React');
+  });
+
+  it("names a course by the words the learner typed, and keeps the agent's goal beside it (W-5)", async () => {
+    const goal = 'Develop systematic thinking about React applications, from components to state';
+    const t = live({ research: (_job, usual) => (usual(), (t.c.roadmap!.goal = goal), {}) });
+    await t.api.connect('claude');
+    const r = await settle(() => t.api.research({ topic: 'React', known: '', depth: 'standard' }), (x) => x.state !== 'running', 'Research');
+    expect(r.roadmap).toMatchObject({ title: 'React', goal });
+    expect(await t.api.draft()).toMatchObject({ title: 'React', goal });
+    await t.api.approve(r.roadmap!.concepts);
+    expect(await t.api.course()).toMatchObject({ title: 'React', goal });
+    expect((await t.api.courses())[0].title).toBe('React');
+    // A course from before names, or from the terminal, is named by its goal.
+    desktopState(t.dir).update((s) => ({ ...s, names: {} }));
+    expect((await t.api.course())!.title).toBe(goal);
   });
 
   it("stalls only the course whose background job failed, and Try again restarts only that course", async () => {

@@ -28,7 +28,7 @@ export function courseView(
   setup: Setup,
   running: Set<string>,
   now = Date.now(),
-): CourseView {
+): Omit<CourseView, 'title'> {
   const next = progress.next;
   const current = currentConcept(progress);
   const topics = progress.concepts.map((c): TopicView => {

@@ -57,7 +57,7 @@ export function Goal() {
         </div>
         {draft && (
           <Banner style={stagger(4)} action={<Button variant="ghost" onClick={() => go({ to: 'course', roadmap: draft })}>Resume roadmap</Button>}>
-            <b>{draft.goal}</b>
+            <b>{draft.title}</b>
           </Banner>
         )}
         {isNew && (

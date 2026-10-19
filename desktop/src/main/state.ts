@@ -16,6 +16,8 @@ export interface DesktopState {
   approved?: string;
   /** Every course the learner approved, oldest first (§4.13). A file from before several courses has `approved` alone. */
   courses?: string[];
+  /** The words the learner typed for each course they researched: its name on screen (W-5). */
+  names?: Record<string, string>;
   /** The learner's model choice per agent (O6). Absent: the recommended one. */
   models?: Partial<Record<AgentId, string>>;
 }

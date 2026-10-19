@@ -619,6 +619,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       }
       tellJob({ ...reported(all.length), ended: true });
       roadmap = {
+        title: goal.topic,
         goal: goal.topic,
         track: goal.topic,
         installed: tracks.some((t) => t.name === goal.topic),
@@ -645,7 +646,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       lessons = new Map();
       activities = new Map();
       deferred = new Set();
-      course = { goal: roadmap.goal, track: roadmap.track, setup: roadmap.installed ? 'ready' : 'proposing', done: false, topics: edited.map(addConcept) };
+      course = { title: roadmap.title, goal: roadmap.goal, track: roadmap.track, setup: roadmap.installed ? 'ready' : 'proposing', done: false, topics: edited.map(addConcept) };
       current = `course-${kept.size + 1}`;
       kept.set(current, { course, approved, lessons, activities, deferred });
       advance();
@@ -653,7 +654,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     },
 
     async courses() {
-      return [...kept].map(([id, k]) => ({ id, goal: k.course.goal, track: k.course.track, current: id === current }));
+      return [...kept].map(([id, k]) => ({ id, title: k.course.title, track: k.course.track, current: id === current }));
     },
 
     async switchCourse(id) {

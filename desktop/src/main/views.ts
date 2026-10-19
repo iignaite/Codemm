@@ -28,9 +28,10 @@ export function tryView(core: CoreCheckView): TryResult {
 /** A track's name without its version: `react` for `react@1`. */
 export const trackName = (ref: string) => ref.split('@')[0];
 
-/** A roadmap as the window sees it. Core accepts only https sources; main checks again before anything reaches the window (§2.1). */
-export function roadmapView(r: CoreRoadmap, installed: boolean): Roadmap {
+/** A roadmap as the window sees it, named `title`. Core accepts only https sources; main checks again before anything reaches the window (§2.1). */
+export function roadmapView(r: CoreRoadmap, installed: boolean, title = r.goal): Roadmap {
   return {
+    title,
     goal: r.goal,
     track: trackName(r.track),
     installed,

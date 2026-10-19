@@ -29,7 +29,8 @@ export function CourseMap() {
   return (
     <main className="main map">
       <div className="map-main">
-        <h1 className="h2 a-up">{course.goal}</h1>
+        <h1 className="h2 a-up">{course.title}</h1>
+        {course.goal !== course.title && <p className="sub a-up">{course.goal}</p>}
         <ol className="graph" aria-label="Topics">
           {course.topics.map((t, i) => <MapItem key={t.id} topic={t} index={i} course={course} />)}
         </ol>

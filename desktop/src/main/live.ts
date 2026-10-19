@@ -173,9 +173,11 @@ export function createLive(d: LiveDeps): Live {
     }
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
+  /** A course's name: the words the learner typed for it, or its goal (W-5). */
+  const nameOf = (r: { course: string; goal: string }) => d.state.read().names?.[r.course] ?? r.goal;
   /** A roadmap as shown. Its sources are agent text too, so one that quotes hidden material, or can't be checked, is dropped. */
   const roadmapShown = (r: CoreRoadmap): Roadmap => {
-    const view = roadmapView(r, installed(r.track));
+    const view = roadmapView(r, installed(r.track), nameOf(r));
     const filter = hidden();
     return { ...view, sources: view.sources.filter((s) => shown(s.title, filter) === s.title && shown(s.url, filter) === s.url) };
   };
@@ -572,6 +574,8 @@ export function createLive(d: LiveDeps): Live {
         start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, { onSource })
           .then(async (o) => {
             if (o.ok) {
+              // The course is named by what the learner typed; the agent's goal stays beside it (W-5).
+              d.state.update((s) => ({ ...s, names: { ...s.names, [course]: goal.topic } }));
               // Quitting waits for this save, like any other run (stop()).
               const saving = addReads(course, reads).catch((e: Error) => log('sources-error', errorFields(e)));
               runs.add(saving);
@@ -624,7 +628,7 @@ export function createLive(d: LiveDeps): Live {
       if (progress.next.kind === 'author' && progress.next.review) schedule();
       const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
       const jobs = new Set([...running.keys()].map((k) => k.replace(`:${roadmap.course}`, '')));
-      const view = courseView(progress, core.listLessons(ws, roadmap.course), state, jobs);
+      const view: CourseView = { title: nameOf(roadmap), ...courseView(progress, core.listLessons(ws, roadmap.course), state, jobs) };
       const stalled = stalls.get(roadmap.course);
       return stalled ? { ...view, stalled } : view;
     },
@@ -633,7 +637,7 @@ export function createLive(d: LiveDeps): Live {
       const s = d.state.read();
       return coursesOf(s).flatMap((id) => {
         const r = roadmapOrNull(id);
-        return r ? [{ id, goal: r.goal, track: trackName(r.track), current: id === s.approved }] : [];
+        return r ? [{ id, title: nameOf(r), track: trackName(r.track), current: id === s.approved }] : [];
       });
     },
 

@@ -1,5 +1,5 @@
 // The learner's courses at the sidebar's foot (§4.13): the one on screen is marked, choosing another puts it on screen,
-// and New course opens the goal screen. In the slim sidebar each course is its badge, named by its goal.
+// and New course opens the goal screen. In the slim sidebar each course is its badge, named by its title.
 import type { CourseSummary } from '../../shared/api';
 import { hueColor } from '../ui/Emm';
 import { Icon } from '../ui/Icon';
@@ -29,13 +29,13 @@ export function Courses({ slim = false }: { slim?: boolean }) {
     }
   }
 
-  const badge = (c: CourseSummary) => <span className="badge" style={{ background: hueColor(c.track) }} aria-hidden="true">{c.goal[0]}</span>;
+  const badge = (c: CourseSummary) => <span className="badge" style={{ background: hueColor(c.track) }} aria-hidden="true">{c.title[0]}</span>;
   return (
     <div className={slim ? 'courses slim-courses' : 'courses'}>
       {courses.map((c) => (
-        <button key={c.id} type="button" className={slim ? 'nav' : 'pick'} aria-current={c.current ? 'true' : undefined} aria-label={slim ? c.goal : undefined} onClick={() => void open(c)}>
+        <button key={c.id} type="button" className={slim ? 'nav' : 'pick'} aria-current={c.current ? 'true' : undefined} aria-label={slim ? c.title : undefined} onClick={() => void open(c)}>
           {badge(c)}
-          {!slim && <span className="goal">{c.goal}</span>}
+          {!slim && <span className="goal">{c.title}</span>}
         </button>
       ))}
       <button type="button" className="nav" aria-label={slim ? 'New course' : undefined} onClick={() => go({ to: 'goal' })}>

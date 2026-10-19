@@ -100,7 +100,8 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
   return (
     <main className="main" style={{ padding: '40px 0', alignItems: 'center' }}>
       <div className="stack" style={{ width: 720, gap: 10 }}>
-        <h1 className="h2 a-up">{roadmap.goal}</h1>
+        <h1 className="h2 a-up">{roadmap.title}</h1>
+        {roadmap.goal !== roadmap.title && <p className="sub a-up">{roadmap.goal}</p>}
         <ol className="topics">
           {concepts.map((c, i) => (
             <TopicItem

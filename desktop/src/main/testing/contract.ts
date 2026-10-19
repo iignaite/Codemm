@@ -61,7 +61,7 @@ export function codemmApiContract(name: string, make: () => Subject) {
       await api.approve((await research(api)).concepts);
       await api.approve((await research(api, 'Python')).concepts);
       const courses = await api.courses();
-      expect(courses.map((c) => [c.goal, c.current])).toEqual([['React', false], ['Python', true]]);
+      expect(courses.map((c) => [c.title, c.current])).toEqual([['React', false], ['Python', true]]);
       expect((await api.course())!.goal).toBe('Python');
       await api.switchCourse(courses[0].id);
       expect((await api.course())!.goal).toBe('React');
