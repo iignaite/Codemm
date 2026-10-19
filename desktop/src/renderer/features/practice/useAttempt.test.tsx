@@ -6,25 +6,21 @@ import { createMock } from '../../../main/mock';
 import { ApiContext } from '../../app/api';
 import { useAttempt } from './useAttempt';
 
-const activity = { id: 'a1', concept: 'c', title: 'T', statement: '', visibleTests: [], files: [] };
-
 function setup(blocked = false) {
   const api = createMock() as CodemmApi;
   let hear: (p: CheckProgress) => void = () => undefined;
   api.onCheckProgress = (l) => ((hear = l), () => undefined);
-  const onStart = vi.fn();
   const wrapper = ({ children }: { children: ReactNode }) => <ApiContext.Provider value={api}>{children}</ApiContext.Provider>;
-  const { result } = renderHook(() => useAttempt({ activity, terminal: { current: null }, save: async () => undefined, fail: vi.fn(), blocked: () => blocked, onStart }), { wrapper });
-  return { result, hear: (p: CheckProgress) => hear(p), onStart };
+  const { result } = renderHook(() => useAttempt({ save: async () => undefined, fail: vi.fn(), blocked: () => blocked }), { wrapper });
+  return { result, hear: (p: CheckProgress) => hear(p) };
 }
 
 describe('useAttempt', () => {
-  it('starts nothing while a program owns the pane', async () => {
-    const { result, onStart } = setup(true);
+  it('starts nothing while a program runs', async () => {
+    const { result } = setup(true);
     const work = vi.fn();
     await act(() => result.current.attempt('Checking', work));
     expect(work).not.toHaveBeenCalled();
-    expect(onStart).not.toHaveBeenCalled();
     expect(result.current.shown).toEqual({ kind: 'idle' });
   });
 

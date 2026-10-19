@@ -155,7 +155,8 @@ function parseRecord<T>(schema: { parse: (v: unknown) => T }, file: string): T {
   try {
     return schema.parse(JSON.parse(readFileSync(file, "utf8")));
   } catch {
-    throw new CodemmError(`Codemm's record ${file} is damaged. Restore it from a backup, or remove that track, course or exercise.`, "damaged");
+    // A newer Codemm may have written it in a shape this one doesn't know, so removing it is the last resort.
+    throw new CodemmError(`Codemm's record ${file} can't be read: a newer Codemm may have written it, or it's damaged. Update Codemm; if that doesn't help, restore it from a backup, or remove that track, course or exercise.`, "damaged");
   }
 }
 

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
-import { runMarkers, runProgram } from "../src/program.js";
+import { learnerPathStream, runMarkers, runProgram } from "../src/program.js";
 import { runsDir } from "../src/runs.js";
 import { sandboxArgs } from "../src/sandbox.js";
 import { parseTrackYaml } from "../src/schemas.js";
@@ -272,5 +272,29 @@ describe("Run's driver markers", () => {
   it("holds back only what could still become a marker, and lets it go at the end", () => {
     expect(feed(["prompt> \n@@codemm"]).text).toBe("prompt> \n@@codemm");
     expect(feed(["a", "\n", "@", "b"]).text).toBe("a\n@b");
+  });
+});
+
+describe("learnerPathStream", () => {
+  it("names the learner's files by their own names in streamed errors, however the text is split", () => {
+    const text = 'Traceback:\n  File "/work/src/solution.py", line 7\n  /work/tests/t.py and /work/srcx and a/\n';
+    const want = 'Traceback:\n  File "solution.py", line 7\n  tests/t.py and /work/srcx and a/\n';
+    for (let size = 1; size <= text.length; size++) {
+      let out = "";
+      const s = learnerPathStream((t) => (out += t));
+      for (let at = 0; at < text.length; at += size) s.write(text.slice(at, at + size));
+      s.end();
+      expect(out).toBe(want);
+    }
+  });
+
+  it("passes text through at once unless its end could start a path", () => {
+    const seen: string[] = [];
+    const s = learnerPathStream((t) => seen.push(t));
+    s.write("Enter a number: ");
+    s.write("oops /wor");
+    expect(seen).toEqual(["Enter a number: ", "oops "]);
+    s.end();
+    expect(seen.join("")).toBe("Enter a number: oops /wor");
   });
 });

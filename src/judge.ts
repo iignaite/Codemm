@@ -21,7 +21,11 @@ export type JudgeTrack = {
  * an io set at its first case that errors (a crash, a timeout, a failed input generator): for gate runs that only ask
  * whether everything passes, so a slow wrong solution costs one time limit, not one per case.
  */
-export type RunOptions = { timeMs?: number; deadlineMs?: number; onProgress?: (milestone: "built" | number) => void; onCase?: (c: CaseFrames) => void; stopAtError?: boolean };
+export type RunOptions = {
+  timeMs?: number; deadlineMs?: number; onProgress?: (milestone: "built" | number) => void; onCase?: (c: CaseFrames) => void; stopAtError?: boolean;
+  /** How long each input generator may run (default GENERATOR_SECONDS); the gates' fast run gives it a third. */
+  generatorMs?: number;
+};
 
 
 /** Why a check's container couldn't start, in words the desktop's text classification reads the same way. */
@@ -64,9 +68,9 @@ for f in /work/tests/*; do
     *.in) n=$(basename "$f" .in); i=$f ;;
     *.gen)
       n=$(basename "$f" .gen); i=/tmp/in
-      timeout -s KILL ${GENERATOR_SECONDS} sh -c "$OOM"'exec sh "$0"' "$f" > /tmp/in 2>/dev/null; c=$?
+      timeout -s KILL "$CODEMM_GEN_S" sh -c "$OOM"'exec sh "$0"' "$f" > /tmp/in 2>/dev/null; c=$?
       kill -9 -1 2>/dev/null
-      if [ "$c" != 0 ]; then emit gen "$n" "$c" /dev/null; [ -n "\${CODEMM_STOP:-}" ] && exit 0; continue; fi ;;
+      if [ "$c" != 0 ]; then rm -f /tmp/in; emit gen "$n" "$c" /dev/null; [ -n "\${CODEMM_STOP:-}" ] && exit 0; continue; fi ;;
     *) continue ;;
   esac
   watch
@@ -76,6 +80,7 @@ for f in /work/tests/*; do
   if [ $(($(wc -c < /tmp/o))) -gt ${CASE_OUTPUT_BYTES} ]; then : > /tmp/oc; emit big "$n" "$c" /tmp/oc; s=big; else emit case "$n" "$c" /tmp/o; s=$c; fi
   emit stderr "$n" "$c" /tmp/ec
   [ -s /tmp/t ] && emit timeout "$n" "$c" /dev/null
+  rm -f /tmp/in
   [ -n "\${CODEMM_STOP:-}" ] && [ "$s" != 0 ] && exit 0
 done
 exit 0`;
@@ -95,9 +100,9 @@ exit 0`;
  */
 async function runDriver(
   track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number,
-  outputCap: number, onFrame?: (f: Frame) => void,
+  outputCap: number, maxFrames: number, onFrame?: (f: Frame) => void,
 ): Promise<{ frames: Frame[]; flooded: boolean; outOfMemory?: boolean; memoryKill?: boolean }> {
-  const reader = new FrameReader(onFrame);
+  const reader = new FrameReader(onFrame, maxFrames);
   const run = stageRunFolder();
   const dir = run.dir;
   try {
@@ -158,14 +163,16 @@ export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, input
   const timeMs = opts.timeMs ?? track.limits.time_ms;
   const generated = Object.keys(inputs).filter((p) => p.endsWith(".gen")).length;
   const caseCount = Object.keys(inputs).filter((p) => p.endsWith(".in")).length + generated;
-  const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * (timeMs + 1000) + generated * GENERATOR_SECONDS * 1000 + SLACK_MS;
-  const env: Record<string, string> = { CODEMM_RUN: track.run, ...timeEnv(timeMs) };
+  const generatorMs = opts.generatorMs ?? GENERATOR_SECONDS * 1000;
+  const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * (timeMs + 1000) + generated * generatorMs + SLACK_MS;
+  const env: Record<string, string> = { CODEMM_RUN: track.run, CODEMM_GEN_S: seconds(generatorMs), ...timeEnv(timeMs) };
   if (track.build) env.CODEMM_BUILD = track.build;
   if (opts.stopAtError) env.CODEMM_STOP = "1";
   // Each case frames at most CASE_OUTPUT_BYTES of output and 4 KB of errors; the rest of the stream is small.
   const outputCap = OUTPUT_CAP + caseCount * (CASE_OUTPUT_BYTES + 8192);
   const progress = (opts.onProgress || opts.onCase) ? frameProgress(opts.onProgress ?? (() => undefined), opts.onCase) : undefined;
-  const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, outputCap, progress);
+  // The driver frames at most a build, a fatal and three per case (output, stderr, timeout).
+  const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, outputCap, 3 * caseCount + 8, progress);
 
   const buildFrame = frames.find((f) => f.kind === "build");
   const stderrOf = new Map(frames.filter((f) => f.kind === "stderr").map((f) => [f.name, f.body]));
@@ -186,7 +193,7 @@ export async function runUnit(track: JudgeTrack, src: FileMap, tests: FileMap, o
   const timeMs = opts.timeMs ?? track.limits.time_ms;
   const deadline = opts.deadlineMs ?? timeMs + SLACK_MS;
   const env = { CODEMM_TEST: track.test, ...timeEnv(timeMs) };
-  const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, UNIT_DRIVER, env, src, tests, deadline, OUTPUT_CAP);
+  const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, UNIT_DRIVER, env, src, tests, deadline, OUTPUT_CAP, 8);
   const report = frames.find((f) => f.kind === "report");
   const log = frames.find((f) => f.kind === "log");
   const limits = { time_ms: timeMs, memory_mb: track.limits.memory_mb };
@@ -197,13 +204,14 @@ export async function runUnit(track: JudgeTrack, src: FileMap, tests: FileMap, o
 /** Runs each given test set, visible first, each in its own container. `onSet` is told as a set starts and may return its options (progress). */
 export async function runSets(
   track: JudgeTrack, style: "io" | "unit", src: FileMap, sets: Partial<Record<TestSet, FileMap>>,
-  opts: { timeMs?: number; stopAtError?: boolean; onSet?: (set: TestSet) => RunOptions | void } = {},
+  opts: { timeMs?: number; generatorMs?: number; stopAtError?: boolean; onSet?: (set: TestSet) => RunOptions | void } = {},
 ): Promise<Runs> {
   const runs: Runs = {};
   for (const set of ["visible", "hidden"] as const) {
     const tests = sets[set];
     if (!tests) continue;
-    const o: RunOptions = { ...(opts.timeMs === undefined ? {} : { timeMs: opts.timeMs }), ...(opts.stopAtError ? { stopAtError: true } : {}), ...opts.onSet?.(set) };
+    const { onSet, ...shared } = opts;
+    const o: RunOptions = { ...shared, ...onSet?.(set) };
     runs[set] = style === "io" ? await runIo(track, set, src, tests, o) : await runUnit(track, src, tests, o);
   }
   return runs;
@@ -214,5 +222,12 @@ export async function judgeSets(
   track: JudgeTrack, style: "io" | "unit", src: FileMap, sets: Partial<Record<TestSet, FileMap>>, exp: Expectation,
   opts: { timeMs?: number; onSet?: (set: TestSet) => RunOptions | void } = {},
 ): Promise<TestResult[]> {
-  return gradeRuns(style, await runSets(track, style, src, sets, opts), exp);
+  const runs = await runSets(track, style, src, sets, opts);
+  // Each generator passed the gates three times, so one failing now is this computer (a slow moment) or the program
+  // filling /tmp before it: not grounds for a grade either way, so nothing is recorded (DESIGN §4.3).
+  if (generatorFailed(runs)) throw new CodemmError("A test's input couldn't be generated, so nothing was recorded. Retry; if it keeps happening, ask Codemm for a new exercise.");
+  return gradeRuns(style, runs, exp);
 }
+
+/** Whether a test's input generator failed in any of these runs. */
+export const generatorFailed = (runs: Runs) => Object.values(runs).some((r) => r !== undefined && "cases" in r && r.cases.some((c) => c.generator));

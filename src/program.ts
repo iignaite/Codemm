@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { CodemmError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
+import { learnerPaths } from "./grading.js";
 import { BUILD_SECONDS, type JudgeTrack, seconds } from "./judge.js";
 import { stageRunFolder } from "./runs.js";
 import { runtimeKind, startHelp, startSandboxed } from "./sandbox.js";
@@ -67,10 +68,12 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
   // it's the runtime's own reason for not starting.
   let beforeStart = "";
   let printed = false;
+  // A traceback names the learner's files as they know them, not by the sandbox's paths.
+  const errors = learnerPathStream((text) => say("stderr", text));
   const markers = runMarkers(
     (text) => {
       if (begun.size === 0 && beforeStart.length < 2000) beforeStart += text;
-      say("stderr", text);
+      errors.write(text);
     },
     ([what, stage, code]) => {
       if (stage !== "build" && stage !== "run") return;
@@ -109,6 +112,7 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       say("stdout", decoders.stdout.end());
       markers.write(decoders.stderr.end());
       markers.end();
+      errors.end();
       if (r.cleanupFailed) throw new CodemmError("A run container couldn't be removed. Run `codemm doctor --fix`, then retry.", "docker");
       // What Codemm stopped first: the learner, the host deadline or the output cap.
       if (stopped || r.timedOut || r.flooded) return { exit: r.exit, timedOut: r.timedOut, flooded: r.flooded, ...(stopped ? { stopped } : {}) };
@@ -135,6 +139,36 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       started.kill();
     },
     done,
+  };
+}
+
+/**
+ * Rewrites the sandbox's paths as the learner knows them (grading's learnerPaths) in text that streams: a tail that
+ * could still become one waits for the next chunk, or the end.
+ */
+export function learnerPathStream(out: (text: string) => void) {
+  const paths = ["/work/src/", "/work/tests/"];
+  let held = "";
+  return {
+    write(chunk: string) {
+      const text = held + chunk;
+      // The longest end of the text that is a whole path (keep nothing back) or the start of one (keep it back).
+      let keep = 0;
+      for (let k = Math.min(text.length, 12); k > 0; k--) {
+        const end = text.slice(-k);
+        if (paths.includes(end)) break;
+        if (paths.some((p) => p.startsWith(end))) {
+          keep = k;
+          break;
+        }
+      }
+      held = text.slice(text.length - keep);
+      if (text.length > keep) out(learnerPaths(text.slice(0, text.length - keep)));
+    },
+    end() {
+      if (held) out(learnerPaths(held));
+      held = "";
+    },
   };
 }
 

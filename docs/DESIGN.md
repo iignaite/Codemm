@@ -118,10 +118,10 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
 - **The driver** is a POSIX `sh` script, written by Codemm and run as PID 1 with the entrypoint overridden. It first checks for `sh`, `timeout`, `head`, `wc` and `cat`; a missing utility is a track error.
 - **io:**
   1. Run `build` once, with a 60 s limit.
-  2. A generated input (`NN.gen`, §6) is written first: the driver runs the script with `sh`, at most 30 s and outside the case's time limit, into `/tmp/in`. A generator that fails makes that case an `error` ("the input generator failed"), and the program doesn't run.
+  2. A generated input (`NN.gen`, §6) is written first: the driver runs the script with `sh`, at most 30 s and outside the case's time limit, into `/tmp/in`, which is removed after the case. If a generator fails, the program doesn't run. Gate 2 reports it, and the reference's fast run (gate 3) gives each generator a third of its 30 s, so a later run has room. A failure in any later run isn't the solution's doing: gates 4 to 7 fail the save rather than count a mutant as caught, and a check or test records nothing (§4.3).
   3. Run `run` per input with `timeout`, capturing stdout to `/tmp`. Output longer than 32 MB is an `error` ("printed more than 32 MB"), never a comparison of the first 32 MB, and a reference that does this fails the gates.
   4. Run `kill -9 -1` after each case so leftover processes can't affect the next one.
-  5. Expected outputs never enter the container. The host compares output after converting CRLF to LF and removing trailing whitespace per line and at the end. It reads the frames as they stream and keeps only the first 64 KB of each case's output, for messages and Results; the comparison uses the SHA-256 of all of it, normalized, so a long output is never held whole. An expected output over 64 KB is recorded the same way: its digest, its size and its first 64 KB.
+  5. Expected outputs never enter the container. The host compares output after converting CRLF to LF and removing trailing whitespace per line and at the end. It reads the frames as they stream and keeps only the first 64 KB of each case's output, for messages and Results; the comparison uses the SHA-256 of all of it, normalized, hashed as it comes (only a line's trailing whitespace waits), so a long output is never held whole. It reads at most three frames per case plus two; more were forged and are ignored. An expected output over 64 KB is recorded the same way: its digest, its size and its first 64 KB.
 - **unit:**
   1. Run `test` with `TESTS=/work/tests` and `OUT=/tmp/report.json`, in that set's own container.
   2. `test` must exit 0 whenever it wrote a valid report, including when tests fail. A non-zero exit or an invalid report is `error`.
@@ -135,6 +135,7 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
   - hidden tests, and unit tests (whose runner reports at the end), report their phase once with `total` 0, so nothing per hidden test, not even timing, leaves;
   - a listener that throws is dropped, and the check goes on.
   Code in the container could print extra frames, but that can only move progress, never a grade.
+- **Learner-facing words.** Messages name the learner's files as they know them (`/work/src/main.py` is `main.py`, `/work/tests/x` is `tests/x`), in results and in Run's streamed errors, and say how a program ended in words ("It stopped with an error", "The build failed"), never an exit code. Gate diagnostics for authors keep exit codes.
 - **Disclosure.** Visible results include messages and program output. Hidden results include only an index and a status (`{ name: "hidden #2", index: 2, status }`, built in one place, `grading.redact`): no messages, output or names leave Codemm, in tool output, CLI output or gate diagnostics. The reference is hidden code too, so its gate diagnostics carry no build output, errors or test messages (§6). That costs authors detail by design: in the desktop an author job has only Codemm's tools and can't build the reference itself, so each reference failure says which phase and which visible tests failed, and what to check.
 
 ### 4.3 Host-owned sandbox settings
@@ -172,7 +173,7 @@ Other ceilings:
 | `time_ms` | 100 ms to 120 s, default 2 s: per io case, or a whole unit run | the track |
 | `memory_mb` | 64 to 2048 MB, default 256; `/tmp` (256 MB) counts toward it | the track |
 | io build, Run's build | 60 s | fixed |
-| Input generator | 30 s, outside `time_ms` | fixed |
+| Input generator | 30 s, outside `time_ms`; a third of it in the reference's fast run | fixed |
 | Reference speed (gates) | must pass in a third of `time_ms`; at the ceiling the gate says to make the probe faster | fixed |
 | Output per io case | 32 MB; the first 64 KB is kept and shown | fixed |
 | Stream per container | 4 MB, plus 32 MB per io case | fixed |
@@ -187,7 +188,8 @@ Other ceilings:
 
 | What happened | Result | Recorded as an attempt |
 |---|---|---|
-| A case times out (the driver's watchdog, with `timeout` as a backstop), crashes, exits non-zero, prints more than 32 MB or its input generator fails | that test is `error` | yes |
+| A case times out (the driver's watchdog, with `timeout` as a backstop), crashes, exits non-zero or prints more than 32 MB | that test is `error` | yes |
+| A test's input generator fails during a check (it passed the gates, so this is a slow moment or a program that filled `/tmp` first) | the command fails ("couldn't be generated") | no |
 | Learner code fails to build | every test is `error` | yes |
 | The stream cap is hit | every test in that set is `error` ("output limit exceeded") | yes |
 | The memory limit kills the driver instead of the program: the container exits 137 and the runtime recorded an `oom` event for it | every test in that set is `error` ("memory limit exceeded") | yes |
@@ -392,7 +394,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `.claude/agents/codemm-author.md` | The author instructions. Cursor reads it, and the `AGENTS.md` section tells Codex to spawn a subagent with them. |
 | `.mcp.json` | Claude Code's MCP config. |
 | `.claude/settings.json` | Claude Code's `PreToolUse` hook on `Edit|Write|MultiEdit|NotebookEdit`, running `codemm hook claude`. |
-| `.codex/config.toml` | Codex's `[mcp_servers.codemm]` block, with `tool_timeout_sec = 900`: Codex's 60-second default is shorter than a track build (up to 10 minutes) or the exercise gates. Codex needs the project to be trusted. |
+| `.codex/config.toml` | Codex's `[mcp_servers.codemm]` block, with `tool_timeout_sec = 1800`: Codex's 60-second default is shorter than a track build (up to 10 minutes) or the exercise gates, which on a heavy track (a JVM build tool, `time_ms` near its 120 s ceiling) can pass 15 minutes. Codex needs the project to be trusted. |
 | `.cursor/mcp.json` | Cursor's MCP config. |
 
 **The hook:**

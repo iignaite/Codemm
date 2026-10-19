@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type FileMap, readFileMap, subMap } from "../../src/files.js";
 import { verifyExercise, verifyTrack } from "../../src/gates.js";
 import { gradeIoRun, recordOutput } from "../../src/grading.js";
-import { runIo } from "../../src/judge.js";
+import { judgeSets, runIo } from "../../src/judge.js";
 import { cli } from "../../src/sandbox.js";
 import { type CourseRecord, parseRoadmapYaml, type TrackRecord } from "../../src/schemas.js";
 import { dockerUp, FIXTURES, fixtureTrack } from "./helpers.js";
@@ -62,6 +62,9 @@ describe.runIf(dockerUp)("heavy tests (Docker)", () => {
       const all = await runIo(heavy, "visible", { "main.awk": "{ print }\n" }, inputs);
       expect(all.cases.map((c) => [c.name, c.exit, !!c.generator])).toEqual([["visible/01", 3, true], ["visible/02", 0, false], ["visible/03", 0, false]]);
       expect(statuses(gradeIoRun(all, { "visible/01": "", "visible/02": "1", "visible/03": "2" }))).toEqual(["error", "pass", "pass"]);
+      // In a check, a generator that passed the gates and fails now is no grade either way: nothing is recorded.
+      await expect(judgeSets(heavy, "io", { "main.awk": "{ print }\n" }, { visible: inputs }, { expected: { "visible/01": "", "visible/02": "1", "visible/03": "2" } }))
+        .rejects.toThrow(/couldn't be generated, so nothing was recorded/);
       // A program that outlives its time limit on every case: a gate run stops after the first.
       const slow = { ...heavy, limits: { time_ms: 1000, memory_mb: 512 } };
       const sleeper = { "main.awk": "{ system(\"sleep 30\") }\n" };

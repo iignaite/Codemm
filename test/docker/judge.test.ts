@@ -97,7 +97,7 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
       const slow = await grade("read a b\nsleep 10\n");
       expect(slow[0]).toMatchObject({ status: "error", message: expect.stringMatching(/took longer than \d+ ms/) });
       const broken = await grade("if then\n");
-      expect(broken[0]).toMatchObject({ status: "error", message: expect.stringMatching(/Build failed/) });
+      expect(broken[0]).toMatchObject({ status: "error", message: expect.stringMatching(/^The build failed:\n/) });
     });
 
     it("errors when a case prints more than 32 MB, and compares one just under it in full", async () => {

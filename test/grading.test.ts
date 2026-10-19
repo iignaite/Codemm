@@ -32,6 +32,12 @@ describe("parseFrames", () => {
     }
   });
 
+  it("ignores frames past its limit: the driver never sends that many, so they were forged", () => {
+    const reader = new FrameReader(undefined, 2);
+    reader.push(Buffer.from("@@codemm case a 0 1\nx@@codemm stderr a 0 0\n@@codemm case b 0 1\ny".repeat(1000)));
+    expect(reader.frames.map((f) => f.name)).toEqual(["a", "a"]);
+  });
+
   it("drops a listener that throws and goes on reading", () => {
     const reader = new FrameReader(() => {
       throw new Error("listener");
@@ -69,6 +75,14 @@ describe("OutputDigest", () => {
     for (const text of texts) for (const size of [1, 2, 3, 7, 1000]) expect(streamed(text, size)).toBe(digestOf(text));
   });
 
+  it("hashes a long line as it comes, and stays linear on a long run of whitespace", () => {
+    for (const text of [`${"7 ".repeat(1_000_000)}\n`, `a${" ".repeat(3_000_000)}b \n \n`, `${"x".repeat(200_000)}${" ".repeat(200_000)}`]) {
+      const started = performance.now();
+      expect(streamed(text, 65_536)).toBe(digestOf(text));
+      expect(performance.now() - started).toBeLessThan(5000);
+    }
+  });
+
   it("equals it on a random mix of lines, spaces and multibyte text", () => {
     const pieces = ["0", "42", " ", "  ", "\t", "\n", "\r\n", "é", "😀"];
     let seed = 7;
@@ -98,7 +112,7 @@ describe("gradeIo", () => {
 
   it("errors every expected case when the build failed", () => {
     const tests = gradeIo([], { "visible/01": "5" }, { exit: 1, output: "syntax error" });
-    expect(tests).toEqual([{ set: "visible", name: "visible/01", status: "error", message: "Build failed (exit 1):\nsyntax error" }]);
+    expect(tests).toEqual([{ set: "visible", name: "visible/01", status: "error", message: "The build failed:\nsyntax error" }]);
   });
 
   it("errors a case that printed more than 32 MB instead of comparing a prefix", () => {
@@ -122,6 +136,14 @@ describe("gradeIo", () => {
     // A short output is recorded in full, and compared ignoring trailing whitespace as ever.
     expect(recordOutput({ ...run, stdout: "5\n", digest: digestOf("5\n"), bytes: 2 })).toBe("5\n");
     expect(gradeIo([{ ...run, stdout: "5  \r\n", digest: digestOf("5  \r\n"), bytes: 5 }], { "visible/01": "5" })[0]).toMatchObject({ status: "pass" });
+  });
+
+  it("names the learner's own files in messages, not the sandbox's paths", () => {
+    const traceback = 'Traceback (most recent call last):\n  File "/work/src/solution.py", line 7, in <module>\nValueError';
+    const [crash] = gradeIo([{ name: "visible/01", exit: 1, stdout: "", stderr: traceback }], { "visible/01": "1" });
+    expect(crash!.message).toBe('It stopped with an error:\nTraceback (most recent call last):\n  File "solution.py", line 7, in <module>\nValueError');
+    const [build] = gradeIo([], { "visible/01": "1" }, { exit: 2, output: "/work/src/main.c:3:5: error: expected ';'\n/work/tests/t.c" });
+    expect(build!.message).toBe("The build failed:\nmain.c:3:5: error: expected ';'\ntests/t.c");
   });
 
   it("errors an expected case the run never reached", () => {
@@ -201,10 +223,11 @@ describe("grading whole runs", () => {
     expect(killed(137, { memoryKill: true })).toMatch(/^It ran out of memory \(memory_mb 128\)/);
     // A time-out is the driver's own statement, so a memory kill elsewhere in the set doesn't relabel it.
     expect(killed(137, { timedOut: true, memoryKill: true })).toMatch(/^It took longer than 2000 ms/);
-    // Neither recorded: killed, without guessing why. A program's own 124 or 3 is its exit code.
+    // Neither recorded: killed, without guessing why. A program's own 124 or 3 is an error, in words, not a code.
     expect(killed(137)).toMatch(/^It was killed/);
-    expect(killed(124)).toMatch(/^Exited with code 124/);
-    expect(killed(3)).toMatch(/^Exited with code 3/);
+    expect(killed(124)).toMatch(/^It stopped with an error:\nKilled/);
+    expect(killed(3)).toMatch(/^It stopped with an error/);
+    expect(killed(3)).not.toMatch(/\b3\b/);
     const unit = (report: { timedOut?: boolean }, memoryKill = false) =>
       gradeUnitRun("visible", { report: { exit: 137, body: "", log: "Killed", ...report }, flooded: false, limits, ...(memoryKill ? { memoryKill } : {}) }, ["t"])[0]!.message;
     expect(unit({}, true)).toMatch(/^The test runner ran out of memory \(memory_mb 128\)\.\nKilled/);

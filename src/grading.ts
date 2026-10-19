@@ -41,7 +41,15 @@ export type RawBuild = { exit: number; output: string };
 
 const MARKER = Buffer.from("@@codemm ");
 const MESSAGE_CAP = 2000;
-const cap = (s: string) => (s.length > MESSAGE_CAP ? `${s.slice(0, MESSAGE_CAP)}\n… (truncated)` : s);
+/**
+ * Text from the sandbox as the learner sees it: their files by their own names (`/work/src/main.py` is `main.py`,
+ * `/work/tests/x` is `tests/x`), at most MESSAGE_CAP characters.
+ */
+export const learnerPaths = (s: string) => s.replaceAll("/work/src/", "").replaceAll("/work/tests/", "tests/");
+const cap = (raw: string) => {
+  const s = learnerPaths(raw);
+  return s.length > MESSAGE_CAP ? `${s.slice(0, MESSAGE_CAP)}\n… (truncated)` : s;
+};
 
 /**
  * Output as Codemm compares it: CRLF as LF, no trailing whitespace on any line and no blank lines at the end.
@@ -57,14 +65,21 @@ export function normalizeOutput(text: string): string {
 /** The SHA-256 of normalizeOutput(text): what io outputs are compared by. */
 export const digestOf = (text: string) => createHash("sha256").update(normalizeOutput(text)).digest("hex");
 
-/** digestOf the output, fed its raw bytes in pieces, so a long output is never held whole. */
+/**
+ * digestOf the output, fed its raw bytes in pieces. A line's text is hashed as it comes; only its trailing whitespace
+ * (which a later character may still need) and line breaks wait, so memory stays small however long a line is.
+ */
 export class OutputDigest {
   private readonly hash = createHash("sha256");
   private readonly decoder = new StringDecoder("utf8");
+  /** What the current line holds that isn't written yet. */
   private line = "";
-  private first = true;
-  /** Line breaks not written yet: they count only if a line with text follows. */
+  /** Whether some of the current line is written, so its line breaks before it already are. */
+  private started = false;
+  /** Line breaks not written yet: they count only if text follows. */
   private held = 0;
+  /** How long the current line may grow before its text is written; it doubles past a run of whitespace, so it stays linear. */
+  private room = 65_536;
   private out = "";
 
   update(chunk: Buffer): void {
@@ -73,29 +88,44 @@ export class OutputDigest {
 
   digest(): string {
     this.take(this.decoder.end());
-    this.endLine(this.line);
+    this.flush();
     this.hash.update(this.out);
     return this.hash.digest("hex");
   }
 
   private take(text: string): void {
     const parts = text.split("\n");
-    if (parts.length === 1) {
-      this.line += text;
-      return;
+    for (let i = 0; i < parts.length; i++) {
+      if (i > 0) {
+        this.flush();
+        this.line = "";
+        this.started = false;
+        this.held += 1;
+        this.room = 65_536;
+      }
+      this.line += parts[i]!;
+      if (this.line.length > this.room) {
+        this.flush();
+        this.room = Math.max(65_536, this.line.length * 2);
+      }
     }
-    this.endLine(this.line + parts[0]!);
-    for (let i = 1; i < parts.length - 1; i++) this.endLine(parts[i]!);
-    this.line = parts[parts.length - 1]!;
   }
 
-  private endLine(line: string): void {
-    if (!this.first) this.held += 1;
-    this.first = false;
-    const kept = line.trimEnd();
+  /** Writes the current line's text up to its trailing whitespace, after the line breaks before it. */
+  private flush(): void {
+    const kept = this.line.trimEnd();
     if (kept === "") return;
-    this.out += "\n".repeat(this.held) + kept;
-    this.held = 0;
+    if (!this.started) {
+      this.write("\n".repeat(this.held));
+      this.held = 0;
+      this.started = true;
+    }
+    this.write(kept);
+    this.line = this.line.slice(kept.length);
+  }
+
+  private write(text: string): void {
+    this.out += text;
     if (this.out.length >= 65_536) {
       this.hash.update(this.out);
       this.out = "";
@@ -111,16 +141,19 @@ export class OutputDigest {
  */
 export class FrameReader {
   readonly frames: Frame[] = [];
+  /** Past `maxFrames` the rest is ignored: the driver never frames that many, so they were forged (DESIGN §4.2). */
+  private full = false;
   private pending = Buffer.alloc(0); // a marker or header split across chunks
   private body: { frame: Frame; size: number; left: number; parts: Buffer[]; kept: number; digest?: OutputDigest } | undefined;
 
-  constructor(private onFrame?: (f: Frame) => void) {}
+  constructor(private onFrame?: (f: Frame) => void, private readonly maxFrames = Number.POSITIVE_INFINITY) {}
 
   push(chunk: Buffer): void {
+    if (this.full) return;
     const buf = this.pending.length ? Buffer.concat([this.pending, chunk]) : chunk;
     this.pending = Buffer.alloc(0);
     let pos = 0;
-    while (pos < buf.length) {
+    while (pos < buf.length && !this.full) {
       if (this.body) {
         pos += this.feed(buf.subarray(pos));
         continue;
@@ -168,6 +201,7 @@ export class FrameReader {
     const body = b.kept < b.size ? new StringDecoder("utf8").write(kept) : kept.toString("utf8");
     const frame: Frame = { ...b.frame, body, ...(b.digest ? { bytes: b.size, digest: b.digest.digest() } : {}) };
     this.frames.push(frame);
+    if (this.frames.length >= this.maxFrames) this.full = true;
     try {
       this.onFrame?.(frame);
     } catch {
@@ -224,7 +258,8 @@ export type Runs = Partial<Record<TestSet, IoRun | UnitRun>>;
 export type Expected = string | { sha256: string; bytes: number; head: string };
 /** What a test shows of its expected output: all of it, or the start of a long one. */
 export const expectedText = (e: Expected) => (typeof e === "string" ? e : e.head);
-const expectedDigest = (e: Expected) => (typeof e === "string" ? digestOf(e) : e.sha256);
+/** The digest an expected output is compared by. */
+export const expectedDigest = (e: Expected) => (typeof e === "string" ? digestOf(e) : e.sha256);
 /** How a reference's output is recorded: in full up to SHOWN_BYTES, else as its digest, size and start. */
 export const recordOutput = (c: RawCase): Expected =>
   c.digest === undefined || c.bytes === undefined || c.bytes <= SHOWN_BYTES ? c.stdout : { sha256: c.digest, bytes: c.bytes, head: c.stdout };
@@ -296,7 +331,8 @@ function exitMessage(c: RawCase, stops?: Stops): string {
   const why = stops?.limits ? killReason(c.exit, c.timedOut, stops) : undefined;
   // Without limits (a case graded as it streams), the driver's statements aren't known yet.
   const killed = stops?.limits ? "It was killed" : "Timed out or was killed";
-  const reason = why ? `It ${why}` : c.exit === 143 || c.exit === 137 || (!stops?.limits && c.exit === 124) ? killed : `Exited with code ${c.exit}`;
+  // An exit code means little to most learners; the program's own errors below say what went wrong.
+  const reason = why ? `It ${why}` : c.exit === 143 || c.exit === 137 || (!stops?.limits && c.exit === 124) ? killed : "It stopped with an error";
   return cap(c.stderr ? `${reason}:\n${c.stderr}` : reason);
 }
 
@@ -305,7 +341,7 @@ export function gradeIo(cases: RawCase[], expected: Record<string, Expected>, bu
   const byName = new Map(cases.map((c) => [c.name, c]));
   return Object.entries(expected).map(([name, want]): TestResult => {
     const set = setOf(name);
-    if (build && build.exit !== 0) return { set, name, status: "error", message: cap(`Build failed (exit ${build.exit}):\n${build.output}`) };
+    if (build && build.exit !== 0) return { set, name, status: "error", message: cap(`The build failed:\n${build.output}`) };
     const c = byName.get(name);
     if (!c) return { set, name, status: "error", message: "This case did not run." };
     if (c.generator) return { set, name, status: "error", message: `The test's input generator failed (exit ${c.exit}), so the program didn't run.` };
@@ -328,7 +364,7 @@ const Report = z.object({
 function parseReport(raw: RawReport, stops?: Stops): z.infer<typeof Report>["tests"] | string {
   if (raw.exit !== 0) {
     const why = stops?.limits ? (killReason(raw.exit, raw.timedOut, stops) ?? (raw.exit === 137 ? "was killed" : undefined)) : undefined;
-    return `The test runner ${why ?? `exited with code ${raw.exit}`}.${raw.log ? `\n${raw.log}` : ""}`;
+    return `The test runner ${why ?? "stopped with an error"}.${raw.log ? `\n${raw.log}` : ""}`;
   }
   let json: unknown;
   try {

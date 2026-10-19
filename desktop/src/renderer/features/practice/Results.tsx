@@ -5,7 +5,11 @@ import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { Busy } from '../../ui/Busy';
-import { testName } from './paneReport';
+
+/** The core names visible results "visible/<name>"; the exercise names its tests "<name>". */
+export const testName = (name: string) => name.replace(/^visible\//, '');
+/** An output as Results shows it: its own lines, without the final line breaks. */
+const lines = (text: string) => text.replace(/\n+$/, '');
 
 export type Shown =
   | { kind: 'idle' }
@@ -189,8 +193,8 @@ function TestLines({ tests, visibleTests }: { tests: TestView[]; visibleTests: V
             )}
             {t.status === 'fail' && (t.actual !== undefined || t.message) && (
               <span className="cmp">
-                {expected !== undefined && <span className="e">expected {expected}</span>}
-                {t.actual !== undefined ? <span className="f">found {t.actual || '(no output)'}</span> : <span className="f">{t.message}</span>}
+                {expected !== undefined && <span className="e">expected {lines(expected)}</span>}
+                {t.actual !== undefined ? <span className="f">found {lines(t.actual) || '(no output)'}</span> : <span className="f">{t.message}</span>}
               </span>
             )}
           </div>
