@@ -272,6 +272,17 @@ export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
  * host's (a VM); the container name is unique, so a few extra seconds can't match another container.
  */
 async function hadOomEvent(name: string, startedMs: number): Promise<boolean> {
+  // Newer engines can publish the event after the window closes, so a miss asks once more a moment later. Only a
+  // suspected kill gets here, so a plain exit never waits.
+  if (await oomEventSoFar(name, startedMs)) return true;
+  await new Promise((r) => setTimeout(r, OOM_RECHECK_MS));
+  return oomEventSoFar(name, startedMs);
+}
+
+/** How long a missed memory-kill event waits before the runtime is asked again. */
+const OOM_RECHECK_MS = 2_000;
+
+async function oomEventSoFar(name: string, startedMs: number): Promise<boolean> {
   // Bounded like a busy engine's second answer: a memory kill the runtime is slow to report must still be graded.
   const clock = await cli(["info", "--format", "{{.SystemTime}}"], SLOW_MS);
   const now = Date.parse(clock.output.trim());
