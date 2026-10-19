@@ -41,9 +41,10 @@ export function setupWhy(message: string | undefined): string | undefined {
   return "The last try didn't pass Codemm's checks.";
 }
 
-/** A roadmap as the window sees it. Core accepts only https sources; main checks again before anything reaches the window (§2.1). */
-export function roadmapView(r: CoreRoadmap, installed: boolean): Roadmap {
+/** A roadmap as the window sees it, named `title`. Core accepts only https sources; main checks again before anything reaches the window (§2.1). */
+export function roadmapView(r: CoreRoadmap, installed: boolean, title = r.goal): Roadmap {
   return {
+    title,
     goal: r.goal,
     track: trackName(r.track),
     installed,

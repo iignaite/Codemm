@@ -56,7 +56,7 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
       next = await t.api.research(goal);
     }
     await t.api.approve(next.roadmap!.concepts);
-    const before = await t.api.course();
+    const before = await until(t.api, (c) => c.setup === 'consent');
     // A's install then fails offline: that's A's problem, not B's.
     reject(coreError("The track build couldn't reach the network.", 'offline'));
     await new Promise((res) => setTimeout(res, 20));

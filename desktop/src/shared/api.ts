@@ -157,6 +157,9 @@ export interface Concept {
 }
 
 export interface Roadmap {
+  /** The course's name: the words the learner typed for it, or the goal for a course without them (W-5). */
+  title: string;
+  /** The goal the agent wrote, shown under the name when they differ. */
   goal: string;
   /** The track's display name, from list_tracks or the agent's proposal. */
   track: string;
@@ -225,8 +228,8 @@ export interface TopicView {
 }
 
 export interface CourseView {
-  /** The course's short title, the words the learner typed: the map's heading, with the goal under it when they differ. */
-  title?: string;
+  /** The course's name, the words the learner typed (W-5): the map's heading, with the goal under it when they differ. */
+  title: string;
   goal: string;
   track: string;
   setup: SetupState;
@@ -236,6 +239,17 @@ export interface CourseView {
   done: boolean;
   /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
   stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'disk' | 'rebuild' | 'lesson' | 'failed' | 'unstoppable';
+}
+
+/** One of the learner's courses, to switch to (§4.13). The id is opaque and never shown. */
+export interface CourseSummary {
+  id: string;
+  title: string;
+  /** Names the course when another has the same title. */
+  goal: string;
+  track: string;
+  /** The course on screen. */
+  current: boolean;
 }
 
 export interface Lesson {
@@ -407,7 +421,7 @@ export interface CodemmApi {
   research(goal: Goal): Promise<Research>;
   /** Saves the learner's edits, then runs a roadmap-change job. */
   reviseRoadmap(concepts: Concept[], request: string): Promise<RoadmapChange>;
-  /** Saves the roadmap. If its track isn't installed, starts the setup job. */
+  /** Saves the roadmap, which becomes one of the learner's courses, on screen. If its track isn't installed, starts the setup job. */
   approve(concepts: Concept[]): Promise<void>;
   /** The roadmap written or edited but not approved yet, to resume. The approved course stays the course until then. */
   draft(): Promise<Roadmap | null>;
@@ -415,11 +429,15 @@ export interface CodemmApi {
   saveDraft(concepts: Concept[]): Promise<void>;
 
   course(): Promise<CourseView | null>;
+  /** The learner's courses, oldest first, with the one on screen marked (§4.13). */
+  courses(): Promise<CourseSummary[]>;
+  /** Puts another of the learner's courses on screen; the work it still needs starts. */
+  switchCourse(course: string): Promise<void>;
   /** Builds the proposal the learner saw. Also retries after an offline or low-disk failure. */
   install(digest: string): Promise<void>;
   /** Runs the setup job again, after its proposals failed their gates. */
   retrySetup(): Promise<void>;
-  /** Starts stalled background work again. */
+  /** Starts the stalled background work of the course on screen again. */
   retryJobs(): Promise<void>;
 
   lesson(id: string): Promise<Lesson>;

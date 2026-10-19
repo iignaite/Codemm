@@ -62,6 +62,8 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress'
   draft: [],
   saveDraft: [concepts],
   course: [],
+  courses: [],
+  switchCourse: [id],
   install: [digest],
   retrySetup: [],
   retryJobs: [],

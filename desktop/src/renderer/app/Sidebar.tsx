@@ -2,13 +2,13 @@
 import { useSyncExternalStore, type ReactNode } from 'react';
 import type { CourseView } from '../../shared/api';
 import { Button } from '../ui/Button';
-import { hueColor } from '../ui/Emm';
 import { Icon, type IconName } from '../ui/Icon';
 import { Logo, Mark } from '../ui/Mark';
 import { useApi } from './api';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
 import { continueRoute } from './course';
+import { Courses } from './Courses';
 import { ExternalLink } from '../ui/ExternalLink';
 
 type Section = 'learn' | 'practice' | 'tracks';
@@ -67,6 +67,7 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
         <div className="lg"><Mark size={22} /></div>
         {nav}
         <UpdateNotice slim />
+        <Courses slim />
       </nav>
     );
   }
@@ -76,14 +77,7 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
       {nav}
       <div className="foot">
         <UpdateNotice />
-        {course ? (
-          <div className="pick">
-            <span className="badge" style={{ background: hueColor(course.track) }} aria-hidden="true">{course.goal[0]}</span>
-            <span className="goal">{course.goal}</span>
-          </div>
-        ) : (
-          <div className="pick none">No course yet</div>
-        )}
+        <Courses />
       </div>
     </nav>
   );

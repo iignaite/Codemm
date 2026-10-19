@@ -26,12 +26,11 @@ describe('connect journey', () => {
     expect(document.body).not.toHaveTextContent('Claude Code');
   });
 
-  it('goes back to the course, not the goal, when one is already approved', async () => {
-    const user = userEvent.setup();
+  it('goes straight back to the course on a relaunch with one approved and the agent connected', async () => {
     const { api } = await mockWithCourse();
     renderApp({ to: 'welcome' }, api);
-    await user.click(await screen.findByRole('button', { name: 'Start learning' }));
     expect(await screen.findByRole('list', { name: 'Topics' })).toBeInTheDocument();
+    expect(screen.queryByText('Ready when you are.')).not.toBeInTheDocument();
   });
 
   it('connects one agent at a time', async () => {

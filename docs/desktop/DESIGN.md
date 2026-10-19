@@ -208,7 +208,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 - **Bound to a course.** Every job's server gets `--course <course>`, so switching courses in the app can't redirect a job's save.
 - **Checking the result.** "Done when" is checked against core records created after the job started, never against the agent's text. Before relaunching a failed job, main checks again, because a save can commit just before a crash.
 - **Fresh sessions.** Author, setup and lesson jobs start without history, which is cheaper and keeps the author's work out of the tutor's chat. The tutor resumes one session per course, from the same workspace folder, because both CLIs keep sessions per working directory.
-- **Concurrency.** At most two agent processes run at once: one foreground job and one background queue. After approval, the first lesson runs in the foreground while setup, then authoring, runs in the background.
+- **Concurrency.** At most two agent processes run at once per course: one foreground job and one background queue (§4.13). After approval, the first lesson runs in the foreground while setup, then authoring, runs in the background.
 - **Bounds.**
 
   | Job | Deadline | Retry bound |
@@ -270,7 +270,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - Re-saving may change `track` while the course has no exercises, so a failed setup can move to another track. Before that save, main cancels the old track's setup and author jobs and drops its proposals. Lessons stay, because they are static text.
   - `save_exercise`, `get_exercise` and `check` still need the installed track.
   - If the installed track doesn't offer the roadmap's style, `next_step` fails with "Edit the roadmap's style".
-- **A new roadmap is a draft.** Research saves a new course, which core makes the workspace's active one. The course the learner approved stays their course: main binds every learner read and call to it (core's `bound` course) until the learner approves another roadmap. The goal screen offers "Resume roadmap" for a draft, and the learner's edits to it are saved as they happen, so leaving or closing Codemm keeps them.
+- **A new roadmap is a draft.** Research saves a new course, which core makes the workspace's active one. The course the learner approved stays their course: main binds every learner read and call to it (core's `bound` course) until the learner approves another roadmap or switches courses (§4.13). The goal screen offers "Resume roadmap" for a draft, and the learner's edits to it are saved as they happen, so leaving or closing Codemm keeps them.
 - **Reading.** `get_roadmap` (tool) and `app.getRoadmap(ws)` return `{ course, goal, track, style, concepts: [{ id, title, requires }] }`.
 - **Editing in the app** builds a new roadmap and saves it through `app.saveRoadmap`, so core §5 rules apply:
   - Rename changes the title only; the id stays stable.
@@ -455,6 +455,24 @@ The map is the course as a path the learner moves along (`renderer/features/prog
 - **Motion.** The path fills and lands in order: each topic's part of the branch draws, its leaf pops on, its title rises, then the current card rises and Emm lands on it with a small squash. Topics after the eighth land together, so a long course takes no longer. Under reduced motion nothing moves.
 - **Narrow windows.** Under 1000 px the side column goes under the path. In narrow rows, a review date wraps under its topic and the card's button under its title.
 
+### 4.13 Several courses
+
+A learner can keep several courses and switch between them in one Codemm. With one course, nothing changes.
+
+- **Courses.** Approving a roadmap adds its course to the learner's courses (`courses` in `desktop.json`, oldest first) and puts it on screen (`approved`). A roadmap not approved yet is still the draft (§4.2). Core already keeps several courses, each behind its own lock.
+- **Names.** A course is named by the words the learner typed for it (`names` in `desktop.json`), and the agent's goal shows beneath the name where they differ. A course without those words, from before or from the terminal, is named by its goal.
+- **Coming back.** Opening Codemm with a course on screen and the agent connected goes straight to its course map.
+- **Switching.** The sidebar lists the courses, with the one on screen marked, and **New course**, which opens the goal screen. In the slim sidebar each course is its badge, with its name as the label. Choosing a course puts it on screen and opens its course map. Learner reads and calls bind to it, as before, except that the editor's last save goes to the course its activity was opened in. Switching keeps every course's records; the renderer drops the lessons and conversations it cached.
+- **What keeps running.** Each course has its own lanes, as one course had (§3.2): one foreground job and one background queue. A course's jobs run to their end after a switch, and the work they make due next for that course follows, up to its current topic's lesson and activity. A setup install keeps building. Setup belongs to the track, so courses on one track share one proposal and one install, see its progress, stall together if it fails, and move on together when it ends. Two courses with the same name are told apart by their goals in the sidebar. At start, only the course on screen starts work; another starts when the learner opens it.
+- **Docker-heavy work takes turns.** Across courses, one track build runs at a time (a setup install or a rebuild), and one author job, whose save builds and checks the exercise in containers. The next waits its turn, shown as waiting. Check, Try it and Run are the learner's own and never wait (Run stays at 4 programs).
+- **Stalls are per course** (§5). A failed background job stops only its course's background work, and each course shows its own stall; Try again restarts only that course. Some stalls end by themselves, and the course's work starts again:
+  - A stall because Docker stopped, is busy or is failing ends once Check this computer passes.
+  - Those, and a stall because a disk is full or the track's image needs a rebuild, end once a check, Try it or setup install of that course succeeds.
+  - Signing in again restarts every course that stalled on a sign-out.
+  - An agent Codemm couldn't stop still stops every job (§3.1).
+- **Job progress** (§4.11) reaches the window for the course on screen, research and the draft. Another course's jobs report again once it is on screen.
+- **The tutor.** Each course keeps its own tutor session (`sessions`, keyed by course and agent) and its own queue of turns. A question in one course never waits for another's turn, and coming back to a course resumes its conversation.
+
 ## 5. Failure states
 
 Infrastructure failures record nothing. Learner-caused outcomes are graded as `error` and recorded (core §4.3, §7).
@@ -619,6 +637,7 @@ Each item is verified by an automated test unless marked *journey* or *release*.
 | D19 | *Journey*, Cursor: attempted. If it can't be signed in and run, its connect row says it is experimental. |
 | D20 | *Release*: the beta exit criteria in [beta-plan.md](beta-plan.md) pass before the public 1.0. |
 | D21 | *Release*: the public 1.0 is signed. The macOS build passes notarization (`spctl -a -vv` accepts it), and the Windows installer passes `signtool verify /pa`. |
+| D22 | **Several courses.** With two approved courses, switching binds learner calls to the course on screen and keeps the other's records. A stall in one course never stops the other's work. The other course's running job finishes after a switch. Builds and author jobs take turns across courses. Each course resumes its own tutor session. A Docker stall ends once Check this computer passes, or once a check of that course succeeds. |
 
 ## 10. Test strategy
 

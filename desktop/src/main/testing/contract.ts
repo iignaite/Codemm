@@ -24,9 +24,9 @@ async function poll<T>(read: () => Promise<T>, done: (value: T) => boolean, what
 
 const course = (api: CodemmApi, done: (c: CourseView) => boolean, what: string) => poll(async () => (await api.course())!, (c) => c !== null && done(c), what);
 
-async function research(api: CodemmApi): Promise<Roadmap> {
+async function research(api: CodemmApi, topic = GOAL.topic): Promise<Roadmap> {
   await api.connect('claude');
-  const r = await poll(() => api.research(GOAL), (x) => x.state !== 'running', 'research');
+  const r = await poll(() => api.research({ ...GOAL, topic }), (x) => x.state !== 'running', 'research');
   expect(r.state).toBe('done');
   return r.roadmap!;
 }
@@ -52,7 +52,22 @@ export function codemmApiContract(name: string, make: () => Subject) {
     it('has no course and no draft before research', async () => {
       const { api } = make();
       expect(await api.course()).toBeNull();
+      expect(await api.courses()).toEqual([]);
       expect(await api.draft()).toBeNull();
+    });
+
+    it('keeps every approved course, and switches the one on screen', async () => {
+      const { api } = make();
+      await api.approve((await research(api)).concepts);
+      await api.approve((await research(api, 'Python')).concepts);
+      const courses = await api.courses();
+      expect(courses.map((c) => [c.title, c.current])).toEqual([['React', false], ['Python', true]]);
+      expect((await api.course())!.goal).toBe('Python');
+      await api.switchCourse(courses[0].id);
+      expect((await api.course())!.goal).toBe('React');
+      expect((await api.courses()).map((c) => c.current)).toEqual([true, false]);
+      expect(await api.draft()).toBeNull();
+      await expect(api.switchCourse('no-such-course')).rejects.toThrow();
     });
 
     it('keeps a researched roadmap a draft until it is approved, and then has nothing to edit', async () => {

@@ -13,7 +13,8 @@ export type Route =
   | { to: 'topic'; topicId: string }
   | { to: 'lesson'; lessonId: string }
   | { to: 'practice'; concept: string }
-  | { to: 'learn' }
+  /** `course`: the course just put on screen, so its map opens fresh (§4.13). */
+  | { to: 'learn'; course?: string }
   | { to: 'tracks' };
 
 export interface Router {
