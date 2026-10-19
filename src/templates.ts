@@ -8,8 +8,11 @@ export const AGENTS_END = "<!-- codemm:end -->";
 
 const NO_SOLUTION = "Never give the learner a solution: not in their files under \`exercises/\`, and not in chat, even when they ask for it.";
 
+/** Learner-facing text is words: the app's design has no decorative arrows or emoji, and the agent kept adding them. */
+const PLAIN = "Write learner-facing text in plain words, with no arrows (→) or emoji in sentences.";
+
 /** How to hint, from the bench (docs/bench/results.md). */
-const HINT = `give one hint: name the one thing that's missing or wrong, and ask one question that leads to the next step. Don't state the fix, write the code or list the steps. For example: "Your loop stops before the last item. Which index does the last item have?" Keep a plain tone: no praise or cheerleading ("Great!", "You're almost there!"); say what's right or wrong and the next step.`;
+const HINT = `give one hint: name the one thing that's missing or wrong, and ask one question that leads to the next step. Don't state the fix, write the code or list the steps. For example: "Your loop stops before the last item. Which index does the last item have?" Keep a plain tone: no praise or cheerleading ("Great!", "You're almost there!"); say what's right or wrong and the next step. ${PLAIN}`;
 
 const LESSON_FIRST =
   "On \`practice\` and \`author\`, a \`lesson\` field means teach first. If it is \`null\`, write a short lesson for the concept with \`save_lesson\`; if it is an id, read that lesson with \`get_lesson\`. Teach it, and call \`mark_lesson_read\` only after the learner says they've read it. Then call \`next_step\` again.";
@@ -25,6 +28,10 @@ const GRANULARITY =
 
 const COURSE_SIZE =
   "Plan about 15 to 30 concepts for a language or framework course, unless the learner asks for a different depth. Split anything that needs more than one lesson. Check a couple of real curricula or the official docs for the order.";
+
+/** When a lesson gets a picture, and how it is drawn: the app renders these fences (docs/desktop/DESIGN.md §4.3). */
+const DIAGRAMS =
+  "Add a diagram only when a picture teaches better than words, such as control flow, a data structure, the steps of an algorithm or how cost grows. Draw it in a fenced block with info string \`mermaid\` (flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, pie or xychart), keep it small, and give it an \`accTitle\` and a one-line \`accDescr\` for screen readers. It is shown as code if it doesn't draw.";
 
 const SECRECY = "Never repeat the solution, the mutants or the hidden tests to anyone. The tutor and the learner must not see them.";
 
@@ -56,7 +63,7 @@ const EXERCISE_RULES = `## Exercises (\`save_exercise\`)
 
 - \`exercise.yaml\`: \`slug\` (new, lowercase), \`concepts\` (ids from the roadmap), \`difficulty\` (1-3), optional \`style\` and \`hint\`.
 - **A new task:** \`next_step\`'s \`earlier\` lists the exercises this course already has (each one's title and first line). Write a task unlike every one of them: a different problem, not one of them renamed or with new numbers. Its title must differ from the concept's title and from theirs. Codemm rejects an exercise that an earlier exercise's solution already passes.
-- \`README.md\`: the statement. Start it with a \`#\` title. Make it complete: input and output format, edge cases, and an example. A learner must be able to solve it from this alone.
+- \`README.md\`: the statement. Start it with a \`#\` title. Make it complete: input and output format, edge cases, and an example. A learner must be able to solve it from this alone. ${PLAIN}
 - \`starter/\`, \`solution/\` and \`mutants/<name>/\`: each holds exactly the track's learner files. The starter must not already pass.
 - **Mutants:** write 2 to 4 believable wrong solutions (off-by-one, a missed edge case, a wrong operator).
 - \`tests/visible/\` and \`tests/hidden/\`: put the basic case in the visible tests and the edge cases (empty input, boundaries, negatives) in the hidden tests. Then a mutant that gets only an edge case wrong passes the visible tests, as Codemm requires.
@@ -151,9 +158,10 @@ ${TRACK_RULES}`,
 
 1. Call \`get_roadmap\` to see where the concept sits.
 2. Write a short Markdown lesson (at most 64 KB) for the concept you were given: what it is, why it matters, and one small worked example.
-3. Teach the idea; don't solve the activity that follows.
-4. If \`get_roadmap\` shows a \`contract\`, the track is set up and you may add up to 5 runnable \`examples\`. Each is a file map with exactly \`contract.files\` (for unit, add tests in \`tests/\` like \`contract.examples.tests\`). Codemm runs each with the track's command and empty input; it must exit 0. Place example N where it belongs as a fenced block with info string \`example\` whose only line is N. Without a contract, use plain code blocks.
-5. Save it with \`save_lesson\`: a new lowercase id, the concept id exactly as given, and a short title. ${CHECKED_RETRIES}`,
+3. Teach the idea; don't solve the activity that follows. ${PLAIN}
+4. ${DIAGRAMS}
+5. If \`get_roadmap\` shows a \`contract\`, the track is set up and you may add up to 5 runnable \`examples\`. Each is a file map holding every file in \`contract.files\` and no other file (for unit, also tests in \`tests/\` like \`contract.examples.tests\`). Codemm runs each with the track's command and no input at all, so an example must not read any; it must exit 0. Place example N where it belongs as a fenced block with info string \`example\` whose only line is N. An example that needs input goes in a plain code block, as does any code when there is no contract.
+6. Save it with \`save_lesson\`: a new lowercase id, the concept id exactly as given, and a short title. ${CHECKED_RETRIES}`,
 
   author: `You write one Codemm exercise. ${SAVE_RETRIES}
 

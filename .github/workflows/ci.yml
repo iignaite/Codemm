@@ -50,3 +50,26 @@ jobs:
           CODEMM_REQUIRE_DOCKER: "1"
           # Fixtures with big images (the Maven + JUnit track, about 600 MB) run here, not in a default local run.
           CODEMM_BIG_IMAGES: "1"
+
+  # The newest Docker Engine too: Docker Desktop on macOS and Windows ships it, and a new version can change what
+  # Docker reports (Docker 29 left Config.Volumes out of image records).
+  docker-latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: docker/setup-docker-action@v4
+        with:
+          version: latest
+          set-host: true
+      - run: docker version
+      - run: npm ci
+      - run: npm run build
+      - name: Test (Docker tests required)
+        run: npm test
+        env:
+          CODEMM_REQUIRE_DOCKER: "1"

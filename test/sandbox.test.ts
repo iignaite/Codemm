@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GateError } from "../src/gates.js";
-import { buildProblem, buildStep, runtimeHelp, runtimeKind, runtimeProblem, runtimeStateOf, sandboxArgs, startHelp } from "../src/sandbox.js";
+import { buildProblem, buildStep, inspectRecord, runtimeHelp, runtimeKind, runtimeProblem, runtimeStateOf, sandboxArgs, startHelp } from "../src/sandbox.js";
 
 describe("sandboxArgs", () => {
   const args = sandboxArgs(
@@ -182,5 +182,21 @@ describe("gate failures that are this computer's problem", () => {
     expect(new GateError("build", "the image didn't build:\nDocker is running Windows containers").kind).toBe("docker");
     expect(new GateError("build", "the image didn't build:\ncould not resolve host: deb.debian.org").kind).toBe("offline");
     expect(new GateError("starter unsolved", "the unedited starter passes every test.").kind).toBeUndefined();
+  });
+});
+
+describe("inspectRecord", () => {
+  it("reads Docker's and newer Podman's one-line record, among warnings", () => {
+    expect(inspectRecord('WARNING: something\n{"Id":"sha256:a","Config":{}}\n')).toEqual({ Id: "sha256:a", Config: {} });
+  });
+
+  it("reads Podman 4.3's indented array of records", () => {
+    const podman43 = JSON.stringify([{ Id: "sha256:b", Config: { Volumes: { "/data": {} } } }], null, 4);
+    expect(inspectRecord(podman43)).toEqual({ Id: "sha256:b", Config: { Volumes: { "/data": {} } } });
+  });
+
+  it("gives nothing for output that holds no record", () => {
+    expect(inspectRecord("template parsing error: map has no entry for key")).toBeUndefined();
+    expect(inspectRecord("")).toBeUndefined();
   });
 });

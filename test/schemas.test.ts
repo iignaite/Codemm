@@ -132,3 +132,23 @@ describe("lesson examples", () => {
     expect(() => parseLesson(input)).toThrow(error);
   });
 });
+
+describe("lesson diagrams", () => {
+  const lesson = (markdown: string, examples?: Record<string, string>[]) => ({ id: "l", concept: "c", title: "L", markdown, ...(examples ? { examples } : {}) });
+  const diagram = "```mermaid\nflowchart TD\n  A --> B\n```";
+
+  // The text is checked for structure only: the app draws a diagram, and shows its source if it can't (desktop §4.3).
+  it("accepts diagram fences without parsing or drawing them", () => {
+    expect(parseLesson(lesson(`Before\n\n${diagram}\n\nAfter`)).markdown).toContain("flowchart TD");
+    expect(parseLesson(lesson("```mermaid\nthis is not a diagram\n```")).title).toBe("L");
+    expect(parseLesson(lesson(`~~~mermaid\npie\n  "a" : 1\n~~~`)).id).toBe("l");
+  });
+
+  it("keeps diagrams and runnable examples apart", () => {
+    const text = `${diagram}\n\n\`\`\`example\n1\n\`\`\`\n`;
+    expect(exampleRefs(text)).toEqual([1]);
+    expect(parseLesson(lesson(text, [{ "main.sh": "echo hi\n" }])).examples).toHaveLength(1);
+    // A diagram whose only line is a number is still a diagram, not an example.
+    expect(() => parseLesson(lesson("```mermaid\n1\n```", [{ "main.sh": "echo hi\n" }]))).toThrow(/example 1 is never placed/);
+  });
+});
