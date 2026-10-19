@@ -22,6 +22,11 @@ describe('course view', () => {
     expect(view).toMatchObject({ goal: 'React', track: 'React', setup: 'ready', done: false });
   });
 
+  it("shows no mastery before a topic's first check, not core's starting estimate", () => {
+    const view = courseView(progress({ kind: 'practice', exercise: 'e', concept: 'state' }), [], ready, new Set());
+    expect(view.topics.map((t) => t.mastery)).toEqual([0.9, 0.5, 0]);
+  });
+
   it('keeps the activity locked until the lessons are read, and shows a lesson being written', () => {
     const unread = courseView(progress({ kind: 'practice', exercise: 'e', concept: 'state', lesson: 'state-1' }), [{ id: 'state-1', concept: 'state', title: 'What state is', read: false }], ready, new Set());
     expect(unread.topics[1]).toMatchObject({ activity: 'locked', lessons: [{ state: 'ready' }] });

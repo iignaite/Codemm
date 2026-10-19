@@ -44,6 +44,13 @@ describe('Results with real core result shapes', () => {
     expect(results()).not.toHaveTextContent('masters');
   });
 
+  it('ends the sentence once when the topic title already ends with its own punctuation', () => {
+    const passed: CoreCheckView = { ...core, passed: 3, tests: core.tests.map((t) => ({ name: t.name, status: 'pass' as const })) };
+    render(<Results shown={{ kind: 'check', result: checkView(passed, { stuck: false, mastered: false, later: true }), keepTrying: false }} name="Emm" topic="What is an Algorithm?" visibleTests={visibleTests} ways={ways} />);
+    expect(results()).toHaveTextContent('Keep practicing What is an Algorithm?');
+    expect(results()).not.toHaveTextContent('?.');
+  });
+
   it('shows expected next to found after Try it', () => {
     render(<Results shown={{ kind: 'try', result: tryView(core) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
     expect(results()).toHaveTextContent('expected Count: 1');

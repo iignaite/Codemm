@@ -1131,8 +1131,8 @@ test(`journey: ${label}`, async () => {
       });
       await step('review-scheduled', async () => {
         await toMap();
-        const mastery = page.getByRole('complementary').filter({ has: heading('Mastery') });
-        const text = (await visible(mastery)) ? (await mastery.innerText()).replace(/\s+/g, ' ') : (await page.locator('main').innerText()).replace(/\s+/g, ' ');
+        // The path shows each mastered topic's next review beside it; the completed-course screen lists them.
+        const text = (await page.locator('main').innerText()).replace(/\s+/g, ' ');
         const due = button('Review');
         if (await visible(due)) {
           await shot('review-due');

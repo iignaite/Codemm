@@ -9,7 +9,8 @@ import type { desktopState } from './state';
 
 export interface Lookup {
   find(bin: string): Executable | null;
-  signedIn(id: AgentId, exe: Executable): Promise<boolean>;
+  /** Null when the check couldn't answer (a timeout, or offline): that isn't signed out. */
+  signedIn(id: AgentId, exe: Executable): Promise<boolean | null>;
   version(id: AgentId, exe: Executable): Promise<string | null>;
 }
 
@@ -35,6 +36,8 @@ const NO_SETUP: AgentSetup = { canInstall: () => false, install: () => undefined
 export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>, setup: AgentSetup = NO_SETUP) {
   /** The last sign-in answer per agent this session. */
   const signedIn = new Map<AgentId, boolean>();
+  /** Keeps a real answer; one that couldn't tell is asked again on the next look. */
+  const remember = (id: AgentId, ok: boolean | null) => ok !== null && signedIn.set(id, ok);
   const versions = new Map<AgentId, string | null>();
   /** The agent the learner last tried to connect: once it's signed in, it connects. */
   let tried: AgentId | undefined;
@@ -81,20 +84,21 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
       if (install?.phase === 'done' && !signedIn.has(id)) {
         tried = id;
         const ok = await checkSignIn(id);
-        signedIn.set(id, ok);
+        remember(id, ok);
         if (ok) state.update((s) => ({ ...s, agent: id }));
-        else justChecked.add(id);
+        else if (ok === false) justChecked.add(id);
       }
       const chosen = state.read().agent === id;
       // The agent chosen before: check its sign-in once this launch, so a relaunch doesn't ask to connect again.
-      if (chosen && !signedIn.has(id)) signedIn.set(id, await checkSignIn(id));
+      if (chosen && !signedIn.has(id)) remember(id, await checkSignIn(id));
       // Signed out: check again on every look, so signing in from a terminal shows when the learner comes back.
       if (signedIn.get(id) === false && !justChecked.delete(id) && (await checkSignIn(id))) {
         signedIn.set(id, true);
         if (tried === id) state.update((s) => ({ ...s, agent: id }));
       }
       const known = signedIn.get(id);
-      agentState = known === false ? 'signed-out' : state.read().agent === id && known ? 'connected' : 'not-connected';
+      // The chosen agent is connected unless its own check said no (a check that can't tell asks again next look).
+      agentState = known === false ? 'signed-out' : state.read().agent === id ? 'connected' : 'not-connected';
     }
     const version = versions.get(id);
     const model = modelFor(id, state.read().models?.[id]);
@@ -131,8 +135,9 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
       const exe = usable(id);
       if (exe) {
         const ok = await lookup.signedIn(id, exe);
-        signedIn.set(id, ok);
-        if (ok) state.update((s) => ({ ...s, agent: id }));
+        remember(id, ok);
+        // Only the agent's own no is signed out: a check that can't tell connects, and a job says the rest.
+        if (ok !== false) state.update((s) => ({ ...s, agent: id }));
         else justChecked.add(id);
       }
       return view(id);
@@ -155,19 +160,20 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
       if (!id || !exe) throw new Error(NO_AGENT);
       // The status command runs once a session, and again only after a job fails (jobs.ts).
       const ok = signedIn.get(id) ?? (await this.recheck(id));
-      if (!ok) throw new Error(SIGNED_OUT);
+      // Signed out only when the agent says so; a check that can't tell lets the job run and say the rest.
+      if (ok === false) throw new Error(SIGNED_OUT);
       return { id, exe, model: modelFor(id, state.read().models?.[id]) ?? undefined };
     },
 
     /**
      * Runs the sign-in check again, as after a job fails for an unknown reason. While Codemm is installing the agent
-     * again, nothing of it runs, and the job ends as signed out.
+     * again, nothing of it runs, and the job ends as signed out. Null: the check couldn't answer.
      */
-    async recheck(id: AgentId): Promise<boolean> {
+    async recheck(id: AgentId): Promise<boolean | null> {
       const exe = usable(id);
       if (!exe) return false;
       const ok = await lookup.signedIn(id, exe);
-      signedIn.set(id, ok);
+      remember(id, ok);
       return ok;
     },
   };

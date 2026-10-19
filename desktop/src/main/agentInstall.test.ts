@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentId } from '../shared/api';
 import { agentInstaller, isAgentHost, type AgentInstallDeps } from './agentInstall';
-import { OfflineError } from './dockerDesktop';
+import { OfflineError } from './download';
 
 const GiB = 1024 ** 3;
 const SUM = 'a'.repeat(64);

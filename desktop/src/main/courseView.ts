@@ -51,7 +51,8 @@ export function courseView(
     const left = c.reviewDue ? Date.parse(c.reviewDue) - now : 0;
     const reviewIn = !review && left > 0 ? Math.ceil(left / 86_400_000) : undefined;
     return {
-      id: c.id, title: c.title, state: c.mastered ? 'mastered' : isCurrent ? 'now' : 'later', mastery: c.mastery, stuck: c.stuck, lessons: own, activity,
+      // Before its first check a topic has only core's starting estimate, not mastery the learner showed.
+      id: c.id, title: c.title, state: c.mastered ? 'mastered' : isCurrent ? 'now' : 'later', mastery: c.attempts > 0 ? c.mastery : 0, stuck: c.stuck, lessons: own, activity,
       ...(review ? { review } : {}), ...(reviewIn ? { reviewIn } : {}),
     };
   });

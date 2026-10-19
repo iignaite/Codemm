@@ -144,6 +144,21 @@ describe('check this computer', () => {
     expect(running).toHaveTextContent('sudo usermod -aG docker $USER');
   });
 
+  it("says what the sandbox's self-test found, instead of Restart Docker, when it knows the cause", async () => {
+    open({ docker: 'sandbox-offline', platform: 'mac' });
+    const sandbox = await screen.findByRole('listitem', { name: 'The sandbox works' });
+    expect(sandbox).toHaveTextContent("Docker couldn't reach the network to download the test image");
+    expect(sandbox).not.toHaveTextContent('Restart Docker');
+    expect(screen.getByRole('status')).toHaveTextContent("You're offline.");
+  });
+
+  it('names the folder to share when the engine cannot mount it', async () => {
+    open({ docker: 'sandbox-folder', platform: 'mac' });
+    const sandbox = await screen.findByRole('listitem', { name: 'The sandbox works' });
+    expect(sandbox).toHaveTextContent('share it with the engine');
+    expect(sandbox).not.toHaveTextContent('Restart Docker');
+  });
+
   it('asks to restart Docker when the sandbox check fails', async () => {
     open({ docker: 'no-sandbox', platform: 'mac' });
     const sandbox = await screen.findByRole('listitem', { name: 'The sandbox works' });

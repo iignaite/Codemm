@@ -79,6 +79,6 @@ export const cursor: AgentCli = {
   version: { args: ['--version'], read: versionRead(/^(\d{4}\.\d{2}\.\d{2}-\S+)/m) },
   signIn: {
     args: ['status'],
-    read: ({ code, output }) => code === 0 && !/not logged in/i.test(plain(output)) && /logged in/i.test(plain(output)),
+    read: ({ code, output }) => (/not logged in/i.test(plain(output)) ? false : code === 0 && /logged in/i.test(plain(output)) ? true : null),
   },
 };
