@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { createMock, type MockOptions } from '../../main/mock';
+import { createMock } from '../../main/mock';
 import { jobAt, jobBus, mockWithCourse, mockWithRoadmap, renderApp } from '../test-utils';
 
 const TOPIC = 'javascript-basics';
@@ -13,7 +13,8 @@ const goTo = (user: ReturnType<typeof userEvent.setup>, place: 'Learn' | 'Tracks
 describe('running jobs in the sidebar (§4.11)', () => {
   it("keeps a track's setup in view after the learner leaves the topic page, and opens it again", async () => {
     const user = userEvent.setup();
-    const { api, roadmap } = await mockWithRoadmap({ slow: 3 });
+    // Slow enough that the job is still on its first stage however long the clicks take.
+    const { api, roadmap } = await mockWithRoadmap({ slow: 20 });
     await api.approve(roadmap.concepts);
     renderApp({ to: 'topic', topicId: TOPIC }, api);
     await screen.findByRole('group', { name: 'Setting up React' });
@@ -30,7 +31,7 @@ describe('running jobs in the sidebar (§4.11)', () => {
 
   it('keeps research in view after the learner leaves its screen, and opens it again', async () => {
     const user = userEvent.setup();
-    const api = createMock({ slow: 2 });
+    const api = createMock({ slow: 20 });
     await api.connect('claude');
     renderApp({ to: 'research', goal: GOAL }, api);
     await screen.findByRole('group', { name: 'Researching React' });
@@ -45,9 +46,16 @@ describe('running jobs in the sidebar (§4.11)', () => {
 
   it('shows a rebuild on the Tracks page, and in the sidebar everywhere else', async () => {
     const user = userEvent.setup();
-    const options: MockOptions = {};
-    const { api } = await mockWithCourse(options);
-    options.slow = 2;
+    const { api } = await mockWithCourse();
+    const tell = jobBus(api);
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    const rebuilding = jobAt('rb', 'rebuild', { track: 'React', stage: 0, thinking: false });
+    api.rebuild = async () => {
+      tell(rebuilding);
+      await released;
+      tell({ ...rebuilding, ended: true });
+    };
     renderApp({ to: 'tracks' }, api);
     const react = await screen.findByRole('listitem', { name: 'React' });
     await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
@@ -63,8 +71,10 @@ describe('running jobs in the sidebar (§4.11)', () => {
     expect(within(again).getByRole('button', { name: 'Rebuild' })).toBeDisabled();
     expect(working()).not.toBeInTheDocument();
     // It ends: the card is free again, and nothing is left in the sidebar.
-    await waitFor(() => expect(within(again).queryByRole('group', { name: 'Rebuilding React' })).not.toBeInTheDocument(), { timeout: 3000 });
+    act(() => release());
+    await waitFor(() => expect(within(again).queryByRole('group', { name: 'Rebuilding React' })).not.toBeInTheDocument());
     expect(within(again).getByRole('button', { name: 'Rebuild' })).toBeEnabled();
+    expect(working()).not.toBeInTheDocument();
   });
 
   it('names each long job and its stage, and opens the place it belongs to', async () => {
