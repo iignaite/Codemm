@@ -120,12 +120,13 @@ function WorkJob({ job, course, slim }: { job: HeardJob; course: Course; slim: b
     },
     [],
   );
+  // The name holds the visible words (WCAG 2.5.3); the slim one shows none, so its name is also its tooltip.
   return (
     <button ref={button} type="button" className="work-job" aria-label={label} title={slim ? label : undefined} onClick={() => void open()}>
       <EmmFill value={fillOf(p)} width={slim ? 32 : 28} dim={Boolean(p.retry) || quiet} />
       {!slim && (
         <span className="work-text">
-          <span className="work-what">{what}</span>
+          <span className="work-what">{what}</span>{' '}
           <span className="work-stage">{stage}</span>
         </span>
       )}

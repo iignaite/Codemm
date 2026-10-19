@@ -8,6 +8,8 @@ const TOPIC = 'javascript-basics';
 const GOAL = { topic: 'React', known: '', depth: 'standard' as const };
 const sidebar = () => screen.getByRole('navigation', { name: 'Main' });
 const working = () => within(sidebar()).queryByRole('list', { name: 'Codemm is working' });
+/** What each listed job says, in order: what it is, then its stage. */
+const names = () => within(working()!).getAllByRole('button').map((b) => b.getAttribute('aria-label'));
 const goTo = (user: ReturnType<typeof userEvent.setup>, place: 'Learn' | 'Tracks') => user.click(within(sidebar()).getByRole('button', { name: place }));
 
 describe('running jobs in the sidebar (§4.11)', () => {
@@ -88,7 +90,6 @@ describe('running jobs in the sidebar (§4.11)', () => {
     act(() => tell(jobAt('l1', 'lesson', { concept: TOPIC })));
     act(() => tell(jobAt('a1', 'author', { concept: TOPIC, stage: 2, part: { done: 2, total: 3 } })));
     act(() => tell(jobAt('r1', 'roadmap')));
-    const names = () => within(working()!).getAllByRole('button').map((b) => b.getAttribute('aria-label'));
     expect(names()).toEqual([
       'Writing a lesson on JavaScript basics, Writing the lesson',
       'Writing an activity on JavaScript basics, Checking the exercise, step 2 of 3',
@@ -114,7 +115,7 @@ describe('running jobs in the sidebar (§4.11)', () => {
     act(() => tell(jobAt('proposal', 'setup', { stage: 0 })));
     act(() => tell(jobAt('install', 'setup', { stage: 1, part: { done: 3, total: 7 }, thinking: false })));
     act(() => tell(jobAt('turn', 'tutor', { stage: 0 })));
-    expect(within(working()!).getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual(['Setting up React, Building, step 3 of 7']);
+    expect(names()).toEqual(['Setting up React, Building, step 3 of 7']);
   });
 
   it('opens the roadmap being changed in its editor', async () => {
