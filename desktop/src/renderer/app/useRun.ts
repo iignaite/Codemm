@@ -26,8 +26,9 @@ function ending(r: RunResult, limits: Record<'build' | 'run', number>): [string,
   if (r.timedOut) return [`Time's up. ${what} was stopped after ${duration(limits[r.stage ?? 'run'])}.`, 'fail'];
   if (r.outOfMemory) return [`${what} ran out of memory.`, 'fail'];
   if (r.flooded) return [`${what} printed too much, so it was stopped.`, 'fail'];
-  if (r.stage === 'build') return [`The build failed with code ${r.exit}.`, 'fail'];
-  return [`Exited with code ${r.exit}.`, r.exit === 0 ? 'quiet' : 'fail'];
+  // The program's own words are above it; an exit code means little to most learners.
+  if (r.stage === 'build') return ['The build failed.', 'fail'];
+  return r.exit === 0 ? ['The program ended.', 'quiet'] : ['The program ended with an error.', 'fail'];
 }
 
 /**

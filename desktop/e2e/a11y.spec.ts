@@ -532,7 +532,7 @@ test('the journey works with the keyboard alone', async ({ launch }) => {
   await app.close();
 });
 
-// Run (§4.10): the terminal pane passes WCAG AA while a program runs and with test output, and works by keyboard.
+// Run (§4.10): the terminal pane passes WCAG AA while a program runs and after Try it, and works by keyboard.
 // The program gets the full 2 minutes, so the scans never race its time limit.
 test('the terminal pane passes WCAG AA checks and works with the keyboard alone', async ({ launch }) => {
   test.setTimeout(120_000);
@@ -549,13 +549,13 @@ test('the terminal pane passes WCAG AA checks and works with the keyboard alone'
   await page.keyboard.type('Ada');
   await page.keyboard.press('Enter');
   await expect(log).toContainText('Hello, Ada!');
-  await expect(log).toContainText('Exited with code 0.');
+  await expect(log).toContainText('The program ended.');
 
-  // Try it prints each visible test into the pane as it finishes.
+  // Try it shows its results in Results alone; the pane keeps the Run.
   await press(page, 'Try it');
-  await expect(log).toContainText('✗ 0 of 2 visible tests passed');
-  await expect(log).toContainText('$ python3 main.py  (test 02)');
-  await audit(page, 'terminal, Try it');
+  await expect(page.getByRole('region', { name: 'Results' }).getByRole('heading', { name: '0 of 2 visible tests passed' })).toBeVisible();
+  await expect(log).not.toContainText('(test 02)');
+  await audit(page, 'terminal and Results, Try it');
   await app.close();
 });
 

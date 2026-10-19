@@ -1,0 +1,5 @@
+goal: Java basics
+track: java-maven@1
+style: unit
+concepts:
+  - { id: java.loops, title: Loops, requires: [] }

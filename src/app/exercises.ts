@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { CodemmError } from "../errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "../files.js";
 import { type ExerciseGate, verifyExercise } from "../gates.js";
-import { type CaseFrames, gradeIo, redact, type ShownResult, type Status, type TestResult, type TestSet } from "../grading.js";
+import { type CaseFrames, expectedText, gradeIo, redact, type ShownResult, type Status, type TestResult, type TestSet } from "../grading.js";
 import { judgeSets } from "../judge.js";
 import { type ProgramOptions, type ProgramRun, runProgram } from "../program.js";
 import { nextStep as pickNext, type Step } from "../learner.js";
@@ -98,18 +98,24 @@ export function listExercises(ws: string, bound?: string) {
   return store.listExercises(activeCourse(ws, bound).course).map((e) => ({ exercise: e.slug, concepts: e.concepts, difficulty: e.difficulty, created: e.createdAt }));
 }
 
-/** What the learner may see: the statement, starter files and visible tests (with expected io outputs). */
+/**
+ * What the learner may see: the statement, starter files and visible tests (with expected io outputs). A long expected
+ * output is recorded only as its digest and start, so it gets no .out file.
+ */
 function learnerFiles(record: ExerciseRecord, files: FileMap, track: TrackRecord): FileMap {
   const out: FileMap = { "README.md": files["README.md"] ?? "" };
   for (const f of track.files) out[f] = files[`starter/${f}`] ?? "";
   for (const [p, v] of Object.entries(subMap(files, "tests/visible"))) out[`tests/${p}`] = v;
   if (record.style === "io") {
     for (const [name, expected] of Object.entries(record.expected ?? {})) {
-      if (name.startsWith("visible/")) out[`tests/${name.slice("visible/".length)}.out`] = expected;
+      if (name.startsWith("visible/") && typeof expected === "string") out[`tests/${name.slice("visible/".length)}.out`] = expected;
     }
   }
   return out;
 }
+
+/** An io test's input file: `NN.in`, or `NN.gen`, a script whose output is the input (DESIGN §6). */
+const ioInput = /\.(in|gen)$/;
 
 function loadExercise(ws: string, slug?: string, bound?: string) {
   const course = activeCourse(ws, bound);
@@ -144,11 +150,16 @@ export async function getExercise(ws: string, slug?: string, bound?: string) {
     ...(record.style === "io" && track.run ? { run: track.run } : {}),
     statement: files["README.md"] ?? "",
     ...(record.hint ? { hint: record.hint } : {}),
+    // A generated input shows its generator; a long expected output shows its start, and says so.
     visibleTests:
       record.style === "io"
-        ? Object.keys(visible).sort().map((p) => {
-            const name = p.slice(0, -3);
-            return { name, input: visible[p]!, expected: record.expected?.[`visible/${name}`] ?? "" };
+        ? Object.keys(visible).filter((p) => ioInput.test(p)).sort().map((p) => {
+            const name = p.replace(ioInput, "");
+            const expected = record.expected?.[`visible/${name}`] ?? "";
+            return {
+              name, input: visible[p]!, ...(p.endsWith(".gen") ? { generated: true } : {}), expected: expectedText(expected),
+              ...(typeof expected === "string" ? {} : { expectedBytes: expected.bytes }),
+            };
           })
         : Object.keys(visible).sort().map((name) => ({ name })),
   };
@@ -221,7 +232,7 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
   const sets = includeHidden ? { visible, hidden: subMap(files, "tests/hidden") } : { visible };
   // Each visible io test's result as it finishes, graded as Results grades it. The final grade still decides:
   // a flood or a memory kill afterwards makes every test an error.
-  const total = Object.keys(visible).filter((p) => p.endsWith(".in")).length;
+  const total = Object.keys(visible).filter((p) => ioInput.test(p)).length;
   const report = (done: number) => onProgress?.({ phase: "visible", done: Math.min(done, total), total });
   let finished = 0;
   const onCase = (c: CaseFrames) => {

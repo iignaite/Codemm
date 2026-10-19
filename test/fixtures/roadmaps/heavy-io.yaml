@@ -1,0 +1,6 @@
+goal: Heavy io in awk
+track: heavy-io@1
+style: io
+concepts:
+  - { id: awk.sums, title: Running sums, requires: [] }
+  - { id: awk.loops, title: Loops, requires: [] }

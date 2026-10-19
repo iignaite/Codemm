@@ -337,7 +337,7 @@ describe('Run', () => {
     expect(terminal()).toHaveTextContent('2:00 left');
     expect(screen.getByRole('button', { name: 'Try it' })).toBeDisabled();
     act(() => xterm.type('Ada\r'));
-    await vi.waitFor(() => expect(mirror().textContent).toBe("$ python3 main.py\nWhat's your name? Ada\nHello, Ada!\nExited with code 0.\n"));
+    await vi.waitFor(() => expect(mirror().textContent).toBe("$ python3 main.py\nWhat's your name? Ada\nHello, Ada!\nThe program ended.\n"));
     expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
     expect(terminal()).not.toHaveTextContent('left');
     expect((await api.course())!.topics[0].mastery).toBe(0);
@@ -359,7 +359,7 @@ describe('Run', () => {
     await user.click(screen.getByRole('button', { name: 'Run' }));
     await vi.waitFor(() => expect(mirror().textContent).toBe("$ python3 main.py\nWhat's your name? "));
     act(() => xterm.type('Ada\r'));
-    await vi.waitFor(() => expect(mirror()).toHaveTextContent('Exited with code 0.'));
+    await vi.waitFor(() => expect(mirror()).toHaveTextContent('The program ended.'));
     expect(screen.getByRole('button', { name: 'Run' })).toBeEnabled();
   });
 
@@ -449,49 +449,29 @@ describe('Run', () => {
     await vi.waitFor(() => expect(mirror()).toHaveTextContent("Docker isn't running. Open Docker Desktop, then run again."));
   });
 
-  it('Try it prints each visible test as it finishes: the command, the output, then expected and found', async () => {
+  it('shows test results in Results alone: Try it and Check leave the pane to Run', async () => {
     const { user } = await openIo();
     await user.click(screen.getByRole('button', { name: 'Try it' }));
-    await vi.waitFor(() => expect(mirror().textContent).toMatch(/visible tests passed\n$/));
-    expect(mirror().textContent).toBe(
-      [
-        '$ python3 main.py  (test 01)',
-        'Hello, !',
-        '✗ test 01',
-        '  expected  Hello, Ada!',
-        '  found     Hello, !',
-        '$ python3 main.py  (test 02)',
-        'Hello, !',
-        '✗ test 02',
-        '  expected  Hello, Grace!',
-        '  found     Hello, !',
-        '✗ 0 of 2 visible tests passed',
-        '',
-      ].join('\n'),
-    );
-    // The structured results stay.
     expect(await within(results()).findByRole('heading', { name: '0 of 2 visible tests passed' })).toBeInTheDocument();
-  });
-
-  it('prints a visible test whose event came too late from the final result, once', async () => {
-    const { api, user } = await openIo();
-    api.onCheckProgress = () => () => undefined; // every event lands after the reply
-    await user.click(screen.getByRole('button', { name: 'Try it' }));
-    await vi.waitFor(() => expect(mirror().textContent).toMatch(/visible tests passed\n$/));
-    expect(mirror().textContent!.match(/\(test 01\)/g)).toHaveLength(1);
-    expect(mirror().textContent).toContain('$ python3 main.py  (test 02)\nHello, !\n✗ test 02\n');
-  });
-
-  it('Check prints visible tests as they finish and hidden tests as an index and a status only', async () => {
-    const { user } = await openIo();
-    const editor = screen.getByRole('textbox', { name: 'main.py' }) as HTMLTextAreaElement;
-    await user.clear(editor);
-    await user.type(editor, 'name = input("What\'s your name? "){Enter}print(f"Hello, {{name}!")');
+    // Without a Run, there's no pane at all.
+    expect(screen.queryByRole('region', { name: 'Terminal for Greet by name' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await vi.waitFor(() => expect(mirror().textContent).toBe("$ python3 main.py\nWhat's your name? "));
+    act(() => xterm.type('Ada\r'));
+    await vi.waitFor(() => expect(mirror().textContent).toMatch(/The program ended\.\n$/));
+    const ran = mirror().textContent;
     await user.click(screen.getByRole('button', { name: 'Check' }));
-    await vi.waitFor(() => expect(mirror().textContent).toMatch(/of 4 passed\n$/));
-    expect(mirror().textContent).toBe(
-      ['$ python3 main.py  (test 01)', 'Hello, Ada!', '✓ test 01', '$ python3 main.py  (test 02)', 'Hello, Grace!', '✓ test 02', 'hidden #1 ✓', 'hidden #2 ✓', '✓ 4 of 4 passed', ''].join('\n'),
-    );
+    // Whatever the check says, it says it in Results.
+    expect(await within(results()).findByRole('heading', { name: /passed|another way/ })).toBeInTheDocument();
+    expect(mirror().textContent).toBe(ran);
+  });
+
+  it('shows a wrong output in Results on its own lines, expected beside found', async () => {
+    const { api, user } = await openIo();
+    api.tryIt = async () => ({ kind: 'ran', passed: 0, total: 1, tests: [{ hidden: false, name: 'visible/01', status: 'fail', message: 'Output differs from the expected output.', actual: '1\n2\n4\n' }] });
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    const found = await within(results()).findByText(/^found/);
+    expect(found.textContent).toBe('found 1\n2\n4');
   });
 
   it('never lets a test report take the pane from a running program, even through Try again', async () => {
@@ -508,13 +488,13 @@ describe('Run', () => {
     expect(mirror().textContent).toContain("What's your name? ");
   });
 
-  it("shows a Run's time-up only while the pane holds that Run", async () => {
+  it("keeps a Run's time-up in the pane after Try it, which reports in Results", async () => {
     const { user } = await openIo({ runLimitMs: 50 });
     await user.click(screen.getByRole('button', { name: 'Run' }));
     await vi.waitFor(() => expect(terminal()).toHaveTextContent("Time's up"));
     await user.click(screen.getByRole('button', { name: 'Try it' }));
-    await vi.waitFor(() => expect(mirror().textContent).toMatch(/visible tests passed\n$/));
-    expect(terminal()).not.toHaveTextContent("Time's up");
+    expect(await within(results()).findByRole('heading', { name: '0 of 2 visible tests passed' })).toBeInTheDocument();
+    expect(terminal()).toHaveTextContent("Time's up");
   });
 
   it('has no Run for a unit activity', async () => {

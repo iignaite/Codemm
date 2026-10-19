@@ -42,9 +42,10 @@ const ANY_TABLE = /^\s*\[/;
 
 /**
  * Codex stops waiting for a tool after 60 s by default. save_track can take the whole 10-minute build limit plus
- * the probe gates, and save_exercise runs every exercise gate, so Codex waits up to 15 minutes, as the bench did.
+ * the probe gates, and save_exercise runs every exercise gate: with a heavy track (time_ms up to 120 s, a JVM build
+ * tool) that can pass 15 minutes, so Codex waits up to 30.
  */
-export const CODEX_TOOL_TIMEOUT_SEC = 900;
+export const CODEX_TOOL_TIMEOUT_SEC = 1800;
 
 function withCodexServer(existing: string, launcher: Launcher, ws: string): string {
   let before: Record<string, any>;
