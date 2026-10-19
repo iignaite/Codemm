@@ -155,6 +155,13 @@ describe("the save_lesson description", () => {
     expect(description).toMatch(/Diagrams and charts go in fenced blocks with info string mermaid/);
     expect(description).toMatch(/only when a picture teaches better than words/);
   });
+
+  it("says an example runs with no input", async () => {
+    const { client: c } = await connect({ tools: ["save_lesson"] });
+    const { description } = (await c.listTools()).tools[0];
+    expect(description).toMatch(/runs each in the sandbox with no input and it must exit 0/);
+    expect(description).toMatch(/An example that needs input goes in a plain code block/);
+  });
 });
 
 describe("lesson tools", () => {

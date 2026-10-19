@@ -138,8 +138,8 @@ export function createServer(ws: string, version: string, { course, tools, deskt
     {
       description:
         "Save a lesson for one roadmap concept: Markdown (at most 64 KB) the learner reads before the activity, and up to 5 runnable examples. " +
-        "Each example is a file map with exactly the track's learner files (for unit, plus tests/ files); Codemm runs each in the sandbox and it must exit 0. " +
-        "Place example N in the Markdown as a fenced block with info string example whose only line is N. " +
+        "Each example is a file map with exactly the track's learner files (for unit, plus tests/ files); Codemm runs each in the sandbox with no input and it must exit 0. " +
+        "Place example N in the Markdown as a fenced block with info string example whose only line is N. An example that needs input goes in a plain code block. " +
         "Diagrams and charts go in fenced blocks with info string mermaid (flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, pie, xychart), only when a picture teaches better than words; give each an accTitle and accDescr for screen readers. " +
         "The id must be new in the course.",
       inputSchema: {

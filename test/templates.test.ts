@@ -167,3 +167,23 @@ describe("diagrams in lessons", () => {
     for (const [kind, brief] of Object.entries(JOB_BRIEFS)) if (kind !== "lesson") expect(brief, kind).not.toMatch(/mermaid/);
   });
 });
+
+describe("lesson examples and learner-facing text (learner walkthrough W-2)", () => {
+  it("tells the lesson writer that an example gets no input, holds exactly the track's learner files, and what to do otherwise", () => {
+    const brief = JOB_BRIEFS.lesson;
+    expect(brief).toMatch(/holding every file in `contract.files` and no other file/);
+    expect(brief).toMatch(/no input at all, so an example must not read any/);
+    expect(brief).toMatch(/An example that needs input goes in a plain code block/);
+    expect(brief.split("\n").length).toBeLessThanOrEqual(25);
+  });
+
+  it.each([
+    ["lesson", JOB_BRIEFS.lesson],
+    ["author", JOB_BRIEFS.author],
+    ["tutor", JOB_BRIEFS.tutor],
+    ["terminal tutor", AGENTS_SECTION],
+  ])("keeps arrows and emoji out of what the %s writes for the learner", (_label, text) => {
+    expect(text).toMatch(/no arrows \(→\) or emoji in sentences/);
+  });
+});
+
