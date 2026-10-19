@@ -76,7 +76,8 @@ export interface AgentCli {
   /** Reads a stderr line for a known failure, keeping only a fixed message: stderr can carry account details. */
   errors?: (line: string) => AgentEvent[];
   version: StatusCommand<string | null>;
-  signIn: StatusCommand<boolean>;
+  /** Signed in or not, only when the agent says which; null when its answer can't tell (§3.1). */
+  signIn: StatusCommand<boolean | null>;
 }
 
 /** The CLI versions the recorded fixtures come from (§3.3). */

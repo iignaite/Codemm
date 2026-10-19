@@ -140,6 +140,11 @@ describe('jobs (§3.2)', () => {
     expect(agent.runs()).toBe(1);
   });
 
+  it("never calls the agent signed out when its sign-in check couldn't answer (a timeout, or offline)", async () => {
+    const agent = fakeAgent([init, failure('Invalid API key')]);
+    expect((await runJob(job(agent.exe, { signedIn: async () => null }))).problem).not.toBe('signed-out');
+  });
+
   it('cancels after 3 failed saves', async () => {
     const lines = [init, call('a', 'save_exercise'), result('a', true), call('b', 'save_exercise'), result('b', true), call('c', 'save_exercise'), result('c', true)];
     const agent = fakeAgent(lines, { hang: true });

@@ -60,6 +60,33 @@ describe('check this computer (§6.1, D13)', () => {
     expect(linux.install).toBeUndefined();
   });
 
+  it('says Docker is starting for 3 minutes after it first sees Docker Desktop running with its engine down, as when the learner opened it', async () => {
+    let running = true;
+    const p = probe({ state: async () => 'down', desktopRunning: async () => running });
+    const check = computerCheck(p, 'darwin');
+    p.clock = 60_000;
+    expect(await states(check)).toEqual(['ok', 'problem:starting', 'waiting']);
+    p.clock = 60_000 + 3 * 60_000 + 1;
+    // Still down after that: Docker Desktop is open, but its engine is stopped.
+    expect(await states(check)).toEqual(['ok', 'problem', 'waiting']);
+    running = false;
+    expect(await states(check)).toEqual(['ok', 'problem', 'waiting']);
+    // Opened again later: a new 3 minutes.
+    running = true;
+    expect(await states(check)).toEqual(['ok', 'problem:starting', 'waiting']);
+  });
+
+  it('offers to install Docker Desktop for a docker command without it, when no engine answers (§6.1)', async () => {
+    // Homebrew's docker, or a stopped Colima or OrbStack: Open Docker Desktop would fail.
+    const bare = probe({ state: async () => 'down', canInstall: true, desktopInstalled: () => false });
+    expect(await states(computerCheck(bare, 'darwin'))).toEqual(['problem', 'waiting', 'waiting']);
+    // With Docker Desktop there, Docker is stopped; and an engine that answers is all Codemm needs.
+    expect(await states(computerCheck(probe({ state: async () => 'down', canInstall: true, desktopInstalled: () => true }), 'win32'))).toEqual(['ok', 'problem', 'waiting']);
+    expect(await states(computerCheck(probe({ canInstall: true, desktopInstalled: () => false }), 'darwin'))).toEqual(['ok', 'ok', 'ok']);
+    // Where Codemm can't install it (Linux), a stopped engine is just stopped.
+    expect(await states(computerCheck(probe({ state: async () => 'down', desktopInstalled: () => false }), 'linux'))).toEqual(['ok', 'problem', 'waiting']);
+  });
+
   it('asks to switch from Windows containers', async () => {
     expect(await states(computerCheck(probe({ state: async () => 'windows' }), 'win32'))).toEqual(['ok', 'problem:windows-containers', 'waiting']);
   });
@@ -87,6 +114,24 @@ describe('check this computer (§6.1, D13)', () => {
 
   it('is still checking the sandbox just after Codemm opened or installed Docker', async () => {
     expect(await states(computerCheck(probe({ startedAt: () => 0, sandbox: async () => FAIL }), 'darwin'))).toEqual(['ok', 'ok', 'problem:checking']);
+  });
+
+  it("says what the self-test found when core knows the cause on this computer (core §4.3)", async () => {
+    const offline = { ok: false, kind: 'offline' as const, detail: "Docker couldn't reach the network to download the test image (dial tcp: lookup registry-1.docker.io: no such host). Connect to the internet, check any VPN, proxy or firewall, then try again." };
+    const sandboxRow = async (p: Probe) => (await computerCheck(p, 'darwin')()).checks[2];
+    // Offline is offline even just after Docker started: it isn't a slow first container.
+    expect(await sandboxRow(probe({ startedAt: () => 0, sandbox: async () => offline }))).toEqual({ id: 'sandbox', state: 'problem', reason: { kind: 'offline', text: offline.detail } });
+    // Docker's own causes (a folder to share, its sign-in helper) say so once Docker has had its first minutes.
+    const mount = { ok: false, kind: 'docker' as const, detail: "Docker couldn't start a test container with Codemm's folder mounted (mounts denied). Codemm keeps what a check mounts in /Users/me/.codemm/runs. If the engine says it can't see that folder, share it with the engine (Colima and Rancher Desktop share only your home folder by default), then try again." };
+    expect(await sandboxRow(probe({ sandbox: async () => mount }))).toEqual({ id: 'sandbox', state: 'problem', reason: { kind: 'docker', text: mount.detail } });
+    expect(await sandboxRow(probe({ startedAt: () => 0, sandbox: async () => mount }))).toEqual({ id: 'sandbox', state: 'problem', detail: 'checking' });
+    // An inconclusive one says what it saw, and that it is a guess.
+    const slow = { ok: false, kind: 'docker' as const, detail: 'inconclusive: Docker took more than 3 minutes to download the test image. Check the connection and that Docker is responding, then try again.' };
+    expect(await sandboxRow(probe({ sandbox: async () => slow }))).toEqual({
+      id: 'sandbox', state: 'problem', reason: { kind: 'docker', text: 'Docker took more than 3 minutes to download the test image. Check the connection and that Docker is responding, then try again.', inconclusive: true },
+    });
+    // With no cause known, there is nothing to say but Restart Docker.
+    expect(await sandboxRow(probe({ sandbox: async () => FAIL }))).toEqual({ id: 'sandbox', state: 'problem' });
   });
 
   it('logs why the sandbox check failed, once per reason, and nothing when it passes', async () => {

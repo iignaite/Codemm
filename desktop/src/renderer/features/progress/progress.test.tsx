@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { CodemmApi } from '../../../shared/api';
 import { timing } from '../../app/useLoad';
-import { mockWithCourse, renderApp } from '../../test-utils';
+import { mockWithCourse, mockWithRoadmap, renderApp } from '../../test-utils';
 
 async function master(api: CodemmApi, topics: number) {
   for (let i = 0; i < topics; i++) {
@@ -137,6 +137,9 @@ describe('course map', () => {
     renderApp({ to: 'learn' }, api);
     await user.click(await screen.findByRole('button', { name: 'View course' }));
     const map = await screen.findByRole('list', { name: 'Topics' });
+    // Every leaf is mastered, and nothing is left to continue.
+    expect(within(map).getAllByRole('img', { name: 'Mastered' })).toHaveLength(course.topics.length);
+    expect(within(map).queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
     await user.click(within(map).getByRole('button', { name: 'JSX' }));
     expect(await screen.findByRole('heading', { name: 'JSX', level: 1 })).toBeInTheDocument();
   });
@@ -161,6 +164,142 @@ describe('course map', () => {
   });
 });
 
+describe('course path', () => {
+  const items = async () => within(await screen.findByRole('list', { name: 'Topics' })).getAllByRole('listitem');
+
+  it('is one list item per topic, marks where the learner is, and says how far into its lessons', async () => {
+    const { api, course } = await mockWithCourse();
+    await api.markRead(course.topics[0].lessons[0].id);
+    renderApp({ to: 'learn' }, api);
+    const all = await items();
+    expect(all).toHaveLength(course.topics.length);
+    expect(all[0]).toHaveAttribute('aria-current', 'step');
+    expect(all.slice(1).filter((li) => li.hasAttribute('aria-current'))).toEqual([]);
+    expect(all[0]).toHaveTextContent(`Lessons 1 of ${course.topics[0].lessons.length}`);
+  });
+
+  it('says the lessons are done once all are read', async () => {
+    const { api } = await mockWithCourse({ read: true });
+    renderApp({ to: 'learn' }, api);
+    const [first] = await items();
+    expect(within(first).getByText('Lessons')).toBeInTheDocument();
+    expect(first).not.toHaveTextContent(/of \d/);
+  });
+
+  it('keeps a skipped topic on the path as Later, and moves Now to the next topic ready', async () => {
+    const { api, course } = await mockWithCourse();
+    await api.skip(course.topics[0].id);
+    renderApp({ to: 'learn' }, api);
+    const all = await items();
+    expect(within(all[0]).getByRole('img', { name: 'Later' })).toBeInTheDocument();
+    const now = all.findIndex((li) => li.getAttribute('aria-current') === 'step');
+    expect(now).toBeGreaterThan(0);
+    expect(within(all[now]).getByRole('img', { name: 'Now' })).toBeInTheDocument();
+    expect(within(all[now]).getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+  });
+
+  it('puts an easier topic before the one it helps, as the one to do now', async () => {
+    const { api } = await mockWithCourse();
+    await master(api, 2);
+    const stuck = (await api.course())!.topics.find((t) => t.state === 'now')!;
+    await api.easier(stuck.id);
+    renderApp({ to: 'learn' }, api);
+    const all = await items();
+    expect(all[2]).toHaveTextContent(`${stuck.title}: first steps`);
+    expect(all[2]).toHaveAttribute('aria-current', 'step');
+    expect(within(all[3]).getByRole('img', { name: 'Later' })).toBeInTheDocument();
+  });
+
+  it('says a review is being written, with nothing to press until it is', async () => {
+    const { api } = await mockWithCourse();
+    await master(api, 2);
+    const real = (await api.course())!;
+    api.course = async () => ({ ...real, topics: real.topics.map((t, i) => (i === 0 ? { ...t, review: 'writing' as const, activity: 'writing' as const } : t.state === 'now' ? { ...t, state: 'later' as const } : t)) });
+    renderApp({ to: 'learn' }, api);
+    const [first] = await items();
+    expect(first).toHaveAttribute('aria-current', 'step');
+    expect(within(first).getByText('Writing the review')).toBeInTheDocument();
+    expect(within(first).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('shows setup progress while the track sets up, and the path stays usable', async () => {
+    const { api, roadmap } = await mockWithRoadmap({ slow: 2 });
+    await api.approve(roadmap.concepts);
+    renderApp({ to: 'learn' }, api);
+    const setup = await screen.findByRole('region', { name: 'Setting up React' }, { timeout: 10_000 });
+    expect(within(setup).getByRole('progressbar', { name: 'Setting up React' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+    // Once setup waits for consent, the topic page asks; the map stops showing progress.
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Setting up React' })).not.toBeInTheDocument(), { timeout: 10_000 });
+  });
+
+  it('shows building once the learner consents', async () => {
+    const { api, roadmap } = await mockWithRoadmap({ slow: 2 });
+    await api.approve(roadmap.concepts);
+    let course = (await api.course())!;
+    while (course.setup !== 'consent') course = (await api.course())!;
+    await api.install(course.proposal!.digest);
+    renderApp({ to: 'learn' }, api);
+    const setup = await screen.findByRole('region', { name: 'Setting up React' }, { timeout: 10_000 });
+    await waitFor(() => expect(within(setup).getByText('Building')).toHaveAttribute('aria-current', 'step'));
+  });
+
+  it('is green only between topics reached, so topics passed over sit on grey', async () => {
+    // Mastered, mastered, then the current topic: the two joins between them are green, each drawn from both sides.
+    const { api, course } = await mockWithCourse();
+    await master(api, 2);
+    const { container, unmount } = renderApp({ to: 'learn' }, api);
+    await items();
+    expect(container.querySelectorAll('.seg.on')).toHaveLength(4);
+    unmount();
+    // Skipping the first topic moves Now past locked ones: nothing between them was reached.
+    const fresh = await mockWithCourse();
+    await fresh.api.skip(course.topics[0].id);
+    const again = renderApp({ to: 'learn' }, fresh.api);
+    await items();
+    expect(again.container.querySelectorAll('.seg.on')).toHaveLength(0);
+  });
+
+  it("heads the map with the course's title and the goal under it, or the goal alone", async () => {
+    const { api } = await mockWithCourse();
+    const real = (await api.course())!;
+    const goal = 'I want to build interactive web apps with React for my final-year project';
+    api.course = async () => ({ ...real, goal, title: 'React' });
+    const view = renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('heading', { level: 1, name: 'React' })).toBeInTheDocument();
+    expect(within(screen.getByRole('main')).getByText(goal).tagName).toBe('P');
+    view.unmount();
+    // A course without its own words has the goal as its title: the goal shows once.
+    api.course = async () => ({ ...real, goal, title: goal });
+    renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('heading', { level: 1, name: goal })).toBeInTheDocument();
+    expect(within(screen.getByRole('main')).getAllByText(goal)).toHaveLength(1);
+  });
+
+  it('counts the topics mastered', async () => {
+    const { api } = await mockWithCourse();
+    await master(api, 2);
+    renderApp({ to: 'learn' }, api);
+    expect(await screen.findByRole('region', { name: 'Mastery' })).toHaveTextContent('2 of 8 topics');
+  });
+
+  it('goes along the path by keyboard: each mastered topic, then Continue, which Enter opens', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    await master(api, 2);
+    renderApp({ to: 'learn' }, api);
+    const map = await screen.findByRole('list', { name: 'Topics' });
+    const order: string[] = [];
+    for (let i = 0; i < 20 && order.length < 3; i++) {
+      await user.tab();
+      if (map.contains(document.activeElement)) order.push(document.activeElement!.textContent!);
+    }
+    expect(order).toEqual(['JavaScript basics', 'JSX', 'Continue']);
+    await user.keyboard('{Enter}');
+    expect(await screen.findByRole('heading', { name: 'Components', level: 1 })).toBeInTheDocument();
+  });
+});
+
 describe('usage', () => {
   const usage = (over: Partial<NonNullable<Awaited<ReturnType<CodemmApi['usage']>>>> = {}) => ({
     kinds: {},
@@ -168,33 +307,31 @@ describe('usage', () => {
     ...over,
   });
 
-  it("shows the course's tokens, and Claude's cost as its estimate once, with no claim about billing", async () => {
+  it("shows the course's estimated cost, with no agent name, token counts or claim about billing", async () => {
     const { api } = await mockWithCourse();
     api.usage = async () => usage();
     renderApp({ to: 'learn' }, api);
     const section = await screen.findByRole('region', { name: 'Usage' });
-    expect(section).toHaveTextContent('Tokens in182,400');
-    expect(section).toHaveTextContent('Tokens out12,300');
-    expect(section).toHaveTextContent("Claude's estimate$0.42");
-    // The row's label says it's an estimate; no footnote says it again.
-    expect(section.textContent!.match(/estimate/g)).toHaveLength(1);
-    // Codemm can't tell a plan from an API key, so it says nothing about either.
+    expect(section).toHaveTextContent('Estimated cost$0.42');
+    // Agent names stay on the connect screen, and token counts are the agent's bookkeeping.
+    expect(section).not.toHaveTextContent('Claude');
+    expect(section).not.toHaveTextContent(/token/i);
+    // Codemm can't tell a plan from an API key, so it says nothing about either, and promises nothing about charges.
     expect(section).not.toHaveTextContent('plan');
-    // No promise about charges: Codemm can't tell a plan from an API key.
     expect(section).not.toHaveTextContent('charge');
   });
 
-  it('shows no cost when none was reported, and refreshes as jobs finish', async () => {
+  it('shows nothing until the agent reports a cost, then refreshes as jobs finish', async () => {
     const { api } = await mockWithCourse();
     let total = { input: 10, output: 2, cachedInput: 0, costUsd: 0, runs: 1 };
     api.usage = async () => usage({ total });
     renderApp({ to: 'learn' }, api);
-    const section = await screen.findByRole('region', { name: 'Usage' });
-    expect(section).not.toHaveTextContent('estimate');
+    await screen.findByRole('list', { name: 'Topics' });
+    expect(screen.queryByRole('region', { name: 'Usage' })).not.toBeInTheDocument();
     // Whenever the map reads the course again (here: the window regains focus), it reads usage too.
-    total = { ...total, input: 500, runs: 2 };
+    total = { ...total, costUsd: 0.004, runs: 2 };
     window.dispatchEvent(new Event('focus'));
-    await waitFor(() => expect(section).toHaveTextContent('Tokens in500'));
+    expect(await screen.findByRole('region', { name: 'Usage' })).toHaveTextContent('Estimated costunder $0.01');
   });
 
   it('is hidden until an agent has run for the course', async () => {

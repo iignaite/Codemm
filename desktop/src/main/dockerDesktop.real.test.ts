@@ -3,12 +3,13 @@
 // of installing. CODEMM_REAL_DOCKER_DOWNLOAD=1 npx vitest run src/main/dockerDesktop.real.test.ts
 import { describe, expect, it } from 'vitest';
 import { dockerDesktop, nodeDesktopDeps } from './dockerDesktop';
+import { fetchGet } from './download';
 
 const real = process.env.CODEMM_REAL_DOCKER_DOWNLOAD === '1' && process.platform === 'darwin';
 
 describe.skipIf(!real)("Docker's real download (opt-in)", () => {
   it('downloads Docker Desktop for this Mac and accepts it only because Docker signed it', { timeout: 20 * 60_000 }, async () => {
-    const deps = nodeDesktopDeps();
+    const deps = nodeDesktopDeps({ get: fetchGet, arch: process.arch });
     const ran: string[] = [];
     const progress: number[] = [];
     let dir = '';

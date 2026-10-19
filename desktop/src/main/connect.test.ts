@@ -29,6 +29,22 @@ describe('connect (§3.1, §3.3)', () => {
     expect((await c.chosen()).id).toBe('codex');
   });
 
+  it("an agent whose sign-in check can't answer (a timeout, or offline) isn't called signed out: the next look asks again", async () => {
+    let answer: boolean | null = null;
+    const s = state();
+    s.update((x) => ({ ...x, agent: 'claude' }));
+    const c = connector(lookup({ signedIn: async () => answer }), s);
+    // The agent connected before stays connected: nothing says it signed out.
+    expect((await c.agents()).find((a) => a.id === 'claude')!.state).toBe('connected');
+    expect(await c.recheck('claude')).toBeNull();
+    // A job doesn't stop as signed out on it: it runs, and its own result says the rest.
+    expect((await c.chosen()).id).toBe('claude');
+    // Connect connects: only the agent's own no asks the learner to sign in.
+    expect((await c.connect('codex')).state).toBe('connected');
+    answer = false;
+    expect((await c.connect('claude')).state).toBe('signed-out');
+  });
+
   it('lists each agent: installed or not, tested version or not, recommended model and experimental', async () => {
     const agents = await connector(lookup(), state()).agents();
     expect(agents.map((a) => [a.id, a.state, a.untested, a.experimental])).toEqual([

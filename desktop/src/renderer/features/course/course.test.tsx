@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { SIGNED_OUT, type CodemmApi, type JobProgress, type Roadmap, type RoadmapChange } from '../../../shared/api';
+import { SIGNED_OUT, type CodemmApi, type Concept, type JobProgress, type Roadmap, type RoadmapChange } from '../../../shared/api';
 import type { MockOptions } from '../../../main/mock';
 import { mockWithRoadmap, renderApp } from '../../test-utils';
 
@@ -26,6 +26,8 @@ describe('roadmap sources', () => {
     const link = within(sources).getByRole('link', { name: 'React docs' });
     expect(link).toHaveAttribute('href', 'https://react.dev/learn');
     expect(link).toHaveAttribute('target', '_blank');
+    // Under the heading, above the topics, so a long roadmap doesn't push them out of view.
+    expect(sources.compareDocumentPosition(screen.getByRole('list', { name: 'Roadmap' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     view.unmount();
     renderApp({ to: 'course', roadmap: { ...roadmap, sources: [] } }, api);
     await screen.findByRole('heading', { name: 'React' });
@@ -95,6 +97,40 @@ describe('course editor', () => {
     await waitFor(() => expect(asked).toHaveLength(1));
     expect(asked[0]).toContain('Go deeper on "JSX"');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled());
+  });
+
+  it('labels Go deeper in words, and names the other row buttons on hover', async () => {
+    await open();
+    expect(screen.getByRole('button', { name: 'Go deeper on JSX' })).toHaveTextContent('Go deeper');
+    expect(screen.getByRole('button', { name: 'Rename JSX' })).toHaveAttribute('title', 'Rename');
+    expect(screen.getByRole('button', { name: 'Remove JSX' })).toHaveAttribute('title', 'Remove');
+    expect(screen.getByRole('button', { name: 'Move JSX' })).toHaveAttribute('title', 'Move');
+  });
+
+  it("keeps the learner's title on the topic it splits, even when the agent renames it", async () => {
+    const asked: string[] = [];
+    const saved: Concept[][] = [];
+    const { api, roadmap, user } = await open();
+    api.saveDraft = async (concepts) => void saved.push(concepts);
+    api.reviseRoadmap = async (concepts, request) => {
+      asked.push(request);
+      // The agent splits JSX: it keeps the id for the first piece but retitles it, and adds the next piece.
+      const split = concepts.flatMap((c) => (c.id === 'jsx' ? [{ ...c, title: 'What is JSX?' }, { id: 'jsx-expressions', title: 'JSX expressions', requires: ['jsx'] }] : [c]));
+      return { roadmap: { ...roadmap, concepts: split }, changed: true, text: '' };
+    };
+    await user.click(screen.getByRole('button', { name: 'Rename JSX' }));
+    await user.clear(screen.getByRole('textbox', { name: 'Topic name' }));
+    await user.type(screen.getByRole('textbox', { name: 'Topic name' }), 'JSX basics{Enter}');
+    saved.length = 0;
+    await user.click(screen.getByRole('button', { name: 'Go deeper on JSX basics' }));
+    expect(await screen.findByRole('listitem', { name: 'JSX expressions' })).toBeInTheDocument();
+    expect(names()).toContain('JSX basics');
+    expect(names()).not.toContain('What is JSX?');
+    expect(asked[0]).toContain('"JSX basics"');
+    // The restored title is saved with the split, so the draft keeps it too.
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]!.map((c) => c.title)).toEqual(expect.arrayContaining(['JSX basics', 'JSX expressions']));
+    expect(saved[0]!.map((c) => c.title)).not.toContain('What is JSX?');
   });
 
   it('keeps a topic name and a requested change within their limits, and says so', async () => {
@@ -207,7 +243,7 @@ describe('course editor', () => {
 });
 
 describe('a long roadmap', () => {
-  it('keeps Approve on screen: its row stays at the bottom while the roadmap scrolls', async () => {
+  it('scrolls its topics above a footer of its own, so Approve never covers the Ask box', async () => {
     // The real stylesheet (tests run from desktop/), so the computed style is the one the window uses.
     const sheet = document.createElement('style');
     sheet.textContent = readFileSync(resolve('src/renderer/styles/app.css'), 'utf8');
@@ -215,8 +251,11 @@ describe('a long roadmap', () => {
     const { roadmap } = await mockWithRoadmap();
     renderApp({ to: 'course', roadmap });
     const approve = await screen.findByRole('button', { name: 'Approve' });
-    expect(getComputedStyle(approve.parentElement!).position).toBe('sticky');
-    expect(getComputedStyle(approve.parentElement!).bottom).toBe('-40px');
+    const body = screen.getByRole('list').closest('.editor-body')!;
+    expect(getComputedStyle(body).overflowY).toBe('auto');
+    const foot = approve.closest('footer')!;
+    expect(body.contains(foot)).toBe(false);
+    expect(foot).toContainElement(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }));
     sheet.remove();
   });
 });
