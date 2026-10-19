@@ -40,6 +40,8 @@ case "$1" in
     m() { printf '\n@@codemm-run %s\n' "$*" >&2; }
     # nospace: the container can't even start, because Docker's disk is full (a Run or a check alike).
     [ "$FAKE_DOCKER" = nospace ] && { echo "docker: Error response from daemon: mkdir /var/lib/docker/overlay2/x: no space left on device." >&2; exit 125; }
+    # nosh: an image without /bin/sh, which every run starts with.
+    [ "$FAKE_DOCKER" = nosh ] && { echo 'docker: Error response from daemon: failed to create task for container: OCI runtime create failed: runc create failed: unable to start container process: exec: "/bin/sh": stat /bin/sh: no such file or directory: unknown.' >&2; exit 127; }
     case "$FAKE_DOCKER" in
       interactive) m start run; printf 'name? '; read -r name; echo "hello $name"; echo "a warning" >&2; m end run 0; exit 0 ;;
       waits) m start run; while read -r line; do :; done; exit 0 ;;

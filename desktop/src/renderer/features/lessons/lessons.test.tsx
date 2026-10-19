@@ -234,7 +234,7 @@ describe('topic page and setup consent', () => {
     expect(await screen.findByRole('heading', { name: 'Check this computer' })).toBeInTheDocument();
   });
 
-  it("says when Docker was busy during setup, with Try again only: Docker isn't stopped", async () => {
+  it("says when Docker was busy during setup, with Stop and Try again: Docker isn't stopped", async () => {
     const user = userEvent.setup();
     const { api } = await approved({ setupProblem: 'docker-busy' });
     renderApp({ to: 'topic', topicId: TOPIC }, api);

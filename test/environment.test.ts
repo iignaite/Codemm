@@ -163,6 +163,16 @@ describe.runIf(posix)("a check that loses Docker mid-run", () => {
   });
 });
 
+describe.runIf(posix)("a track image without /bin/sh", () => {
+  it("is the track's to fix, not Docker's, and records nothing", async () => {
+    const ws = await installedExercise();
+    fakeDocker("nosh");
+    const failure = await app.checkExercise(ws).catch((e: Error) => e);
+    expect(failure).toMatchObject({ name: "CodemmError", kind: undefined, code: undefined, message: expect.stringMatching(/^The track image can't run \/bin\/sh \(exit 127\)/) });
+    expect(store.readEvents("shell")).toEqual([]);
+  });
+});
+
 describe.runIf(posix)("a check whose program is killed", () => {
   it.each([
     ["caseoom", /^It ran out of memory \(memory_mb 128\)/],

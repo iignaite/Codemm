@@ -9,14 +9,11 @@ import { assertId, type FileMap, validateFileMap } from "./files.js";
 type Result = { content: { type: "text"; text: string }[]; isError?: boolean };
 
 /**
- * A failure's tool output. One that carries a code (this computer's problem) or a kind starts with the line
- * `codemm:<code or kind>`, which only Codemm writes there: callers (the desktop) act on it, never on the wording or on
- * any output the message quotes.
+ * A failure's tool output. Its first line is always Codemm's own, `codemm:<code, kind or "error">`, so no text the
+ * message quotes (a build log, a runner, the agent's own files) can stand there: callers (the desktop) act on it,
+ * never on the wording.
  */
-const failed = (e: CodemmError): Result => {
-  const tag = e.code ?? e.kind;
-  return { isError: true, content: [{ type: "text", text: tag ? `codemm:${tag}\n${e.message}` : e.message }] };
-};
+const failed = (e: CodemmError): Result => ({ isError: true, content: [{ type: "text", text: `codemm:${e.code ?? e.kind ?? "error"}\n${e.message}` }] });
 
 /** Runs a use case and turns its result, or any error, into tool output the agent may see. */
 async function respond(work: () => unknown): Promise<Result> {
@@ -29,7 +26,7 @@ async function respond(work: () => unknown): Promise<Result> {
     if ((e as NodeJS.ErrnoException).code === "ENOSPC") return failed(infraError("This computer ran out of disk space, so nothing was saved. Free some space, then retry.", "host-disk"));
     // Unexpected errors may carry internal data (paths, record contents); never pass their text to the agent.
     if (process.env.CODEMM_DEBUG === "1") process.stderr.write(`${(e as Error).stack ?? String(e)}\n`);
-    return { isError: true, content: [{ type: "text", text: "Codemm hit an unexpected error. Run `codemm doctor`; set CODEMM_DEBUG=1 for details." }] };
+    return failed(new CodemmError("Codemm hit an unexpected error. Run `codemm doctor`; set CODEMM_DEBUG=1 for details."));
   }
 }
 

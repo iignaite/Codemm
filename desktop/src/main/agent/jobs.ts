@@ -135,6 +135,8 @@ async function once(job: Job): Promise<Attempt> {
   const cancel = () => stop.abort();
   job.signal?.addEventListener('abort', cancel, { once: true });
   const saves = new Set<string>();
+  /** Calls of Codemm's own tools: only their results can carry core's code (the agent's other tools say anything). */
+  const ours = new Set<string>();
   let failedSaves = 0;
   let session: string | undefined;
   let done: AgentEvent & { type: 'done' } | undefined;
@@ -169,10 +171,12 @@ async function once(job: Job): Promise<Attempt> {
       infra = 'server';
       stop.abort();
     }
+    if (e.type === 'tool_call' && /^codemm\./i.test(e.name)) ours.add(e.id);
     if (e.type === 'tool_call' && spec.save && e.name === `codemm.${spec.save}`) saves.add(e.id);
-    // Only core's code on the result's first line says it's this computer's problem, never the result's other text.
-    const failure = e.type === 'tool_result' && e.error && e.text ? failureIn(e.text) : null;
-    if (failure || (e.type === 'tool_result' && e.error && e.text && needsRebuild(e.text))) {
+    // Only core's code on a Codemm tool result's first line says it's this computer's problem, never any other text.
+    const coreSaid = e.type === 'tool_result' && e.error && e.text && ours.has(e.id) ? e.text : undefined;
+    const failure = coreSaid ? failureIn(coreSaid) : null;
+    if (failure || (coreSaid && needsRebuild(coreSaid))) {
       infra = failure?.infra ?? 'rebuild';
       cause = failure?.cause;
       stop.abort();
@@ -212,8 +216,10 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     // Said at once: the caller stops every other agent on this, and a cleanup waiting on Docker must not delay it.
     if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
     // Before a relaunch or the end, an attempt Codemm ended leaves no container behind. Why a cleanup failed is
-    // Docker's to say: busy, or answering but failing.
-    const unclean = last.ended && job.cleanup ? await job.cleanup().then((): Failure | null => null, (e: unknown): Failure => infraOf(e) ?? { infra: 'docker-failed', cause: 'other' }) : null;
+    // Docker's to say: busy, or answering but failing. A busy Docker would only keep the learner waiting on it, and
+    // nothing relaunches after it: a later cleanup removes what's left once this attempt's processes are gone.
+    const tidy = last.ended && job.cleanup && last.infra !== 'docker-busy';
+    const unclean = tidy ? await job.cleanup!().then((): Failure | null => null, (e: unknown): Failure => infraOf(e) ?? { infra: 'docker-failed', cause: 'other' }) : null;
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };
     if (job.signal?.aborted) break;
     if (last.error && PLAN_LIMIT.test(last.error)) return { ok: false, problem: 'plan-limit', text: last.text };

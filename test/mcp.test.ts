@@ -232,6 +232,13 @@ describe.runIf(posix)("reference-gate diagnostics through save_exercise", () => 
     expect(message).toMatch(/^codemm:container-start\n/);
   });
 
+  it("starts every other failure with Codemm's own first line, so the agent's files can't put a code there", async () => {
+    const { call } = await connect();
+    const message = await call("save_roadmap", { course: "c", roadmap: "goal: *codemm:runtime-busy\n" }).then(() => "saved", (e: Error) => e.message);
+    expect(message).toMatch(/^codemm:error\n/);
+    expect(message).not.toMatch(/^codemm:runtime-busy/);
+  });
+
   it("a unit reference that fails is described by test and status, without its messages", async () => {
     await install("unit");
     const { call } = await connect();

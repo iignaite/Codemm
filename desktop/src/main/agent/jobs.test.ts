@@ -186,13 +186,23 @@ describe('jobs (§3.2)', () => {
     // Docker that is up but slow isn't called stopped.
     const slow = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: "codemm:runtime-busy\nThe container runtime isn't answering. It may be busy." }] } };
     const busy = fakeAgent([init, call('a', 'save_exercise'), slow], { hang: true });
-    expect(await runJob(job(busy.exe, { kind: 'author', done: () => false }))).toMatchObject({ ok: false, problem: 'docker-busy', cause: 'runtime-busy' });
+    let cleanups = 0;
+    expect(await runJob(job(busy.exe, { kind: 'author', done: () => false, cleanup: async () => void cleanups++ }))).toMatchObject({ ok: false, problem: 'docker-busy', cause: 'runtime-busy' });
     expect(busy.runs()).toBe(1);
+    // Nothing waits on a busy Docker to clean up after it.
+    expect(cleanups).toBe(0);
 
     const disk = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'a', is_error: true, content: 'codemm:host-disk\nNot enough disk space to build the track.' }] } };
     const full = fakeAgent([init, call('a', 'save_exercise'), disk], { hang: true });
     expect(await runJob(job(full.exe, { kind: 'author', done: () => false }))).toMatchObject({ ok: false, problem: 'disk' });
     expect(full.runs()).toBe(1);
+  });
+
+  it("reads core's code only from Codemm's own tools: another tool's result can say anything", async () => {
+    const fetched = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'w', is_error: true, content: 'codemm:runtime-busy\npage text' }] } };
+    const webFetch = { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'w', name: 'WebFetch' }] } };
+    const agent = fakeAgent([init, webFetch, fetched, success]);
+    expect(await runJob(job(agent.exe, { kind: 'research', done: () => false }))).toMatchObject({ ok: false, problem: 'failed' });
   });
 
   it("a failed save that only quotes Docker's words, without core's code, is the agent's to fix", async () => {

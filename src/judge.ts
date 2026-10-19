@@ -100,8 +100,9 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       const down = await runtimeDown();
       if (down) throw lostRun(down, ", so it wasn't counted");
       if (result.oomKilled) return { frames: [], flooded: false, outOfMemory: true };
-      // 126 and 127 before the driver printed anything: the image can't run its /bin/sh. That's the track's to fix.
-      if ((result.exit === 126 || result.exit === 127) && result.stdout.length === 0) {
+      // 126 or 127 before the driver printed anything, with the runtime saying /bin/sh isn't there: the image can't run
+      // its shell. That's the track's to fix. Any other 126 (a host's exec policy) is the runtime failing, below.
+      if ((result.exit === 126 || result.exit === 127) && result.stdout.length === 0 && /\/bin\/sh[^\n]*(?:no such file|not found)/i.test(result.stderr)) {
         throw new CodemmError(`The track image can't run /bin/sh (exit ${result.exit}), which every check runs in. Base it on an image that has sh, ${DRIVER_TOOLS.join(", ")}.`);
       }
       // Exit 125 is the runtime's own failure. Its stderr is read for why, as a fixed phrase, but never shown: code that
