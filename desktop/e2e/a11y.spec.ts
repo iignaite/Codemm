@@ -97,7 +97,7 @@ test('every screen of the journey passes WCAG AA checks', async ({ launch }) => 
   await button(page, 'Approve').click();
   const consent = page.getByRole('dialog', { name: 'Set up React on this computer?' });
   await audit(page, 'setup consent');
-  await consent.getByText('Details').click();
+  await consent.getByText('Show the files').click();
   await audit(page, 'setup consent, details');
   // Not now: a lesson offers setup without blocking the reading.
   await consent.getByRole('button', { name: 'Not now', exact: true }).click();
@@ -263,7 +263,7 @@ test('the setup consent fits the window at 200% zoom, scrolls, and keeps its act
   await zoom(app, 2);
   await button(page, 'Approve').click();
   const consent = page.getByRole('dialog', { name: 'Set up React on this computer?' });
-  await consent.getByText('Details').click();
+  await consent.getByText('Show the files').click();
   const box = (await consent.boundingBox())!;
   const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
   expect(box.y).toBeGreaterThanOrEqual(0);

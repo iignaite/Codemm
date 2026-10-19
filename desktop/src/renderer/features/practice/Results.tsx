@@ -78,7 +78,7 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
       <div className="outcome">
         <Emm mood="soft" width={130} name={name} />
         <div className="stack">
-          <h2 className="h2 a-up">This check wasn't counted</h2>
+          <h2 className="h2 a-up">{shown.kind === 'try' ? "Try it didn't run" : "This check wasn't counted"}</h2>
           <p className="sub a-up" style={stagger(1)}>{result.reason}</p>
           <div className="actions a-up" style={stagger(2)}>
             <Button size="lg" onClick={ways.retry}>Try again</Button>

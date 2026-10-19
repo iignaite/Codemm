@@ -2,22 +2,22 @@ import { trackImageTag } from "./store.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CodemmError } from "./errors.js";
+import { CodemmError, infraError } from "./errors.js";
 import { type FileMap, subMap, validateFileMap, writeFileMap } from "./files.js";
 import { CASE_OUTPUT_MB, caseDigest, type Expected, gradeRuns, type IoRun, type RawCase, recordOutput, redact, type Runs, type TestResult, type UnitRun } from "./grading.js";
 import { GENERATOR_SECONDS, generatorFailed, type JudgeTrack, runSets } from "./judge.js";
-import { buildImage, type BuildStep, infraKind, inspectImage } from "./sandbox.js";
+import { buildImage, type BuildStep, inspectImage } from "./sandbox.js";
 import {
   type CourseRecord, type ExerciseRecord, type ExerciseSpec, LIMITS, parseExerciseYaml, parseTrackYaml, type Style, type TrackRecord, type TrackSpec,
 } from "./schemas.js";
 
-/** A gate failed. The message names the gate and never contains hidden inputs or outputs. */
+/**
+ * A gate failed: the track's or the exercise's to fix. The message names the gate and never contains hidden inputs or
+ * outputs. This computer's problems are never gate failures: they throw with their own code (errors.ts INFRA).
+ */
 export class GateError extends CodemmError {
   constructor(gate: string, details: string, output = "") {
-    // A failure whose details show this computer's problem (a build that lost Docker) isn't the track's: its kind
-    // tells the desktop to keep the proposal. What the track's own code printed never sets the kind: a probe that
-    // fills its /tmp says "no space left on device" too.
-    super(`Gate "${gate}" failed: ${details}${output}`, infraKind(details));
+    super(`Gate "${gate}" failed: ${details}${output}`);
   }
 }
 
@@ -151,7 +151,7 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
     const built = await buildImage(context, image, undefined, onProgress && ((step) => onProgress({ phase: "building", ...step })));
     builtId = built.imageId ?? "";
     // Offline, out of disk or no runtime isn't the track's fault, so it's no gate failure.
-    if (built.problem) throw new CodemmError(built.problem.message, built.problem.kind);
+    if (built.problem) throw infraError(built.problem.message, built.problem.code);
     if (!built.ok) throw new GateError("build", "the image didn't build.", printed(built.log));
   } finally {
     rmSync(context, { recursive: true, force: true });
