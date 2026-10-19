@@ -99,6 +99,21 @@ async function mountProblem(name: string): Promise<Check | undefined> {
   }
 }
 
+/** The first IPv4 address among a container's networks, from `inspect --format '{{json .}}'`. */
+function bridgeIp(output: string): string | undefined {
+  for (const line of output.split("\n")) {
+    if (!line.trim().startsWith("{")) continue;
+    try {
+      const record = JSON.parse(line) as { NetworkSettings?: { Networks?: Record<string, { IPAddress?: unknown }> | null } };
+      const ips = Object.values(record.NetworkSettings?.Networks ?? {}).map((n) => n?.IPAddress);
+      return ips.find((ip): ip is string => typeof ip === "string" && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip));
+    } catch {
+      // Not the record.
+    }
+  }
+  return undefined;
+}
+
 /**
  * Proves the sandbox can't reach a server that an ordinary container can.
  * The server runs in an ordinary container, not on the host, so the host's firewall never decides the result.
@@ -115,9 +130,10 @@ export async function networkIsolation(): Promise<Check> {
   try {
     const started = await cli(["run", "-d", "--rm", "--name", server, "--label", OWNER_LABEL, "--label", `codemm.pid=${process.pid}`, PROBE_IMAGE, "sh", "-c", PROBE_SERVER], 120_000);
     if (started.exit !== 0) return { name, ok: false, detail: `inconclusive: the test server's container failed (${firstLine(started.output)})` };
-    const inspected = await cli(["inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", server]);
-    const ip = inspected.output.trim().split("\n").pop() ?? "";
-    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return { name, ok: false, detail: "inconclusive: the test server's container has no bridge IP" };
+    // The whole record as JSON, read here: a template that names a key one Docker version leaves out fails.
+    const inspected = await cli(["inspect", "--format", "{{json .}}", server]);
+    const ip = bridgeIp(inspected.output);
+    if (!ip) return { name, ok: false, detail: "inconclusive: the test server's container has no bridge IP" };
     const url = `http://${ip}:8080/`;
     // A few tries, since the server's container may still be starting; wget's errors stay out of the answer.
     const control = await cli(["run", "--rm", PROBE_IMAGE, "sh", "-c", `for i in 1 2 3 4 5; do wget -q -T 2 -O- "${url}" 2>/dev/null && exit 0; sleep 1; done; exit 1`], 120_000);
