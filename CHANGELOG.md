@@ -1,7 +1,15 @@
 # Changelog
 
-## Unreleased
+## 1.0.0-beta.3
 
+- **Works with Docker 29.** The newest Docker Desktop (Mac and Windows) leaves an empty field out of image records, which made every setup, Try it and regenerate fail with "Docker stopped". Codemm now reads Docker's records in a way that doesn't depend on that, and CI also tests against the newest Docker Engine.
+- **"Docker stopped" only when it is.** A busy Docker, or one that couldn't run something, now says so and offers Try again; the app log names the real cause. Words in a program's own output never stall a job any more.
+- **A memory crash is always graded.** When Docker reports a memory kill late, Codemm asks again, so a learner's out-of-memory run is graded instead of going uncounted.
+- **Sign-in checks that wait.** A slow sign-in check is no longer read as "signed out".
+- **Install and check this computer on real machines.** Docker Desktop's installer runs with admin rights on Windows; sign-in shows its own window; Codemm checks the OS and the real chip before downloading, uses the system's proxy, and offers Docker Desktop when only a `docker` command is installed. Colima, Rancher Desktop, OrbStack and Podman folders are found, and a check's files live under Codemm's own folder so every engine can mount them.
+- **Heavy test cases.** Generated inputs, outputs up to 32 MB, cases up to 120 s, and tracks for Java, Maven and Gradle that build their dependencies in, so tests run offline. Results show your file names, not container paths or exit codes.
+- **Several courses.** Keep more than one course; each runs and stalls on its own, and a relaunch goes back to the course you were in. Opening Codemm twice brings up the open window.
+- **The learning path.** The course map is a path you move along, and every long job (research, setup, writing, a check) shows its progress on every screen.
 - **Diagrams and charts in lessons.** Your agent can add a flowchart, a sequence, state or class diagram, a pie chart or an xy chart where a picture teaches better than words. The app draws them on this computer, in its own fonts and colors, with a text description for screen readers. A diagram that doesn't draw shows its source instead.
 
 ## 1.0.0-beta.2
