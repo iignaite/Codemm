@@ -43,7 +43,7 @@ Each item is verified by an automated test unless marked *journey*. Journeys run
 
 - **Desktop app:** macOS (Apple Silicon and Intel) and Windows 11 x64, with Docker Desktop. Its journeys with real agents on packaged builds (desktop D17 and D18) come before the private beta.
 - **Terminal, verified:** macOS with Docker Desktop (A14 to A16), and Linux in CI with Docker. Core unit tests also run on Windows in CI.
-- **Experimental:** Podman, and terminal use on Windows through WSL 2. The code supports them, but they are not verified with a real agent.
+- **Experimental:** Podman and other engines with a Docker-compatible CLI (Colima, Rancher Desktop, OrbStack), and terminal use on Windows through WSL 2. The code supports them, but they are not verified with a real agent. What they share with the verified engine is that the self-test (§4.3) proves the engine can mount Codemm's run folders.
 
 The desktop app, the private beta and the minimum model per agent are in scope for 1.0 ([desktop/DESIGN.md](desktop/DESIGN.md), [beta-plan.md](desktop/beta-plan.md)). The minimum models come from a small bench of the terminal flow ([bench/results.md](bench/results.md)); the desktop's per-job flow isn't benchmarked yet.
 
@@ -112,7 +112,7 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
 
 ### 4.2 Running a check
 
-- **One container per test set.** Visible and hidden tests run in separate containers, so code running against visible tests can never read hidden ones. Learner or reference files are copied into a fresh host folder mounted read-only at `/work/src` (the working directory). That set's tests are mounted read-only at `/work/tests`. The only writable location is a size-capped tmpfs at `/tmp`, and `HOME=/tmp`.
+- **One container per test set.** Visible and hidden tests run in separate containers, so code running against visible tests can never read hidden ones. Learner or reference files are copied into a fresh host folder (a run folder, §4.3) mounted read-only at `/work/src` (the working directory). That set's tests are mounted read-only at `/work/tests`. The only writable location is a size-capped tmpfs at `/tmp`, and `HOME=/tmp`.
 - **No output mount.** The driver writes results to stdout as length-framed records (`@@codemm <kind> <name> <exit> <bytes>` followed by exactly that many bytes). The host parses them sequentially and stops reading past the cap.
 - **The driver** is a POSIX `sh` script, written by Codemm and run as PID 1 with the entrypoint overridden. It first checks for `sh`, `timeout`, `head`, `wc` and `cat`; a missing utility is a track error.
 - **io:**
@@ -148,6 +148,14 @@ Every judge container gets:
 - `--user <uid>:<gid>` on POSIX, and `--user 65534:65534` (the unprivileged "nobody") on Windows, which has no uid;
 - `--entrypoint /bin/sh`, `--no-healthcheck`, and `--log-opt max-size=1m`.
 
+**Run folders.** The files a container mounts (the learner's or reference files, the tests) are staged on the host before it starts.
+- **Where:** `<real path of $CODEMM_HOME>/runs/<pid>-<random>`, one folder per container run, made by `stageRunFolder` (`src/runs.ts`). The OS temp folder is never used. Engines that run in a VM share only the home folder with it by default (Colima, Rancher Desktop, Podman), not macOS's `/var/folders`, so a bind mount from there fails with exit 125 ("the container couldn't start") while the self-test, which mounted nothing, passed.
+- **The real path** (`realpathSync.native`) is what the engine is asked to mount, so a linked home, a Windows short name (`JOHNSM~1`) and a non-ASCII user folder are mounted by the name that exists.
+- **Created and removed by the run that owns it.** `mkdtemp` makes the folder, empty and private, and it is filled before the container starts. The run removes it when the container is gone, whatever the result. A removal that fails (Windows, while the engine lets go) is retried and then left, never a failure of the run.
+- **Leftovers.** The folder's name is `<pid>-<six letters or digits>`, so it carries its owner's PID. A run first removes the folders of that name, and that are real folders (not files or links), whose owner process is gone, as `doctor --fix` removes containers whose owner is gone (§10). A live process's folders are never touched, and neither is anything else in `runs/`.
+- **Hidden data.** A run folder holds hidden tests while its check runs (after a crash, until the next run removes it), and only under `$CODEMM_HOME`, where hidden data already lives. The desktop's agent has no file access, and a terminal agent that does is under the same advisory limits as for the rest of Codemm's files (§1).
+- A `$CODEMM_HOME` that the engine can't see (outside its shared folders) fails the self-test below, with the folder to share, instead of every check.
+
 Other ceilings:
 
 - **Time:** `time_ms` is capped at 30 s per case or test run. The host kills the whole check at `build + Σ cases + 30 s`, then runs `docker rm -f <name>`.
@@ -180,7 +188,12 @@ Other ceilings:
 - **Failures:** if Docker's connection drops (exit 125), the container is removed with a checked command.
 - **Unit tracks:** they have no run command, so they have no Run.
 
-`codemm doctor` checks the container CLI and daemon. It also proves `--network none` blocks a host TCP server that a networked container can reach.
+`codemm doctor` checks the container CLI and daemon, then runs the self-test (`networkIsolation`, also Check this computer's last row) in this order:
+1. **The test image.** A pinned Alpine image, pulled if it isn't there. A pull that fails because the network is down or blocked (DNS, a blocked or slow connection, a proxy, TLS interception, Docker Hub's rate limit) is reported with `kind: "offline"` and its own words (Docker Hub's limit, an intercepting proxy, a plain network failure), not as "inconclusive". A broken credential helper is `kind: "docker"` with its own words; Codemm's 3-minute deadline and a stopped Podman machine stay inconclusive. An out-of-space pull is `kind: "disk"`; any other failure stays inconclusive, with `kind: "docker"`.
+2. **A mount, as a check does it.** A container started through the same sandbox (every flag above) with a staged run folder mounted read-only at `/work/src`, which reads a file back. An engine that can't start it, or can't read the file (a folder it can't see arrives empty), fails here with its own words and the folder to share, `kind: "docker"`, instead of failing every check later. If Codemm can't stage the folder (the home isn't writable), that row fails with that reason and the rest of `doctor` still runs.
+3. **Isolation.** A test server runs in an ordinary container, and `--network none` must block it while an ordinary container reaches it. A sandboxed container that never ran its test (the engine refused, or 30 s passed) is inconclusive with the engine's words, never "the sandbox reached the network".
+
+`Check` is `{ name, ok, detail, kind? }`: `kind` (`offline`, `disk`, `docker`) is the cause on this computer, as an error's kind is (§10), so a caller acts on it without reading the words.
 
 ### 4.4 Installing a track (a separate trust boundary)
 
@@ -372,8 +385,8 @@ The MCP tools and CLI commands are thin calls into one application module.
 - **A container the runtime refused** (`docker run` exit 125) is named in Codemm's own words from the CLI's error: fewer CPUs than the check's 2, a logging driver that refuses the log options, a folder Docker Desktop doesn't share, Docker's disk, the network. The error text itself never leaves, since code that had started can write to the same stream. Exit 126 or 127 before the driver printed anything is the track image's: it can't run `/bin/sh`.
 - **A flood** is graded even when removing its container was slow.
 - **Locks** (per course and per track): the file is created exclusively and records the owner's PID. A lock whose PID is no longer running is stale and removed. A second writer waits up to 10 minutes, then gets "Course is busy; retry."
-- **Leftover containers:** found by the `codemm=1` label. Each container also carries its owner's PID (`codemm.pid`). `doctor --fix` removes only containers whose owner is gone, verifies they're gone, and reports listing or removal failures.
-- **`doctor`'s network check** passes only when an ordinary container reaches the test server and the sandbox doesn't. The test server runs in an ordinary container, not on the host, so a host firewall (on by default on many Macs, and asking on Windows) never decides the result. Anything else is reported as a failure ("inconclusive"), never as success.
+- **Leftover containers:** found by the `codemm=1` label. Each container also carries its owner's PID (`codemm.pid`). `doctor --fix` removes only containers whose owner is gone, verifies they're gone, and reports listing or removal failures. Run folders (§4.3) are owner-aware the same way: the next run removes those of a process that is gone.
+- **`doctor`'s network check** passes only when an ordinary container reaches the test server and the sandbox doesn't. The test server runs in an ordinary container, not on the host, so a host firewall (on by default on many Macs, and asking on Windows) never decides the result. Before that, the test image must download (offline is `kind: "offline"`) and a staged run folder must mount and read back (§4.3). Anything else is reported as a failure ("inconclusive"), never as success.
 - **Unexpected errors** reach tools and the CLI only as a generic message; details appear with `CODEMM_DEBUG=1`. Damaged records are reported by file name, never by content.
 
 ## 11. Compatibility, migration and rollback

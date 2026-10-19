@@ -34,7 +34,7 @@ export const NOT_COUNTED = {
   // A container Docker refused for a reason core named: what to change, since trying again won't help.
   'docker-cpus': "Docker has fewer than the 2 CPUs a check uses. Give it more in Docker Desktop's settings.",
   'docker-log-driver': "Docker's logging driver refused Codemm's log options. Set it to json-file or local in Docker's settings.",
-  'docker-file-sharing': "Docker can't share Codemm's temporary folder. Allow it in Docker Desktop's file sharing settings.",
+  'docker-file-sharing': "Docker can't share Codemm's run folders. Allow them in Docker Desktop's file sharing settings.",
 } as const;
 /** Run and lesson examples have no recovery screen, so their line says what to do next (§4.10). */
 export const RUN_AGAIN: Record<string, string> = {

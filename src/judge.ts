@@ -1,9 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError, infraError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
 import { type CaseFrames, type Expectation, type Frame, frameProgress, gradeRuns, type IoRun, parseFrames, type RawCase, type Runs, type TestResult, type TestSet, type UnitRun } from "./grading.js";
+import { stageRunFolder } from "./runs.js";
 import { BUSY_HELP, lostRun, runtimeDown, startRefusal, startSandboxed } from "./sandbox.js";
 
 /** What the judge needs from an installed track. */
@@ -72,7 +71,8 @@ head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc
 exit 0`;
 
 async function runDriver(track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number, onStdout?: (chunk: Buffer) => void): Promise<{ frames: Frame[]; flooded: boolean; outOfMemory?: boolean; memoryKill?: boolean }> {
-  const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
+  const run = stageRunFolder();
+  const dir = run.dir;
   try {
     writeFileMap(join(dir, "src"), src);
     writeFileMap(join(dir, "tests"), tests);
@@ -127,7 +127,7 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
     const memoryKill = frames.some((f) => f.exit === 137 && (f.kind === "case" || f.kind === "report") && !marked.has(f.name)) && (await started.hadOomKill());
     return { frames, flooded: result.flooded, ...(memoryKill ? { memoryKill } : {}) };
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    run.remove();
   }
 }
 

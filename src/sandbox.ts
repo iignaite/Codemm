@@ -440,6 +440,17 @@ export function buildProblem(log: string): BuildProblem | undefined {
   return undefined;
 }
 
+/** The kind of problem a runtime diagnostic shows, if any: out of disk, offline, or Docker itself (doctor's checks read it). */
+export function infraKind(text: string): "disk" | "offline" | "docker" | undefined {
+  if (/not enough disk space|ran out of disk space|no space left on device/i.test(text)) return "disk";
+  if (/couldn't reach the network|could not resolve host|network is unreachable/i.test(text)) return "offline";
+  if (/container runtime|Windows containers|Cannot connect to the Docker daemon|error getting credentials|container couldn't be removed|Couldn't list Codemm's containers|container couldn't start/i.test(text)) return "docker";
+  return undefined;
+}
+
+/** The kind of a runtime's own failure: what its diagnostic shows, else Docker. */
+export const runtimeKind = (text: string): "disk" | "offline" | "docker" => infraKind(text) ?? "docker";
+
 /** The code of a runtime's own failure: Docker's disk or the network when its diagnostic shows so, else `otherwise`. */
 export function runtimeCode(text: string, otherwise: InfraCode): InfraCode {
   if (/no space left on device|ran out of disk space/i.test(text)) return "docker-disk";
@@ -454,7 +465,7 @@ export function runtimeCode(text: string, otherwise: InfraCode): InfraCode {
 export function startRefusal(stderr: string): { code: InfraCode; why: string } {
   if (/range of CPUs|available CPUs|NanoCPUs/i.test(stderr)) return { code: "docker-cpus", why: "Docker has fewer than the 2 CPUs a check uses: give it more in Docker Desktop's settings" };
   if (/log[- ]opt|log(?:ging)? driver/i.test(stderr)) return { code: "docker-log-driver", why: "Docker's logging driver refused Codemm's log options: set it to json-file or local" };
-  if (/mounts denied|not shared from the host|file sharing/i.test(stderr)) return { code: "docker-file-sharing", why: "Docker can't share Codemm's temporary folder: allow it in Docker Desktop's file sharing settings" };
+  if (/mounts denied|not shared from the host|file sharing/i.test(stderr)) return { code: "docker-file-sharing", why: "Docker can't share Codemm's run folders: allow them in Docker Desktop's file sharing settings" };
   const code = runtimeCode(stderr, "container-start");
   return { code, why: code === "docker-disk" ? "Docker ran out of disk space" : code === "offline" ? "Docker couldn't reach the network" : "the runtime refused it" };
 }

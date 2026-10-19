@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
 import { runMarkers, runProgram } from "../src/program.js";
+import { runsDir } from "../src/runs.js";
 import { sandboxArgs } from "../src/sandbox.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import * as store from "../src/store.js";
@@ -165,12 +166,10 @@ describe.runIf(posix)("interactive run", () => {
     await expect(run.done).rejects.toThrow(/container runtime/i);
   });
 
-  it("leaves no temporary folder behind, whatever happens", async () => {
+  it("leaves no run folder behind, whatever happens", async () => {
     const ws = await installedExercise();
-    // A temp folder of its own: other test runs on the machine make codemm-run- folders too.
-    const own = tempDir("codemm-test-tmp-");
-    for (const name of ["TMPDIR", "TMP", "TEMP"]) vi.stubEnv(name, own);
-    const runs = () => readdirSync(own).filter((f) => f.startsWith("codemm-run-"));
+    // This test's own Codemm home (stubbed above), so other test runs on the machine can't add folders.
+    const runs = () => readdirSync(runsDir());
     fakeDocker("interactive");
     const ok = await app.runInteractive(ws, undefined, undefined, () => undefined);
     ok.write("Ada\n");

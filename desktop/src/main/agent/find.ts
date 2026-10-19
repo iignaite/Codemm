@@ -25,7 +25,7 @@ export function here(env: NodeJS.ProcessEnv = process.env): Where {
 }
 
 /** The usual install folders, after PATH. */
-function folders(w: Where): string[] {
+export function folders(w: Where): string[] {
   if (w.searchDirs) return w.searchDirs;
   if (w.platform === 'win32') {
     return [
@@ -51,7 +51,12 @@ function folders(w: Where): string[] {
     ...nvmBins(w.home),
     join(w.home, '.local', 'share', 'fnm', 'aliases', 'default', 'bin'),
     join(w.home, 'Library', 'Application Support', 'fnm', 'aliases', 'default', 'bin'),
+    // Container engines. Colima has no Docker client of its own: it uses Homebrew's, above.
     '/Applications/Docker.app/Contents/Resources/bin',
+    join(w.home, '.docker', 'bin'), // Docker Desktop's per-user links
+    join(w.home, '.orbstack', 'bin'),
+    join(w.home, '.rd', 'bin'), // Rancher Desktop
+    '/opt/podman/bin', // Podman's installer
   ];
 }
 
