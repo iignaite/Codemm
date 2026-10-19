@@ -551,7 +551,8 @@ export async function inspectImage(tag: string): Promise<{ id: string; hasVolume
     throw infraError(`The container runtime couldn't inspect the track image: ${r.output.trim().slice(0, 300)}`, runtimeCode(r.output, "image-inspect"));
   }
   const record = inspectRecord<{ Id?: unknown; Config?: { Volumes?: Record<string, unknown> | null } | null }>(r.output);
-  if (!record || typeof record.Id !== "string") throw new CodemmError(`The container runtime's image record couldn't be read: ${r.output.trim().slice(0, 300)}`, "docker");
+  // Docker answered, so this is no stopped runtime: Codemm couldn't read what it said.
+  if (!record || typeof record.Id !== "string") throw infraError(`The container runtime's image record couldn't be read: ${r.output.trim().slice(0, 300)}`, "image-inspect");
   const volumes = record.Config?.Volumes;
   return { id: record.Id, hasVolumes: !!volumes && Object.keys(volumes).length > 0 };
 }
