@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GateError } from "../src/gates.js";
-import { buildProblem, buildStep, inspectRecord, runtimeCode, runtimeDown, runtimeHelp, runtimeIssue, runtimeProblem, runtimeState, runtimeStateOf, sandboxArgs, startHelp, startRefusal } from "../src/sandbox.js";
+import { baseImages, buildProblem, buildStep, inspectRecord, runtimeCode, runtimeDown, runtimeHelp, runtimeIssue, runtimeProblem, runtimeState, runtimeStateOf, sandboxArgs, startHelp, startRefusal } from "../src/sandbox.js";
 
 describe("sandboxArgs", () => {
   const args = sandboxArgs(
@@ -292,5 +292,31 @@ describe("inspectRecord", () => {
   it("gives nothing for output that holds no record", () => {
     expect(inspectRecord("template parsing error: map has no entry for key")).toBeUndefined();
     expect(inspectRecord("")).toBeUndefined();
+  });
+});
+
+describe("baseImages", () => {
+  it("lists the images a Dockerfile builds from, skipping stages, scratch and build arguments", () => {
+    const dockerfile = [
+      "# syntax=docker/dockerfile:1",
+      "ARG BASE=alpine:3.20",
+      "FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-21 AS build",
+      "RUN mvn -q package",
+      "from eclipse-temurin:21-jre",
+      "COPY --from=build /app /app",
+      "FROM build AS test",
+      "FROM scratch",
+      "FROM ${BASE}",
+      "FROM eclipse-temurin:21-jre",
+      "RUN <<EOF",
+      "from redis import Redis",
+      "FROM python:3.12",
+      "EOF",
+      "RUN cat <<< \"here-string\" && echo $((1 << 3))",
+      "FROM golang:1.22",
+      "RUN echo \\",
+      "  FROM node:22",
+    ].join("\n");
+    expect(baseImages(dockerfile)).toEqual(["maven:3.9-eclipse-temurin-21", "eclipse-temurin:21-jre", "golang:1.22"]);
   });
 });

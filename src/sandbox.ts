@@ -573,6 +573,62 @@ export async function inspectImage(tag: string): Promise<{ id: string; hasVolume
 }
 
 /**
+ * The images a Dockerfile builds from, once each and in order: not its own stages, scratch, or an image a build
+ * argument names. Lines inside a heredoc or after a line continuation are a command's text, not instructions.
+ */
+export function baseImages(dockerfile: string): string[] {
+  const stages = new Set<string>();
+  const images: string[] = [];
+  let heredoc: string | undefined;
+  let continued = false;
+  for (const line of dockerfile.split(/\r?\n/)) {
+    if (heredoc !== undefined) {
+      if (line.trim() === heredoc) heredoc = undefined;
+      continue;
+    }
+    const wasContinued = continued;
+    continued = /\\\s*$/.test(line);
+    // A heredoc's word starts with a letter; a here-string (<<<) or a shift (1 << 3) opens none.
+    heredoc = /(?<!<)<<-?\s*["']?([A-Za-z_]\w*)["']?/.exec(line)?.[1];
+    if (wasContinued) continue;
+    const m = /^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?\s*$/i.exec(line);
+    if (!m) continue;
+    const image = m[1]!;
+    const own = stages.has(image.toLowerCase()) || image.toLowerCase() === "scratch" || image.includes("$");
+    if (!own && !images.includes(image)) images.push(image);
+    if (m[2]) stages.add(m[2].toLowerCase());
+  }
+  return images;
+}
+
+/** An image from Docker Hub's official library (`alpine:3.20`, not `someone/alpine` or a registry's): all of them are public. */
+const officialImage = (image: string) => {
+  const name = image.split("@")[0]!;
+  const tag = name.lastIndexOf(":");
+  // A registry's port (host:5050/group/app) comes before a slash; a tag comes after the last one.
+  return !(tag > name.lastIndexOf("/") ? name.slice(0, tag) : name).includes("/");
+};
+
+/**
+ * The base images the registry says don't exist: a tag it doesn't have, or an official image that isn't there. One
+ * top-level manifest request each, side by side. An answer it can't give (offline, no runtime or buildx, a private
+ * or namespaced repository it won't show) counts nothing missing: the build then reports it.
+ */
+export async function missingBaseImages(dockerfile: string): Promise<string[]> {
+  const answers = await Promise.all(baseImages(dockerfile).map(async (image) => {
+    try {
+      const r = await cli(["buildx", "imagetools", "inspect", "--raw", image], 30_000);
+      if (r.exit === 0) return undefined;
+      const gone = /: not found\b/i.test(r.output) || (officialImage(image) && /repository does not exist/i.test(r.output));
+      return gone ? image : undefined;
+    } catch {
+      return undefined;
+    }
+  }));
+  return answers.filter((image): image is string => image !== undefined);
+}
+
+/**
  * The record of `inspect --format '{{json .}}'`. Docker and Podman 4.4+ print one compact object per line, maybe among
  * warnings; Podman 4.3 and earlier print an indented array of records instead.
  */

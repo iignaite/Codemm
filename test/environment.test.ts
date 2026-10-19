@@ -139,6 +139,25 @@ describe.runIf(posix)("installing a track", () => {
     ]);
   });
 
+  it("refuses a proposal whose base image doesn't exist, before it reaches the learner", async () => {
+    fakeDocker("builds");
+    const from = (image: string) => ({ ...track(), Dockerfile: track().Dockerfile!.replace(/^FROM .*$/m, `FROM ${image}`) });
+    await expect(app.proposeTrack(from("alpine:nope"))).rejects.toThrow(/alpine:nope/);
+    await expect(app.proposeTrack(from("nope:21-slim"))).rejects.toThrow(/nope:21-slim/);
+    expect(app.listProposals()).toEqual([]);
+    // A namespaced repository the registry won't show may be private: the build decides.
+    await expect(app.proposeTrack(from("someone/private:1"))).resolves.toMatchObject({ proposed: "shell-io@1" });
+    // A registry with a port is never an official image, even when it says the repository doesn't exist.
+    await expect(app.proposeTrack(from("gitlab.example.com:5050/group/private:1"))).resolves.toMatchObject({ proposed: "shell-io@1" });
+    await expect(app.proposeTrack(track())).resolves.toMatchObject({ proposed: "shell-io@1" });
+  });
+
+  it("proposes anyway when the registry can't be asked, so the build reports it", async () => {
+    fakeDocker("offline");
+    const files = { ...track(), Dockerfile: track().Dockerfile!.replace(/^FROM .*$/m, "FROM alpine:nope") };
+    await expect(app.proposeTrack(files)).resolves.toMatchObject({ proposed: "shell-io@1" });
+  });
+
   it("keeps a proposal when its install fails offline, so Try again needs no new consent", async () => {
     fakeDocker("offline");
     await app.proposeTrack(track());

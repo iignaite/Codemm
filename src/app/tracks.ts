@@ -2,7 +2,7 @@ import { CodemmError, infraError } from "../errors.js";
 import { assertPortablePaths, type FileMap, validateFileMap } from "../files.js";
 import { checkTrackFiles, type TrackProgress, verifyExercise, verifyTrack } from "../gates.js";
 import { type Expected, expectedDigest } from "../grading.js";
-import { runtimeCode, runtimeDown, cli as sandboxCli } from "../sandbox.js";
+import { missingBaseImages, runtimeCode, runtimeDown, cli as sandboxCli } from "../sandbox.js";
 import { type TrackRecord } from "../schemas.js";
 import * as store from "../store.js";
 import { installedTrack, quietly } from "./shared.js";
@@ -76,6 +76,11 @@ const sorted = (map: FileMap) => Object.fromEntries(Object.entries(map).sort(([a
 export async function proposeTrack(files: FileMap): Promise<{ installed: string; unchanged: true } | { proposed: string; note: string }> {
   const { spec, ref } = readTrackSpec(files);
   assertCoursesFit(ref, spec.styles);
+  // A base image that doesn't exist would fail the build after the learner consents, so the agent hears it now.
+  const missing = await missingBaseImages(files.Dockerfile ?? "");
+  if (missing.length) {
+    throw new CodemmError(`The Dockerfile builds from ${missing.join(" and ")}, which the registry doesn't have. Use an image and tag that exist (check its page on the registry), then call save_track again.`);
+  }
   return store.withLock(store.trackLockPath(spec.id), async () => {
     if (alreadyInstalled(ref, spec.version, files)) return { installed: ref, unchanged: true as const };
     store.writeProposal(ref, files);

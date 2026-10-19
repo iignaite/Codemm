@@ -174,5 +174,16 @@ case "$1" in
     echo "error waiting for container: unexpected EOF" >&2
     exit 125 ;;
   rm) exit 0 ;;
+  # buildx imagetools inspect --raw: a registry answers for a base image. A tag named nope doesn't exist, nor does an
+  # official image named nope; a namespaced repository the registry won't show is denied; offline can't ask.
+  buildx)
+    image="$5"
+    case "$FAKE_DOCKER" in offline) echo "ERROR: dial tcp: lookup registry-1.docker.io: no such host" >&2; exit 1 ;; esac
+    case "$image" in
+      *:nope) echo "ERROR: docker.io/library/$image: not found" >&2; exit 1 ;;
+      nope:*) echo "ERROR: pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed" >&2; exit 1 ;;
+      */private:*|*/private) echo "ERROR: pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed" >&2; exit 1 ;;
+    esac
+    echo '{"manifests":[]}' ;;
   *) exit 1 ;;
 esac
