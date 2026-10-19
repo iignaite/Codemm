@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CodemmError } from "./errors.js";
+import { CodemmError, INFRA, infraError, type InfraCode } from "./errors.js";
 import { processAlive } from "./store.js";
 
 /**
@@ -31,6 +31,8 @@ export type SandboxRun = {
 export type SandboxResult = { exit: number; stdout: Buffer; stderr: string; flooded: boolean; timedOut: boolean; cleanupFailed: boolean; oomKilled: boolean };
 
 const cleanupMs = () => Number(process.env.CODEMM_CLEANUP_MS ?? 30_000);
+/** The bound for a second ask of a silent engine, and for the runtime's answers a grade waits on. */
+const SLOW_MS = 60_000;
 
 export function containerCli(): string {
   const configured = process.env.CODEMM_CONTAINER_CLI;
@@ -38,7 +40,7 @@ export function containerCli(): string {
   for (const cli of ["docker", "podman"]) {
     if (spawnSync(cli, ["--version"], { stdio: "ignore" }).status === 0) return cli;
   }
-  throw new CodemmError(`No container runtime found. ${runtimeHelp()}`, "docker");
+  throw infraError(`No container runtime found. ${runtimeHelp()}`, "no-runtime");
 }
 
 /** What to install and start on this OS. Codemm needs an engine that runs Linux containers. */
@@ -64,13 +66,14 @@ export function startHelp(platform: NodeJS.Platform = process.platform): string 
 /** Asks the engine for its version and the kind of containers it runs. */
 export const RUNTIME_INFO = ["info", "--format", "{{.ServerVersion}}|{{.OSType}}"];
 
-export type RuntimeState = "missing" | "down" | "windows" | "ready";
+/** `busy`: the engine gave no answer at all, even with more time (runtimeState). */
+export type RuntimeState = "missing" | "down" | "busy" | "windows" | "ready";
 
 /**
  * Reads the RUNTIME_INFO answer. `docker info` exits 0 even when the daemon is down, so a running
  * engine is one that reported a version.
  */
-export function runtimeStateOf(r: { exit: number; output: string }): RuntimeState {
+export function runtimeStateOf(r: { exit: number; output: string }): Exclude<RuntimeState, "busy"> {
   // A configured CLI that doesn't exist fails to spawn.
   if (r.exit === -1 && /ENOENT/.test(r.output)) return "missing";
   const m = /^(\S+)\|(\w+)\s*$/m.exec(r.output);
@@ -78,14 +81,46 @@ export function runtimeStateOf(r: { exit: number; output: string }): RuntimeStat
   return m[2] === "windows" ? "windows" : "ready";
 }
 
-/** What the runtime's state means for the learner, or undefined when it can run checks. */
-export function runtimeProblem(r: { exit: number; output: string }, platform: NodeJS.Platform = process.platform): string | undefined {
-  switch (runtimeStateOf(r)) {
-    case "missing": return `No container runtime found. ${runtimeHelp(platform)}`;
-    case "down": return `The container runtime isn't running. ${startHelp(platform)}`;
-    case "windows": return "Docker is running Windows containers. Switch Docker Desktop to Linux containers and retry.";
+/** What to do about an engine that is up but doesn't answer. */
+export const BUSY_HELP = "It may be busy (a large build, or Docker Desktop resuming from Resource Saver): wait a minute, then retry. If it stays this way, restart it.";
+
+/** Why the runtime can't run checks: its code, and the message, whose last part (`help`) says what to do. */
+export type RuntimeProblem = { code: InfraCode; message: string; help: string };
+const problem = (code: InfraCode, lead: string, help: string): RuntimeProblem => ({ code, message: `${lead} ${help}`, help });
+
+/** The endpoints Docker Desktop and Docker Engine use by default. Another one is a context the learner chose. */
+const OWN_ENDPOINT = /^(?:unix:\/\/\/var\/run\/docker\.sock|unix:\/\/\/\S*\/\.docker\/(?:run|desktop)\/docker\.sock|npipe:\/\/\/\/\.\/pipe\/(?:docker_engine|dockerDesktopLinuxEngine))$/;
+
+/** A runtime that answered but isn't running, named from what its CLI said. */
+function downProblem(output: string, platform: NodeJS.Platform): RuntimeProblem {
+  if (/manually paused|docker desktop is paused/i.test(output)) return problem("runtime-paused", "Docker Desktop is paused.", "Unpause Docker Desktop from its menu, then retry.");
+  if (/permission denied while trying to connect/i.test(output)) {
+    return problem("socket-permission", "This user may not use the container runtime's socket.", "Add this user to the docker group (or use rootless mode), then retry.");
+  }
+  if (/context not found|current context .* is not found/i.test(output)) {
+    return problem("runtime-context", "The Docker CLI's current context doesn't exist.", "Switch with `docker context use default` (`desktop-linux` for Docker Desktop), then retry.");
+  }
+  const endpoint = /Cannot connect to the Docker daemon at (\S+?)\.? Is the docker daemon running/i.exec(output)?.[1];
+  if (endpoint && !OWN_ENDPOINT.test(endpoint)) {
+    return problem("runtime-context", `The Docker CLI's current context points at ${endpoint}, which isn't running.`, "Start the runtime the Docker CLI's context points at, or switch with `docker context use default` (`desktop-linux` for Docker Desktop), then retry.");
+  }
+  return problem("runtime-down", "The container runtime isn't running.", startHelp(platform));
+}
+
+/** What an answer to RUNTIME_INFO means (null: the engine never answered), or undefined when it can run checks. */
+export function runtimeIssue(answer: { exit: number; output: string } | null, platform: NodeJS.Platform = process.platform): RuntimeProblem | undefined {
+  if (!answer) return problem("runtime-busy", "The container runtime isn't answering.", BUSY_HELP);
+  switch (runtimeStateOf(answer)) {
+    case "missing": return problem("no-runtime", "No container runtime found.", runtimeHelp(platform));
+    case "down": return downProblem(answer.output, platform);
+    case "windows": return problem("windows-containers", "Docker is running Windows containers.", "Switch Docker Desktop to Linux containers and retry.");
     case "ready": return undefined;
   }
+}
+
+/** What the runtime's answer means for the learner, or undefined when it can run checks. */
+export function runtimeProblem(r: { exit: number; output: string }, platform: NodeJS.Platform = process.platform): string | undefined {
+  return runtimeIssue(r, platform)?.message;
 }
 
 /** The full `run` argument list. Pure, so the isolation flags are easy to test. */
@@ -233,13 +268,14 @@ export function runSandboxed(run: SandboxRun): Promise<SandboxResult> {
  * host's (a VM); the container name is unique, so a few extra seconds can't match another container.
  */
 async function hadOomEvent(name: string, startedMs: number): Promise<boolean> {
-  const clock = await cli(["info", "--format", "{{.SystemTime}}"], 20_000);
+  // Bounded like a busy engine's second answer: a memory kill the runtime is slow to report must still be graded.
+  const clock = await cli(["info", "--format", "{{.SystemTime}}"], SLOW_MS);
   const now = Date.parse(clock.output.trim());
   if (clock.exit !== 0 || Number.isNaN(now)) return false;
   const at = (ms: number) => (ms / 1000).toFixed(3);
   const since = now - (Date.now() - startedMs) - 5_000;
   // The event can be published just after the exit reaches us, so the query waits until 2 s past the runtime's now.
-  const r = await cli(["events", "--since", at(since), "--until", at(now + 2_000), "--filter", `container=${name}`, "--filter", "event=oom", "--format", "{{.Action}}"], 20_000);
+  const r = await cli(["events", "--since", at(since), "--until", at(now + 2_000), "--filter", `container=${name}`, "--filter", "event=oom", "--format", "{{.Action}}"], SLOW_MS);
   return r.exit === 0 && /\boom\b/.test(r.output);
 }
 
@@ -258,7 +294,7 @@ async function removeContainer(name: string): Promise<boolean> {
 }
 
 /** Runs the container CLI for housekeeping (build, inspect, remove). Not for untrusted code. `onOutput` hears each chunk as it comes. */
-export function cli(args: string[], timeoutMs = 60_000, onOutput?: (text: string, stream: "stdout" | "stderr") => void): Promise<{ exit: number; output: string }> {
+export function cli(args: string[], timeoutMs = 60_000, onOutput?: (text: string, stream: "stdout" | "stderr") => void): Promise<{ exit: number; output: string; timedOut?: true }> {
   const bin = containerCli();
   return new Promise((resolve) => {
     const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -272,7 +308,7 @@ export function cli(args: string[], timeoutMs = 60_000, onOutput?: (text: string
     child.stdout.on("data", keep("stdout"));
     child.stderr.on("data", keep("stderr"));
     let settled = false;
-    const settle = (result: { exit: number; output: string }) => {
+    const settle = (result: { exit: number; output: string; timedOut?: true }) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -285,53 +321,126 @@ export function cli(args: string[], timeoutMs = 60_000, onOutput?: (text: string
       child.stdout.destroy();
       child.stderr.destroy();
       child.unref();
-      settle({ exit: -1, output: `${output}\n(timed out after ${timeoutMs} ms)` });
+      settle({ exit: -1, output: `${output}\n(timed out after ${timeoutMs} ms)`, timedOut: true });
     }, timeoutMs);
     child.on("close", (code) => settle({ exit: code ?? -1, output }));
     child.on("error", (e) => settle({ exit: -1, output: e.message }));
   });
 }
 
+/** Asks the engine RUNTIME_INFO within a bound: its answer, or null when none came in time. */
+export type InfoAsk = (timeoutMs: number) => Promise<{ exit: number; output: string } | null>;
+
+const askInfo: InfoAsk = async (timeoutMs) => {
+  const r = await cli(RUNTIME_INFO, timeoutMs);
+  return r.timedOut ? null : r;
+};
+
+/** An engine that is there but not ready: Docker Desktop answers with a server error or a dropped connection while it starts or resumes. */
+const SETTLING = /Internal Server Error|Service Unavailable|Bad Gateway|\bEOF\b|connection reset by peer/i;
+const settling = (answer: { exit: number; output: string } | null) => !answer || (runtimeStateOf(answer) === "down" && SETTLING.test(answer.output));
+
+/**
+ * The engine's answer to RUNTIME_INFO, or null when it never gave a real one. An engine that doesn't answer in 20 s,
+ * or answers that it isn't ready, is asked once more (a few seconds later), for 60 s: under load (a large build,
+ * CPU-heavy checks, Docker Desktop resuming from Resource Saver) `docker info` can take that long. One that answers,
+ * even to refuse, is read at once.
+ */
+async function runtimeAnswer(ask: InfoAsk, pauseMs: number) {
+  const first = await ask(20_000);
+  if (!settling(first)) return first;
+  if (first) await new Promise((r) => setTimeout(r, pauseMs));
+  const second = await ask(SLOW_MS);
+  return settling(second) ? null : second;
+}
+
+/** The runtime's state now: busy, not stopped, when it never gave a real answer. */
+export async function runtimeState(ask: InfoAsk = askInfo, pauseMs = 5_000): Promise<RuntimeState> {
+  const answer = await runtimeAnswer(ask, pauseMs);
+  return answer ? runtimeStateOf(answer) : "busy";
+}
+
 /** Why the runtime can't run containers right now, or undefined when it can. */
-export async function runtimeDown(): Promise<string | undefined> {
-  return runtimeProblem(await cli(RUNTIME_INFO, 20_000));
+export async function runtimeDown(ask: InfoAsk = askInfo, pauseMs = 5_000): Promise<RuntimeProblem | undefined> {
+  return runtimeIssue(await runtimeAnswer(ask, pauseMs));
 }
 
 export async function assertRuntime(): Promise<void> {
-  const problem = await runtimeDown();
-  if (problem) throw new CodemmError(problem, "docker");
+  const down = await runtimeDown();
+  if (down) throw infraError(down.message, down.code);
+}
+
+/** A run whose runtime stopped, or stopped answering, under it. `tail` follows "during the run". */
+export function lostRun(down: RuntimeProblem, tail = ""): CodemmError {
+  return infraError(`The container runtime stopped${down.code === "runtime-busy" ? " answering" : ""} during the run${tail}. ${down.help}`, down.code);
 }
 
 const NOT_THE_TRACK = "This is not a problem with the track files, so retry with the same files";
 
-/** A build failure that isn't the track's fault, and its kind. */
-export type BuildProblem = { message: string; kind: "docker" | "disk" | "offline" };
+/** A build failure that isn't the track's fault: its code, and the kind that follows from it. */
+export type BuildProblem = { message: string; code: InfraCode; kind: "docker" | "disk" | "offline" };
+const buildIssue = (code: InfraCode, message: string): BuildProblem => ({ message, code, kind: INFRA[code] });
 
-/** Reads a failed build's output for causes outside the track: no network, or no disk space. */
+/** A download that ended early: Docker's pull, BuildKit's fetch. A compiler's "unexpected EOF" is the track's. */
+const CUT_SHORT = /(?:failed to (?:copy|fetch|resolve|do request|authorize)|error pulling|httpReadSeeker|download failed)[^\n]*unexpected EOF/i;
+
+/** Build output that shows the network failed, its code, and what may be behind it, in order: the first that a line shows wins. */
+const NETWORK: { code: InfraCode; marker: RegExp; lead: string; why: string; retry: string }[] = [
+  {
+    code: "rate-limit",
+    marker: /toomanyrequests|pull rate limit/i,
+    lead: "The track build hit Docker Hub's pull rate limit",
+    why: "Wait a few hours, or sign in to Docker Desktop for a higher limit.",
+    retry: "later",
+  },
+  {
+    code: "tls",
+    // What interception looks like: a certificate no trusted authority signed. An expired certificate, or one for
+    // another name, is the server's, and so the track's choice.
+    marker: /certificate signed by unknown authority|self[- ]signed certificate in certificate chain|unable to get local issuer certificate/i,
+    lead: "The track build couldn't verify a server's certificate",
+    why: "A VPN, proxy or security software may be intercepting Docker's connections.",
+    retry: "once the connection works",
+  },
+  {
+    code: "network-timeout",
+    marker: new RegExp(`i/o timeout|TLS handshake timeout|net/http: request canceled|${CUT_SHORT.source}`, "i"),
+    lead: "The track build's connection timed out or dropped",
+    why: "Docker may be offline, or a VPN, proxy or firewall may be slowing or blocking it.",
+    retry: "once the connection works",
+  },
+  {
+    code: "offline",
+    marker: /temporary failure (?:in name resolution|resolving)|could not resolve (?:host|proxy)|no such host|network is unreachable|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)|proxyconnect/i,
+    lead: "The track build couldn't reach the network",
+    why: "Docker may be offline, or a VPN, proxy or firewall may be blocking it.",
+    retry: "once the connection works",
+  },
+];
+
+/** The build log's first line that a marker matches, trimmed for a message. */
+const lineOf = (log: string, marker: RegExp) => log.split("\n").find((l) => marker.test(l))?.trim().slice(0, 300);
+
+/** Reads a failed build's output for causes outside the track: no disk space, Docker's credential helper, or the network. */
 export function buildProblem(log: string): BuildProblem | undefined {
   if (/no space left on device/i.test(log)) {
-    return {
-      kind: "disk",
-      message: `Docker ran out of disk space while building the track, so nothing was installed. ${NOT_THE_TRACK} ` +
-        "after freeing space (`docker system prune` removes unused images and build cache).",
-    };
+    return buildIssue("docker-disk", `Docker ran out of disk space while building the track, so nothing was installed. ${NOT_THE_TRACK} ` +
+      "after freeing space in Docker (`docker system prune` removes unused images and build cache), or giving Docker a larger disk.");
   }
-  const offline = /temporary failure (?:in name resolution|resolving)|could not resolve (?:host|proxy)|no such host|network is unreachable|getaddrinfo (?:ENOTFOUND|EAI_AGAIN)/i;
-  const line = log.split("\n").find((l) => offline.test(l));
-  if (line) {
-    const message = `The track build couldn't reach the network (${line.trim().slice(0, 300)}), so nothing was installed. ` +
-      `Docker may be offline, or a VPN, proxy or firewall may be blocking it. ${NOT_THE_TRACK} once the connection works.`;
-    // The line can name a disk problem too, which the desktop has always read first.
-    return { kind: infraKind(message) ?? "offline", message };
+  // Docker is running but its CLI can't run the helper that signs in to pull the base image (seen in a GUI app's PATH).
+  const credentials = lineOf(log, /error getting credentials/i);
+  if (credentials) {
+    return buildIssue("credentials", `Docker couldn't run its credential helper (${credentials}), so nothing was installed. ${NOT_THE_TRACK} after restarting Docker Desktop.`);
   }
-  // Anything else is a gate failure, whose kind still shows Docker's own problems (a credential helper, a lost daemon).
+  for (const { code, marker, lead, why, retry } of NETWORK) {
+    const line = lineOf(log, marker);
+    if (line) return buildIssue(code, `${lead} (${line}), so nothing was installed. ${why} ${NOT_THE_TRACK} ${retry}.`);
+  }
+  // Anything else is the track's: a gate failure.
   return undefined;
 }
 
-/**
- * This computer's problem that a runtime diagnostic shows, if any: out of disk, offline, or Docker itself. The
- * markers are the ones the desktop read from messages before errors carried a kind, so nothing reads differently.
- */
+/** The kind of problem a runtime diagnostic shows, if any: out of disk, offline, or Docker itself (doctor's checks read it). */
 export function infraKind(text: string): "disk" | "offline" | "docker" | undefined {
   if (/not enough disk space|ran out of disk space|no space left on device/i.test(text)) return "disk";
   if (/couldn't reach the network|could not resolve host|network is unreachable/i.test(text)) return "offline";
@@ -341,6 +450,25 @@ export function infraKind(text: string): "disk" | "offline" | "docker" | undefin
 
 /** The kind of a runtime's own failure: what its diagnostic shows, else Docker. */
 export const runtimeKind = (text: string): "disk" | "offline" | "docker" => infraKind(text) ?? "docker";
+
+/** The code of a runtime's own failure: Docker's disk or the network when its diagnostic shows so, else `otherwise`. */
+export function runtimeCode(text: string, otherwise: InfraCode): InfraCode {
+  if (/no space left on device|ran out of disk space/i.test(text)) return "docker-disk";
+  if (/could not resolve host|network is unreachable|no such host|temporary failure in name resolution/i.test(text)) return "offline";
+  return otherwise;
+}
+
+/**
+ * Why the runtime refused to start a container (`docker run` exit 125), from its CLI's error, as a fixed phrase. The
+ * error itself never leaves: code that had started can write to the same stream.
+ */
+export function startRefusal(stderr: string): { code: InfraCode; why: string } {
+  if (/range of CPUs|available CPUs|NanoCPUs/i.test(stderr)) return { code: "docker-cpus", why: "Docker has fewer than the 2 CPUs a check uses: give it more in Docker Desktop's settings" };
+  if (/log[- ]opt|log(?:ging)? driver/i.test(stderr)) return { code: "docker-log-driver", why: "Docker's logging driver refused Codemm's log options: set it to json-file or local" };
+  if (/mounts denied|not shared from the host|file sharing/i.test(stderr)) return { code: "docker-file-sharing", why: "Docker can't share Codemm's run folders: allow them in Docker Desktop's file sharing settings" };
+  const code = runtimeCode(stderr, "container-start");
+  return { code, why: code === "docker-disk" ? "Docker ran out of disk space" : code === "offline" ? "Docker couldn't reach the network" : "the runtime refused it" };
+}
 
 /** A track build is killed after 10 minutes (DESIGN §4.4). */
 export const BUILD_TIMEOUT_MS = 600_000;
@@ -399,9 +527,9 @@ export async function buildImage(
     const imageId = existsSync(join(out, "iid")) ? readFileSync(join(out, "iid"), "utf8").trim() : "";
     if (r.exit === 0 && imageId) return { ok: true, log, imageId };
     // The build worked but the runtime didn't report its image: not the track's fault.
-    if (r.exit === 0) return { ok: false, log, problem: { kind: "docker", message: `The container runtime built the track but didn't report the image ID. ${NOT_THE_TRACK} after updating Docker.` } };
+    if (r.exit === 0) return { ok: false, log, problem: buildIssue("image-id", `The container runtime built the track but didn't report the image ID. ${NOT_THE_TRACK} after updating Docker.`) };
     const down = await runtimeDown();
-    const problem: BuildProblem | undefined = down ? { kind: "docker", message: down } : buildProblem(log);
+    const problem: BuildProblem | undefined = down ? buildIssue(down.code, down.message) : buildProblem(log);
     return { ok: false, log, ...(problem ? { problem } : {}) };
   } finally {
     rmSync(out, { recursive: true, force: true });
@@ -419,10 +547,12 @@ export async function inspectImage(tag: string): Promise<{ id: string; hasVolume
   if (r.exit !== 0) {
     if (/no such (image|object)|image not known/i.test(r.output)) return undefined;
     const down = await runtimeDown();
-    throw new CodemmError(down ?? `The container runtime couldn't inspect the track image: ${r.output.trim().slice(0, 300)}`, down ? "docker" : runtimeKind(r.output));
+    if (down) throw infraError(down.message, down.code);
+    throw infraError(`The container runtime couldn't inspect the track image: ${r.output.trim().slice(0, 300)}`, runtimeCode(r.output, "image-inspect"));
   }
   const record = inspectRecord<{ Id?: unknown; Config?: { Volumes?: Record<string, unknown> | null } | null }>(r.output);
-  if (!record || typeof record.Id !== "string") throw new CodemmError(`The container runtime's image record couldn't be read: ${r.output.trim().slice(0, 300)}`, "docker");
+  // Docker answered, so this is no stopped runtime: Codemm couldn't read what it said.
+  if (!record || typeof record.Id !== "string") throw infraError(`The container runtime's image record couldn't be read: ${r.output.trim().slice(0, 300)}`, "image-inspect");
   const volumes = record.Config?.Volumes;
   return { id: record.Id, hasVolumes: !!volumes && Object.keys(volumes).length > 0 };
 }
@@ -452,7 +582,12 @@ export function inspectRecord<T>(output: string): T | undefined {
 /** Every container Codemm started, with the PID of the Codemm process that owns it. Throws if listing fails. */
 export async function ownedContainers(): Promise<{ id: string; pid: number }[]> {
   const r = await cli(["ps", "-a", "--filter", `label=${OWNER_LABEL}`, "--format", '{{.ID}} {{.Label "codemm.pid"}}']);
-  if (r.exit !== 0) throw new CodemmError(`Couldn't list Codemm's containers: ${r.output.trim().slice(0, 300)}`, runtimeKind(r.output));
+  if (r.exit !== 0) {
+    // Down only when the runtime says so; anything else is a runtime that answers but failed to list.
+    const down = await runtimeDown();
+    if (down) throw infraError(down.message, down.code);
+    throw infraError(`Couldn't list Codemm's containers: ${r.output.trim().slice(0, 300)}`, runtimeCode(r.output, "container-list"));
+  }
   return r.output.split("\n").filter((l) => l.trim()).map((l) => {
     const [id, pid] = l.trim().split(/\s+/);
     return { id: id!, pid: Number(pid) || 0 };

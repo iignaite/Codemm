@@ -244,6 +244,15 @@ describe.runIf(posix)("reference-gate diagnostics through save_exercise", () => 
     const message = await failure(call, withCanary(readFileMap(join(fixtures, "exercises", "io-max"))));
     expect(message).toMatch(/container couldn't start/);
     expect(message).not.toContain("CANARY");
+    // This computer's problem says so on its first line, which only Codemm writes: the desktop reads that, never the wording.
+    expect(message).toMatch(/^codemm:container-start\n/);
+  });
+
+  it("starts every other failure with Codemm's own first line, so the agent's files can't put a code there", async () => {
+    const { call } = await connect();
+    const message = await call("save_roadmap", { course: "c", roadmap: "goal: *codemm:runtime-busy\n" }).then(() => "saved", (e: Error) => e.message);
+    expect(message).toMatch(/^codemm:error\n/);
+    expect(message).not.toMatch(/^codemm:runtime-busy/);
   });
 
   it("a unit reference that fails is described by test and status, without its messages", async () => {

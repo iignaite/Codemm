@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CHANGED, OFFLINE, UNSTOPPABLE } from '../shared/api';
-import { INTERNAL, safeError } from './errors';
+import { errorFields, INTERNAL, safeError } from './errors';
 import { handler } from './ipc';
 import { createLog } from './log';
 import { live, practising } from './testing/fakes';
@@ -11,6 +11,13 @@ const HIDDEN = 'tests/hidden/secret-edge-case.in';
 const appFrame = { fromApp: true };
 
 describe('errors at the IPC boundary (D4)', () => {
+  it("logs core's code for this computer's problem, never its text, and no code from anything else", () => {
+    const busy = Object.assign(new Error("The container runtime isn't answering. /h/secret"), { name: 'CodemmError', kind: 'docker', code: 'runtime-busy' });
+    expect(errorFields(busy)).toEqual({ kind: 'core', name: 'CodemmError', code: undefined, cause: 'runtime-busy' });
+    expect(errorFields(Object.assign(new Error('x'), { code: 'runtime-busy' }))).toMatchObject({ kind: 'internal', cause: undefined });
+    expect(errorFields(Object.assign(new Error('x'), { code: 'ENOSPC' }))).toMatchObject({ code: 'ENOSPC', cause: undefined });
+  });
+
   it('a file system error naming a hidden file reaches neither the renderer nor the log', async () => {
     const t = live();
     const activity = await practising(t);
