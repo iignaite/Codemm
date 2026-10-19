@@ -454,6 +454,13 @@ async function launch(env: Record<string, string>) {
   // JOURNEY_MOCK=<scenario> also runs it unpackaged, on the mock: a quick check of the driver's selectors, no agents.
   const unpacked = part === 'update' || process.env.JOURNEY_MOCK !== undefined ? [process.env.JOURNEY_DESKTOP ?? process.cwd()] : [];
   if (process.env.JOURNEY_MOCK !== undefined) env = { ...env, CODEMM_MOCK: process.env.JOURNEY_MOCK };
+  // The run's own workspace (O5): without it in the profile, the app uses the learner's real ~/Codemm.
+  const profile = join(dir!, 'userData', 'desktop.json');
+  const state = existsSync(profile) ? JSON.parse(readFileSync(profile, 'utf8')) : { format_version: 1, sessions: {} };
+  if (!state.workspace) {
+    mkdirSync(join(dir!, 'userData'), { recursive: true });
+    writeFileSync(profile, JSON.stringify({ ...state, workspace: join(dir!, 'ws') }, null, 2));
+  }
   app = await electron.launch({ ...(unpacked.length ? {} : { executablePath: exe! }), args: [...unpacked, `--user-data-dir=${join(dir!, 'userData')}`], env, cwd: dir! });
   page = await app.firstWindow();
   expect(await app.evaluate(({ app: a }) => [a.getPath('userData'), a.getPath('logs')])).toEqual([join(dir!, 'userData'), join(dir!, 'userData', 'logs')]);
