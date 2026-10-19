@@ -5,7 +5,7 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
-import { CodemmError } from "./errors.js";
+import { CodemmError, infraError } from "./errors.js";
 import { assertId, assertRelativePath, type FileMap, readFileMap, validateFileMap, writeFileMap } from "./files.js";
 import type { LearnerEvent } from "./learner.js";
 import { CourseRecord, ExerciseRecord, LearnerEventSchema, LessonRecord, ProposalRecord, TrackRecord, WorkspaceConfig } from "./schemas.js";
@@ -311,7 +311,7 @@ export function assertFreeSpace(dir: string, min = MIN_FREE_BYTES): void {
   mkdirSync(dir, { recursive: true });
   const { bavail, bsize } = statfsSync(dir);
   if (bavail * bsize < min) {
-    throw new CodemmError(`Not enough disk space. Setup needs ${Math.round(min / 1024 ** 3)} GB free where Codemm keeps its data (${dir}). Free some space, then try again.`, "disk");
+    throw infraError(`Not enough disk space. Setup needs ${Math.round(min / 1024 ** 3)} GB free where Codemm keeps its data (${dir}). Free some space, then try again.`, "host-disk");
   }
 }
 

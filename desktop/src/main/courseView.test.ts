@@ -27,6 +27,10 @@ describe('course view', () => {
     expect(unread.topics[1]).toMatchObject({ activity: 'locked', lessons: [{ state: 'ready' }] });
     const writing = courseView(progress({ kind: 'author', concept: 'state', difficulty: 1, lesson: null }), [], ready, new Set(['lesson:state']));
     expect(writing.topics[1]).toMatchObject({ activity: 'writing', lessons: [{ state: 'writing' }] });
+    // A lesson whose job failed keeps its row, for Try again; the activity waits for it.
+    const failed = courseView(progress({ kind: 'practice', exercise: 'e', concept: 'state', lesson: 'state-1' }), [], ready, new Set(), undefined, 'state');
+    expect(failed.topics[1]).toMatchObject({ activity: 'locked', lessons: [{ title: 'Lesson', state: 'failed' }] });
+    expect(failed.topics[0].lessons).toEqual([]);
   });
 
   it('shows a due review on its mastered topic, and when the next review is due elsewhere', () => {

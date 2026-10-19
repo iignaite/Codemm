@@ -82,7 +82,7 @@ describe("Run's programs (§4.10)", () => {
   it("says why it didn't run when Docker is down, and logs it", async () => {
     const { p, logged } = subject();
     expect(await p.start('run-1', async () => Promise.reject(coreError('docker down', 'docker')))).toEqual({ kind: 'not-run', reason: "Docker isn't running." });
-    expect(logged).toEqual([['not-counted', { run: 'program', reason: "Docker isn't running." }]]);
+    expect(logged).toEqual([['not-counted', { run: 'program', reason: "Docker isn't running.", cause: 'other' }]]);
     await expect(p.start('run-2', async () => Promise.reject(new Error('other')))).rejects.toThrow('other');
   });
 

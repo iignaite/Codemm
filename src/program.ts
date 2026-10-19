@@ -1,13 +1,12 @@
 // Run (DESIGN §4.3): the learner's program, interactively, in the sandbox, with typed stdin and its output as it
 // comes. Never graded or recorded. The checks' test sets run in judge.ts.
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { CodemmError } from "./errors.js";
+import { CodemmError, infraError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
 import { BUILD_SECONDS, type JudgeTrack, seconds } from "./judge.js";
-import { runtimeKind, startHelp, startSandboxed } from "./sandbox.js";
+import { stageRunFolder } from "./runs.js";
+import { lostRun, runtimeDown, startRefusal, startSandboxed } from "./sandbox.js";
 
 /** How long Run lets a program wait for typing and run: a person types, so longer than a test case gets. */
 export const RUN_LIMIT_MS = 120_000;
@@ -57,7 +56,8 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
   if (!track.run) throw new CodemmError("This track has no run command, so Run isn't available.");
   const limitMs = limits.limitMs ?? RUN_LIMIT_MS;
   const buildLimitMs = limits.buildLimitMs ?? BUILD_SECONDS * 1000;
-  const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
+  const folder = stageRunFolder();
+  const dir = folder.dir;
   const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
   const say = (stream: "stdout" | "stderr", text: string) => text && output(text, stream);
   let ended: { stage: "build" | "run"; code: number } | undefined;
@@ -101,7 +101,7 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       { stdout: (b) => ((printed ||= b.length > 0), say("stdout", decoders.stdout.write(b))), stderr: (b) => markers.write(decoders.stderr.write(b)) },
     );
   } catch (e) {
-    rmSync(dir, { recursive: true, force: true });
+    folder.remove();
     throw e;
   }
   const done = started.done
@@ -109,9 +109,10 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       say("stdout", decoders.stdout.end());
       markers.write(decoders.stderr.end());
       markers.end();
-      if (r.cleanupFailed) throw new CodemmError("A run container couldn't be removed. Run `codemm doctor --fix`, then retry.", "docker");
-      // What Codemm stopped first: the learner, the host deadline or the output cap.
+      // What Codemm stopped first: the learner, the host deadline or the output cap. It's the program's doing, even when
+      // removing its container was slow.
       if (stopped || r.timedOut || r.flooded) return { exit: r.exit, timedOut: r.timedOut, flooded: r.flooded, ...(stopped ? { stopped } : {}) };
+      if (r.cleanupFailed) throw infraError("A run container couldn't be removed. Run `codemm doctor --fix`, then retry.", "container-remove");
       if (ended) {
         // The watchdog's marker says the stage timed out. Otherwise a 137 may be the memory limit killing the program while the driver went on.
         const timedOut = timedOutIn === ended.stage;
@@ -121,12 +122,16 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       // No end marker: the driver itself was killed. Only a memory-limit kill is the program's doing.
       if (r.oomKilled) return { exit: 137, timedOut: false, flooded: false, outOfMemory: true };
       if (r.exit === 125 && !printed && begun.size === 0 && beforeStart.trim()) {
+        // Nothing of the program ran yet, so this is the runtime's own error: shown when no known reason names it.
         const shown = beforeStart.trim().slice(0, 500);
-        throw new CodemmError(`The container couldn't start: ${shown}`, runtimeKind(shown));
+        const { code, why } = startRefusal(shown);
+        throw infraError(code === "container-start" ? `The container couldn't start: ${shown}` : `The container couldn't start (${why}).`, code);
       }
-      throw new CodemmError(`The container runtime failed during the run. ${startHelp()}`, "docker");
+      const down = await runtimeDown();
+      if (down) throw lostRun(down);
+      throw infraError("The container runtime failed during the run. Try again, and restart Docker if it happens again.", "runtime-failed");
     })
-    .finally(() => rmSync(dir, { recursive: true, force: true }));
+    .finally(folder.remove);
   return {
     write: started.write,
     end: started.end,

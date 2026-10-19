@@ -148,6 +148,22 @@ describe("--desktop with --course", () => {
   });
 });
 
+describe("the save_lesson description", () => {
+  it("says a lesson may hold diagrams and charts, and when", async () => {
+    const { client: c } = await connect({ tools: ["save_lesson"] });
+    const { description } = (await c.listTools()).tools[0];
+    expect(description).toMatch(/Diagrams and charts go in fenced blocks with info string mermaid/);
+    expect(description).toMatch(/only when a picture teaches better than words/);
+  });
+
+  it("says an example runs with no input", async () => {
+    const { client: c } = await connect({ tools: ["save_lesson"] });
+    const { description } = (await c.listTools()).tools[0];
+    expect(description).toMatch(/runs each in the sandbox with no input and it must exit 0/);
+    expect(description).toMatch(/An example that needs input goes in a plain code block/);
+  });
+});
+
 describe("lesson tools", () => {
   it("saves, reads and acknowledges a lesson; reading records nothing", async () => {
     await app.saveRoadmap(ws, "first", roadmap("First"));
@@ -228,6 +244,15 @@ describe.runIf(posix)("reference-gate diagnostics through save_exercise", () => 
     const message = await failure(call, withCanary(readFileMap(join(fixtures, "exercises", "io-max"))));
     expect(message).toMatch(/container couldn't start/);
     expect(message).not.toContain("CANARY");
+    // This computer's problem says so on its first line, which only Codemm writes: the desktop reads that, never the wording.
+    expect(message).toMatch(/^codemm:container-start\n/);
+  });
+
+  it("starts every other failure with Codemm's own first line, so the agent's files can't put a code there", async () => {
+    const { call } = await connect();
+    const message = await call("save_roadmap", { course: "c", roadmap: "goal: *codemm:runtime-busy\n" }).then(() => "saved", (e: Error) => e.message);
+    expect(message).toMatch(/^codemm:error\n/);
+    expect(message).not.toMatch(/^codemm:runtime-busy/);
   });
 
   it("a unit reference that fails is described by test and status, without its messages", async () => {

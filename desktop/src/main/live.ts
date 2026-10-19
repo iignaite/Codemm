@@ -36,7 +36,7 @@ import { asNotCounted, rebuildFailure } from './notCounted';
 import { programs } from './programs';
 import type { desktopState } from './state';
 import type { usageStore } from './usage';
-import { HELD_BACK, activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, trackName, tryView } from './views';
+import { HELD_BACK, activityView, checkView, exampleRunView, filterReply, hiddenLines, lessonView, roadmapView, setupWhy, trackName, tryView } from './views';
 
 export interface LiveDeps {
   core: CoreApp;
@@ -71,7 +71,8 @@ export interface Live extends CodemmApi {
 
 /** Setup proposals per setup before the learner gets Stop or Try again (§3.2). */
 const PROPOSAL_BOUND = 5;
-const problemError = (problem: JobProblem) => new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, docker: AGENT_FAILED, disk: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
+const problemError = (problem: JobProblem) =>
+  new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, rebuild: AGENT_FAILED, docker: AGENT_FAILED, 'docker-busy': AGENT_FAILED, 'docker-failed': AGENT_FAILED, 'docker-disk': AGENT_FAILED, disk: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
 /** Why background work stalled: Docker and the disk say so; another infrastructure failure is a plain one the learner retries. */
 const stallOf = (problem: JobProblem = 'failed'): NonNullable<CourseView['stalled']> => (problem === 'infra' ? 'failed' : problem);
 /** core store.ts's damaged-record errors: the learner repairs them; a retry can't (§5). */
@@ -95,6 +96,8 @@ export function createLive(d: LiveDeps): Live {
   const lanes = { fg: Promise.resolve() as Promise<unknown>, bg: Promise.resolve() as Promise<unknown> };
   const outcomes = new Map<string, JobOutcome>();
   let stalled: CourseView['stalled'];
+  /** The concept whose lesson job's failure is the stall: its row stays, with Try again. */
+  let failedLesson: string | undefined;
   let tutorTurns: Promise<unknown> = Promise.resolve();
   let tutorTurnCount = 0;
   /** Set once an agent survived its cancel: no agent starts again until Codemm quits (§3.1). */
@@ -262,7 +265,7 @@ export function createLive(d: LiveDeps): Live {
         tellJob({ ...tracker.snapshot(), ended: true });
       });
       if (outcome.problem === 'unstoppable') unstoppable = true;
-      log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
+      log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cause: outcome.cause, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
       return outcome;
     };
     const outcome = lanes[lane].then(job, job).finally(() => running.delete(key));
@@ -286,22 +289,29 @@ export function createLive(d: LiveDeps): Live {
     if (stopping || stalled || running.has(key)) return;
     const outcome = start(key, lane, kind, brief, course, done, { concept, retry });
     const controller = running.get(key)?.stop;
-    // The first stall is the one the learner sees.
+    // The first stall is the one the learner sees. A lesson its agent couldn't write says so on its own row; one whose
+    // agent or server didn't start (infra) still offers Check your agent.
+    const stall = (problem: JobProblem) => {
+      if (stalled) return;
+      stalled = kind === 'lesson' && problem === 'failed' ? 'lesson' : stallOf(problem);
+      failedLesson = concept;
+    };
     outcome
       .then((o) => {
-        if (!o.ok && !controller?.signal.aborted) stalled ??= stallOf(o.problem);
+        if (!o.ok && !controller?.signal.aborted) stall(o.problem ?? 'failed');
         // A finished job can make the next one due: the lesson before the activity, a proposal after gates.
         else if (o.ok) schedule();
       })
       .catch((e: Error) => {
         log('job-error', { job: kind, ...errorFields(e) });
-        stalled ??= e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed';
+        stall(e.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed');
       });
   }
 
   function latestProposal(ref: string): Proposal | undefined {
     const latest = core.listProposals().filter((p) => p.track === ref).sort((a, b) => b.created.localeCompare(a.created))[0];
-    return latest && { digest: latest.digest, retry: setup.gateFailures > 0, files: Object.entries(latest.files).map(([path, text]) => ({ path, text })) };
+    const retry = setup.gateFailures > 0;
+    return latest && { digest: latest.digest, retry, ...(retry ? { why: setupWhy(setup.lastGateProblem) } : {}), files: Object.entries(latest.files).map(([path, text]) => ({ path, text })) };
   }
 
   /** One consent before setup (§4.1): propose, wait for the learner, build exactly what they saw. */
@@ -566,7 +576,7 @@ export function createLive(d: LiveDeps): Live {
       if (progress.next.kind === 'author' && progress.next.review) schedule();
       const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
       const jobs = new Set([...running.keys()].map((k) => k.replace(`:${roadmap.course}`, '')));
-      const view = courseView(progress, core.listLessons(ws, roadmap.course), state, jobs);
+      const view = courseView(progress, core.listLessons(ws, roadmap.course), state, jobs, undefined, stalled === 'lesson' ? failedLesson : undefined);
       return stalled ? { ...view, stalled } : view;
     },
 
@@ -601,10 +611,10 @@ export function createLive(d: LiveDeps): Live {
           // Quitting isn't a failed setup: nothing is recorded and the proposal stays.
           if (stopping) return;
           // This computer's problems keep the proposal for Try again; nothing is recorded and no agent runs (§6.1).
-          const kind = infraOf(e);
-          log('setup-failed', { problem: kind ?? 'gates' });
-          if (kind) {
-            mine.problem = kind;
+          const failure = infraOf(e);
+          log('setup-failed', { problem: failure?.infra ?? 'gates', cause: failure?.cause });
+          if (failure) {
+            mine.problem = failure.infra;
             return;
           }
           mine.approved = undefined;

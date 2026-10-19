@@ -6,7 +6,6 @@ import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import type { LearnerEvent } from "../src/learner.js";
-import { infraKind } from "../src/sandbox.js";
 import * as store from "../src/store.js";
 import { fakeDocker, posix } from "./fake-docker.js";
 import { tempDir } from "./temp.js";
@@ -205,9 +204,8 @@ describe("error kinds", () => {
     addExercise("shell", "e1", "sh.basics");
     fakeDocker("inspect-fails");
     const failure = await app.testExercise(ws, "e1").catch((e: Error) => e);
-    expect(failure).toMatchObject({ kind: "docker" });
-    // Agents relay core's messages as text, which the desktop classifies with the same markers as infraKind.
-    expect(infraKind((failure as Error).message)).toBe("docker");
+    // Docker answers, so it's a runtime that failed to inspect, not one that stopped. The desktop acts on the code.
+    expect(failure).toMatchObject({ kind: "docker", code: "image-inspect" });
   });
 
   it.runIf(posix)("names a missing track image", async () => {

@@ -6,7 +6,7 @@ import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { AgentId, AgentJobKind } from '../../shared/api';
 import { AGENT_CLIS, PLAN_LIMIT, type AgentEvent, type Invocation, type McpServer } from './agents';
-import { infra as infraOf, spendsNoRetry } from '../core/failures';
+import { infra as failureIn, infraOf, needsRebuild, type Cause, type Failure, type Infra } from '../core/failures';
 import { run, type Executable } from './bridge';
 
 /** A job the agent runs: the kinds of progress that aren't Codemm's own (shared/api.ts). */
@@ -37,15 +37,18 @@ export const SAVE_BOUND = 3;
 const OFFLINE = /connection error|ENOTFOUND|EAI_AGAIN|network is unreachable|could not resolve host|error sending request|connection lost/i;
 
 /**
- * `docker`, `disk`: this computer's Docker or disk stopped a save. `infra`: the Codemm server or the agent failed to
- * start, or a track image needs a rebuild. Neither records anything or spends an attempt (§6.1). `unstoppable`: a
- * cancel the agent survived.
+ * An Infra problem: this computer's Docker (stopped, busy, or failing while it runs), disk or network stopped a save,
+ * or removing an ended attempt's containers. `rebuild`: a track image needs a rebuild. `infra`: the Codemm server or
+ * the agent failed to start. None records anything or spends an attempt (§6.1). `unstoppable`: a cancel the agent
+ * survived.
  */
-export type JobProblem = 'plan-limit' | 'signed-out' | 'offline' | 'failed' | 'infra' | 'docker' | 'disk' | 'unstoppable';
+export type JobProblem = 'plan-limit' | 'signed-out' | 'failed' | 'infra' | 'rebuild' | Infra | 'unstoppable';
 
 export interface JobOutcome {
   ok: boolean;
   problem?: JobProblem;
+  /** Which of core's failures stopped it, when a Codemm tool said so: a fixed label for the app log. */
+  cause?: Cause;
   session?: string;
   /** The agent's text, for tutor and roadmap-change turns only. */
   text: string[];
@@ -99,8 +102,12 @@ interface Attempt {
   unstoppable: boolean;
   /** Codemm ended the attempt (a cancel, the deadline, or a failure that stops it), so it may have left containers. */
   ended: boolean;
-  /** `server`: the Codemm server didn't start. `tool`: a Codemm tool hit Docker or disk; `offline`: the network. `unstarted`: the agent exited before it started. */
-  infra?: 'server' | 'tool' | 'offline' | 'docker' | 'disk' | 'unstarted';
+  /**
+   * `server`: the Codemm server didn't start. A Codemm tool hit this computer's Docker, disk or network, or
+   * (`rebuild`) a track image that needs a rebuild. `unstarted`: the agent exited before it started.
+   */
+  infra?: 'server' | 'rebuild' | 'unstarted' | Infra;
+  cause?: Cause;
 }
 
 /**
@@ -129,11 +136,14 @@ async function once(job: Job): Promise<Attempt> {
   const cancel = () => stop.abort();
   job.signal?.addEventListener('abort', cancel, { once: true });
   const saves = new Set<string>();
+  /** Calls of Codemm's own tools: only their results can carry core's code (the agent's other tools say anything). */
+  const ours = new Set<string>();
   let failedSaves = 0;
   let session: string | undefined;
   let done: AgentEvent & { type: 'done' } | undefined;
   let started = false;
   let infra: Attempt['infra'];
+  let cause: Cause | undefined;
   const text: string[] = [];
   const reads = new Map<string, { title: string; url: string }>();
   const onEvent = (e: AgentEvent) => {
@@ -162,9 +172,14 @@ async function once(job: Job): Promise<Attempt> {
       infra = 'server';
       stop.abort();
     }
+    if (e.type === 'tool_call' && /^codemm\./i.test(e.name)) ours.add(e.id);
     if (e.type === 'tool_call' && spec.save && e.name === `codemm.${spec.save}`) saves.add(e.id);
-    if (e.type === 'tool_result' && e.error && e.text && spendsNoRetry(e.text)) {
-      infra = infraOf(e.text) ?? 'tool';
+    // Only core's code on a Codemm tool result's first line says it's this computer's problem, never any other text.
+    const coreSaid = e.type === 'tool_result' && e.error && e.text && ours.has(e.id) ? e.text : undefined;
+    const failure = coreSaid ? failureIn(coreSaid) : null;
+    if (failure || (coreSaid && needsRebuild(coreSaid))) {
+      infra = failure?.infra ?? 'rebuild';
+      cause = failure?.cause;
       stop.abort();
     }
     if (e.type === 'tool_result' && e.error && saves.has(e.id) && ++failedSaves >= SAVE_BOUND) stop.abort();
@@ -178,7 +193,7 @@ async function once(job: Job): Promise<Attempt> {
     if (!started && !result.cancelled && result.code !== 0) infra ??= 'unstarted';
     // A conversational success needs the agent's done event and a clean exit.
     const ok = !result.cancelled && result.code === 0 && done?.ok === true;
-    return { ok, error: done?.error, session, text, unstoppable: result.cancelled && result.stopped === false, ended: result.cancelled, infra };
+    return { ok, error: done?.error, session, text, unstoppable: result.cancelled && result.stopped === false, ended: result.cancelled, infra, cause };
   } finally {
     clearTimeout(deadline);
     job.signal?.removeEventListener('abort', cancel);
@@ -201,18 +216,22 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     last = await once(job);
     // Said at once: the caller stops every other agent on this, and a cleanup waiting on Docker must not delay it.
     if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
-    // Before a relaunch or the end, an attempt Codemm ended leaves no container behind.
-    const cleaned = last.ended && job.cleanup ? await job.cleanup().then(() => true, () => false) : true;
+    // Before a relaunch or the end, an attempt Codemm ended leaves no container behind. Why a cleanup failed is
+    // Docker's to say: busy, or answering but failing. A busy Docker would only keep the learner waiting on it, and
+    // nothing relaunches after it: a later cleanup removes what's left once this attempt's processes are gone.
+    const tidy = last.ended && job.cleanup && last.infra !== 'docker-busy';
+    const unclean = tidy ? await job.cleanup!().then((): Failure | null => null, (e: unknown): Failure => infraOf(e) ?? { infra: 'docker-failed', cause: 'other' }) : null;
     if (await job.done({ ok: last.ok })) return { ok: true, session: last.session, text: last.text };
     if (job.signal?.aborted) break;
     if (last.error && PLAN_LIMIT.test(last.error)) return { ok: false, problem: 'plan-limit', text: last.text };
-    if (last.infra === 'offline' || (last.error && OFFLINE.test(last.error))) return { ok: false, problem: 'offline', text: last.text };
-    if (last.infra === 'docker' || last.infra === 'disk') return { ok: false, problem: last.infra, text: last.text };
-    if (last.infra === 'server' || last.infra === 'tool') return { ok: false, problem: 'infra', text: last.text };
+    if (last.infra === 'offline' || (last.error && OFFLINE.test(last.error))) return { ok: false, problem: 'offline', cause: last.cause, text: last.text };
+    if (last.infra === 'rebuild') return { ok: false, problem: 'rebuild', text: last.text };
+    if (last.infra && last.infra !== 'server' && last.infra !== 'unstarted') return { ok: false, problem: last.infra, cause: last.cause, text: last.text };
+    if (last.infra === 'server') return { ok: false, problem: 'infra', text: last.text };
     if (!(await job.signedIn())) return { ok: false, problem: 'signed-out', text: last.text };
     if (last.infra === 'unstarted') return { ok: false, problem: 'infra', text: last.text };
     // Its container may still run, so no relaunch joins it.
-    if (!cleaned) return { ok: false, problem: 'infra', text: last.text };
+    if (unclean) return { ok: false, problem: unclean.infra, cause: unclean.cause, text: last.text };
   }
   return { ok: false, problem: 'failed', session: last?.session, text: last?.text ?? [] };
 }

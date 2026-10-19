@@ -146,8 +146,10 @@ describe('practice', () => {
     const check = api.check;
     api.check = (id) => (checks++, check(id));
     await user.click(screen.getByRole('button', { name: 'Try it' }));
+    // Try it is never counted, so it says it didn't run.
+    await within(results()).findByRole('heading', { name: "Try it didn't run" });
     await user.click(await within(results()).findByRole('button', { name: 'Try again' }));
-    await within(results()).findByRole('heading', { name: "This check wasn't counted" });
+    await within(results()).findByRole('heading', { name: "Try it didn't run" });
     expect(checks).toBe(0);
   });
 

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
 import { runMarkers, runProgram } from "../src/program.js";
+import { runsDir } from "../src/runs.js";
 import { sandboxArgs } from "../src/sandbox.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import * as store from "../src/store.js";
@@ -165,12 +166,10 @@ describe.runIf(posix)("interactive run", () => {
     await expect(run.done).rejects.toThrow(/container runtime/i);
   });
 
-  it("leaves no temporary folder behind, whatever happens", async () => {
+  it("leaves no run folder behind, whatever happens", async () => {
     const ws = await installedExercise();
-    // A temp folder of its own: other test runs on the machine make codemm-run- folders too.
-    const own = tempDir("codemm-test-tmp-");
-    for (const name of ["TMPDIR", "TMP", "TEMP"]) vi.stubEnv(name, own);
-    const runs = () => readdirSync(own).filter((f) => f.startsWith("codemm-run-"));
+    // This test's own Codemm home (stubbed above), so other test runs on the machine can't add folders.
+    const runs = () => readdirSync(runsDir());
     fakeDocker("interactive");
     const ok = await app.runInteractive(ws, undefined, undefined, () => undefined);
     ok.write("Ada\n");
@@ -215,8 +214,9 @@ describe.runIf(posix)("a container that can't start for lack of disk", () => {
     const ws = await installedExercise();
     fakeDocker("nospace");
     const run = await app.runInteractive(ws, undefined, undefined, () => undefined);
-    await expect(run.done).rejects.toMatchObject({ kind: "disk", message: expect.stringMatching(/no space left on device/) });
-    await expect(app.checkExercise(ws)).rejects.toMatchObject({ kind: "disk" });
+    // Docker's own disk, named in Codemm's words.
+    await expect(run.done).rejects.toMatchObject({ kind: "disk", code: "docker-disk", message: expect.stringMatching(/^The container couldn't start \(Docker ran out of disk space\)/) });
+    await expect(app.checkExercise(ws)).rejects.toMatchObject({ kind: "disk", code: "docker-disk" });
     expect(store.readEvents("shell")).toEqual([]);
   });
 });
