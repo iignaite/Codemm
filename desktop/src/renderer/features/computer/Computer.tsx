@@ -7,7 +7,7 @@ import { timing, useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
-import { CHECK_NAMES, DETAILS, FIXES, INSTALL, NOT_YET } from './fixes';
+import { CHECK_NAMES, DETAILS, FIXES, INSTALL, NOT_YET, REASON } from './fixes';
 import { DockerProgress } from './DockerProgress';
 import { ExternalLink } from '../../ui/ExternalLink';
 
@@ -91,7 +91,7 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
             ? 'This computer is ready.'
             : installing(data)
               ? ''
-              : `${problem ? `${problem.detail ? DETAILS[problem.detail].notYet : NOT_YET[problem.id]} ` : ''}Checking again every few seconds.`}
+              : `${problem ? `${problem.reason ? REASON.notYet[problem.reason.kind] : problem.detail ? DETAILS[problem.detail].notYet : NOT_YET[problem.id]} ` : ''}Checking again every few seconds.`}
         </p>
         <div className="actions">
           {data.ready ? (
@@ -125,7 +125,12 @@ function CheckItem({ check, computer, index, onInstall, onOpen }: ItemProps) {
   const platform = computer.platform;
   // Right after Codemm installed Docker, its first start asks the learner to accept Docker's terms.
   const justInstalled = check.detail === 'starting' && computer.install?.phase === 'starting';
-  const fix = check.state !== 'problem' ? undefined : justInstalled ? { steps: [INSTALL.phase.starting] } : check.detail ? DETAILS[check.detail].fix : FIXES[platform][check.id];
+  const fix =
+    check.state !== 'problem' ? undefined
+    : justInstalled ? { steps: [INSTALL.phase.starting] }
+    : check.reason ? REASON.fix(check.reason)
+    : check.detail ? DETAILS[check.detail].fix
+    : FIXES[platform][check.id];
   const offerInstall = check.state === 'problem' && check.id === 'docker-installed' && computer.canInstall;
   const offerOpen = check.state === 'problem' && check.id === 'docker-running' && !check.detail && computer.canInstall;
   const busy = Boolean(offerInstall && installing(computer));

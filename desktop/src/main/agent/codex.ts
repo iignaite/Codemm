@@ -66,5 +66,8 @@ export const codex: AgentCli = {
     return [];
   },
   version: { args: ['--version'], read: versionRead(/^codex-cli (\d+\.\d+\.\d+\S*)/m) },
-  signIn: { args: ['login', 'status'], read: ({ code, output }) => code === 0 && /^logged in/im.test(plain(output).trim()) },
+  signIn: {
+    args: ['login', 'status'],
+    read: ({ code, output }) => (/^not logged in/im.test(plain(output).trim()) ? false : code === 0 && /^logged in/im.test(plain(output).trim()) ? true : null),
+  },
 };

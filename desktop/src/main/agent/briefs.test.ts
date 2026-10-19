@@ -2,10 +2,31 @@
 import { describe, expect, it } from 'vitest';
 import { TOOL_NAMES } from '../../../../src/mcp';
 import { JOB_BRIEFS } from '../../../../src/templates';
+import { LIMITS } from '../../shared/limits';
+import { codemmServer } from '../server';
+import { AGENT_CLIS } from './agents';
+import { spawnable } from './bridge';
 import { briefsFrom, courseId } from './briefs';
 import { JOBS, type JobKind } from './jobs';
 
-const briefs = briefsFrom(JOB_BRIEFS);
+const briefs = briefsFrom(JOB_BRIEFS, 'darwin');
+
+/** One argument on a Windows command line, quoted as Node quotes it (libuv's quote_cmd_arg). */
+function windowsWord(arg: string): string {
+  if (arg === '') return '""';
+  if (!/[\s"]/.test(arg)) return arg;
+  if (!/["\\]/.test(arg)) return `"${arg}"`;
+  let out = '"';
+  let slashes = 0;
+  for (const c of arg) {
+    if (c === '\\') slashes++;
+    else {
+      out += c === '"' ? '\\'.repeat(slashes * 2 + 1) + '"' : '\\'.repeat(slashes) + c;
+      slashes = 0;
+    }
+  }
+  return `${out}${'\\'.repeat(slashes * 2)}"`;
+}
 
 describe('job briefs', () => {
   it("start with core's brief for the job, then add only the job's details", () => {
@@ -32,6 +53,41 @@ describe('job briefs', () => {
     expect(tutor).toContain('main.c');
     expect(tutor).toContain('int main() {}');
     expect(tutor.endsWith('They ask: Why?')).toBe(true);
+  });
+
+  it("keeps every agent's tutor turn within Windows' command-line limit, whatever the learner's code (§3.1)", () => {
+    // Windows takes at most 32,767 characters for a whole command line, and quoting can double a brief's.
+    const files = { 'src/main.c': '"\\'.repeat(100_000) };
+    const question = '"'.repeat(LIMITS.words);
+    const brief = briefsFrom(JOB_BRIEFS, 'win32').tutor('the activity "count-1"', question, files);
+    const home = 'C:\\Users\\Ann Lee\\AppData\\Local';
+    const server = codemmServer({
+      runtime: `${home}\\Programs\\Codemm\\Codemm.exe`,
+      coreDir: `${home}\\Programs\\Codemm\\resources\\core`,
+      ws: 'C:\\Users\\Ann Lee\\Codemm',
+      // A long PATH, as on a computer with many tools installed.
+      env: { PATH: Array.from({ length: 40 }, (_, i) => `C:\\Program Files\\Tool ${i}\\bin`).join(';'), CODEMM_HOME: 'C:\\Users\\Ann Lee\\.codemm' },
+    })('a-course-0', JOBS.tutor.tools, `${home}\\Temp\\codemm-progress\\job.json`);
+    for (const [id, cli] of Object.entries(AGENT_CLIS)) {
+      const { args } = cli.launch({ prompt: brief, server, tools: JOBS.tutor.tools, model: 'a-model', resume: '0b7d4c2e-9a1f-4e55-8a3e-2f6c1d9e7b10', web: false, toolTimeoutSec: 600 });
+      for (const exe of [{ path: `${home}\\..\\..\\.local\\bin\\${cli.bin}.exe`, js: false }, { path: `${home}\\..\\Roaming\\npm\\node_modules\\${cli.bin}\\cli.js`, js: true }]) {
+        const target = spawnable(exe, args, server.command);
+        const line = [target.file, ...target.args].map(windowsWord).join(' ');
+        expect([id, exe.js, line.length < 32_767]).toEqual([id, exe.js, true]);
+      }
+    }
+  });
+
+  it("keeps a setup brief within Windows' limit, whatever the failed proposal's problem says", () => {
+    const problem = '"'.repeat(100_000);
+    expect(briefsFrom(JOB_BRIEFS, 'win32').setup('c@1', 'io', problem).length).toBeLessThan(JOB_BRIEFS.setup.length + 5000);
+    expect(briefsFrom(JOB_BRIEFS, 'darwin').setup('c@1', 'io', problem).length).toBeLessThan(JOB_BRIEFS.setup.length + 17_000);
+  });
+
+  it('gives the tutor more code where the command line allows it', () => {
+    const code = 'x'.repeat(40_000);
+    expect(briefsFrom(JOB_BRIEFS, 'darwin').tutor('here', 'Why?', { 'a.c': code })).toContain(code);
+    expect(briefsFrom(JOB_BRIEFS, 'win32').tutor('here', 'Why?', { 'a.c': code })).not.toContain(code);
   });
 
   it('makes a new course id that core accepts', () => {

@@ -140,6 +140,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 **Running processes.**
 
 - **Spawning.** Argument arrays, no shell, closed stdin (both CLIs otherwise wait on stdin), and each agent leads a new process group.
+- **Windows' command-line limit.** The brief is one argument, and Windows takes at most 32,767 characters for a whole command line, which quoting can double. So on Windows a tutor brief carries at most 8 K characters of the learner's code (64 K elsewhere), and a setup brief at most 4 K of the failed proposal's problem (16 K elsewhere). A test builds each agent's worst-case tutor turn (every character a quote, a long `PATH`) and checks that it fits.
 - **Cancelling.**
   - On POSIX: SIGTERM to the group, SIGKILL after 3 s, and the run resolves only when the group is gone.
   - On Windows: `taskkill /pid <pid> /t /f`, awaited.
@@ -155,9 +156,12 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 **Credentials and environment.**
 
 - Codemm never opens an agent's credential files or keychain entries.
-- Sign-in uses the agent's own status command. Only a yes or no leaves the bridge.
+- Sign-in uses the agent's own status command (`agent/signedIn.ts`). Only a yes, a no or "can't tell" leaves the bridge.
+  - It is a no only when the agent says so: `loggedIn: false`, or "Not logged in".
+  - A busy computer can take 20 s to answer (`claude auth status` took 8.5 to 21 s in a walkthrough). So a check with no answer in 10 s is asked once more, with 60 s.
+  - A check that still doesn't answer, prints something else, or says no while the network is down can't tell. The agent isn't called signed out: an agent connected before stays connected, Connect connects, and the next look asks again. A job runs, and a failed job ends as a plain failure rather than a sign-out.
 - Signing in uses the agent's own login, never Codemm. A signed-out row says "Sign in to Codex, then try again." with a **Sign in** button that starts that login where the learner sees it (`signIn.ts`):
-  - Claude Code: in a Terminal window on macOS (a one-line `.command` file holding the quoted path), or its own console window on Windows.
+  - Claude Code: in a Terminal window on macOS (a one-line `.command` file holding the quoted path). On Windows it gets a console window of its own: PowerShell opens it through the Windows shell (.NET's `Process.Start` with `UseShellExecute`), as a double-click does, with the path and arguments as environment variables. PowerShell itself runs hidden and not detached, since a detached program on Windows has no console at all. Started straight from Codemm, it would have no window, and its prompts would go nowhere. Windows opens it at once, so there is no gap for an install to replace the file, as Terminal's moment allows on a Mac.
   - Codex and Cursor: their login opens the browser.
   - Codemm never reads, stores or types credentials.
 - A signed-out agent is checked again on every look, and the connect screen looks again when the window regains focus. The agent the learner tried to connect connects once it is signed in.
@@ -165,11 +169,15 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 
 **Finding and launching agents.**
 
+- Claude Code on Windows doesn't need Git for Windows. Since 2.1.120 it uses PowerShell when Git Bash is missing (its changelog; its setup page calls Git for Windows optional), and Codemm turns its shell tools off anyway (`--tools ""`). The tested version, 2.1.283, is later, so Codemm doesn't check for `bash.exe`.
 - GUI apps don't load shell profiles. The app looks on `PATH` and in the usual install folders, including where Node version managers put npm-installed CLIs: Volta, nvm (its default version first, then the newest) and fnm's default, and where the vendors' installers put the agents (`~/.local/bin`; on Windows, `%USERPROFILE%\.local\bin` and `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin`). For `docker`, it also looks in Docker Desktop's, OrbStack's and Rancher Desktop's folders (`/Applications/Docker.app/Contents/Resources/bin`, `~/.docker/bin`, `~/.orbstack/bin`, `~/.rd/bin`) and Podman's installer folder (`/opt/podman/bin`); Colima uses the Docker client from Homebrew (`/opt/homebrew/bin`, `/usr/local/bin`), which is searched too. On the connect screen the learner can pick the agent's executable.
 
 **Installing an agent for the learner** (`desktop/src/main/agentInstall.ts`). On macOS and Windows, a missing Claude Code or Codex row offers **Install** and **Get it myself** (the official page). Install is the vendor's own user-level install: no Node, npm or admin rights.
 
-- **Downloads.** Only from the vendor's https host, checked at every redirect hop: `downloads.claude.ai` for Claude Code; `releases.openai.com` (where `chatgpt.com/codex/install.*` redirects) for Codex. Nothing is a `curl | sh` string; every command is an argument array.
+- **Downloads.** Only from the vendor's https host, checked at every redirect hop before it is followed: `downloads.claude.ai` for Claude Code; `releases.openai.com` (where `chatgpt.com/codex/install.*` redirects) for Codex. Nothing is a `curl | sh` string; every command is an argument array.
+  - They go through Electron's network stack (`net.request`, `download.ts`), so the system's proxy settings and certificate store apply, as in a browser. Node's own `fetch` ignores both.
+  - There is no total deadline. A download with no bytes for 60 seconds, or one that loses the network midway, is offline. A disk that can't save it, a size cap or an HTTP error is a plain failure.
+  - The download is for this computer's own chip. An x64 build of Codemm under Rosetta, or under Windows' x64 emulation on Arm, reports x64, so Codemm asks Electron (`app.runningUnderARM64Translation`).
 - **Claude Code.** Codemm does what Anthropic's `install.sh` and `install.ps1` do, without running a script, so the binary is checked before it runs:
   1. It reads the latest version and that release's `manifest.json`.
   2. It downloads the platform's binary and requires its SHA-256 to match the manifest.
@@ -271,6 +279,8 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - Remove is refused when another topic requires it ("‹title› needs this topic"). Core also rejects removing a concept that an exercise, event or lesson uses; the lesson part is new. Prerequisites are never rewritten silently.
   - Prerequisite changes go through "Ask Codemm for changes".
   - While "Ask Codemm for changes" or Go deeper runs, the learner's own edits wait: rename, remove, move, drag and add are off, and an open rename closes unsaved. Codemm changes the roadmap as it stood, so its result never overwrites an edit made meanwhile.
+  - Go deeper keeps the learner's title on the topic it splits. The request asks the agent to keep the topic, with its id and title, as the first piece; if the result keeps the id but retitles it, the app puts the learner's title back and saves the draft.
+- **The editor screen.** The topics scroll above a footer of their own, which holds the change's progress (§4.11), Codemm's reply or a refused edit's reason, "Ask Codemm for changes" and Approve. Nothing covers them, however long the roadmap. The footer takes at most half the window and scrolls past that, so a long reply never pushes Approve out of reach. In a window under 560 CSS px tall (200% zoom on most windows) the footer joins the page's flow instead. Each row says "Go deeper" in words; move, rename and remove are icons named on hover.
 - **A fresh start after a new prerequisite.** When a re-save adds a prerequisite to a concept that is stuck, `save_roadmap` appends `{ kind: "retry", at, concept }`. Replaying a `retry` resets that concept's fail streak and leaves mastery unchanged. Without it, the concept would be stuck again as soon as the new prerequisite was mastered.
 
 ### 4.3 Lessons
@@ -340,7 +350,7 @@ With neither option, the server behaves as in core.
 Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In the app:
 
 - **Due.** A due review shows as "Review" on the course map and the topic page, and the activity opens with a "Review" label. If no unused exercise fits, an author job writes one (`review: true`), shown as the review being written. A review comes due with time, not with a learner action, so reading the course starts that job when it isn't running (an exception to D9's "reads start nothing", which is about reopening saved work). The course map and topic page re-read the course when the window regains focus, and every 10 minutes once settled, so a review that came due while the app was open shows up.
-- **Scheduled.** The mastery panel, and the completed-course screen, show "Review tomorrow" or "Review in N days" for a mastered topic. They never show dates. Overdue reviews wait their turn behind the one being offered, without a countdown.
+- **Scheduled.** The course map, beside the mastered topic on its path, and the completed-course screen show "Review tomorrow" or "Review in N days" for a mastered topic. They never show dates. Overdue reviews wait their turn behind the one being offered, without a countdown.
 - **Outcome.** A review is an ordinary Check. A pass keeps the topic mastered; a fail sends it back to practice.
 
 ### 4.8 Check progress
@@ -360,7 +370,7 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 - **Reads become sources.** When research has saved the roadmap, the https pages it read join the agent's own `sources` (at most 10), saved through core's roadmap rules.
 
 - **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
-- **Showing.** The roadmap and course-edit screens show a quiet "Sources" list. Each link opens only after a click, in the system browser, through main's `shell.openExternal`, and main accepts only https links. Nothing loads inside the app window.
+- **Showing.** The roadmap and course-edit screens show a quiet "Sources" line under the heading, so a long roadmap never pushes it out of view. Each link opens only after a click, in the system browser, through main's `shell.openExternal`, and main accepts only https links. Nothing loads inside the app window.
 
 ### 4.10 Run and the terminal pane
 
@@ -407,7 +417,7 @@ Every long step shows its live progress, so the learner always knows where it is
   - Research: the bar above the live list of searches and pages.
   - The course editor, while "Ask Codemm for changes" or Go deeper runs.
   - The topic page and the outline: a lesson or activity being written shows its job's stages (compact in the outline). A job still waiting its turn keeps the quiet shimmer.
-  - The topic page, during setup: proposing, then building and checking.
+  - The topic page and the course map, during setup: proposing, then building and checking.
   - The tutor rail: "Codemm is thinking…" and the turn's latest step.
 - **Mock.** `CODEMM_MOCK=slow-jobs` holds each stage over a few reads, so every state can be seen; `quiet-jobs` also shows the quiet line.
 
@@ -421,7 +431,29 @@ Every long step shows its live progress, so the learner always knows where it is
 - **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs). It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs.
   - Only tutor sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor session (a crashed turn can report 0) and adds only the rise.
   - One app process owns userData (§2), as with `desktop.json`, so no second instance writes it at the same moment.
-- **Screen:** the course map's side column shows a small Usage card for the approved course, once an agent has run for it: tokens in, tokens out, and "Claude's estimate" when Claude reported a cost. It's read again whenever the map reads the course. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so the cost's label, "Claude's estimate", is all it says: nothing about billing.
+- **Screen:** the course map's side column shows a small Usage card for the approved course once the agent reported a cost: "Estimated cost" and the amount ("under $0.01" below a cent). It's read again whenever the map reads the course. Token counts aren't shown: they're the agent's bookkeeping, not something the learner acts on. The agent isn't named, since agent names stay on the connect screen. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so the card says nothing about billing. Codex and Cursor report tokens only, so with them the card doesn't show; the totals are still kept.
+
+### 4.14 The course map
+
+The map is the course as a path the learner moves along (`renderer/features/progress/`). It is playful in Codemm's own way, not a copy of another app's path: no zig-zag of round buttons, coins, flames or streak counts.
+
+- **Heading.** The course's title (the words the learner typed), with its goal under it in plain text when they differ. A course without a title has the goal as its heading.
+- **Emm's branch.** The topics run down one vertical branch in roadmap order, an ordered list named "Topics". Each topic is a leaf on the branch:
+  - Mastered: a filled green leaf with a check. Its title opens the topic again, and "Review in 3 days" sits beside it.
+  - Now: an outlined green leaf with the code mark.
+  - Later: an outlined grey leaf with a lock.
+  - The leaf is an image named Mastered, Now or Later, so the state never depends on color alone.
+- **Green where the learner has been.** The branch is green between topics the learner has reached (mastered, or the current one) and grey elsewhere. A topic passed over sits on grey: one skipped with "Come back later", or a locked one behind a current topic that jumped ahead.
+- **Emm sits at the current topic.** The topic Codemm offers now is a card, marked `aria-current="step"`: a due or in-progress review, otherwise the Now topic. Emm, in the track's color, sits on the card's top edge, facing the topic. Emm thinks when the topic is stuck and looks at a review. Emm is decorative; the card says everything in words.
+  - **Now:** the title, a bar with one step per lesson and one for the activity, "Lessons 1 of 3" (a check and "Lessons" once all are read), and Continue.
+  - **Review due:** the title and Review.
+  - **Review being written:** "Writing the review", replaced by its job's compact progress once the job runs (§4.11), and nothing to press.
+- **Easier and skip** change the path, not the map's controls. "Try an easier one" adds a topic before the stuck one, which becomes the one to do now. "Come back later" moves Now to the next topic ready. Both stay on the results screen (§3.2).
+- **Setup.** While the track sets up (proposing, then building and checking), a "Setting up React" card above the path shows the setup job's progress (§4.11). Until the job's first report arrives, one quiet line says "Preparing setup for React" or "Setting up React". The path stays usable, since lessons can be read during setup. Consent, a failed setup and its retry stay on the topic page.
+- **Side column.** "Mastery" counts the topics mastered ("2 of 8 topics") above a bar per topic started, then the Usage card (§4.12). A bar starts empty: before a topic's first check its mastery is only core's starting estimate (0.5), so the course view reports 0 until then.
+- **Finished.** A finished course opens on the completed-course screen. View course shows the path with every leaf mastered, nothing to continue, and Emm cheering where the branch ends.
+- **Motion.** The path fills and lands in order: each topic's part of the branch draws, its leaf pops on, its title rises, then the current card rises and Emm lands on it with a small squash. Topics after the eighth land together, so a long course takes no longer. Under reduced motion nothing moves.
+- **Narrow windows.** Under 1000 px the side column goes under the path. In narrow rows, a review date wraps under its topic and the card's button under its title.
 
 ## 5. Failure states
 
@@ -431,6 +463,9 @@ Infrastructure failures record nothing. Learner-caused outcomes are graded as `e
 |---|---|---|
 | Docker missing, not running, still starting, or stopped mid-session | "This check wasn't counted." ("Try it didn't run." for Try it) and Check this computer (§6.1), with why: "Docker isn't running.", "Docker is busy or not answering.", "Docker couldn't run that.", "Docker ran out of disk space." or "This computer is out of disk space.", or a reason core named, with what to change (Docker has fewer than 2 CPUs, its logging driver, its file sharing) | nothing |
 | Offline or low disk during setup | "You're offline." or "Not enough disk space.", then Try again (§6.1) | nothing; no agent runs |
+| Docker Desktop doesn't run on this macOS or Windows | before anything downloads, "Docker Desktop needs macOS 14 or later. Update macOS to install it." or "Docker Desktop needs Windows 10 22H2, or Windows 11 23H2 or later. It doesn't run on Windows Server." (§6.1) | nothing |
+| Offline while installing Docker or an agent, including a download with no bytes for 60 seconds or one that loses the network midway | "You're offline. Connect to the internet, then try again.", with Try again (§3.1, §6.1) | nothing |
+| The learner says no to Windows' permission prompt for Docker's installer | "Windows asks for permission to install Docker. Try again, and choose Yes.", with Try again (§6.1) | nothing |
 | Track image missing or changed | "This environment needs a rebuild." with Go to Tracks; "Rebuild" on the track runs `rebuildTrack`, then says "Rebuilt." An agent job that finds it so stalls with the same words, Go to Tracks and Try again, never Check your agent | nothing; no relaunch |
 | No agent found, or signed out | the connect screen with its fix | nothing |
 | Agent plan limit reached | "Your agent's plan limit is reached. Try again later." | nothing; no relaunch |
@@ -461,14 +496,14 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 
 | Step | Passes when | While it fails |
 |---|---|---|
-| Docker is installed | the `docker` CLI is found (§3.1 lookup) | On macOS and Windows: **Install Docker**, which Codemm does for the learner (below), plus "Install it myself", linking to Docker's install page. On Linux: Docker Engine's install steps and link. |
-| Docker is running | the daemon answers with Linux containers | `docker info` gets 20 s, and an engine that gives no answer, or answers that it isn't ready, is asked once more for 60 s (core `runtimeState`), since a busy one can be slow. A Docker that refuses, or still doesn't answer, is stopped: "Open Docker Desktop, then wait until it says it is running.", with an **Open Docker Desktop** button on macOS and Windows. It is "Docker is starting. This can take a few minutes." only for the 3 minutes after Codemm itself opened or installed Docker, since Codemm can't tell a stopped daemon from a starting one otherwise. A Docker Desktop on Windows containers gets "Switch Docker Desktop to Linux containers." |
-| The sandbox works | doctor's network check passes | "Codemm couldn't confirm the sandbox. Restart Docker and check again." In the 3 minutes after Docker came up (after this screen saw it missing or stopped, or after Codemm opened or installed it), a failure says "Docker just started." and "Still checking. This can take a minute after Docker starts." instead, since a fresh Docker's first container can fail on its own. Each failure's reason goes to the app log (§5). Core's self-test also returns a `kind` (offline, disk, docker) and a plain reason, such as "Docker couldn't reach the network to download the test image" or the folder to share when the engine can't mount Codemm's run folders (core §4.3). Showing them here, in place of "Restart Docker", is not built yet. |
+| Docker is installed | the `docker` CLI is found (§3.1 lookup). On macOS and Windows, a `docker` command without Docker Desktop's app (Homebrew's, or a stopped Colima or OrbStack) passes only while its engine answers: with the engine down, Open Docker Desktop would fail, so this row offers Install Docker. Docker Desktop's app is `/Applications/Docker.app`, or `Docker Desktop.exe` in `%ProgramFiles%\Docker\Docker` (all users) or `%LOCALAPPDATA%\Programs\DockerDesktop` (one user). | On macOS and Windows: **Install Docker**, which Codemm does for the learner (below), plus "Install it myself", linking to Docker's install page. On Linux: Docker Engine's install steps and link. |
+| Docker is running | the daemon answers with Linux containers | `docker info` gets 20 s, and an engine that gives no answer, or answers that it isn't ready, is asked once more for 60 s (core `runtimeState`), since a busy one can be slow. A Docker that refuses, or still doesn't answer, is stopped: "Open Docker Desktop, then wait until it says it is running.", with an **Open Docker Desktop** button on macOS and Windows (on Windows it opens whichever Docker Desktop is installed, for all users or for this one). It is "Docker is starting. This can take a few minutes." only for 3 minutes, since Codemm can't otherwise tell a stopped daemon from a starting one. The 3 minutes start when Codemm itself opened or installed Docker, or when this screen first saw Docker Desktop's app running with its engine down, as when the learner opened it (`pgrep -f /Applications/Docker.app/`, or `tasklist` for `Docker Desktop.exe`). A Docker Desktop on Windows containers gets "Switch Docker Desktop to Linux containers." |
+| The sandbox works | doctor's network check passes | "Codemm couldn't confirm the sandbox. Restart Docker and check again." In the 3 minutes after Docker came up (after this screen saw it missing or stopped, or after Codemm opened or installed it), a failure says "Docker just started." and "Still checking. This can take a minute after Docker starts." instead, since a fresh Docker's first container can fail on its own. Each failure's reason goes to the app log (§5). When core's self-test knows the cause on this computer (its `kind`: offline, disk or docker, core §4.3), the row shows the self-test's own words instead of "Restart Docker". Those words say what to do: connect to the internet (or, for Docker Hub's limit or an intercepting proxy, what that means), free disk space, share the folder Codemm's checks mount, or fix Docker's sign-in helper. The line under the rows says "You're offline." or "Docker ran out of disk space." for those kinds. Offline and disk show at once, even in Docker's first 3 minutes, since they aren't a slow first container. An inconclusive result shows what it saw, followed by "Restart Docker, then check again." With no kind, the row says only "Restart Docker". |
 
 - **Moving on.** On the way in from Connect, when every row passes at the first check, the screen moves on by itself, so a first run goes from Connect straight to the goal: three clicks from the welcome screen. An explicit Check this computer (after a setup or a check failed) says "This computer is ready." and waits for Continue, as it does after a step. On the connect screen, the only supported agent installed is checked for sign-in at once, so it shows connected without a click.
 - **Re-checking.** Only the first failing row shows its message. Only one check runs at a time: the next starts 5 seconds after the last finishes, or at once when the window regains focus and no check is running. Re-checking stops once every row passes, and Continue unlocks.
 - **Docker stopping mid-session.** A check or setup that loses Docker fails as an infrastructure failure, records nothing, and opens this screen.
-- **Docker's slow first start.** Setup and checks started while Docker is starting (in the 3 minutes after Codemm opened or installed it) wait for the daemon before failing, and record nothing. With a stopped Docker they fail at once as not counted.
+- **Docker's slow first start.** Setup and checks started while Docker is starting (in those 3 minutes) wait for the daemon before failing, and record nothing. With a stopped Docker they fail at once as not counted.
 - **Install what's missing** (`features/setup/Setup.tsx`). On a first run with Docker not installed, or no agent installed, Welcome's one primary action is **Install what's missing**.
   - Its screen lists what will be installed (Docker Desktop says "Not installed"), with each maker's terms and the agent to install (Claude Code by default, or Codex). The terms line names no price. Nothing downloads until the learner clicks Install what's missing.
   - It then runs the Docker install and the agent install side by side, each showing its progress and result. If Docker's 3 minutes to start end with Docker still stopped, Docker's card shows Check this computer's step instead, with Open Docker Desktop and Check now.
@@ -476,14 +511,23 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
   - Once Docker is ready and the agent is connected, Codemm moves on to the goal.
   - Install Docker (below), each agent's Install and Get it myself, and "Do it myself" stay for doing it one at a time.
 - **Installing Docker Desktop for the learner** (`desktop/src/main/dockerDesktop.ts`). One click on Install Docker, on macOS and Windows:
-  1. Codemm checks there is room (4 GB on macOS, 8 GB on Windows), then downloads Docker Desktop for this chip from `desktop.docker.com` over https. A redirect may only land on another https docker.com host.
-  2. It runs the download only if Docker signed it:
+  1. Before anything downloads, Codemm checks that Docker Desktop runs on this computer, against Docker's documented minimums (release notes 4.48 and 4.49):
+     - macOS: `sw_vers -productVersion` is 14 or later;
+     - Windows: `reg query` of the `CurrentVersion` key gives build 19045 (Windows 10 22H2) or 22631 (Windows 11 23H2) or later, but not Windows 11 before 23H2, and an installation type that isn't Server. Windows Home runs Docker's Linux containers, which is all Codemm needs.
+     Otherwise it says what Docker needs ("Docker Desktop needs macOS 14 or later. Update macOS to install it."). An answer it can't read lets Docker's own installer decide.
+  2. Codemm checks there is room (4 GB on macOS, 8 GB on Windows), then downloads Docker Desktop for this computer's own chip (§3.1) from `desktop.docker.com` over https, through Electron's network stack. A redirect may only land on another https docker.com host.
+  3. It runs the download only if Docker signed it:
      - macOS: `codesign --verify --deep --strict`, Docker's team id `9BNSXJN65R`, and `spctl --assess`;
      - Windows: `Get-AuthenticodeSignature` reports Valid, signed by `O=Docker Inc`. The path reaches PowerShell as an environment variable, never inside the command text.
      Otherwise it deletes the download and says so.
-  3. macOS: Docker.app is copied to /Applications with `ditto` and opened. If the copy isn't allowed, the disk image opens in Finder for the learner to drag. Windows: Docker's installer runs with its own window, where Windows asks for permission.
-  4. Codemm never accepts Docker's terms or asks for a password: Docker's own window does both on its first start, and the screen says so.
-  5. The screen shows the download's progress, then each step, said once: the row's title and Emm's fill with its text, with no state word beside it and no footer line under it. A stop says why: offline, low disk, not signed by Docker, Windows needs a restart, or the installer didn't finish. Every command is an argument array, macOS's own tools (`codesign`, `spctl`, `hdiutil`, `ditto`, `mv`, `open`) by absolute path so none earlier on PATH stands in, and the download is deleted afterwards.
+  4. macOS: Docker.app is copied with `ditto` into a staging folder in /Applications, moved in place and opened. If the copy isn't allowed, the disk image opens in Finder for the learner to drag.
+     Windows: Docker's installer runs as administrator. PowerShell starts it with .NET's `Process.Start` and the `runas` verb, the path as an environment variable, and waits for the installer's own exit code. `Start-Process` isn't used: it drops Windows' code for "the learner said no" (1223), and its `-Wait` waits for every process the installer leaves running. Started directly, an installer that needs an administrator fails at once (error 740).
+     - The screen says "Allow Docker's installer when Windows asks (look in the taskbar), then finish in its window.", since the permission prompt can open behind Codemm.
+     - A learner who says no sees "Windows asks for permission to install Docker. Try again, and choose Yes.", with Try again. Try again runs the same download again after checking Docker's signature again, rather than downloading it twice.
+     - It installs for all users, in `%ProgramFiles%`, where Codemm finds Docker.
+     Leftovers: a Codemm that quits midway can leave a staging folder behind, and a failed or declined install keeps its download. At start Codemm removes its own over an hour old: staging folders (`.codemm-docker-` and 8 hex digits, with `/bin/rm -rf` so a 2 GB copy doesn't hold up the app) and download folders in the temp folder (`codemm-docker-` and 6 characters). A younger one may be another Codemm's install.
+  5. Codemm never accepts Docker's terms or types a password: Docker's own window and Windows' permission prompt do that, and the screen says so.
+  6. The screen shows the download's progress, then each step, said once: the row's title and Emm's fill with its text, with no state word beside it and no footer line under it. A stop says why: this macOS or Windows can't run Docker Desktop, offline (no network, or none for 60 seconds), low disk, not signed by Docker, the learner said no to Windows' permission prompt, Windows needs a restart, or the installer didn't finish. Every command is an argument array, the system's own tools by absolute path so none earlier on PATH stands in (macOS: `codesign`, `spctl`, `hdiutil`, `ditto`, `mv`, `open`, `rm`, `sw_vers`, `pgrep`; Windows: PowerShell, `reg`, `tasklist`), and the download is deleted afterwards.
 - **Offline or low disk during setup.** These count as infrastructure failures: nothing is recorded and no agent attempt is spent.
   - **Disk.** Before building, `installProposal` checks that the volume holding `$CODEMM_HOME` has at least 5 GB free, failing with "Not enough disk space".
   - **Build output.** A failed build whose output matches a known marker is an infrastructure failure (core §4.4): disk full ("no space left on device"), Docker's credential helper ("error getting credentials"), or the network: a name or route that fails ("could not resolve host", "network is unreachable", "proxyconnect"), Docker Hub's pull rate limit ("toomanyrequests"), an intercepted certificate ("certificate signed by unknown authority", "unable to get local issuer certificate"), or a connection that timed out or dropped ("i/o timeout", "TLS handshake timeout", "net/http: request canceled", a download's "unexpected EOF"). Any other failed build is a gate failure.
@@ -569,7 +613,7 @@ Each item is verified by an automated test unless marked *journey* or *release*.
 | D13 | **Check this computer and the environment matrix.** With the fake Docker and fake agent, each case shows its message and records nothing: missing Docker; not running; still starting (the starting message for 3 minutes after Codemm opened Docker, then the fix); installing Docker for the learner, including a download not signed by Docker; Windows containers; stopping mid-check; offline during setup; low disk during setup; no agent; signed out; plan limit. Offline, low disk and plan limit spend no agent retry. For the Docker cases, fixing the fake makes the screen pass on its own within one re-check, and repeated focus events never start a second check. The setup cases recover through Try again on the same proposal, and the agent cases through the connect screen. |
 | D14 | **Failure states.** Each row in §5 maps to a tested screen state. |
 | D15 | **UI rules and no language dispatch.** Rendering every screen shows agent names only on the connect screen, the tutor named "Codemm", and no ids, versions, paths or timestamps. Core A1's scan covers `desktop/`, and track names and colors come from `list_tracks` or the learner. |
-| D16 | **Accessibility (WCAG AA).** Every journey screen passes an automated accessibility check with no AA violations, and every control has a screen-reader name. The D17 flow completes with the keyboard alone. With reduced motion set, nothing animates. Every screen reflows down to 320 CSS pixels (400% zoom) and in the smallest window, 800 by 600: nothing but code sticks out past the window, and under 760 px the sidebar slims and the course map's side column goes under the topics. |
+| D16 | **Accessibility (WCAG AA).** Every journey screen passes an automated accessibility check with no AA violations, and every control has a screen-reader name. The D17 flow completes with the keyboard alone. With reduced motion set, nothing animates. Every screen reflows down to 320 CSS pixels (400% zoom) and in the smallest window, 800 by 600: nothing but code sticks out past the window, the course map's side column goes under the topics below 1000 px, and the sidebar slims below 760 px. |
 | D17 | *Journey*, on macOS with Docker Desktop, in the packaged app, for Claude Code and Codex: connect, Check this computer, goal, roadmap edit, approve, setup consent, lesson with a note, a failing check, a passing check, skip, and the course view. |
 | D18 | *Journey*, on the owner's Windows PC, from the downloaded installer: a whole small course, from connect to course complete. |
 | D19 | *Journey*, Cursor: attempted. If it can't be signed in and run, its connect row says it is experimental. |
@@ -626,6 +670,7 @@ Also deferred:
 - Practice hooks for terminal Codex and Cursor; protection there stays advisory (core §2).
 - A busy row in Check this computer: an engine that never answers shows there as stopped, while setup, jobs and checks say it's busy (§5).
 - Naming a refused container's reason (fewer CPUs, the logging driver, file sharing) in a failed setup or a stall, as checks and Run already do: they say "Docker couldn't run that" there, and the app log has the code.
+- Passing a brief on stdin instead of as an argument (Claude Code's `-p` and `codex exec -` read it), which would lift the Windows caps on code and problems in briefs (§3.1).
 
 ## 13. Owner decisions
 

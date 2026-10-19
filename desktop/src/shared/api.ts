@@ -106,19 +106,26 @@ export interface ComputerCheck {
   state: 'ok' | 'problem' | 'waiting';
   /** For a running problem: Docker is still starting or set to Windows containers; or, just after Docker came up, the sandbox is still being checked. */
   detail?: 'starting' | 'windows-containers' | 'checking';
+  /**
+   * For the sandbox: the self-test's own words, when it knows the cause on this computer (core §4.3): offline, out of
+   * disk, or Docker's (a folder to share, its sign-in helper). `inconclusive`: what it saw, not a known cause.
+   */
+  reason?: { kind: 'offline' | 'disk' | 'docker'; text: string; inconclusive?: true };
 }
 
 /**
  * Codemm installing Docker Desktop for the learner (§6.1). `starting`: installed and opened; Docker's own window
- * asks the learner to accept its terms. Problems: `offline` and `disk` are this computer's; `unverified`: the
+ * asks the learner to accept its terms. Problems: `offline` and `disk` are this computer's; `macos-version` and
+ * `windows-version`: Docker Desktop doesn't run on this macOS or Windows, so nothing downloaded; `unverified`: the
  * download wasn't signed by Docker, so it was deleted; `manual`: drag Docker to Applications in the window that
- * opened; `restart`: Windows needs a restart; `failed`: Docker's installer didn't finish.
+ * opened; `declined`: the learner said no to Windows' permission prompt; `restart`: Windows needs a restart;
+ * `failed`: Docker's installer didn't finish.
  */
 export interface DockerInstall {
   phase: 'downloading' | 'checking' | 'installing' | 'starting' | 'failed';
   /** 0 to 1 while downloading. */
   progress?: number;
-  problem?: 'offline' | 'disk' | 'unverified' | 'manual' | 'restart' | 'failed';
+  problem?: 'offline' | 'disk' | 'macos-version' | 'windows-version' | 'unverified' | 'manual' | 'declined' | 'restart' | 'failed';
 }
 
 export interface Computer {
@@ -218,6 +225,8 @@ export interface TopicView {
 }
 
 export interface CourseView {
+  /** The course's short title, the words the learner typed: the map's heading, with the goal under it when they differ. */
+  title?: string;
   goal: string;
   track: string;
   setup: SetupState;

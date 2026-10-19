@@ -71,7 +71,7 @@ export function TopicItem({ index, count, title, editing, onEdit, onRename, onRe
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
-      <button ref={grip} className="ibtn" type="button" aria-label={`Move ${title}`} aria-haspopup="menu" aria-expanded={menu} disabled={count < 2 || !onMove || locked} onClick={() => setMenu(!menu)}>
+      <button ref={grip} className="ibtn" type="button" aria-label={`Move ${title}`} title="Move" aria-haspopup="menu" aria-expanded={menu} disabled={count < 2 || !onMove || locked} onClick={() => setMenu(!menu)}>
         <Icon name="grip" color="var(--ctl)" size={17} />
       </button>
       <span className="num" aria-hidden="true">{index + 1}</span>
@@ -85,14 +85,15 @@ export function TopicItem({ index, count, title, editing, onEdit, onRename, onRe
         <>
           <span className="name">{title}</span>
           {onDeeper && (
-            <button className="ibtn" type="button" aria-label={`Go deeper on ${title}`} title="Go deeper" disabled={locked} onClick={onDeeper}>
-              <Icon name="layers" color="var(--faint)" size={17} />
+            <button className="deeper" type="button" aria-label={`Go deeper on ${title}`} disabled={locked} onClick={onDeeper}>
+              <Icon name="layers" color="var(--faint)" size={16} />
+              Go deeper
             </button>
           )}
-          <button className="ibtn" type="button" aria-label={`Rename ${title}`} disabled={locked} onClick={onEdit}>
+          <button className="ibtn" type="button" aria-label={`Rename ${title}`} title="Rename" disabled={locked} onClick={onEdit}>
             <Icon name="pencil" color="var(--faint)" size={17} />
           </button>
-          <button className="ibtn" type="button" aria-label={`Remove ${title}`} disabled={locked} onClick={onRemove}>
+          <button className="ibtn" type="button" aria-label={`Remove ${title}`} title="Remove" disabled={locked} onClick={onRemove}>
             <Icon name="x" color="var(--faint)" size={13} />
           </button>
         </>
