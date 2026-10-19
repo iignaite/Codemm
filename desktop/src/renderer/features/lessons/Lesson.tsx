@@ -14,6 +14,7 @@ import { Icon } from '../../ui/Icon';
 import { lessonParts } from '../../ui/Markdown';
 import { stagger } from '../../ui/motion';
 import { Rail } from '../../ui/Rail';
+import { Diagram } from './Diagram';
 import { Example } from './Example';
 import { NoteEditor } from './NoteEditor';
 import { Outline } from './Outline';
@@ -129,7 +130,13 @@ function Reader({ lesson, course, topic, onSaved, onNoted }: View & { onSaved: (
         </div>
         <div className="a-up">
           {lessonParts(lesson.markdown, true).map((part, i) =>
-            'example' in part ? <Example key={i} lesson={lesson} index={part.example} /> : <div key={i} className="md" dangerouslySetInnerHTML={{ __html: part.html }} />,
+            'example' in part ? (
+              <Example key={i} lesson={lesson} index={part.example} />
+            ) : 'diagram' in part ? (
+              <Diagram key={i} source={part.diagram} />
+            ) : (
+              <div key={i} className="md" dangerouslySetInnerHTML={{ __html: part.html }} />
+            ),
           )}
         </div>
         {editing ? (

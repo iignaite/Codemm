@@ -28,6 +28,8 @@ function packaging(env, platform = process.platform) {
       { from: 'out/core', to: 'core' },
       // The OFL asks that the license travel with the bundled fonts.
       { from: 'src/renderer/assets/fonts', to: 'fonts', filter: ['OFL-*.txt'] },
+      // So do the MIT, ISC and other notices of what the renderer bundles (mermaid among it): vite writes them here.
+      { from: 'out/renderer/licenses.md', to: 'licenses.md' },
     ],
     // Auto-update reads GitHub Releases (DESIGN §7.2): the app-update.yml in the app names this repository, and
     // the release workflow attaches the latest*.yml feeds to its draft. The build itself never publishes.
