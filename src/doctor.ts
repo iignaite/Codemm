@@ -3,7 +3,7 @@ import { accessSync, constants, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { writeFileMap } from "./files.js";
 import { type RunFolder, runsDir, stageRunFolder } from "./runs.js";
-import { assertRuntime, cli, containerCli, infraKind, OWNER_LABEL, ownedContainers, ownerGone, removeAbandoned, runSandboxed, runtimeKind } from "./sandbox.js";
+import { assertRuntime, cli, containerCli, infraKind, inspectRecord, ownedContainers, OWNER_LABEL, ownerGone, removeAbandoned, runSandboxed, runtimeKind } from "./sandbox.js";
 import { codemmHome } from "./store.js";
 
 /** A small, pinned utility image used only for the network self-test. */
@@ -101,17 +101,9 @@ async function mountProblem(name: string): Promise<Check | undefined> {
 
 /** The first IPv4 address among a container's networks, from `inspect --format '{{json .}}'`. */
 function bridgeIp(output: string): string | undefined {
-  for (const line of output.split("\n")) {
-    if (!line.trim().startsWith("{")) continue;
-    try {
-      const record = JSON.parse(line) as { NetworkSettings?: { Networks?: Record<string, { IPAddress?: unknown }> | null } };
-      const ips = Object.values(record.NetworkSettings?.Networks ?? {}).map((n) => n?.IPAddress);
-      return ips.find((ip): ip is string => typeof ip === "string" && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip));
-    } catch {
-      // Not the record.
-    }
-  }
-  return undefined;
+  const record = inspectRecord<{ NetworkSettings?: { Networks?: Record<string, { IPAddress?: unknown } | null> | null } }>(output);
+  const ips = Object.values(record?.NetworkSettings?.Networks ?? {}).map((n) => n?.IPAddress);
+  return ips.find((ip): ip is string => typeof ip === "string" && /^\d{1,3}(\.\d{1,3}){3}$/.test(ip));
 }
 
 /**
