@@ -1,6 +1,6 @@
 // An infrastructure failure during Try it, Check, Run or a lesson example isn't counted (DESIGN §5): the learner
 // sees why, and nothing is recorded.
-import { NOT_COUNTED, REBUILD } from '../shared/api';
+import { NOT_COUNTED, REBUILD, RUN_AGAIN } from '../shared/api';
 import { infraOf, kindOf } from './core/failures';
 import { SafeError } from './errors';
 import type { Log } from './log';
@@ -25,22 +25,18 @@ export function asNotCounted<K extends 'not-counted' | 'not-run'>(error: unknown
   return { kind, reason };
 }
 
-/** What to do about each of this computer's problems after a rebuild that stopped. */
-const TRY_AGAIN = {
-  docker: 'Open Docker Desktop, then try again.',
-  disk: 'Free up disk space, then try again.',
-  offline: 'Connect to the internet, then try again.',
-} as const;
 export const NOT_ACCEPTED = "The rebuilt environment wasn't accepted, so nothing changed.";
 
 /**
  * A failed rebuild as the learner may read it. Core's messages carry commands, image names and Docker's output, so
- * this computer's problem becomes Codemm's own words and its next step, and a rebuild core didn't accept (a gate
- * failed, or the results changed) says only that nothing changed: it builds under a candidate tag and keeps the
- * installed image until every check passes (core §4.4). Any other error goes on as it was.
+ * this computer's problem becomes the same reason a Check gives, with its next step, and a rebuild core didn't
+ * accept (a gate failed, or the results changed) says only that nothing changed: it builds under a candidate tag
+ * and keeps the installed image until every check passes (core §4.4). Any other error goes on as it was.
  */
 export function rebuildFailure(error: unknown): unknown {
-  const kind = infraOf(error);
-  if (kind) return new SafeError(`${NOT_COUNTED[kind]} ${TRY_AGAIN[kind]}`);
+  if (infraOf(error)) {
+    const reason = notCounted(error)!;
+    return new SafeError(RUN_AGAIN[reason] ? `${reason} ${RUN_AGAIN[reason].replace('run again', 'try again')}` : reason);
+  }
   return error instanceof Error && error.name === 'CodemmError' && !kindOf(error) ? new SafeError(NOT_ACCEPTED) : error;
 }
