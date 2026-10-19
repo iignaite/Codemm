@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError, infraError } from "./errors.js";
 import { type FileMap, subMap, validateFileMap, writeFileMap } from "./files.js";
-import { gradeRuns, type IoRun, redact, type Runs, type TestResult, type UnitRun } from "./grading.js";
-import { type JudgeTrack, runSets } from "./judge.js";
+import { CASE_OUTPUT_MB, caseDigest, type Expected, gradeRuns, type IoRun, type RawCase, recordOutput, redact, type Runs, type TestResult, type UnitRun } from "./grading.js";
+import { GENERATOR_SECONDS, generatorFailed, type JudgeTrack, runSets } from "./judge.js";
 import { buildImage, type BuildStep, inspectImage } from "./sandbox.js";
 import {
-  type CourseRecord, type ExerciseRecord, type ExerciseSpec, parseExerciseYaml, parseTrackYaml, type Style, type TrackRecord, type TrackSpec,
+  type CourseRecord, type ExerciseRecord, type ExerciseSpec, LIMITS, parseExerciseYaml, parseTrackYaml, type Style, type TrackRecord, type TrackSpec,
 } from "./schemas.js";
 
 /**
@@ -183,10 +183,14 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
     const fast = fastMs(spec.limits);
     const pass2 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }, { timeMs: fast }), exp);
     if (!allPass(pass2)) {
+      // time_ms is clamped to its ceiling, so asking for more there changes nothing: the probe itself must get faster.
+      const fix = spec.limits.time_ms >= LIMITS.time_ms.max
+        ? `limits.time_ms is already at its ceiling (${LIMITS.time_ms.max} ms), so make the ${p.style === "unit" ? "test command" : "run command"} faster: ` +
+          "cache everything at image build time, and call the compiler and test runner directly instead of starting a build tool for every check:"
+        : "Raise limits.time_ms or limits.memory_mb in track.yaml:";
       throw new GateError(
         "probe fast",
-        `the ${p.style} pass probe must also pass with a third of the time limit (${fast} ms), as every exercise's reference must. ` +
-          "Raise limits.time_ms or limits.memory_mb in track.yaml:",
+        `the ${p.style} pass probe must also pass with a third of the time limit (${fast} ms), as every exercise's reference must. ${fix}`,
         `\n${summarize(pass2)}`,
       );
     }
@@ -240,9 +244,13 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
   const sets = { visible: subMap(files, "tests/visible"), hidden: subMap(files, "tests/hidden") };
   if (style === "io") {
     for (const [set, tests] of Object.entries(sets)) {
-      const bad = Object.keys(tests).filter((p) => !/^[A-Za-z0-9_-]+\.in$/.test(p));
+      const bad = Object.keys(tests).filter((p) => !/^[A-Za-z0-9_-]+\.(in|gen)$/.test(p));
       const listed = set === "hidden" ? `${bad.length} file(s)` : bad.join(", ");
-      if (bad.length > 0) throw new GateError("valid", `tests/${set}/ may only hold NN.in inputs; Codemm writes expected outputs (.out) itself. Remove: ${listed}.`);
+      if (bad.length > 0) {
+        throw new GateError("valid", `tests/${set}/ may only hold NN.in inputs and NN.gen input generators; Codemm writes expected outputs (.out) itself. Remove: ${listed}.`);
+      }
+      const both = Object.keys(tests).filter((p) => p.endsWith(".gen") && `${p.slice(0, -4)}.in` in tests);
+      if (both.length > 0) throw new GateError("valid", `tests/${set}/ has both NN.in and NN.gen for ${set === "hidden" ? `${both.length} test(s)` : both.map((p) => p.slice(0, -4)).join(", ")}. Keep one of each pair.`);
     }
   }
   const counts = { visible: Object.keys(sets.visible).length, hidden: Object.keys(sets.hidden).length };
@@ -280,8 +288,9 @@ export async function verifyExercise(
 
   // Gate 2 + 3: the reference passes, twice, the second time with a third of the time limit.
   const first = await runSets(track, style, solution, sets);
-  const second = await runSets(track, style, solution, sets, { timeMs: fast });
-  const exp: { expected?: Record<string, string>; inventory?: { visible: string[]; hidden: string[] } } = {};
+  // Generators get a third of their time too, so a later run under load still has room.
+  const second = await runSets(track, style, solution, sets, { timeMs: fast, generatorMs: (GENERATOR_SECONDS * 1000) / 3 });
+  const exp: { expected?: Record<string, Expected>; inventory?: { visible: string[]; hidden: string[] } } = {};
   if (style === "io") {
     const runs = [first, second].map((r) => [...(r.visible as IoRun).cases, ...(r.hidden as IoRun).cases]);
     const [a, b] = runs as [IoRun["cases"], IoRun["cases"]];
@@ -298,25 +307,31 @@ export async function verifyExercise(
     }
     const hiddenBuild = (first.hidden as IoRun).build;
     if (hiddenBuild && hiddenBuild.exit !== 0) throw new GateError("reference passes", "the reference didn't build for the hidden tests.");
-    const bad = a.filter((c) => c.exit !== 0 || c.big);
+    const failed = (c: RawCase) => c.exit !== 0 || c.big || c.generator;
+    const bad = a.filter(failed);
     if (bad.length > 0 || a.length !== counts(sets)) {
       // A visible case is named only when it matches an input the author gave; any other name came from the run.
-      const inputs = new Set(Object.keys(sets.visible).filter((p) => p.endsWith(".in")).map((p) => `visible/${p.slice(0, -3)}`));
+      const inputs = new Set(Object.keys(sets.visible).filter((p) => /\.(in|gen)$/.test(p)).map((p) => `visible/${p.replace(/\.(in|gen)$/, "")}`));
       let hidden = 0;
       let other = 0;
+      // A failed generator is the test's own fault, not the reference's, so it says so (by number, for hidden ones).
+      const why = (c: RawCase) => (c.generator ? `its input generator failed (exit ${c.exit})` : `exit ${c.exit}${c.big ? `, printed over ${CASE_OUTPUT_MB} MB` : ""}`);
       const lines = a.map((c) =>
         c.name.startsWith("hidden/")
-          ? `  hidden #${(hidden += 1)}: ${c.exit === 0 && !c.big ? "ok" : "error"}`
-          : `  ${inputs.has(c.name) ? c.name : `unexpected case #${(other += 1)}`}: exit ${c.exit}${c.big ? ", printed over 64 KB" : ""}`,
+          ? `  hidden #${(hidden += 1)}: ${!failed(c) ? "ok" : c.generator ? "input generator failed" : "error"}`
+          : `  ${inputs.has(c.name) ? c.name : `unexpected case #${(other += 1)}`}: ${why(c)}`,
       );
       throw new GateError("reference passes", `the reference must run every input without errors:\n${lines.join("\n")}`);
     }
-    const slow = b.filter((c) => c.exit !== 0 || c.big);
-    if (slow.length > 0) throw new GateError("reference fast", `the reference must still pass with a third of the time limit (${fast} ms); ${slow.length} case(s) didn't.`);
-    if (JSON.stringify(a.map((c) => c.stdout)) !== JSON.stringify(b.map((c) => c.stdout))) {
-      throw new GateError("reference passes", "the reference printed different output on two identical runs. Make it deterministic (no randomness, time or ordering of sets).");
+    const slow = b.filter(failed);
+    if (slow.length > 0) {
+      const generators = slow.some((c) => c.generator) ? `, and every input generator within a third of its ${GENERATOR_SECONDS} s` : "";
+      throw new GateError("reference fast", `the reference must still pass with a third of the time limit (${fast} ms)${generators}; ${slow.length} case(s) didn't.`);
     }
-    exp.expected = Object.fromEntries(a.map((c) => [c.name, c.stdout]));
+    if (JSON.stringify(a.map(caseDigest)) !== JSON.stringify(b.map(caseDigest))) {
+      throw new GateError("reference passes", "the reference printed different output on two identical runs. Make it and any input generator deterministic (no randomness without a fixed seed, time or ordering of sets).");
+    }
+    exp.expected = Object.fromEntries(a.map((c) => [c.name, recordOutput(c)]));
   } else {
     const r1 = gradeRuns(style, first, {});
     if (!allPass(r1)) throw new GateError("reference passes", `the reference must pass every test:\n${statuses(r1)}`);
@@ -334,16 +349,25 @@ export async function verifyExercise(
     if (shape(r1) !== shape(r2)) throw new GateError("reference passes", "the test report differed between two identical runs. Make test names and results deterministic.");
   }
 
+  // Gates 4 to 7 ask only whether everything passes, so an io set stops at its first error: a slow wrong solution
+  // costs one time limit per set, not one per case. A generator failing there would make a mutant look caught, so it
+  // fails the save instead.
+  const quick = { stopAtError: true };
+  const graded = (runs: Runs) => {
+    if (generatorFailed(runs)) throw new GateError("reference fast", `an input generator failed on a later run. Make every generator finish well within ${GENERATOR_SECONDS / 3} s, the same way every time.`);
+    return gradeRuns(style, runs, exp);
+  };
+
   // Gate 4: the starter isn't already a solution.
   onGate?.("starter");
-  const starterTests = gradeRuns(style, await runSets(track, style, starter, sets), exp);
+  const starterTests = graded(await runSets(track, style, starter, sets, quick));
   if (allPass(starterTests)) throw new GateError("starter unsolved", "the unedited starter passes every test. Leave the work to the learner.");
 
   // Gates 5 + 6: every mutant is caught by a hidden test, and some mutant gets past the visible ones.
   onGate?.("mutants");
   let anyPassesVisible = false;
   for (const m of mutants) {
-    const tests = gradeRuns(style, await runSets(track, style, m.src, sets), exp);
+    const tests = graded(await runSets(track, style, m.src, sets, quick));
     if (allPass(tests.filter((t) => t.set === "hidden"))) {
       throw new GateError("mutants caught", `${m.label} (in name order under mutants/) passes every hidden test. Strengthen the hidden tests or replace the mutant.`);
     }
@@ -356,7 +380,7 @@ export async function verifyExercise(
   // Gate 7: it's a new task. An earlier exercise's solution that passes every visible test here means the same task
   // again, whatever its title.
   for (const e of comparedEarlier(earlier, style, spec.concepts)) {
-    if (allPass(gradeRuns(style, await runSets(track, style, e.solution, { visible: sets.visible }), exp))) {
+    if (allPass(graded(await runSets(track, style, e.solution, { visible: sets.visible }, quick)))) {
       throw new GateError("new task", `the solution to "${e.slug}" already passes every visible test of this exercise, so it's the same task again. Write a different problem, not a renamed one.`);
     }
   }

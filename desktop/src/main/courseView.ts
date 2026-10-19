@@ -29,7 +29,7 @@ export function courseView(
   now = Date.now(),
   /** The concept whose lesson job failed and stalled work: its row stays, for Try again. */
   failedLesson?: string,
-): CourseView {
+): Omit<CourseView, 'title'> {
   const next = progress.next;
   const current = currentConcept(progress);
   const topics = progress.concepts.map((c): TopicView => {

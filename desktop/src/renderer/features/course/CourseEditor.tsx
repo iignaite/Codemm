@@ -122,7 +122,8 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
     <main className="main editor">
       <div className="editor-body">
         <div className="stack editor-col" style={{ gap: 10 }}>
-          <h1 className="h2 a-up">{roadmap.goal}</h1>
+          <h1 className="h2 a-up">{roadmap.title}</h1>
+          {roadmap.goal !== roadmap.title && <p className="sub a-up">{roadmap.goal}</p>}
           {sources.length > 0 && (
             <section className="sources a-up" style={stagger(0, 100)} aria-labelledby="sources-t">
               <h2 id="sources-t">Sources</h2>

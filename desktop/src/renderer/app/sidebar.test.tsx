@@ -2,7 +2,7 @@ import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createMock } from '../../main/mock';
-import { jobAt, jobBus, renderApp } from '../test-utils';
+import { jobAt, jobBus, mockWithRoadmap, renderApp } from '../test-utils';
 
 const sidebar = () => screen.getByRole('navigation', { name: 'Main' });
 
@@ -132,6 +132,73 @@ describe('narrow windows', () => {
       await userEvent.setup().click(await within(region).findByRole('button', { name: 'Restart' }));
       expect(region).toHaveTextContent('A new version is ready.');
       expect(restart).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+/** A mock with two approved courses, React then Python; Python is on screen. */
+async function twoCourses() {
+  const { api, roadmap } = await mockWithRoadmap();
+  await api.approve(roadmap.concepts);
+  const goal = { topic: 'Python', known: '', depth: 'standard' as const };
+  let r = await api.research(goal);
+  while (r.state === 'running') r = await api.research(goal);
+  await api.approve(r.roadmap!.concepts);
+  return api;
+}
+
+describe('courses (§4.13)', () => {
+  it('lists the courses at the foot, the one on screen marked, and opens another', async () => {
+    renderApp({ to: 'learn' }, await twoCourses());
+    const python = await within(sidebar()).findByRole('button', { name: 'Python' });
+    expect(python).toHaveAttribute('aria-current', 'true');
+    expect(within(sidebar()).getByRole('button', { name: 'React' })).not.toHaveAttribute('aria-current');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Python' })).toBeInTheDocument();
+    await userEvent.setup().click(within(sidebar()).getByRole('button', { name: 'React' }));
+    expect(await screen.findByRole('heading', { level: 1, name: 'React' })).toBeInTheDocument();
+    expect(within(sidebar()).getByRole('button', { name: 'React' })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('names two courses with the same words by their goals', async () => {
+    const api = await twoCourses();
+    api.courses = async () => [
+      { id: 'python-1', title: 'Python', goal: 'Python basics, briefly', track: 'python', current: true },
+      { id: 'python-2', title: 'Python', goal: 'Python in depth', track: 'python', current: false },
+    ];
+    renderApp({ to: 'tracks' }, api);
+    expect(await within(sidebar()).findByRole('button', { name: 'Python basics, briefly' })).toHaveAttribute('aria-current', 'true');
+    expect(within(sidebar()).getByRole('button', { name: 'Python in depth' })).toBeInTheDocument();
+  });
+
+  it('opens the goal screen from New course', async () => {
+    renderApp({ to: 'learn' }, await twoCourses());
+    await userEvent.setup().click(await within(sidebar()).findByRole('button', { name: 'New course' }));
+    expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
+  });
+
+  it('shows one course as before, with New course; none says so', async () => {
+    const { api, roadmap } = await mockWithRoadmap();
+    const view = renderApp({ to: 'tracks' }, api);
+    expect(await within(sidebar()).findByText('No course yet')).toBeInTheDocument();
+    expect(within(sidebar()).queryByRole('button', { name: 'New course' })).not.toBeInTheDocument();
+    view.unmount();
+    await api.approve(roadmap.concepts);
+    renderApp({ to: 'tracks' }, api);
+    expect(await within(sidebar()).findByRole('button', { name: 'React' })).toHaveAttribute('aria-current', 'true');
+    expect(within(sidebar()).getByRole('button', { name: 'New course' })).toBeInTheDocument();
+  });
+
+  it('shows each course as its badge in the slim sidebar, named by its goal', async () => {
+    narrowWindow();
+    try {
+      renderApp({ to: 'tracks' }, await twoCourses());
+      const react = await within(sidebar()).findByRole('button', { name: 'React' });
+      expect(react).toHaveTextContent('R');
+      expect(within(sidebar()).getByRole('button', { name: 'Python' })).toHaveAttribute('aria-current', 'true');
+      await userEvent.setup().click(react);
+      expect(await screen.findByRole('heading', { level: 1, name: 'React' })).toBeInTheDocument();
     } finally {
       vi.unstubAllGlobals();
     }

@@ -265,6 +265,19 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     expect(t.jobs.ran.filter((j) => j.kind === 'setup')).toHaveLength(1);
   });
 
+  it('launches no background job queued right behind one that stalled', async () => {
+    let limited = false;
+    const t = live({ lesson: (_job, usual) => (limited ? { ok: false, problem: 'plan-limit' } : usual()) });
+    const activity = await practising(t);
+    await t.api.saveFile(activity.id, activity.files[0].path, 'count + 1', activity.files[0].digest);
+    limited = true;
+    // Mastering the topic queues the next topic's lesson, then its activity, in the background.
+    await t.api.check(activity.id, 'run-1');
+    await until(t.api, (c) => c.stalled === 'plan-limit');
+    await new Promise((res) => setTimeout(res, 20));
+    expect(t.jobs.ran.filter((j) => j.kind === 'author')).toHaveLength(1);
+  });
+
   it('tells every job kind\'s progress on one channel, with its topic, and lists the jobs running now (§4.11)', async () => {
     let during: JobProgress[] = [];
     const t = live({
@@ -442,6 +455,16 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     await expect(t.api.ask({ activityId: activity.id }, 'Why again?')).rejects.toThrow(UNSTOPPABLE);
     await t.api.retryJobs();
     expect(t.jobs.ran.filter((j) => j.kind === 'tutor')).toHaveLength(1);
+  });
+
+  it('stalls background work as unstoppable once an agent could not be stopped', async () => {
+    const t = live({ tutor: () => ({ ok: false, problem: 'unstoppable' }) });
+    const activity = await practising(t);
+    await expect(t.api.ask({ activityId: activity.id }, 'Why?')).rejects.toThrow(UNSTOPPABLE);
+    await t.api.saveFile(activity.id, activity.files[0].path, 'count + 1', activity.files[0].digest);
+    // Mastering the topic makes the next lesson due: Codemm starts no agent, and says why.
+    await t.api.check(activity.id, 'run-1');
+    expect((await until(t.api, (c) => c.stalled !== undefined)).stalled).toBe('unstoppable');
   });
 
   it('a job that was waiting for the agent lookup does not launch once another job turned out unstoppable', async () => {

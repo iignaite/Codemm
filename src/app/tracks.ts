@@ -1,6 +1,7 @@
 import { CodemmError, infraError } from "../errors.js";
 import { assertPortablePaths, type FileMap, validateFileMap } from "../files.js";
 import { checkTrackFiles, type TrackProgress, verifyExercise, verifyTrack } from "../gates.js";
+import { type Expected, expectedDigest } from "../grading.js";
 import { runtimeCode, runtimeDown, cli as sandboxCli } from "../sandbox.js";
 import { type TrackRecord } from "../schemas.js";
 import * as store from "../store.js";
@@ -60,6 +61,10 @@ export async function saveTrack(files: FileMap): Promise<{ installed: string; un
     return install(ref, files);
   });
 }
+
+/** io expected outputs as they're compared: by the digest of each, normalized (DESIGN §4.2), in name order. */
+const digests = (expected: Record<string, Expected> | undefined) =>
+  Object.entries(expected ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([name, e]) => [name, expectedDigest(e)]);
 
 const sorted = (map: FileMap) => Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)));
 
@@ -126,7 +131,7 @@ export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exer
         const { files } = store.readExercise(courseId, ex.slug);
         try {
           const again = await verifyExercise(track, course, files, new Set());
-          if (JSON.stringify(again.expected) !== JSON.stringify(ex.expected) || JSON.stringify(again.inventory) !== JSON.stringify(ex.inventory)) {
+          if (JSON.stringify(digests(again.expected)) !== JSON.stringify(digests(ex.expected)) || JSON.stringify(again.inventory) !== JSON.stringify(ex.inventory)) {
             changed.push(`${courseId}/${ex.slug}: results changed`);
           }
         } catch (e) {

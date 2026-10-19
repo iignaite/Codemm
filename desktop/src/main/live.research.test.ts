@@ -13,7 +13,7 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
   it('researches a new course on a server bound to it, then shows the roadmap', async () => {
     const t = live();
     const r = await researched(t);
-    expect(r).toEqual({ state: 'done', roadmap: { goal: 'React', track: 'React', installed: false, concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }], sources: [] } });
+    expect(r).toEqual({ state: 'done', roadmap: { title: 'React', goal: 'React', track: 'React', installed: false, concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }], sources: [] } });
     const job = t.jobs.ran[0];
     const course = t.c.roadmap!.course;
     expect(course).toMatch(/^react-[a-z0-9]+$/);
@@ -35,7 +35,7 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     const draft = t.c.roadmap!.course;
     expect(draft).not.toBe(approved);
     expect(await t.api.course()).toMatchObject({ topics: [{ id: 'values', state: 'now', activity: 'open' }, {}] });
-    expect(await t.api.draft()).toMatchObject({ goal: 'React', concepts: [{ id: 'values' }, { id: 'state' }] });
+    expect(await t.api.draft()).toMatchObject({ goal: 'Vue', concepts: [{ id: 'vue-values' }, { id: 'vue-state' }] });
     // Every learner call stays on the approved course.
     t.c.bound.length = 0;
     await t.api.activity('values');
@@ -49,10 +49,10 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     expect(t.c.bound.length).toBeGreaterThan(0);
     expect(t.c.bound.every((b) => b === approved)).toBe(true);
     expect(t.c.courses.get(approved)!.concepts.map((c) => c.id)).toContain('testing');
-    expect(t.c.courses.get(draft)!.concepts.map((c) => c.id)).toEqual(['values', 'state']);
+    expect(t.c.courses.get(draft)!.concepts.map((c) => c.id)).toEqual(['vue-values', 'vue-state']);
     // Edits to the draft are saved as they happen.
-    await t.api.saveDraft([{ id: 'state', title: 'State', requires: [] }, { id: 'values', title: 'Values', requires: [] }]);
-    expect((await t.api.draft())!.concepts.map((c) => c.id)).toEqual(['state', 'values']);
+    await t.api.saveDraft([{ id: 'vue-state', title: 'State', requires: [] }, { id: 'vue-values', title: 'Values', requires: [] }]);
+    expect((await t.api.draft())!.concepts.map((c) => c.id)).toEqual(['vue-state', 'vue-values']);
     await t.api.approve((await t.api.draft())!.concepts);
     expect(await t.api.draft()).toBeNull();
     expect(t.c.bound.at(-1)).toBe(draft);

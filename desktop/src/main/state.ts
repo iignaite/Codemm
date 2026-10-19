@@ -12,13 +12,20 @@ export interface DesktopState {
   workspace?: string;
   /** Tutor session or thread ids, keyed `course|agent`. */
   sessions: Record<string, string>;
-  /** The course whose roadmap the learner approved. Before that, it is a draft and no work starts (§4.2). */
+  /** The course on screen, one the learner approved. Before approval a roadmap is a draft and no work starts (§4.2). */
   approved?: string;
+  /** Every course the learner approved, oldest first (§4.13). A file from before several courses has `approved` alone. */
+  courses?: string[];
+  /** The words the learner typed for each course they researched: its name on screen (W-5). */
+  names?: Record<string, string>;
   /** The learner's model choice per agent (O6). Absent: the recommended one. */
   models?: Partial<Record<AgentId, string>>;
 }
 
 export const workspaceOf = (state: DesktopState, home: string) => state.workspace ?? join(home, 'Codemm');
+
+/** The learner's courses, oldest first (§4.13). */
+export const coursesOf = (state: DesktopState): string[] => state.courses ?? (state.approved ? [state.approved] : []);
 
 export function desktopState(dir: string) {
   const file = join(dir, 'desktop.json');

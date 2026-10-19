@@ -356,7 +356,7 @@ async function runWithInput(): Promise<string> {
     await input.press('Enter');
     await page.waitForTimeout(1500);
   }
-  await until('the program to end', async () => /Exited with code|build failed|stopped|Time's up|ran out of memory|wasn't taken/i.test(await log.innerText()), 3 * MIN).catch(async () => {
+  await until('the program to end', async () => /program ended|build failed|stopped|Time's up|ran out of memory|wasn't taken/i.test(await log.innerText()), 3 * MIN).catch(async () => {
     await run.click(); // Stop
   });
   await shot('run-with-input');

@@ -123,7 +123,7 @@ describe('lesson examples', () => {
     await waitFor(() => expect(mirror().textContent).toBe("What's your name? "));
     expect(within(example).getByRole('region', { name: 'Terminal for Example 1' })).toHaveTextContent('2:00 left');
     act(() => xterm.type('Ada\r'));
-    await waitFor(() => expect(mirror().textContent).toBe("What's your name? Ada\nHello, Ada!\nExited with code 0.\n"));
+    await waitFor(() => expect(mirror().textContent).toBe("What's your name? Ada\nHello, Ada!\nThe program ended.\n"));
     expect(within(example).getByRole('button', { name: 'Run' })).toBeEnabled();
 
     await user.click(within(example).getByRole('button', { name: 'Run' }));
@@ -141,7 +141,7 @@ describe('lesson examples', () => {
     const mirror = () => within(example).getByRole('log', { name: 'Terminal for Example 1, as text' });
     await waitFor(() => expect(mirror().textContent).toBe("What's your name? "));
     act(() => xterm.type('Ada\r'));
-    await waitFor(() => expect(mirror().textContent).toBe("What's your name? Ada\nHello, Ada!\nExited with code 0.\n"));
+    await waitFor(() => expect(mirror().textContent).toBe("What's your name? Ada\nHello, Ada!\nThe program ended.\n"));
   });
 });
 

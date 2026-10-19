@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { desktopState, workspaceOf } from './state';
+import { coursesOf, desktopState, workspaceOf } from './state';
 import { tempDir } from './testing/temp';
 
 const dir = () => tempDir('codemm-state-');
@@ -19,6 +19,12 @@ describe('desktop.json (§2)', () => {
   it('keeps the workspace in ~/Codemm unless desktop.json names another folder (O5)', () => {
     expect(workspaceOf({ format_version: 1, sessions: {} }, '/Users/me')).toBe(join('/Users/me', 'Codemm'));
     expect(workspaceOf({ format_version: 1, sessions: {}, workspace: '/Volumes/School/Codemm' }, '/Users/me')).toBe('/Volumes/School/Codemm');
+  });
+
+  it('lists the approved courses, oldest first; a file from before several courses lists its approved one (§4.13)', () => {
+    expect(coursesOf({ format_version: 1, sessions: {} })).toEqual([]);
+    expect(coursesOf({ format_version: 1, sessions: {}, approved: 'react-1' })).toEqual(['react-1']);
+    expect(coursesOf({ format_version: 1, sessions: {}, approved: 'react-1', courses: ['python-2', 'react-1'] })).toEqual(['python-2', 'react-1']);
   });
 
   it('writes atomically, leaving no temp files', () => {

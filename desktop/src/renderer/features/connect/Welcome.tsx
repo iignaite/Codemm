@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
 import { Failed } from '../../app/Problems';
@@ -33,8 +34,14 @@ export function Welcome() {
   const { data, error, reload } = useLoad(async () => ({ agents: await api.agents(), course: await api.course() }), []);
   // Read beside the agents, so Welcome shows at once: what Codemm could install here.
   const { data: computer } = useLoad(() => api.computer(), []);
+  // A relaunch with a course in progress and the agent connected goes straight back to the course.
+  const resume = Boolean(data?.course && data.agents.some((a) => a.state === 'connected'));
+  useEffect(() => {
+    if (resume) go({ to: 'learn' });
+  }, [resume]);
   if (error) return <Failed error={error} retry={reload} />;
   if (!data) return <Starting />;
+  if (resume) return null;
   const on = data.agents.some((a) => a.state === 'connected');
   // Straight on to learning: the goal, or the course already approved.
   const learn: Route = data.course ? { to: 'learn' } : { to: 'goal' };

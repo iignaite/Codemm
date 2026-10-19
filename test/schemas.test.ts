@@ -4,7 +4,7 @@ import { exampleRefs, parseExerciseYaml, parseLesson, parseRoadmapYaml, parseTra
 describe("parseTrackYaml", () => {
   it("accepts an io track and clamps limits to the host ceilings", () => {
     const t = parseTrackYaml(`id: c\nversion: 1\nstyles: [io]\nfiles: [main.c]\nrun: /tmp/main\nlimits: { time_ms: 999999, memory_mb: 99999 }\n`);
-    expect(t.limits).toEqual({ time_ms: 30000, memory_mb: 2048 });
+    expect(t.limits).toEqual({ time_ms: 120000, memory_mb: 2048 });
   });
 
   it("fills default limits", () => {

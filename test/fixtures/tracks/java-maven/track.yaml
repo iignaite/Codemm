@@ -1,0 +1,6 @@
+id: java-maven
+version: 1
+styles: [unit]
+files: [Solution.java]
+test: "sh /opt/track/run-tests.sh"
+limits: { time_ms: 90000, memory_mb: 1024 }
