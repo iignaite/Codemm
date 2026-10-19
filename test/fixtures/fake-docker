@@ -182,7 +182,7 @@ case "$1" in
     case "$image" in
       *:nope) echo "ERROR: docker.io/library/$image: not found" >&2; exit 1 ;;
       nope:*) echo "ERROR: pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed" >&2; exit 1 ;;
-      */private:*) echo "ERROR: pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed" >&2; exit 1 ;;
+      */private:*|*/private) echo "ERROR: pull access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed" >&2; exit 1 ;;
     esac
     echo '{"manifests":[]}' ;;
   *) exit 1 ;;

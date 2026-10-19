@@ -147,6 +147,8 @@ describe.runIf(posix)("installing a track", () => {
     expect(app.listProposals()).toEqual([]);
     // A namespaced repository the registry won't show may be private: the build decides.
     await expect(app.proposeTrack(from("someone/private:1"))).resolves.toMatchObject({ proposed: "shell-io@1" });
+    // A registry with a port is never an official image, even when it says the repository doesn't exist.
+    await expect(app.proposeTrack(from("gitlab.example.com:5050/group/private:1"))).resolves.toMatchObject({ proposed: "shell-io@1" });
     await expect(app.proposeTrack(track())).resolves.toMatchObject({ proposed: "shell-io@1" });
   });
 

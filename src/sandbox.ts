@@ -588,7 +588,8 @@ export function baseImages(dockerfile: string): string[] {
     }
     const wasContinued = continued;
     continued = /\\\s*$/.test(line);
-    heredoc = /<<-?\s*["']?(\w+)["']?/.exec(line)?.[1];
+    // A heredoc's word starts with a letter; a here-string (<<<) or a shift (1 << 3) opens none.
+    heredoc = /(?<!<)<<-?\s*["']?([A-Za-z_]\w*)["']?/.exec(line)?.[1];
     if (wasContinued) continue;
     const m = /^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?\s*$/i.exec(line);
     if (!m) continue;
@@ -601,7 +602,12 @@ export function baseImages(dockerfile: string): string[] {
 }
 
 /** An image from Docker Hub's official library (`alpine:3.20`, not `someone/alpine` or a registry's): all of them are public. */
-const officialImage = (image: string) => !image.split(/[:@]/)[0]!.includes("/");
+const officialImage = (image: string) => {
+  const name = image.split("@")[0]!;
+  const tag = name.lastIndexOf(":");
+  // A registry's port (host:5050/group/app) comes before a slash; a tag comes after the last one.
+  return !(tag > name.lastIndexOf("/") ? name.slice(0, tag) : name).includes("/");
+};
 
 /**
  * The base images the registry says don't exist: a tag it doesn't have, or an official image that isn't there. One

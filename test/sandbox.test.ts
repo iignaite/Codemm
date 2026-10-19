@@ -312,9 +312,11 @@ describe("baseImages", () => {
       "from redis import Redis",
       "FROM python:3.12",
       "EOF",
+      "RUN cat <<< \"here-string\" && echo $((1 << 3))",
+      "FROM golang:1.22",
       "RUN echo \\",
       "  FROM node:22",
     ].join("\n");
-    expect(baseImages(dockerfile)).toEqual(["maven:3.9-eclipse-temurin-21", "eclipse-temurin:21-jre"]);
+    expect(baseImages(dockerfile)).toEqual(["maven:3.9-eclipse-temurin-21", "eclipse-temurin:21-jre", "golang:1.22"]);
   });
 });
