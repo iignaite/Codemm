@@ -1,6 +1,7 @@
 import { _electron as electron, expect, test } from '@playwright/test';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fakeAgent } from './fake-agent';
 import { callTool } from './mcp-client.mjs';
 import { removeTempDirs, tempDir } from './temp';
 
@@ -11,26 +12,6 @@ test.afterAll(removeTempDirs);
 // JavaScript agent the same way (on Windows through an npm .cmd shim).
 const exe = process.env.CODEMM_PACKAGED;
 const resources = process.env.CODEMM_RESOURCES;
-const windows = process.platform === 'win32';
-
-/** A fake Claude Code written in JavaScript, installed the way npm installs one. */
-function fakeAgent(): string {
-  const dir = tempDir('codemm-agent-');
-  const script = `#!/usr/bin/env node
-const args = process.argv.slice(2).join(' ');
-if (args === '--version') console.log('2.1.283 (Claude Code)');
-else if (args === 'auth status --json') console.log(JSON.stringify({ loggedIn: true, email: 'never-shown@example.com' }));
-`;
-  if (windows) {
-    mkdirSync(join(dir, 'node_modules', 'fake-claude'), { recursive: true });
-    writeFileSync(join(dir, 'node_modules', 'fake-claude', 'cli.js'), script);
-    writeFileSync(join(dir, 'claude.cmd'), '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n"%_prog%"  "%dp0%\\node_modules\\fake-claude\\cli.js" %*\r\n');
-  } else {
-    writeFileSync(join(dir, 'claude'), script);
-    chmodSync(join(dir, 'claude'), 0o755);
-  }
-  return dir;
-}
 
 test.skip(!exe || !resources, 'set CODEMM_PACKAGED and CODEMM_RESOURCES to a packaged build');
 
