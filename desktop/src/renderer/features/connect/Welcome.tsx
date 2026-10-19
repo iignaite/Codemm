@@ -2,12 +2,29 @@ import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
 import { Failed } from '../../app/Problems';
 import { useLoad } from '../../app/useLoad';
+import { Busy } from '../../ui/Busy';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Status } from '../../ui/Icon';
 import { Logo, Mark } from '../../ui/Mark';
 import { stagger } from '../../ui/motion';
 import { missing } from '../setup/Setup';
+
+/** The first seconds of a launch, while Codemm looks for the agents: never a blank window. */
+function Starting() {
+  return (
+    <main className="welcome">
+      <div className="welcome-text">
+        <Logo height={26} className="brand bw" />
+        <Busy>Codemm is starting</Busy>
+      </div>
+      <div className="welcome-art bw">
+        <div className="bg" aria-hidden="true"><Mark size={440} /></div>
+        <Emm mood="sleep" width={360} perch />
+      </div>
+    </main>
+  );
+}
 
 /** Monochrome with Emm asleep until an agent is connected; then color comes in. */
 export function Welcome() {
@@ -17,7 +34,7 @@ export function Welcome() {
   // Read beside the agents, so Welcome shows at once: what Codemm could install here.
   const { data: computer } = useLoad(() => api.computer(), []);
   if (error) return <Failed error={error} retry={reload} />;
-  if (!data) return null;
+  if (!data) return <Starting />;
   const on = data.agents.some((a) => a.state === 'connected');
   // Straight on to learning: the goal, or the course already approved.
   const learn: Route = data.course ? { to: 'learn' } : { to: 'goal' };

@@ -19,7 +19,7 @@ describe('course view', () => {
     ], ready, new Set());
     expect(view.topics.map((t) => [t.id, t.state, t.activity])).toEqual([['values', 'mastered', 'passed'], ['state', 'now', 'open'], ['forms', 'later', 'locked']]);
     expect(view.topics[1]).toMatchObject({ stuck: true, mastery: 0.5, lessons: [{ id: 'state-1', title: 'What state is', state: 'read' }, { id: 'state-2', title: 'useState', state: 'read' }] });
-    expect(view).toMatchObject({ goal: 'React', track: 'react', setup: 'ready', done: false });
+    expect(view).toMatchObject({ goal: 'React', track: 'React', setup: 'ready', done: false });
   });
 
   it('keeps the activity locked until the lessons are read, and shows a lesson being written', () => {

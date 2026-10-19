@@ -2,9 +2,9 @@
 import { useSyncExternalStore, type ReactNode } from 'react';
 import type { CourseView } from '../../shared/api';
 import { Button } from '../ui/Button';
-import { hueColor } from '../ui/Emm';
+import { Emm, hueColor } from '../ui/Emm';
 import { Icon, type IconName } from '../ui/Icon';
-import { Logo, Mark } from '../ui/Mark';
+import { Logo } from '../ui/Mark';
 import { useApi } from './api';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
@@ -65,7 +65,8 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
   if (slim) {
     return (
       <nav className="slim" aria-label="Main">
-        <div className="lg"><Mark size={22} /></div>
+        {/* Emm, not the wordmark's "<" on its own: that reads as a Back button. */}
+        <div className="lg"><Emm width={44} name={course?.track} /></div>
         {nav}
         <WorkNow course={course} slim />
         <UpdateNotice slim />

@@ -26,6 +26,20 @@ describe('connect journey', () => {
     expect(document.body).not.toHaveTextContent('Claude Code');
   });
 
+  it('shows the window at once while Codemm still looks for the agents, then the way in', async () => {
+    const api = createMock();
+    let found!: () => void;
+    const agents = api.agents;
+    api.agents = () => new Promise((done) => (found = () => done(agents())));
+    renderApp({ to: 'welcome' }, api);
+    // Not a blank window: Codemm says what it is doing, beside Emm asleep.
+    expect(screen.getByText('Codemm is starting')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect an agent' })).not.toBeInTheDocument();
+    found();
+    expect(await screen.findByRole('button', { name: 'Connect an agent' })).toBeInTheDocument();
+    expect(screen.queryByText('Codemm is starting')).not.toBeInTheDocument();
+  });
+
   it('goes back to the course, not the goal, when one is already approved', async () => {
     const user = userEvent.setup();
     const { api } = await mockWithCourse();

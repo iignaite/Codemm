@@ -80,6 +80,8 @@ describe('narrow windows', () => {
     try {
       renderApp({ to: 'tracks' });
       expect(await screen.findByRole('navigation', { name: 'Main' })).toHaveClass('slim');
+      // Its logo is Emm: the wordmark's "<" alone looks like a Back button.
+      expect(sidebar().querySelector('.lg .emm')).not.toBeNull();
       expect(within(sidebar()).getByRole('button', { name: 'Tracks' })).not.toHaveTextContent('Tracks');
       // Wider again: the full sidebar comes back.
       wide();

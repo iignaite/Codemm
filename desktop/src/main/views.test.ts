@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { activityView, checkView, exampleRunView, HELD_BACK, hiddenLines, filterReply, lessonView, tryView } from './views';
+import { activityView, checkView, exampleRunView, HELD_BACK, hiddenLines, filterReply, lessonView, trackName, tryView } from './views';
 
 const core = {
   exercise: 'state-easy-1',
@@ -14,6 +14,15 @@ const core = {
     { name: 'hidden #2', index: 2, status: 'fail' as const },
   ],
 };
+
+describe('a track as a name', () => {
+  it("is its id as words, without its version", () => {
+    expect(trackName('python@1')).toBe('Python');
+    expect(trackName('react@12')).toBe('React');
+    expect(trackName('node-js@2')).toBe('Node Js');
+    expect(trackName('data_science@1')).toBe('Data Science');
+  });
+});
 
 describe('views (§2.2, D4)', () => {
   it('reduces hidden results to an index and a status', () => {

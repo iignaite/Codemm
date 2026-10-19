@@ -151,7 +151,7 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     t.app.rebuildTrack = () => new Promise((done, fail) => (finish = (error) => (error ? fail(error) : done({}))));
     const rebuilding = t.api.rebuild('react@1');
     await vi.waitFor(() => expect(finish).toBeDefined());
-    expect(heard).toEqual([expect.objectContaining({ kind: 'rebuild', track: 'react', stage: 0, thinking: false })]);
+    expect(heard).toEqual([expect.objectContaining({ kind: 'rebuild', track: 'React', stage: 0, thinking: false })]);
     // A screen that opens meanwhile reads it from jobProgress.
     expect(await t.api.jobProgress()).toEqual([expect.objectContaining({ job: heard[0].job, kind: 'rebuild' })]);
     finish();

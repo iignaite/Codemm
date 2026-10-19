@@ -88,6 +88,9 @@ function Reader({ lesson, course, topic, onSaved, onNoted }: View & { onSaved: (
   const [editing, setEditing] = useState(false);
   const chat = useConversation({ lessonId: lesson.id }, 'Ask about anything here.');
   const { prev, next } = neighbours(topic, lesson.id);
+  // Next on the last lesson leads to the activity: while it is written, say so beside it (the outline shows how far it is).
+  const waiting = topic.lessons.at(-1)?.id === lesson.id && topic.activity === 'writing';
+  const writing = topic.review ? 'review' : 'activity';
 
   async function save(text: string) {
     try {
@@ -145,6 +148,7 @@ function Reader({ lesson, course, topic, onSaved, onNoted }: View & { onSaved: (
         <div className="actions a-up" style={stagger(6)}>
           <Button variant="ghost" size="lg" onClick={() => go(prev)}>Previous</Button>
           <Button size="lg" disabled={moving.busy} onClick={onNext}>Next</Button>
+          {waiting && <span className="quiet-text">{`Your ${writing} is almost ready`}</span>}
         </div>
       </main>
       <Rail messages={chat.messages} onAsk={(text) => chat.ask(text)} busy={chat.busy} answering={chat.answering} name={course.track} />
