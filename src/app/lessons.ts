@@ -1,5 +1,6 @@
 import { CodemmError } from "../errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "../files.js";
+import { CASE_OUTPUT_MB, expectedText } from "../grading.js";
 import { runIo, runUnit } from "../judge.js";
 import { type ProgramOptions, type ProgramRun, runProgram } from "../program.js";
 import { assertNotes, parseLesson, type TrackRecord } from "../schemas.js";
@@ -36,7 +37,7 @@ async function runOne(track: TrackRecord, style: string, files: FileMap): Promis
     if (run.build && run.build.exit !== 0) return { exit: run.build.exit, output: "", errors: run.build.output, clean: false };
     const c = run.cases[0];
     if (!c) return { exit: -1, output: "", errors: "It didn't run.", clean: false };
-    if (c.big) return { exit: c.exit, output: "", errors: "Printed more than 64 KB.", clean: false };
+    if (c.big) return { exit: c.exit, output: "", errors: `Printed more than ${CASE_OUTPUT_MB} MB.`, clean: false };
     return { exit: c.exit, output: c.stdout, errors: c.stderr, clean: c.exit === 0 };
   }
   const run = await runUnit(t, learner, subMap(files, "tests"));
@@ -124,7 +125,7 @@ export function hiddenMaterial(course: string, slug: string): string[] {
   const { record, files } = store.readExercise(course, slug);
   return [
     ...Object.entries(files).filter(([path]) => /^(solution|mutants|tests\/hidden)\//.test(path)).map(([, text]) => text),
-    ...Object.entries(record.expected ?? {}).filter(([name]) => name.startsWith("hidden/")).map(([, text]) => text),
+    ...Object.entries(record.expected ?? {}).filter(([name]) => name.startsWith("hidden/")).map(([, expected]) => expectedText(expected)),
   ];
 }
 

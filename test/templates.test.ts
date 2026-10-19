@@ -30,6 +30,24 @@ describe("tutor instructions (AGENTS.md section)", () => {
     for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) expect(text).toMatch(/pass probe must also pass within a third of `time_ms`/);
   });
 
+  it("tells a track author how heavy toolchains run offline, as another user, within the time limit", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).toMatch(/`time_ms` is per io case, or for a unit track's whole `test` command, compiling included, and at most 120000/);
+      expect(text).toMatch(/in a folder any user can read \(not `\/root` or `\$HOME`/);
+      expect(text).toMatch(/run the track's own build and test commands once in the Dockerfile, on the pass probe/);
+      expect(text).toMatch(/must work on a copy in `\/tmp`/);
+      expect(text).toMatch(/calling the compiler and test runner directly/);
+    }
+  });
+
+  it("tells an exercise author to generate big io inputs with NN.gen, seeded", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) {
+      expect(text).toMatch(/write `NN.gen` instead of `NN.in`, a POSIX `sh` script whose output is input NN/);
+      expect(text).toMatch(/fixed seed/);
+      expect(text).toMatch(/up to 32 MB/);
+    }
+  });
+
   it("tells a track author to COPY its scripts from the track's files, not write them in the Dockerfile", () => {
     for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
       expect(text).toMatch(/put any script or config the track needs in the track's own files and \`COPY\` it/i);

@@ -1,0 +1,1 @@
+awk 'BEGIN { srand(2); n = 200000; print n; for (i = 0; i < n; i++) print int(rand() * 2000000001) - 1000000000 }'

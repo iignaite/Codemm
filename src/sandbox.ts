@@ -26,6 +26,11 @@ export type SandboxRun = {
   stdin?: boolean;
   /** Each stdout chunk as it arrives, within the output cap (for progress; the result still carries all of it). */
   onStdout?: (chunk: Buffer) => void;
+  /**
+   * Past this many bytes of stdout and stderr together the container is killed as a flood (default OUTPUT_CAP). The
+   * result keeps at most OUTPUT_CAP of stdout either way; a caller that allows more reads it as it streams.
+   */
+  outputCap?: number;
 };
 /** `oomKilled`: the runtime recorded that the container hit its memory limit (exit 137 from inside, not a kill from outside). */
 export type SandboxResult = { exit: number; stdout: Buffer; stderr: string; flooded: boolean; timedOut: boolean; cleanupFailed: boolean; oomKilled: boolean };
@@ -159,9 +164,10 @@ export function startSandboxed(run: SandboxRun, output: SandboxOutput = {}): Sta
     child.kill("SIGKILL");
     cleanup = removeContainer(name);
   };
+  const outputCap = run.outputCap ?? OUTPUT_CAP;
   const count = (n: number) => {
     bytes += n;
-    if (bytes > OUTPUT_CAP) {
+    if (bytes > outputCap) {
       flooded = true;
       stop();
     }
@@ -174,15 +180,13 @@ export function startSandboxed(run: SandboxRun, output: SandboxOutput = {}): Sta
     }
   };
   child.stdout!.on("data", (b: Buffer) => {
-    if (bytes + b.length <= OUTPUT_CAP) {
-      chunks.push(b);
-      tell("stdout", b);
-    }
+    if (bytes + b.length <= OUTPUT_CAP) chunks.push(b);
+    if (bytes + b.length <= outputCap) tell("stdout", b);
     count(b.length);
   });
   child.stderr!.on("data", (b: Buffer) => {
     if (stderr.length < 16_384) stderr += b.toString("utf8");
-    if (bytes + b.length <= OUTPUT_CAP) tell("stderr", b);
+    if (bytes + b.length <= outputCap) tell("stderr", b);
     count(b.length);
   });
   // A program that stops reading, or exits, closes the pipe; typing after that is dropped, not an error.

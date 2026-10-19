@@ -1,18 +1,43 @@
 import { describe, expect, it } from "vitest";
-import { frameProgress, gradeIo, gradeIoRun, gradeRuns, gradeUnit, gradeUnitRun, normalizeOutput, parseFrames, redact } from "../src/grading.js";
+import {
+  digestOf, FrameReader, frameProgress, gradeIo, gradeIoRun, gradeRuns, gradeUnit, gradeUnitRun, normalizeOutput, OutputDigest, parseFrames, recordOutput, redact, SHOWN_BYTES,
+} from "../src/grading.js";
 
 describe("parseFrames", () => {
   it("reads length-framed records and ignores stray bytes", () => {
     const body = "line one\n@@codemm case visible/99 0 3\nabc";
     const raw = `noise\n@@codemm case visible/01 0 ${Buffer.byteLength(body)}\n${body}\n@@codemm case hidden/01 1 0\n`;
     expect(parseFrames(Buffer.from(raw))).toEqual([
-      { kind: "case", name: "visible/01", exit: 0, body },
-      { kind: "case", name: "hidden/01", exit: 1, body: "" },
+      { kind: "case", name: "visible/01", exit: 0, body, bytes: Buffer.byteLength(body), digest: digestOf(body) },
+      { kind: "case", name: "hidden/01", exit: 1, body: "", bytes: 0, digest: digestOf("") },
     ]);
   });
 
   it("stops at a truncated frame", () => {
     expect(parseFrames(Buffer.from("@@codemm case visible/01 0 100\nshort"))).toEqual([]);
+  });
+
+  it("keeps the start of a long case and the digest of all of it, however the stream is split", () => {
+    const out = Array.from({ length: 200_000 }, (_, i) => `${i} é`).join("\n");
+    const raw = Buffer.from(`@@codemm case visible/01 0 ${Buffer.byteLength(out)}\n${out}@@codemm stderr visible/01 0 2\nok`);
+    for (const size of [raw.length, 4096, 777]) {
+      const reader = new FrameReader();
+      for (let at = 0; at < raw.length; at += size) reader.push(raw.subarray(at, at + size));
+      const [c, e] = reader.frames;
+      expect(c).toMatchObject({ kind: "case", bytes: Buffer.byteLength(out), digest: digestOf(out) });
+      expect(Buffer.byteLength(c!.body)).toBeLessThanOrEqual(SHOWN_BYTES);
+      expect(Buffer.byteLength(c!.body)).toBeGreaterThan(SHOWN_BYTES - 4);
+      expect(out.startsWith(c!.body)).toBe(true);
+      expect(e).toMatchObject({ kind: "stderr", body: "ok" });
+    }
+  });
+
+  it("drops a listener that throws and goes on reading", () => {
+    const reader = new FrameReader(() => {
+      throw new Error("listener");
+    });
+    reader.push(Buffer.from("@@codemm case a 0 1\nx@@codemm case b 0 1\ny"));
+    expect(reader.frames.map((f) => f.name)).toEqual(["a", "b"]);
   });
 });
 
@@ -20,6 +45,38 @@ describe("normalizeOutput", () => {
   it("ignores CRLF and trailing whitespace on each line and at the end", () => {
     expect(normalizeOutput("1 2  \r\n3\t\n\n\n")).toBe(normalizeOutput("1 2\n3"));
     expect(normalizeOutput(" 1")).not.toBe(normalizeOutput("1"));
+    expect(normalizeOutput("\n\na\n \n\nb \r\n\u00a0\n")).toBe("\n\na\n\n\nb");
+  });
+
+  it("stays linear on long runs of whitespace", () => {
+    const started = performance.now();
+    expect(normalizeOutput(`a${" ".repeat(2_000_000)}b${"\n".repeat(2_000_000)}`)).toBe(`a${" ".repeat(2_000_000)}b`);
+    // A backtracking regular expression takes hours here; linear takes well under a second.
+    expect(performance.now() - started).toBeLessThan(5000);
+  });
+});
+
+describe("OutputDigest", () => {
+  const streamed = (text: string, size: number) => {
+    const d = new OutputDigest();
+    const bytes = Buffer.from(text);
+    for (let at = 0; at < bytes.length; at += size) d.update(bytes.subarray(at, at + size));
+    return d.digest();
+  };
+
+  it("equals the digest of the normalized text, however the bytes are split", () => {
+    const texts = ["", "\n", "a", "a\n", "\n\na \r\n\n b\t\n\n", "x\r", "é€😀\r\n😀 \n", "1\n\n\n2\n   \n"];
+    for (const text of texts) for (const size of [1, 2, 3, 7, 1000]) expect(streamed(text, size)).toBe(digestOf(text));
+  });
+
+  it("equals it on a random mix of lines, spaces and multibyte text", () => {
+    const pieces = ["0", "42", " ", "  ", "\t", "\n", "\r\n", "é", "😀"];
+    let seed = 7;
+    const next = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31);
+    for (let round = 0; round < 50; round++) {
+      const text = Array.from({ length: 300 }, () => pieces[next() % pieces.length]).join("");
+      expect(streamed(text, 1 + (next() % 13))).toBe(digestOf(text));
+    }
   });
 });
 
@@ -44,9 +101,27 @@ describe("gradeIo", () => {
     expect(tests).toEqual([{ set: "visible", name: "visible/01", status: "error", message: "Build failed (exit 1):\nsyntax error" }]);
   });
 
-  it("errors a case that printed more than 64 KB instead of comparing a prefix", () => {
+  it("errors a case that printed more than 32 MB instead of comparing a prefix", () => {
     const big = [{ name: "visible/01", exit: 0, stdout: "", stderr: "", big: true }];
-    expect(gradeIo(big, { "visible/01": "" })[0]).toMatchObject({ status: "error", message: expect.stringMatching(/64 KB/) });
+    expect(gradeIo(big, { "visible/01": "" })[0]).toMatchObject({ status: "error", message: expect.stringMatching(/32 MB/) });
+  });
+
+  it("errors a case whose input generator failed, without running the program", () => {
+    const gen = [{ name: "hidden/01", exit: 2, stdout: "", stderr: "", generator: true }];
+    expect(gradeIo(gen, { "hidden/01": "" })[0]).toMatchObject({ status: "error", message: expect.stringMatching(/input generator failed \(exit 2\)/) });
+  });
+
+  it("compares a long output by its digest against a long expected output's record", () => {
+    const long = "7\n".repeat(40_000);
+    const run = { name: "visible/01", exit: 0, stdout: long.slice(0, 100), stderr: "", digest: digestOf(long), bytes: long.length };
+    const recorded = recordOutput(run);
+    expect(recorded).toEqual({ sha256: digestOf(long), bytes: long.length, head: long.slice(0, 100) });
+    expect(gradeIo([run], { "visible/01": recorded })[0]).toMatchObject({ status: "pass" });
+    const wrong = { ...run, digest: digestOf(`${long}8\n`) };
+    expect(gradeIo([wrong], { "visible/01": recorded })[0]).toMatchObject({ status: "fail", message: expect.stringMatching(/first 64 KB/) });
+    // A short output is recorded in full, and compared ignoring trailing whitespace as ever.
+    expect(recordOutput({ ...run, stdout: "5\n", digest: digestOf("5\n"), bytes: 2 })).toBe("5\n");
+    expect(gradeIo([{ ...run, stdout: "5  \r\n", digest: digestOf("5  \r\n"), bytes: 5 }], { "visible/01": "5" })[0]).toMatchObject({ status: "pass" });
   });
 
   it("errors an expected case the run never reached", () => {
@@ -153,28 +228,36 @@ describe("grading whole runs", () => {
 describe("frameProgress", () => {
   const frame = (kind: string, name: string, body: string) => `\n@@codemm ${kind} ${name} 0 ${Buffer.byteLength(body)}\n${body}`;
   // A body that looks like a frame header must be skipped by length, never counted.
-  const bytes = Buffer.from(frame("build", "build", "") + frame("case", "01", "@@codemm case 99 0 1\nx") + frame("stderr", "01", "") + frame("big", "02", "") + frame("stderr", "02", "oops"));
+  const bytes = Buffer.from(
+    frame("build", "build", "") + frame("case", "01", "@@codemm case 99 0 1\nx") + frame("stderr", "01", "") + frame("big", "02", "") + frame("stderr", "02", "oops") + frame("gen", "03", ""),
+  );
+  const feeder = (listener: ReturnType<typeof frameProgress>) => {
+    const reader = new FrameReader(listener);
+    return (chunk: Buffer) => reader.push(chunk);
+  };
   const milestones = (chunks: Buffer[]) => {
     const seen: ("built" | number)[] = [];
-    const feed = frameProgress((m) => seen.push(m));
+    const feed = feeder(frameProgress((m) => seen.push(m)));
     for (const c of chunks) feed(c);
     return seen;
   };
 
   it("reports the build, then each finished case, however the output is split", () => {
-    expect(milestones([bytes])).toEqual(["built", 1, 2]);
-    for (let at = 1; at < bytes.length; at++) expect(milestones([bytes.subarray(0, at), bytes.subarray(at)])).toEqual(["built", 1, 2]);
-    expect(milestones([...bytes].map((b) => Buffer.from([b])))).toEqual(["built", 1, 2]);
+    expect(milestones([bytes])).toEqual(["built", 1, 2, 3]);
+    for (let at = 1; at < bytes.length; at++) expect(milestones([bytes.subarray(0, at), bytes.subarray(at)])).toEqual(["built", 1, 2, 3]);
+    expect(milestones([...bytes].map((b) => Buffer.from([b])))).toEqual(["built", 1, 2, 3]);
   });
 
   it("hands over each finished case whole, with its stderr, however the output is split", () => {
+    const body = "@@codemm case 99 0 1\nx";
     const want = [
-      { name: "01", exit: 0, stdout: "@@codemm case 99 0 1\nx", stderr: "", big: false },
+      { name: "01", exit: 0, stdout: body, digest: digestOf(body), bytes: Buffer.byteLength(body), stderr: "", big: false },
       { name: "02", exit: 0, stdout: "", stderr: "oops", big: true },
+      { name: "03", exit: 0, stdout: "", stderr: "", big: false, generator: true },
     ];
     const cases = (chunks: Buffer[]) => {
       const seen: unknown[] = [];
-      const feed = frameProgress(() => undefined, (c) => seen.push(c));
+      const feed = feeder(frameProgress(() => undefined, (c) => seen.push(c)));
       for (const c of chunks) feed(c);
       return seen;
     };

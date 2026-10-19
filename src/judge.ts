@@ -3,8 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodemmError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
-import { type CaseFrames, type Expectation, type Frame, frameProgress, gradeRuns, type IoRun, parseFrames, type RawCase, type Runs, type TestResult, type TestSet, type UnitRun } from "./grading.js";
-import { runtimeDown, runtimeKind, startHelp, startSandboxed } from "./sandbox.js";
+import {
+  CASE_OUTPUT_BYTES, type CaseFrames, type Expectation, type Frame, frameProgress, FrameReader, gradeRuns, type IoRun, type RawCase, type Runs, type TestResult, type TestSet, type UnitRun,
+} from "./grading.js";
+import { OUTPUT_CAP, runtimeDown, runtimeKind, startHelp, startSandboxed } from "./sandbox.js";
 
 /** What the judge needs from an installed track. */
 export type JudgeTrack = {
@@ -14,15 +16,21 @@ export type JudgeTrack = {
   test?: string | undefined;
   limits: { time_ms: number; memory_mb: number };
 };
-/** `onProgress`: "built" when the build is done, then how many io cases have finished, as each does (for progress, never grading). */
-/** `onCase` hands over each io case as it finishes: pass it only for visible tests. */
-export type RunOptions = { timeMs?: number; deadlineMs?: number; onProgress?: (milestone: "built" | number) => void; onCase?: (c: CaseFrames) => void };
+/**
+ * `onProgress`: "built" when the build is done, then how many io cases have finished, as each does (for progress,
+ * never grading). `onCase` hands over each io case as it finishes: pass it only for visible tests. `stopAtError` ends
+ * an io set at its first case that errors (a crash, a timeout, a failed input generator): for gate runs that only ask
+ * whether everything passes, so a slow wrong solution costs one time limit, not one per case.
+ */
+export type RunOptions = { timeMs?: number; deadlineMs?: number; onProgress?: (milestone: "built" | number) => void; onCase?: (c: CaseFrames) => void; stopAtError?: boolean };
 
 
 /** Why a check's container couldn't start, in words the desktop's text classification reads the same way. */
 const START_FAILURES = { disk: "Docker ran out of disk space", offline: "Docker couldn't reach the network", docker: "the runtime refused it" };
 
 export const BUILD_SECONDS = 60;
+/** How long a test's input generator (`NN.gen`) may run, before and outside the program's time limit. */
+export const GENERATOR_SECONDS = 30;
 const SLACK_MS = 30_000;
 /** What the driver needs in a track image besides `sh`. The track rules name them too (templates.ts). */
 export const DRIVER_TOOLS = ["timeout", "sleep", "head", "wc", "cat", "basename"];
@@ -52,16 +60,24 @@ if [ -n "\${CODEMM_BUILD:-}" ]; then
   head -c 16384 /tmp/b > /tmp/bc; emit build build "$c" /tmp/bc
   [ "$c" = 0 ] || exit 0
 fi
-for f in /work/tests/*.in; do
-  [ -e "$f" ] || continue
-  n=$(basename "$f" .in)
+for f in /work/tests/*; do
+  case "$f" in
+    *.in) n=$(basename "$f" .in); i=$f ;;
+    *.gen)
+      n=$(basename "$f" .gen); i=/tmp/in
+      timeout -s KILL ${GENERATOR_SECONDS} sh -c "$OOM"'exec sh "$0"' "$f" > /tmp/in 2>/dev/null; c=$?
+      kill -9 -1 2>/dev/null
+      if [ "$c" != 0 ]; then emit gen "$n" "$c" /dev/null; [ -n "\${CODEMM_STOP:-}" ] && exit 0; continue; fi ;;
+    *) continue ;;
+  esac
   watch
-  timeout -s KILL "$CODEMM_BACKSTOP_S" sh -c "$OOM$CODEMM_RUN" < "$f" > /tmp/o 2> /tmp/e; c=$?
+  timeout -s KILL "$CODEMM_BACKSTOP_S" sh -c "$OOM$CODEMM_RUN" < "$i" > /tmp/o 2> /tmp/e; c=$?
   kill -9 -1 2>/dev/null
   head -c 4096 /tmp/e > /tmp/ec
-  if [ $(($(wc -c < /tmp/o))) -gt 65536 ]; then : > /tmp/oc; emit big "$n" "$c" /tmp/oc; else emit case "$n" "$c" /tmp/o; fi
+  if [ $(($(wc -c < /tmp/o))) -gt ${CASE_OUTPUT_BYTES} ]; then : > /tmp/oc; emit big "$n" "$c" /tmp/oc; s=big; else emit case "$n" "$c" /tmp/o; s=$c; fi
   emit stderr "$n" "$c" /tmp/ec
   [ -s /tmp/t ] && emit timeout "$n" "$c" /dev/null
+  [ -n "\${CODEMM_STOP:-}" ] && [ "$s" != 0 ] && exit 0
 done
 exit 0`;
 
@@ -74,7 +90,15 @@ head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc
 [ -s /tmp/t ] && emit timeout report "$c" /dev/null
 exit 0`;
 
-async function runDriver(track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number, onStdout?: (chunk: Buffer) => void): Promise<{ frames: Frame[]; flooded: boolean; outOfMemory?: boolean; memoryKill?: boolean }> {
+/**
+ * Runs the driver in one sandboxed container and reads its frames as they stream (`onFrame` hears each). `outputCap`
+ * bounds the stream: an io set's is sized to its cases, since each may print up to CASE_OUTPUT_BYTES.
+ */
+async function runDriver(
+  track: JudgeTrack, script: string, env: Record<string, string>, src: FileMap, tests: FileMap, deadlineMs: number,
+  outputCap: number, onFrame?: (f: Frame) => void,
+): Promise<{ frames: Frame[]; flooded: boolean; outOfMemory?: boolean; memoryKill?: boolean }> {
+  const reader = new FrameReader(onFrame);
   const dir = mkdtempSync(join(tmpdir(), "codemm-run-"));
   try {
     writeFileMap(join(dir, "src"), src);
@@ -89,7 +113,8 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       ],
       memoryMb: track.limits.memory_mb,
       deadlineMs,
-    }, onStdout ? { stdout: onStdout } : {});
+      outputCap,
+    }, { stdout: (chunk) => reader.push(chunk) });
     const result = await started.done;
     if (result.cleanupFailed) throw new CodemmError("A check container couldn't be removed, so nothing was recorded. Run `codemm doctor --fix`, then retry.", "docker");
     if (result.timedOut) throw new CodemmError("The check didn't finish in time, so nothing was recorded. Check that the container runtime is healthy and retry.", "docker");
@@ -109,7 +134,7 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
       if (result.exit === -1) throw new CodemmError("The container couldn't start. Run `codemm doctor`.", "docker");
       throw new CodemmError("The container runtime failed during the run, so it wasn't counted. Run `codemm doctor`, then retry.", "docker");
     }
-    const frames = parseFrames(result.stdout);
+    const frames = reader.frames;
     // A working driver always reports at least one frame. None, or a runtime connection error, means the
     // runtime failed, not the learner's code, so nothing may be graded or recorded.
     if (frames.length === 0 || /cannot connect to the docker daemon|error during connect|connection refused/i.test(result.stderr)) {
@@ -131,18 +156,26 @@ async function runDriver(track: JudgeTrack, script: string, env: Record<string, 
 export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, inputs: FileMap, opts: RunOptions = {}): Promise<IoRun> {
   if (!track.run) throw new CodemmError("This track has no run command, so it can't run io exercises.");
   const timeMs = opts.timeMs ?? track.limits.time_ms;
-  const caseCount = Object.keys(inputs).filter((p) => p.endsWith(".in")).length;
-  const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * (timeMs + 1000) + SLACK_MS;
+  const generated = Object.keys(inputs).filter((p) => p.endsWith(".gen")).length;
+  const caseCount = Object.keys(inputs).filter((p) => p.endsWith(".in")).length + generated;
+  const deadline = opts.deadlineMs ?? BUILD_SECONDS * 1000 + caseCount * (timeMs + 1000) + generated * GENERATOR_SECONDS * 1000 + SLACK_MS;
   const env: Record<string, string> = { CODEMM_RUN: track.run, ...timeEnv(timeMs) };
   if (track.build) env.CODEMM_BUILD = track.build;
-  const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, (opts.onProgress || opts.onCase) && frameProgress(opts.onProgress ?? (() => undefined), opts.onCase));
+  if (opts.stopAtError) env.CODEMM_STOP = "1";
+  // Each case frames at most CASE_OUTPUT_BYTES of output and 4 KB of errors; the rest of the stream is small.
+  const outputCap = OUTPUT_CAP + caseCount * (CASE_OUTPUT_BYTES + 8192);
+  const progress = (opts.onProgress || opts.onCase) ? frameProgress(opts.onProgress ?? (() => undefined), opts.onCase) : undefined;
+  const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, outputCap, progress);
 
   const buildFrame = frames.find((f) => f.kind === "build");
   const stderrOf = new Map(frames.filter((f) => f.kind === "stderr").map((f) => [f.name, f.body]));
   const timedOut = new Set(frames.filter((f) => f.kind === "timeout").map((f) => f.name));
   const cases = frames
-    .filter((f) => f.kind === "case" || f.kind === "big")
-    .map((f): RawCase => ({ name: `${set}/${f.name}`, exit: f.exit, stdout: f.body, stderr: stderrOf.get(f.name) ?? "", big: f.kind === "big", ...(timedOut.has(f.name) ? { timedOut: true } : {}) }));
+    .filter((f) => f.kind === "case" || f.kind === "big" || f.kind === "gen")
+    .map((f): RawCase => ({
+      name: `${set}/${f.name}`, exit: f.exit, stdout: f.body, stderr: stderrOf.get(f.name) ?? "", big: f.kind === "big",
+      ...(f.digest ? { digest: f.digest, bytes: f.bytes } : {}), ...(f.kind === "gen" ? { generator: true } : {}), ...(timedOut.has(f.name) ? { timedOut: true } : {}),
+    }));
   const limits = { time_ms: timeMs, memory_mb: track.limits.memory_mb };
   return { ...(buildFrame ? { build: { exit: buildFrame.exit, output: buildFrame.body } } : {}), cases, flooded, limits, ...(outOfMemory ? { outOfMemory } : {}), ...(memoryKill ? { memoryKill } : {}) };
 }
@@ -153,7 +186,7 @@ export async function runUnit(track: JudgeTrack, src: FileMap, tests: FileMap, o
   const timeMs = opts.timeMs ?? track.limits.time_ms;
   const deadline = opts.deadlineMs ?? timeMs + SLACK_MS;
   const env = { CODEMM_TEST: track.test, ...timeEnv(timeMs) };
-  const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, UNIT_DRIVER, env, src, tests, deadline);
+  const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, UNIT_DRIVER, env, src, tests, deadline, OUTPUT_CAP);
   const report = frames.find((f) => f.kind === "report");
   const log = frames.find((f) => f.kind === "log");
   const limits = { time_ms: timeMs, memory_mb: track.limits.memory_mb };
@@ -164,13 +197,13 @@ export async function runUnit(track: JudgeTrack, src: FileMap, tests: FileMap, o
 /** Runs each given test set, visible first, each in its own container. `onSet` is told as a set starts and may return its options (progress). */
 export async function runSets(
   track: JudgeTrack, style: "io" | "unit", src: FileMap, sets: Partial<Record<TestSet, FileMap>>,
-  opts: { timeMs?: number; onSet?: (set: TestSet) => RunOptions | void } = {},
+  opts: { timeMs?: number; stopAtError?: boolean; onSet?: (set: TestSet) => RunOptions | void } = {},
 ): Promise<Runs> {
   const runs: Runs = {};
   for (const set of ["visible", "hidden"] as const) {
     const tests = sets[set];
     if (!tests) continue;
-    const o: RunOptions = { ...(opts.timeMs === undefined ? {} : { timeMs: opts.timeMs }), ...opts.onSet?.(set) };
+    const o: RunOptions = { ...(opts.timeMs === undefined ? {} : { timeMs: opts.timeMs }), ...(opts.stopAtError ? { stopAtError: true } : {}), ...opts.onSet?.(set) };
     runs[set] = style === "io" ? await runIo(track, set, src, tests, o) : await runUnit(track, src, tests, o);
   }
   return runs;

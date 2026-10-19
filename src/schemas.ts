@@ -9,7 +9,8 @@ const Id = z.string().regex(ID_PATTERN, "must be 1-64 lowercase letters, digits,
 const Style = z.enum(["io", "unit"]);
 export type Style = z.infer<typeof Style>;
 
-export const LIMITS = { time_ms: { min: 100, max: 30_000, default: 2000 }, memory_mb: { min: 64, max: 2048, default: 256 } };
+/** time_ms is per io case, or for a unit track's whole test command (DESIGN §4.3). */
+export const LIMITS = { time_ms: { min: 100, max: 120_000, default: 2000 }, memory_mb: { min: 64, max: 2048, default: 256 } };
 const clamp = (n: number | undefined, l: { min: number; max: number; default: number }) => Math.min(l.max, Math.max(l.min, n ?? l.default));
 
 function describe(error: z.ZodError): string {
@@ -165,8 +166,8 @@ export const ExerciseRecord = z.object({
   hint: z.string().optional(),
   track: z.string(),
   createdAt: z.string(),
-  /** io: expected stdout per case name, written from the reference. */
-  expected: z.record(z.string(), z.string()).optional(),
+  /** io: expected stdout per case name, written from the reference; a long one as its digest, size and start. */
+  expected: z.record(z.string(), z.union([z.string(), z.object({ sha256: z.string(), bytes: z.number().int().nonnegative(), head: z.string() })])).optional(),
   /** unit: test names per set, recorded from the reference. */
   inventory: z.object({ visible: z.array(z.string()), hidden: z.array(z.string()) }).optional(),
 });

@@ -100,8 +100,11 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
       expect(broken[0]).toMatchObject({ status: "error", message: expect.stringMatching(/Build failed/) });
     });
 
-    it("errors when a case prints more than 64 KB", async () => {
-      expect(statuses(await grade("read a b\nhead -c 70000 /dev/zero | tr '\\0' a\n"))).toEqual(["error", "error"]);
+    it("errors when a case prints more than 32 MB, and compares one just under it in full", async () => {
+      expect(statuses(await grade("read a b\nhead -c 34000000 /dev/zero | tr '\\0' a\n"))).toEqual(["error", "error"]);
+      const long = await runIo({ ...ioTrack, build: undefined }, "visible", { "main.sh": "read a b\nhead -c 33000000 /dev/zero | tr '\\0' a\n" }, { "01.in": "1 2\n" });
+      expect(long.cases[0]).toMatchObject({ exit: 0, bytes: 33_000_000, digest: expect.stringMatching(/^[0-9a-f]{64}$/) });
+      expect(long.cases[0]!.stdout).toHaveLength(65_536);
     });
   });
 
@@ -186,11 +189,12 @@ describe.runIf(dockerUp)("judge (Docker)", () => {
     });
 
     it("caps the container's output stream and errors the set", async () => {
-      // 70 cases of ~64 KB each push the framed stream past the 4 MB host cap.
-      const inputs = Object.fromEntries(Array.from({ length: 70 }, (_, i) => [`${String(i).padStart(2, "0")}.in`, "x\n"]));
-      const r = await run("read x\nhead -c 65000 /dev/zero | tr '\\0' a\n", inputs);
+      // Each case's own output is bounded inside the container, so only writing to the stream the driver saved while the
+      // case runs (DESIGN §4.2) can pass the host cap: 4 MB plus 32 MB per case. A long time limit lets a slow pipe finish.
+      const flood = "read x\nfor fd in /proc/1/fd/*; do case $(readlink \"$fd\") in pipe:*) head -c 40000000 /dev/zero > \"$fd\";; esac; done\n";
+      const r = await run(flood, undefined, { limits: { time_ms: 60_000, memory_mb: 128 } });
       expect(r.flooded).toBe(true);
-      expect(statuses(gradeIoRun(r, { "visible/00": "" }))).toEqual(["error"]);
+      expect(statuses(gradeIoRun(r, { "visible/01": "" }))).toEqual(["error"]);
     });
 
     it("never echoes a forged fatal frame, even one carrying hidden data", async () => {

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { StringDecoder } from "node:string_decoder";
 import { z } from "zod";
 
 export type TestSet = "visible" | "hidden";
@@ -8,13 +10,32 @@ export type TestResult = {
   name: string;
   status: Status;
   message?: string;
-  /** io only: what the program printed (capped). */
+  /** io only: the start of what the program printed (at most SHOWN_BYTES). */
   actual?: string;
 };
 
-export type Frame = { kind: string; name: string; exit: number; body: string };
-/** `timedOut`: the driver's watchdog marked that the case, or the unit runner, reached its time limit. */
-export type RawCase = { name: string; exit: number; stdout: string; stderr: string; big?: boolean; timedOut?: boolean };
+/** The most an io case may print. More is an error, never a comparison of the first part (DESIGN §4.2). */
+export const CASE_OUTPUT_BYTES = 32 * 1024 * 1024;
+export const CASE_OUTPUT_MB = CASE_OUTPUT_BYTES / 1024 / 1024;
+/** How much of an io case's output Codemm keeps and shows. The comparison uses a digest of all of it. */
+export const SHOWN_BYTES = 65_536;
+/** The longest body any other frame carries: a unit report (1 MB). Anything past it was forged and is dropped. */
+const FRAME_BYTES = 1_048_576;
+
+/**
+ * One framed record. A `case` body is the start of the program's output (at most SHOWN_BYTES): `bytes` is its full
+ * size and `digest` the SHA-256 of all of it, normalized.
+ */
+export type Frame = { kind: string; name: string; exit: number; body: string; bytes?: number; digest?: string };
+/**
+ * One io case. `stdout` is the start of its output; `digest` and `bytes` cover all of it (without a digest, `stdout`
+ * is all of it). `timedOut`: the driver's watchdog marked that the case reached its time limit. `generator`: the
+ * case's input generator failed, with exit code `exit`, so the program never ran.
+ */
+export type RawCase = {
+  name: string; exit: number; stdout: string; stderr: string; digest?: string; bytes?: number; big?: boolean; timedOut?: boolean; generator?: boolean;
+};
+/** `timedOut`: the driver's watchdog marked that the unit runner reached its time limit. */
 export type RawReport = { exit: number; body: string; log: string; timedOut?: boolean };
 export type RawBuild = { exit: number; output: string };
 
@@ -23,87 +44,166 @@ const MESSAGE_CAP = 2000;
 const cap = (s: string) => (s.length > MESSAGE_CAP ? `${s.slice(0, MESSAGE_CAP)}\n… (truncated)` : s);
 
 /**
- * Reads the driver's length-framed records: `@@codemm <kind> <name> <exit> <bytes>\n<bytes>`.
- * Program output only ever appears inside a frame body, so it can't forge a frame.
+ * Output as Codemm compares it: CRLF as LF, no trailing whitespace on any line and no blank lines at the end.
+ * Linear in the length, whatever the program printed.
  */
-export function parseFrames(buf: Buffer): Frame[] {
-  const frames: Frame[] = [];
-  let pos = 0;
-  for (;;) {
-    const start = buf.indexOf(MARKER, pos);
-    if (start < 0) break;
-    const headerEnd = buf.indexOf(0x0a, start);
-    if (headerEnd < 0) break;
-    const [kind, name, exit, bytes] = buf.toString("utf8", start + MARKER.length, headerEnd).split(" ");
-    const size = Number(bytes);
-    const bodyStart = headerEnd + 1;
-    if (!kind || !name || !Number.isInteger(size) || size < 0 || bodyStart + size > buf.length) break;
-    frames.push({ kind, name, exit: Number(exit), body: buf.toString("utf8", bodyStart, bodyStart + size) });
-    pos = bodyStart + size;
-  }
-  return frames;
+export function normalizeOutput(text: string): string {
+  const lines = text.split("\n").map((line) => line.trimEnd());
+  let end = lines.length;
+  while (end > 0 && lines[end - 1] === "") end -= 1;
+  return lines.slice(0, end).join("\n");
 }
 
-/** One io case as the driver framed it: its output (from a `case` or `big` frame), then its stderr. */
-export type CaseFrames = { name: string; exit: number; stdout: string; stderr: string; big: boolean };
+/** The SHA-256 of normalizeOutput(text): what io outputs are compared by. */
+export const digestOf = (text: string) => createHash("sha256").update(normalizeOutput(text)).digest("hex");
+
+/** digestOf the output, fed its raw bytes in pieces, so a long output is never held whole. */
+export class OutputDigest {
+  private readonly hash = createHash("sha256");
+  private readonly decoder = new StringDecoder("utf8");
+  private line = "";
+  private first = true;
+  /** Line breaks not written yet: they count only if a line with text follows. */
+  private held = 0;
+  private out = "";
+
+  update(chunk: Buffer): void {
+    this.take(this.decoder.write(chunk));
+  }
+
+  digest(): string {
+    this.take(this.decoder.end());
+    this.endLine(this.line);
+    this.hash.update(this.out);
+    return this.hash.digest("hex");
+  }
+
+  private take(text: string): void {
+    const parts = text.split("\n");
+    if (parts.length === 1) {
+      this.line += text;
+      return;
+    }
+    this.endLine(this.line + parts[0]!);
+    for (let i = 1; i < parts.length - 1; i++) this.endLine(parts[i]!);
+    this.line = parts[parts.length - 1]!;
+  }
+
+  private endLine(line: string): void {
+    if (!this.first) this.held += 1;
+    this.first = false;
+    const kept = line.trimEnd();
+    if (kept === "") return;
+    this.out += "\n".repeat(this.held) + kept;
+    this.held = 0;
+    if (this.out.length >= 65_536) {
+      this.hash.update(this.out);
+      this.out = "";
+    }
+  }
+}
 
 /**
- * Follows the driver's frames as they stream, for progress: "built" when the build frame arrives, then the count
- * of finished io cases (case or big). Without `onCase` it keeps no bodies and decodes only headers. With it, each
- * case is handed over whole once its stderr frame ends; the caller passes it only for visible tests.
+ * Reads the driver's length-framed records as they stream: `@@codemm <kind> <name> <exit> <bytes>\n<bytes>`.
+ * Program output only ever appears inside a frame body, so it can't forge a frame. A case body is reduced as it
+ * comes to its start and the digest of all of it, so memory stays bounded however much a program prints.
+ * `onFrame` hears each frame as it completes; one that throws is dropped, and reading goes on.
  */
+export class FrameReader {
+  readonly frames: Frame[] = [];
+  private pending = Buffer.alloc(0); // a marker or header split across chunks
+  private body: { frame: Frame; size: number; left: number; parts: Buffer[]; kept: number; digest?: OutputDigest } | undefined;
 
-export function frameProgress(on: (milestone: "built" | number) => void, onCase?: (c: CaseFrames) => void): (chunk: Buffer) => void {
-  let pending = Buffer.alloc(0); // a marker or header split across chunks
-  let skip = 0; // body bytes still to pass over
-  let cases = 0;
-  // With onCase, case, big and stderr bodies are kept; a case is handed over once its stderr frame ends.
-  let kept: { kind: string; name: string; exit: number; parts: Buffer[] } | undefined;
-  let waiting: Omit<CaseFrames, "stderr"> | undefined;
-  const finish = () => {
-    const f = kept!;
-    kept = undefined;
-    const body = Buffer.concat(f.parts).toString("utf8");
-    if (f.kind !== "stderr") waiting = { name: f.name, exit: f.exit, stdout: body, big: f.kind === "big" };
-    else {
-      if (waiting?.name === f.name) onCase!({ ...waiting, stderr: body });
-      waiting = undefined;
-    }
-  };
-  return (chunk) => {
-    const buf = pending.length ? Buffer.concat([pending, chunk]) : chunk;
-    pending = Buffer.alloc(0);
+  constructor(private onFrame?: (f: Frame) => void) {}
+
+  push(chunk: Buffer): void {
+    const buf = this.pending.length ? Buffer.concat([this.pending, chunk]) : chunk;
+    this.pending = Buffer.alloc(0);
     let pos = 0;
     while (pos < buf.length) {
-      if (skip > 0) {
-        const n = Math.min(skip, buf.length - pos);
-        kept?.parts.push(Buffer.from(buf.subarray(pos, pos + n)));
-        skip -= n;
-        pos += n;
-        if (skip === 0 && kept) finish();
+      if (this.body) {
+        pos += this.feed(buf.subarray(pos));
         continue;
       }
       const start = buf.indexOf(MARKER, pos);
       if (start < 0) {
-        pending = Buffer.from(buf.subarray(Math.max(pos, buf.length - (MARKER.length - 1)))); // maybe a partial marker
+        this.pending = Buffer.from(buf.subarray(Math.max(pos, buf.length - (MARKER.length - 1)))); // maybe a partial marker
         return;
       }
       const headerEnd = buf.indexOf(0x0a, start + MARKER.length);
       if (headerEnd < 0) {
-        if (buf.length - start <= 1024) pending = Buffer.from(buf.subarray(start)); // a real header is short
+        if (buf.length - start <= 1024) this.pending = Buffer.from(buf.subarray(start)); // a real header is short
         return;
       }
       const [kind, name, exit, bytes] = buf.toString("utf8", start + MARKER.length, headerEnd).split(" ");
       const size = Number(bytes);
       pos = headerEnd + 1;
-      if (!Number.isInteger(size) || size < 0) continue;
-      skip = size;
-      if (kind === "build") on("built");
-      if (kind === "case" || kind === "big") on((cases += 1));
-      if (onCase && (kind === "case" || kind === "big" || kind === "stderr")) {
-        kept = { kind, name: name ?? "", exit: Number(exit), parts: [] };
-        if (size === 0) finish();
-      }
+      if (!kind || !name || !Number.isInteger(size) || size < 0) continue;
+      this.body = { frame: { kind, name, exit: Number(exit), body: "" }, size, left: size, parts: [], kept: 0, ...(kind === "case" ? { digest: new OutputDigest() } : {}) };
+      if (size === 0) this.close();
+    }
+  }
+
+  /** Takes body bytes from the start of `buf`, and returns how many. */
+  private feed(buf: Buffer): number {
+    const b = this.body!;
+    const piece = buf.subarray(0, Math.min(b.left, buf.length));
+    b.digest?.update(piece);
+    const room = (b.digest ? SHOWN_BYTES : FRAME_BYTES) - b.kept;
+    if (room > 0) {
+      const keep = Buffer.from(piece.subarray(0, room));
+      b.parts.push(keep);
+      b.kept += keep.length;
+    }
+    b.left -= piece.length;
+    if (b.left === 0) this.close();
+    return piece.length;
+  }
+
+  private close(): void {
+    const b = this.body!;
+    this.body = undefined;
+    const kept = Buffer.concat(b.parts);
+    // A cut body drops a character the cut split; a whole one decodes as it is.
+    const body = b.kept < b.size ? new StringDecoder("utf8").write(kept) : kept.toString("utf8");
+    const frame: Frame = { ...b.frame, body, ...(b.digest ? { bytes: b.size, digest: b.digest.digest() } : {}) };
+    this.frames.push(frame);
+    try {
+      this.onFrame?.(frame);
+    } catch {
+      this.onFrame = undefined;
+    }
+  }
+}
+
+/** Every complete frame in `buf`. A truncated last frame is left out. */
+export function parseFrames(buf: Buffer): Frame[] {
+  const reader = new FrameReader();
+  reader.push(buf);
+  return reader.frames;
+}
+
+/** One io case as the driver framed it: its output (from a `case` or `big` frame), then its stderr. */
+export type CaseFrames = RawCase & { big: boolean };
+
+/**
+ * Follows the frames as they complete, for progress: "built" when the build frame arrives, then the count of
+ * finished io cases (case, big, or an input generator that failed). With `onCase`, each case is handed over once
+ * its stderr frame ends; the caller passes it only for visible tests.
+ */
+export function frameProgress(on: (milestone: "built" | number) => void, onCase?: (c: CaseFrames) => void): (f: Frame) => void {
+  let cases = 0;
+  let waiting: Omit<CaseFrames, "stderr"> | undefined;
+  return (f) => {
+    if (f.kind === "build") on("built");
+    if (f.kind === "case" || f.kind === "big" || f.kind === "gen") on((cases += 1));
+    if (!onCase) return;
+    if (f.kind === "gen") onCase({ name: f.name, exit: f.exit, stdout: "", stderr: "", big: false, generator: true });
+    else if (f.kind === "case" || f.kind === "big") {
+      waiting = { name: f.name, exit: f.exit, stdout: f.body, big: f.kind === "big", ...(f.digest ? { digest: f.digest, bytes: f.bytes } : {}) };
+    } else if (f.kind === "stderr") {
+      if (waiting?.name === f.name) onCase({ ...waiting, stderr: f.body });
+      waiting = undefined;
     }
   };
 }
@@ -117,14 +217,28 @@ export type Stops = { limits?: { time_ms: number; memory_mb: number }; memoryKil
 export type IoRun = { build?: RawBuild; cases: RawCase[]; flooded: boolean; outOfMemory?: boolean } & Stops;
 export type UnitRun = { report: RawReport; flooded: boolean; outOfMemory?: boolean } & Stops;
 export type Runs = Partial<Record<TestSet, IoRun | UnitRun>>;
-/** What a set is graded against: io expected outputs by test name, or each unit set's test names. */
-export type Expectation = { expected?: Record<string, string>; inventory?: Partial<Record<TestSet, string[]>> };
+/**
+ * A recorded io output: all of it, or for one longer than SHOWN_BYTES, the digest of all of it, its size and its start
+ * (DESIGN §4.2).
+ */
+export type Expected = string | { sha256: string; bytes: number; head: string };
+/** What a test shows of its expected output: all of it, or the start of a long one. */
+export const expectedText = (e: Expected) => (typeof e === "string" ? e : e.head);
+const expectedDigest = (e: Expected) => (typeof e === "string" ? digestOf(e) : e.sha256);
+/** How a reference's output is recorded: in full up to SHOWN_BYTES, else as its digest, size and start. */
+export const recordOutput = (c: RawCase): Expected =>
+  c.digest === undefined || c.bytes === undefined || c.bytes <= SHOWN_BYTES ? c.stdout : { sha256: c.digest, bytes: c.bytes, head: c.stdout };
+/** The digest a case is compared by. */
+export const caseDigest = (c: RawCase) => c.digest ?? digestOf(c.stdout);
 
-const FLOODED = "Output limit exceeded: the program printed more than 4 MB.";
+/** What a set is graded against: io expected outputs by test name, or each unit set's test names. */
+export type Expectation = { expected?: Record<string, Expected>; inventory?: Partial<Record<TestSet, string[]>> };
+
+const FLOODED = "Output limit exceeded: the program wrote more than Codemm reads from one run.";
 const OUT_OF_MEMORY = "Memory limit exceeded: the program used more memory than the track allows.";
 const killedBy = (run: { flooded: boolean; outOfMemory?: boolean }) => (run.flooded ? FLOODED : run.outOfMemory ? OUT_OF_MEMORY : undefined);
 
-export function gradeIoRun(run: IoRun, expected: Record<string, string>): TestResult[] {
+export function gradeIoRun(run: IoRun, expected: Record<string, Expected>): TestResult[] {
   const killed = killedBy(run);
   if (killed) return Object.keys(expected).map((name) => ({ set: name.startsWith("hidden/") ? "hidden" : "visible", name, status: "error", message: killed }));
   return gradeIo(run.cases, expected, run.build, run);
@@ -166,15 +280,6 @@ export function redact(tests: TestResult[]): ShownResult[] {
   });
 }
 
-export function normalizeOutput(text: string): string {
-  return text
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((line) => line.replace(/\s+$/, ""))
-    .join("\n")
-    .replace(/\n+$/, "");
-}
-
 const setOf = (name: string): TestSet => (name.startsWith("hidden/") ? "hidden" : "visible");
 
 /**
@@ -196,17 +301,20 @@ function exitMessage(c: RawCase, stops?: Stops): string {
 }
 
 /** Grades io cases against expected outputs, keyed by case name (e.g. "hidden/02"). */
-export function gradeIo(cases: RawCase[], expected: Record<string, string>, build?: RawBuild, stops?: Stops): TestResult[] {
+export function gradeIo(cases: RawCase[], expected: Record<string, Expected>, build?: RawBuild, stops?: Stops): TestResult[] {
   const byName = new Map(cases.map((c) => [c.name, c]));
-  return Object.keys(expected).map((name): TestResult => {
+  return Object.entries(expected).map(([name, want]): TestResult => {
     const set = setOf(name);
     if (build && build.exit !== 0) return { set, name, status: "error", message: cap(`Build failed (exit ${build.exit}):\n${build.output}`) };
     const c = byName.get(name);
     if (!c) return { set, name, status: "error", message: "This case did not run." };
-    if (c.big) return { set, name, status: "error", message: "Printed more than 64 KB of output." };
+    if (c.generator) return { set, name, status: "error", message: `The test's input generator failed (exit ${c.exit}), so the program didn't run.` };
+    if (c.big) return { set, name, status: "error", message: `Printed more than ${CASE_OUTPUT_MB} MB of output.` };
     if (c.exit !== 0) return { set, name, status: "error", message: exitMessage(c, stops), actual: c.stdout };
-    const pass = normalizeOutput(c.stdout) === normalizeOutput(expected[name]!);
-    return pass ? { set, name, status: "pass", actual: c.stdout } : { set, name, status: "fail", message: "Output differs from the expected output.", actual: c.stdout };
+    if (caseDigest(c) === expectedDigest(want)) return { set, name, status: "pass", actual: c.stdout };
+    const long = typeof want !== "string" || (c.bytes ?? 0) > SHOWN_BYTES;
+    const message = long ? `Output differs from the expected output. Only the first ${SHOWN_BYTES / 1024} KB of each are shown.` : "Output differs from the expected output.";
+    return { set, name, status: "fail", message, actual: c.stdout };
   });
 }
 

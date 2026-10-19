@@ -53,6 +53,7 @@ The desktop app, the private beta and the minimum model per agent are in scope f
 - Independent-solve gate, placement quiz, per-test concept tags.
 - Practice hooks for Codex and Cursor in the terminal; protection is advisory there.
 - Multi-container tracks, course sharing, watch mode.
+- For heavy tests: per-exercise time limits (the track's `time_ms` applies to every exercise), running a check's test sets in parallel, a runner that stays warm across io cases (each case starts `run` afresh), and a unit `build` step timed apart from `test`.
 - Publishing to npm. GitHub releases are built as drafts, and only the owner publishes them.
 
 ## 3. Files and ids
@@ -117,9 +118,10 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
 - **The driver** is a POSIX `sh` script, written by Codemm and run as PID 1 with the entrypoint overridden. It first checks for `sh`, `timeout`, `head`, `wc` and `cat`; a missing utility is a track error.
 - **io:**
   1. Run `build` once, with a 60 s limit.
-  2. Run `run` per input with `timeout`, capturing stdout to `/tmp`. Output longer than 64 KB is an `error` ("printed more than 64 KB"), never a comparison of the first 64 KB, and a reference that does this fails the gates.
-  3. Run `kill -9 -1` after each case so leftover processes can't affect the next one.
-  4. Expected outputs never enter the container. The host compares output after converting CRLF to LF and removing trailing whitespace per line and at the end.
+  2. A generated input (`NN.gen`, §6) is written first: the driver runs the script with `sh`, at most 30 s and outside the case's time limit, into `/tmp/in`. A generator that fails makes that case an `error` ("the input generator failed"), and the program doesn't run.
+  3. Run `run` per input with `timeout`, capturing stdout to `/tmp`. Output longer than 32 MB is an `error` ("printed more than 32 MB"), never a comparison of the first 32 MB, and a reference that does this fails the gates.
+  4. Run `kill -9 -1` after each case so leftover processes can't affect the next one.
+  5. Expected outputs never enter the container. The host compares output after converting CRLF to LF and removing trailing whitespace per line and at the end. It reads the frames as they stream and keeps only the first 64 KB of each case's output, for messages and Results; the comparison uses the SHA-256 of all of it, normalized, so a long output is never held whole. An expected output over 64 KB is recorded the same way: its digest, its size and its first 64 KB.
 - **unit:**
   1. Run `test` with `TESTS=/work/tests` and `OUT=/tmp/report.json`, in that set's own container.
   2. `test` must exit 0 whenever it wrote a valid report, including when tests fail. A non-zero exit or an invalid report is `error`.
@@ -128,8 +130,8 @@ limits: { time_ms: 2000, memory_mb: 256 }   # optional; clamped to the host ceil
 - **Known limitation: results can be forged from inside.** The driver (PID 1) holds the container's output stream on a saved descriptor while a case runs. A program running as the same user could write forged frames to it through `/proc/1/fd`. This doesn't weaken host isolation, but it does mean grading is honor-system, consistent with §1 and §2. Tamper-proof grading would need a separate trusted grader and is out of scope for 1.0.
 - **Progress.** `testExercise` and `checkExercise` take an optional callback with `{ phase, done, total }`:
   - `phase` is `building`, `visible` or `hidden`;
-  - io reports the build, then each visible test as it finishes, counted from the frame headers as they stream;
-  - each visible io test also arrives with its result (`test`: name, status, message and output, graded as Results grades it), so the app can print it as it finishes. Only visible bodies are kept; hidden bodies are skipped, never decoded. The final grade still decides: an output flood or a memory kill afterwards makes every test an error;
+  - io reports the build, then each visible test as it finishes, counted from the frames as they stream;
+  - each visible io test also arrives with its result (`test`: name, status, message and output, graded as Results grades it), so the app can print it as it finishes. Only visible cases are handed over; hidden ones only count. The final grade still decides: an output flood or a memory kill afterwards makes every test an error;
   - hidden tests, and unit tests (whose runner reports at the end), report their phase once with `total` 0, so nothing per hidden test, not even timing, leaves;
   - a listener that throws is dropped, and the check goes on.
   Code in the container could print extra frames, but that can only move progress, never a grade.
@@ -150,16 +152,36 @@ Every judge container gets:
 
 Other ceilings:
 
-- **Time:** `time_ms` is capped at 30 s per case or test run. The host kills the whole check at `build + Σ cases + 30 s`, then runs `docker rm -f <name>`.
-- **Output:** inside the container, program stdout and stderr go to `/tmp` and only bounded slices are framed out. Outside, the host counts stdout and stderr of the container process together; past 4 MB it kills the container.
+- **Time:** `time_ms` is capped at 120 s per io case or per unit test run (the whole `test` command, compiling included). The host kills the whole set at `build + Σ cases + Σ generators + 30 s`, then runs `docker rm -f <name>`.
+- **Output:** inside the container, program stdout and stderr go to `/tmp` and only bounded slices are framed out. Outside, the host counts stdout and stderr of the container process together; past 4 MB, plus 32 MB per io case, it kills the container.
+
+**Limits on the heavy path** (big io, slow tests, heavy stacks). Each is kept, raised or the track's to set, within a bound:
+
+| Limit | Value | Who sets it |
+|---|---|---|
+| A track's files, an exercise's files (MCP or CLI) | 256 files, 1 MB | fixed; big inputs come from `NN.gen` generators instead |
+| Probe example (pass probe + tests) | 64 KB per style | fixed: every author reads it |
+| `time_ms` | 100 ms to 120 s, default 2 s: per io case, or a whole unit run | the track |
+| `memory_mb` | 64 to 2048 MB, default 256; `/tmp` (256 MB) counts toward it | the track |
+| io build, Run's build | 60 s | fixed |
+| Input generator | 30 s, outside `time_ms` | fixed |
+| Reference speed (gates) | must pass in a third of `time_ms`; at the ceiling the gate says to make the probe faster | fixed |
+| Output per io case | 32 MB; the first 64 KB is kept and shown | fixed |
+| Stream per container | 4 MB, plus 32 MB per io case | fixed |
+| Unit report | 1 MB; runner log shown 4 KB; each message 2000 characters | fixed |
+| Processes, CPUs | 256 PIDs (a JVM build tool with a forked test JVM uses about 20), 2 CPUs | fixed |
+| Track build | 10 minutes; 5 GB free to install in the app | fixed |
+| Gate runs | one container per test set, sets one after another; the starter, mutant and earlier-solution runs stop an io set at its first error | fixed |
+| Run | 120 s, 4 MB of output, typed input 64 KB per write and 1 MB unread | fixed |
+| Tool output | a visible test's output and an expected output show at most 64 KB | fixed |
 
 **Termination reasons** decide whether a run counts:
 
 | What happened | Result | Recorded as an attempt |
 |---|---|---|
-| A case times out (the driver's watchdog, with `timeout` as a backstop), crashes, exits non-zero or prints more than 64 KB | that test is `error` | yes |
+| A case times out (the driver's watchdog, with `timeout` as a backstop), crashes, exits non-zero, prints more than 32 MB or its input generator fails | that test is `error` | yes |
 | Learner code fails to build | every test is `error` | yes |
-| The 4 MB stream cap is hit | every test in that set is `error` ("output limit exceeded") | yes |
+| The stream cap is hit | every test in that set is `error` ("output limit exceeded") | yes |
 | The memory limit kills the driver instead of the program: the container exits 137 and the runtime recorded an `oom` event for it | every test in that set is `error` ("memory limit exceeded") | yes |
 | The host deadline for the whole set passes, the runtime is missing or stops during the run, the container is killed from outside (any other non-zero exit), or the image is missing or changed | the command fails with an infrastructure error | no |
 - **Memory:** every track or learner command first raises its own `oom_score_adj`, so the kernel kills the program rather than the driver, and that case is an `error`. If the driver dies anyway, the runtime's `oom` event tells a memory kill from an outside one. The runtime can miss that event when a container exits quickly, and then the check counts as an infrastructure failure: nothing is recorded, never a wrong attempt.
@@ -240,7 +262,7 @@ README.md
 starter/<files>              must contain every file in track.files
 solution/<files>
 mutants/<name>/<files>       2 to 4 wrong solutions
-tests/visible/...            io: NN.in only · unit: test files
+tests/visible/...            io: NN.in, or NN.gen (a POSIX sh script whose output is the input) · unit: test files
 tests/hidden/...
 ```
 
@@ -251,7 +273,7 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
 2. The image builds and declares no volumes.
 3. For each style, the pass probe passes everything.
 4. For each style, the fail probe gets at least one `fail` and no `error`.
-5. The pass probe passes again with a third of the time limit, as every exercise's reference must (gate 3 below), and gives identical results. A track that fails here is told to raise `limits.time_ms` or `limits.memory_mb`.
+5. The pass probe passes again with a third of the time limit, as every exercise's reference must (gate 3 below), and gives identical results. A track that fails here is told to raise `limits.time_ms` or `limits.memory_mb`, or, when `time_ms` is already at its ceiling, to make the command faster (cache everything at build time, and call the compiler and test runner directly rather than a build tool).
 
 **Roadmap gate:** the schema and §5 rules hold, there are no unknown prerequisites, and there are no cycles (Kahn's algorithm).
 
@@ -261,7 +283,8 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
    - the style (defaulting to the course's) is one the track offers;
    - the concepts exist in the roadmap;
    - the learner files are present in starter, solution and every mutant;
-   - there are at least 1 visible and 2 hidden tests, and 2 to 4 mutants.
+   - there are at least 1 visible and 2 hidden tests, and 2 to 4 mutants;
+   - io tests are `NN.in` or `NN.gen`, never both for one `NN`, and no `.out` files.
 2. **Reference passes:**
    - io: no `error` on any input, and identical output on two runs, which becomes the expected output;
    - unit: everything passes on two runs with identical results, which becomes the inventory.
@@ -270,6 +293,8 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
 5. **Mutants are caught:** each mutant fails or errors on at least one hidden test. A copy of the reference is caught by this gate too.
 6. **Hidden tests matter:** at least one mutant passes every visible test.
 7. **New task:** no earlier exercise's solution on the same track passes every visible test. To bound the wait, it compares at most 3 earlier exercises on a shared concept and the 3 most recent others: at most 6 runs of the visible tests. The author sees the earlier exercises' titles and first lines in `next_step`'s `earlier`, never their solutions or tests.
+
+Gates 4 to 7 only ask whether everything passes, so their io runs stop a set at its first error: a slow wrong solution costs one time limit per set, not one per case.
 
 **Commit point.** After the gates pass, the exercise folder is renamed into the store under the course lock. Learner files are then materialized into the workspace. `get_exercise`, `test` and `check` re-materialize any missing learner files, so a crash between the two steps is recoverable.
 
@@ -328,7 +353,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `get_roadmap` | — | `{ course, goal, track, style, concepts }` |
 | `next_step` | — | `setup` / `review` / `practice` / `author` / `stuck` / `done`; `author` carries the concept's `title`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests) |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
-| `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint, and for io the track's run command |
+| `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint, and for io the track's run command; a generated visible input shows its generator (`generated: true`), and a long expected output its first 64 KB with `expectedBytes` |
 | `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |
 | `progress` | — | mastery and difficulty per concept (with `reviewDue` for a mastered concept whose review is scheduled), next step |
 | `save_lesson` | `id`, `concept`, `title`, `markdown` | `{ lesson: id }` or errors |
@@ -389,6 +414,7 @@ The MCP tools and CLI commands are thin calls into one application module.
   - init merging; hook decisions; lock behavior.
 - **Docker integration**, with a POSIX-shell fixture track in both styles:
   - the judge, every gate, and the adversarial sandbox cases in A7;
+  - heavy tests: a million generated numbers in and out, seconds of CPU per case, and a Maven + JUnit track that builds its cache into the image and runs offline;
   - atomic install and recovery;
   - these run in CI on Linux and locally where Docker is available.
 - **Packaging:** `npm pack`, then install the tarball into a temp folder, run `codemm --version`, and spawn `codemm mcp` as a real stdio server and call its tools.

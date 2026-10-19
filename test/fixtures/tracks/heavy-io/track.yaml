@@ -1,0 +1,6 @@
+id: heavy-io
+version: 1
+styles: [io]
+files: [main.awk]
+run: "awk -f main.awk"
+limits: { time_ms: 20000, memory_mb: 512 }

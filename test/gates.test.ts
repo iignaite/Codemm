@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readFileMap } from "../src/files.js";
-import { checkTrackFiles, comparedEarlier, unpinnedBases } from "../src/gates.js";
+import { checkTrackFiles, comparedEarlier, unpinnedBases, verifyExercise } from "../src/gates.js";
+import { type CourseRecord, parseRoadmapYaml, type TrackRecord } from "../src/schemas.js";
 
 const PINNED = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc";
 
@@ -50,5 +52,29 @@ describe("checkTrackFiles", () => {
   it("refuses a probe example over 64 KB, since every author receives it", () => {
     const big = { ...track(), "probe/unit/tests/sums.check": `${"# padding\n".repeat(7_000)}2 3 => 5\n` };
     expect(() => checkTrackFiles(big)).toThrow(/64 KB/);
+  });
+});
+
+describe("verifyExercise's io test files", () => {
+  const fixtures = join(import.meta.dirname, "fixtures");
+  const track: TrackRecord = {
+    format_version: 1, id: "shell-io", version: 1, styles: ["io"], files: ["main.sh"], run: "sh main.sh",
+    limits: { time_ms: 2000, memory_mb: 128 }, image: "codemm-track-shell-io:1", imageId: "sha256:none", installedAt: "now",
+  };
+  const course: CourseRecord = { format_version: 1, course: "demo", ...parseRoadmapYaml(readFileSync(join(fixtures, "roadmaps", "shell-io.yaml"), "utf8")) };
+  const files = () => readFileMap(join(fixtures, "exercises", "io-max"));
+  // These are refused before anything runs, so no container runtime is needed.
+  const verify = (extra: Record<string, string>) => verifyExercise(track, course, { ...files(), ...extra }, new Set());
+
+  it("refuses an expected output or any other file beside the NN.in inputs and NN.gen generators", async () => {
+    await expect(verify({ "tests/visible/02.out": "3\n" })).rejects.toThrow(/may only hold NN.in inputs and NN.gen input generators[\s\S]*Remove: 02.out/);
+    await expect(verify({ "tests/hidden/gen.sh": "echo 1\n" })).rejects.toThrow(/Remove: 1 file\(s\)/);
+  });
+
+  it("refuses an input given both ways, without naming a hidden one", async () => {
+    await expect(verify({ "tests/visible/01.gen": "echo 1 2 3\n" })).rejects.toThrow(/both NN.in and NN.gen for 01\./);
+    const hidden = verify({ "tests/hidden/02.gen": "echo 1 2 3\n" });
+    await expect(hidden).rejects.toThrow(/both NN.in and NN.gen for 1 test\(s\)/);
+    await expect(hidden).rejects.not.toThrow(/02/);
   });
 });
