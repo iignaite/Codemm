@@ -1,35 +1,77 @@
 // Core's infrastructure failures. They are this computer's problems: nothing is
 // recorded, no agent retry is spent, and the learner can fix them (DESIGN §5, §6.1).
-export type Infra = 'disk' | 'offline' | 'docker';
+
+/**
+ * What the learner is told: Docker isn't there or isn't running, is busy and not answering, or answers but failed;
+ * Docker's disk is full, or this computer's; or the network failed.
+ */
+export type Infra = 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'disk' | 'offline';
+
+/** core src/errors.ts INFRA: each of core's codes, and what the learner is told about it. */
+const CODES = {
+  'no-runtime': 'docker',
+  'runtime-down': 'docker',
+  'runtime-paused': 'docker',
+  'socket-permission': 'docker',
+  'runtime-context': 'docker',
+  'runtime-busy': 'docker-busy',
+  'check-timeout': 'docker-busy',
+  'container-remove': 'docker-busy',
+  'windows-containers': 'docker-failed',
+  credentials: 'docker-failed',
+  'container-start': 'docker-failed',
+  'docker-cpus': 'docker-failed',
+  'docker-log-driver': 'docker-failed',
+  'docker-file-sharing': 'docker-failed',
+  'runtime-failed': 'docker-failed',
+  'image-id': 'docker-failed',
+  'image-inspect': 'docker-failed',
+  'container-list': 'docker-failed',
+  'docker-disk': 'docker-disk',
+  'host-disk': 'disk',
+  offline: 'offline',
+  'rate-limit': 'offline',
+  tls: 'offline',
+  'network-timeout': 'offline',
+} as const satisfies Record<string, Infra>;
+
+/** Which of core's failures it was, for the app log: core's code, or `other` for a kind without one. */
+export type Cause = keyof typeof CODES | 'other';
+
+export interface Failure {
+  infra: Infra;
+  cause: Cause;
+}
 
 /** core src/errors.ts ErrorKind: what kind of failure a CodemmError is. */
 export type CoreErrorKind = 'no-course' | 'image-missing' | 'damaged' | 'changed' | 'docker' | 'disk' | 'offline';
 
-/** The kind core gave an error it threw in this process, if any. */
-export function kindOf(e: unknown): CoreErrorKind | undefined {
-  return e instanceof Error && e.name === 'CodemmError' ? (e as Error & { kind?: CoreErrorKind }).kind : undefined;
-}
+const fromCore = (e: unknown): (Error & { kind?: CoreErrorKind; code?: unknown }) | undefined =>
+  e instanceof Error && e.name === 'CodemmError' ? e : undefined;
 
-/** This computer's problem behind an error thrown in this process: core's kind, or a write that ran out of space. */
-export function infraOf(e: unknown): Infra | null {
-  const kind = kindOf(e);
-  if (kind === 'docker' || kind === 'disk' || kind === 'offline') return kind;
-  return (e as NodeJS.ErrnoException | undefined)?.code === 'ENOSPC' ? 'disk' : null;
-}
+/** The kind core gave an error it threw in this process, if any. */
+export const kindOf = (e: unknown): CoreErrorKind | undefined => fromCore(e)?.kind;
+
+const failureOf = (code: unknown): Failure | null => (typeof code === 'string' && Object.hasOwn(CODES, code) ? { cause: code as keyof typeof CODES, infra: CODES[code as keyof typeof CODES] } : null);
 
 /**
- * The same, read from text: only for core's messages an agent relays back over MCP (a tool result), which carry
- * no kind. src/sandbox.ts, src/judge.ts and src/store.ts write them.
+ * The code a tool result starts with: core's MCP server writes `codemm:<code or kind>` as the first line of a failure
+ * (src/mcp.ts), and nothing else can write there. An agent may put its own words before it on that line.
  */
-export function infra(message: string): Infra | null {
-  if (/not enough disk space|ran out of disk space|no space left on device/i.test(message)) return 'disk';
-  if (/couldn't reach the network|could not resolve host|network is unreachable/i.test(message)) return 'offline';
-  // A build that can't run Docker's credential helper is this computer's Docker problem, not the track's.
-  if (/container runtime|Windows containers|Cannot connect to the Docker daemon|error getting credentials|container couldn't be removed|Couldn't list Codemm's containers|container couldn't start/i.test(message)) return 'docker';
-  return null;
-}
+const tagOf = (text: string) => /^[^\n]*?\bcodemm:([a-z][a-z-]*)(?:\n|$)/.exec(text)?.[1];
 
-/** A failure no agent caused: this computer's problems, or a track image that needs a rebuild. A job spends no retry on it (§6.1). */
-export function spendsNoRetry(message: string): boolean {
-  return infra(message) !== null || /image for .* is missing or changed/i.test(message);
+/** This computer's problem, from a tool result's code: what an agent relays back over MCP carries no error object. */
+export const infra = (text: string): Failure | null => failureOf(tagOf(text));
+
+/** A tool result that says a track image needs a rebuild. */
+export const needsRebuild = (text: string): boolean => tagOf(text) === 'image-missing';
+
+/** This computer's problem behind an error thrown in this process: core's code, or a write that ran out of space. */
+export function infraOf(e: unknown): Failure | null {
+  const core = fromCore(e);
+  const coded = failureOf(core?.code);
+  if (coded) return coded;
+  // A kind without a code: what Docker or the disk said before codes. Docker reads as stopped, as it always has.
+  if (core?.kind === 'docker' || core?.kind === 'disk' || core?.kind === 'offline') return { infra: core.kind, cause: 'other' };
+  return (e as NodeJS.ErrnoException | undefined)?.code === 'ENOSPC' ? { infra: 'disk', cause: 'host-disk' } : null;
 }

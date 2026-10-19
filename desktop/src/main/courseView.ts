@@ -28,12 +28,15 @@ export function courseView(
   setup: Setup,
   running: Set<string>,
   now = Date.now(),
+  /** The concept whose lesson job failed and stalled work: its row stays, for Try again. */
+  failedLesson?: string,
 ): CourseView {
   const next = progress.next;
   const current = currentConcept(progress);
   const topics = progress.concepts.map((c): TopicView => {
     const own: TopicView['lessons'] = lessons.filter((l) => l.concept === c.id).map((l) => ({ id: l.id, title: l.title, state: l.read ? 'read' : 'ready' }));
     if (running.has(`lesson:${c.id}`)) own.push({ id: `${c.id}-writing`, title: 'Lesson', state: 'writing' });
+    else if (failedLesson === c.id) own.push({ id: `${c.id}-writing`, title: 'Lesson', state: 'failed' });
     const isCurrent = c.id === current;
     let activity: TopicView['activity'] = 'locked';
     // A due review reopens a mastered topic's activity (core §7).

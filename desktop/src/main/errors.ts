@@ -33,5 +33,7 @@ export function errorFields(e: unknown): Fields {
     kind: fromCore(e) ? 'core' : e instanceof SafeError ? 'desktop' : 'internal',
     name: /^\w{1,40}$/.test(e.name) ? e.name : undefined,
     code: typeof errno === 'string' && /^[A-Z0-9_]{1,40}$/.test(errno) ? errno : undefined,
+    // Core's code for this computer's problem (src/errors.ts INFRA): a fixed label, never its text.
+    cause: fromCore(e) && typeof errno === 'string' && /^[a-z][a-z-]{0,39}$/.test(errno) ? errno : undefined,
   };
 }
