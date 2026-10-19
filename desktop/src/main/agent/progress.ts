@@ -18,6 +18,8 @@ export type Gate = keyof typeof GATES;
 export interface TrackerOptions {
   id?: string;
   concept?: string;
+  /** The track's name, for a rebuild. */
+  track?: string;
   now?: () => number;
   /** False for text that must not be shown: the reply filter's backstop (§2.2). */
   shows?: (text: string) => boolean;
@@ -27,7 +29,7 @@ export interface TrackerOptions {
 
 export type JobTracker = ReturnType<typeof jobTracker>;
 
-export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Date.now, shows = () => true, retry: first }: TrackerOptions = {}) {
+export function jobTracker(kind: JobKind, { id = randomUUID(), concept, track, now = Date.now, shows = () => true, retry: first }: TrackerOptions = {}) {
   const started = now();
   const last = JOB_STAGES[kind].length - 1;
   let stage = 0;
@@ -82,7 +84,7 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
         // A rejected save sends the agent back to its work. Only bounded saves count toward "Trying again".
         if (e.error && saves.delete(e.id)) {
           stage = 1;
-          if (JOBS[kind].save) retry = { attempt: Math.min(++failedSaves + 1, SAVE_BOUND), of: SAVE_BOUND };
+          if (kind !== 'rebuild' && JOBS[kind].save) retry = { attempt: Math.min(++failedSaves + 1, SAVE_BOUND), of: SAVE_BOUND };
         }
       }
     },
@@ -121,6 +123,7 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, now = Da
         job: id,
         kind,
         ...(concept ? { concept } : {}),
+        ...(track ? { track } : {}),
         stage,
         steps,
         count,

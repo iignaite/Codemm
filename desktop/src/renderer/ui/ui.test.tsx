@@ -67,6 +67,25 @@ describe('Rail', () => {
     expect(screen.getByRole('textbox', { name: 'Ask Codemm' })).toHaveValue('');
   });
 
+  it('scrolls its own log to the newest message, never the page', () => {
+    const height = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(900);
+    const scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      const messages = [{ from: 'you' as const, text: 'Why?' }];
+      const { rerender } = render(<Rail messages={messages} onAsk={vi.fn()} />);
+      expect(screen.getByRole('log').scrollTop).toBe(900);
+      height.mockReturnValue(1500);
+      rerender(<Rail messages={[...messages, { from: 'codemm', text: 'Look at line 3.' }]} onAsk={vi.fn()} />);
+      expect(screen.getByRole('log').scrollTop).toBe(1500);
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      height.mockRestore();
+      // @ts-expect-error jsdom has none; the test gave it one.
+      delete HTMLElement.prototype.scrollIntoView;
+    }
+  });
+
   it('keeps a question within its limit, and says so', async () => {
     const user = userEvent.setup();
     render(<Rail messages={[]} onAsk={vi.fn()} />);

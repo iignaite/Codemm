@@ -1,11 +1,14 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
+import { SAY, problemOf, sayOf } from '../../app/errors';
 import { Failed } from '../../app/Problems';
+import { useJobs } from '../../app/useJob';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Field } from '../../ui/Field';
+import { JobBar } from '../../ui/JobBar';
 import { stagger } from '../../ui/motion';
 import { Limit } from '../../ui/Limit';
 import { LIMITS } from '../../../shared/limits';
@@ -18,17 +21,34 @@ export function Tracks() {
   const [topic, setTopic] = useState('');
   const [rebuilding, setRebuilding] = useState<string>();
   const [rebuilt, setRebuilt] = useState<string>();
+  const [failed, setFailed] = useState<{ ref: string; text: string }>();
+  // Rebuilds running now, also those started before the learner left and came back (§4.11).
+  const rebuilds = useJobs((p) => p.kind === 'rebuild', []);
+  const here = useRef(true);
+  useEffect(() => {
+    here.current = true;
+    return () => void (here.current = false);
+  }, []);
   if (error) return <Failed error={error} retry={reload} />;
   if (!tracks) return null;
 
-  async function rebuild(ref: string) {
+  async function rebuild(ref: string, name: string) {
     setRebuilding(ref);
     setRebuilt(undefined);
+    setFailed(undefined);
     try {
       await api.rebuild(ref);
       setRebuilt(ref);
     } catch (e) {
-      fail(e);
+      // A damaged record has its banner, and so has a failure after the learner left: no card is there to say it.
+      // Any other failure is said on the card: what happened and what to do, as far as Codemm knows.
+      const problem = problemOf(e);
+      if (problem === 'repair' || problem === 'connect' || !here.current) fail(e);
+      else {
+        const say = sayOf(e, problem);
+        const lead = `Couldn't rebuild ${name}.`;
+        setFailed({ ref, text: problem === 'offline' ? say : say === SAY.other ? lead : `${lead} ${say}` });
+      }
     } finally {
       setRebuilding(undefined);
     }
@@ -44,14 +64,18 @@ export function Tracks() {
       <h1 className="h2 a-up">Tracks</h1>
       {tracks.length > 0 && (
         <ul className="track-grid plain">
-          {tracks.map((t, i) => (
-            <li key={t.ref} className="card track a-up" style={stagger(i + 1)} aria-label={t.name}>
-              <Emm width={140} name={t.name} perch />
-              <b>{t.name}</b>
-              <Button variant="ghost" disabled={rebuilding === t.ref} onClick={() => rebuild(t.ref)}>Rebuild</Button>
-              <span className="quiet-text" role="status">{rebuilt === t.ref ? 'Rebuilt.' : ''}</span>
-            </li>
-          ))}
+          {tracks.map((t, i) => {
+            const job = rebuilds.find((j) => j.progress.track === t.name);
+            return (
+              <li key={t.ref} className="card track a-up" style={stagger(i + 1)} aria-label={t.name}>
+                <Emm width={140} name={t.name} perch />
+                <b>{t.name}</b>
+                {job && <JobBar job={job} label={`Rebuilding ${t.name}`} compact />}
+                <Button variant="ghost" disabled={rebuilding === t.ref || Boolean(job)} onClick={() => rebuild(t.ref, t.name)}>Rebuild</Button>
+                <span className="quiet-text" role="status">{failed?.ref === t.ref ? failed.text : rebuilt === t.ref ? 'Rebuilt.' : ''}</span>
+              </li>
+            );
+          })}
         </ul>
       )}
       <section className="card new a-up" style={stagger(4)} aria-labelledby="new-t">

@@ -1,17 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import type { JobProgress, JobStep } from '../../shared/api';
 import { JOB_STAGES } from '../../shared/progress';
 import type { HeardJob } from '../app/useJob';
 import { EmmFill } from './EmmFill';
+import { showJob } from './shownJobs';
 
 /** After this long with no event while the agent holds the turn, a quiet line says it is still working (§4.11). */
 export const QUIET_MS = 90_000;
 
 export const sayStep = (step: JobStep) => (step.kind === 'search' ? `Searching ${step.query}` : step.kind === 'read' ? `Reading ${step.url}` : step.label);
 
+/** What a retry says: no counts, the learner has nothing to do about them. */
+export const RETRYING = 'Taking a little longer';
+
 /** What the job is doing now: a retry, or its latest step. */
 export function nowLine(p: JobProgress): string | undefined {
-  if (p.retry) return `Trying again (${p.retry.attempt} of ${p.retry.of})`;
+  if (p.retry) return RETRYING;
   return p.steps[0] && sayStep(p.steps[0]);
 }
 
@@ -34,7 +38,7 @@ export const fillOf = (p: JobProgress) => {
 export const partOf = (p: JobProgress) => (p.part && p.part.total > 0 ? (p.kind === 'setup' ? `Step ${p.part.done} of ${p.part.total}` : `${p.part.done} of ${p.part.total}`) : undefined);
 
 /** Ticks once a second, for the elapsed time. */
-function useNow() {
+export function useNow() {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -62,12 +66,14 @@ type Props = {
 export function JobBar({ job, label, compact = false, noLine = false, emm = true }: Props) {
   const { progress: p, at } = job;
   const now = useNow();
+  // This bar is the job's progress on screen: the sidebar stands down. Before paint, so it never shows both.
+  useLayoutEffect(() => showJob(p.job), [p.job]);
   const since = Math.max(0, now - at);
   const stages = JOB_STAGES[p.kind];
   const stage = Math.min(p.stage, stages.length - 1);
   const elapsed = clock(p.elapsedMs + since);
   const quiet = p.thinking && p.idleMs + since >= QUIET_MS;
-  const line = [nowLine(p), partOf(p)].filter(Boolean).join(' ') || undefined;
+  const line = p.retry ? RETRYING : [nowLine(p), partOf(p)].filter(Boolean).join(' ') || undefined;
   const fill = fillOf(p);
   const dim = Boolean(p.retry) || quiet;
   const meter = (
@@ -86,8 +92,8 @@ export function JobBar({ job, label, compact = false, noLine = false, emm = true
     return (
       <div className="job compact" role="group" aria-label={label}>
         {meter}
-        {/* The outline is narrow: a retry reads "Try 2 of 3" here; screen readers hear it whole. */}
-        <span className="job-step">{p.retry ? `Try ${p.retry.attempt} of ${p.retry.of}` : (line ?? stages[stage])}</span>
+        {/* The outline is narrow: a real fraction reads with the stage (a gate's own sentence would wrap to lines). */}
+        <span className="job-step">{p.retry ? RETRYING : (p.part && p.part.total > 0 ? `${stages[stage]} ${partOf(p)}` : (line ?? stages[stage]))}</span>
         <span className="job-time">{elapsed}</span>
       </div>
     );

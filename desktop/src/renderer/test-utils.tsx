@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react';
-import type { CodemmApi, CourseView, Roadmap } from '../shared/api';
+import type { CodemmApi, CourseView, JobProgress, Roadmap } from '../shared/api';
 import { createMock, type MockOptions } from '../main/mock';
 import { App } from './app/App';
 import type { Route } from './app/router';
@@ -37,3 +37,18 @@ export async function mockWithCourse(options?: MockOptions & { read?: boolean })
   if (options?.read) for (const l of course.topics[0].lessons) await api.markRead(l.id);
   return { api, course: (await api.course())! };
 }
+
+/** Jobs a test tells the app about: every subscriber hears them, and a screen that opens meanwhile reads the running ones. */
+export function jobBus(api: CodemmApi) {
+  const listeners = new Set<(p: JobProgress) => void>();
+  let running: JobProgress[] = [];
+  api.onJobProgress = (listener) => (listeners.add(listener), () => void listeners.delete(listener));
+  api.jobProgress = async () => running;
+  return (p: JobProgress) => {
+    running = p.ended ? running.filter((r) => r.job !== p.job) : [...running.filter((r) => r.job !== p.job), p];
+    listeners.forEach((l) => l(p));
+  };
+}
+
+/** A running job's report, with the fields a test doesn't care about filled in. */
+export const jobAt = (job: string, kind: JobProgress['kind'], over: Partial<JobProgress> = {}): JobProgress => ({ job, kind, stage: 1, steps: [], count: 0, thinking: true, elapsedMs: 0, idleMs: 0, ...over });

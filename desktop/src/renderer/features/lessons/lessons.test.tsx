@@ -36,6 +36,41 @@ describe('review on the topic page', () => {
   });
 });
 
+describe('the end of a topic\'s lessons while its activity is written', () => {
+  const writing = async () => {
+    const { api, course } = await mockWithCourse({ read: true });
+    const real = (await api.course())!;
+    api.course = async () => ({ ...real, topics: real.topics.map((t) => (t.id === TOPIC ? { ...t, activity: 'writing' as const } : t)) });
+    return { api, lessons: course.topics.find((t) => t.id === TOPIC)!.lessons };
+  };
+
+  it("says beside Next that the activity is coming (the outline shows how far it is)", async () => {
+    const { api, lessons } = await writing();
+    renderApp({ to: 'lesson', lessonId: lessons.at(-1)!.id }, api);
+    expect(await screen.findByText('Your activity is almost ready')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeInTheDocument();
+  });
+
+  it("says nothing while the activity waits for setup or its work has stopped: it isn't being written", async () => {
+    const { api, lessons } = await writing();
+    const real = (await api.course())!;
+    for (const over of [{ setup: 'consent' as const }, { stalled: 'failed' as const }]) {
+      api.course = async () => ({ ...real, ...over, topics: real.topics.map((t) => (t.id === TOPIC ? { ...t, activity: 'writing' as const } : t)) });
+      const view = renderApp({ to: 'lesson', lessonId: lessons.at(-1)!.id }, api);
+      await screen.findByRole('button', { name: 'Next' });
+      expect(screen.queryByText('Your activity is almost ready')).not.toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it('says nothing on a lesson that has another after it', async () => {
+    const { api, lessons } = await writing();
+    renderApp({ to: 'lesson', lessonId: lessons[0].id }, api);
+    await screen.findByRole('button', { name: 'Next' });
+    expect(screen.queryByText('Your activity is almost ready')).not.toBeInTheDocument();
+  });
+});
+
 describe('lesson examples', () => {
   it('shows each example where the lesson places it, and runs it on request', async () => {
     const user = userEvent.setup();

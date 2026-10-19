@@ -142,6 +142,33 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     await Promise.all([rebuilding, stopping]);
   });
 
+  it("shows a track rebuild as a job of its own, named for the track, that ends with it, failed or not (§4.11)", async () => {
+    const t = live();
+    await practising(t);
+    const heard: JobProgress[] = [];
+    t.api.onJobProgress((p) => heard.push(p));
+    let finish!: (error?: Error) => void;
+    t.app.rebuildTrack = () => new Promise((done, fail) => (finish = (error) => (error ? fail(error) : done({}))));
+    const rebuilding = t.api.rebuild('react@1');
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    expect(heard).toEqual([expect.objectContaining({ kind: 'rebuild', track: 'React', stage: 0, thinking: false })]);
+    // A screen that opens meanwhile reads it from jobProgress.
+    expect(await t.api.jobProgress()).toEqual([expect.objectContaining({ job: heard[0].job, kind: 'rebuild' })]);
+    finish();
+    await rebuilding;
+    expect(heard.at(-1)).toMatchObject({ job: heard[0].job, ended: true });
+    expect(await t.api.jobProgress()).toEqual([]);
+
+    heard.length = 0;
+    t.app.rebuildTrack = async () => {
+      throw coreError('The container runtime isn\'t running. Start Docker Desktop (or `podman machine start`).', 'docker');
+    };
+    // This computer's problem reaches the learner as Codemm's words and a next step, not core's.
+    await expect(t.api.rebuild('react@1')).rejects.toThrow("Docker isn't running. Open Docker Desktop, then try again.");
+    expect(heard.map((p) => [p.kind, p.ended ?? false])).toEqual([['rebuild', false], ['rebuild', true]]);
+    expect(await t.api.jobProgress()).toEqual([]);
+  });
+
   it('asks for a new proposal after the gates fail', async () => {
     const t = live();
     const r = await researched(t);

@@ -4,12 +4,13 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { AgentId, JobKind } from '../../shared/api';
+import type { AgentId, AgentJobKind } from '../../shared/api';
 import { AGENT_CLIS, PLAN_LIMIT, type AgentEvent, type Invocation, type McpServer } from './agents';
 import { infra as failureIn, infraOf, needsRebuild, type Cause, type Failure, type Infra } from '../core/failures';
 import { run, type Executable } from './bridge';
 
-export type { JobKind };
+/** A job the agent runs: the kinds of progress that aren't Codemm's own (shared/api.ts). */
+export type JobKind = AgentJobKind;
 
 interface JobSpec {
   tools: string[];

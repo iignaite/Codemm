@@ -2,14 +2,16 @@
 import { useSyncExternalStore, type ReactNode } from 'react';
 import type { CourseView } from '../../shared/api';
 import { Button } from '../ui/Button';
+import { Emm } from '../ui/Emm';
 import { Icon, type IconName } from '../ui/Icon';
-import { Logo, Mark } from '../ui/Mark';
+import { Logo } from '../ui/Mark';
 import { useApi } from './api';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
 import { continueRoute } from './course';
 import { Courses } from './Courses';
 import { ExternalLink } from '../ui/ExternalLink';
+import { WorkNow } from './WorkNow';
 
 type Section = 'learn' | 'practice' | 'tracks';
 
@@ -64,8 +66,10 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
   if (slim) {
     return (
       <nav className="slim" aria-label="Main">
-        <div className="lg"><Mark size={22} /></div>
+        {/* Emm, not the wordmark's "<" on its own: that reads as a Back button. */}
+        <div className="lg"><Emm width={44} name={course?.track} /></div>
         {nav}
+        <WorkNow course={course} slim />
         <UpdateNotice slim />
         <Courses slim />
       </nav>
@@ -75,6 +79,7 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
     <nav className="side" aria-label="Main">
       <div className="logo"><Logo height={22} onNavy /></div>
       {nav}
+      <WorkNow course={course} />
       <div className="foot">
         <UpdateNotice />
         <Courses />

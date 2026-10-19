@@ -13,7 +13,7 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
   it('researches a new course on a server bound to it, then shows the roadmap', async () => {
     const t = live();
     const r = await researched(t);
-    expect(r).toEqual({ state: 'done', roadmap: { title: 'React', goal: 'React', track: 'react', installed: false, concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }], sources: [] } });
+    expect(r).toEqual({ state: 'done', roadmap: { title: 'React', goal: 'React', track: 'React', installed: false, concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }], sources: [] } });
     const job = t.jobs.ran[0];
     const course = t.c.roadmap!.course;
     expect(course).toMatch(/^react-[a-z0-9]+$/);
@@ -188,7 +188,7 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     await t.api.approve(r.roadmap!.concepts);
     await until(t.api, (c) => c.setup === 'consent');
     const change = await t.api.reviseRoadmap(r.roadmap!.concepts, 'Use Vue');
-    expect(change).toMatchObject({ changed: true, roadmap: { track: 'vue' } });
+    expect(change).toMatchObject({ changed: true, roadmap: { track: 'Vue' } });
     expect(t.c.proposals.filter((p) => p.track === 'react@1')).toEqual([]);
     await until(t.api, () => t.jobs.ran.filter((j) => j.kind === 'setup').length === 2);
     expect(t.jobs.ran.filter((j) => j.kind === 'setup').at(-1)!.brief).toContain('vue@1');

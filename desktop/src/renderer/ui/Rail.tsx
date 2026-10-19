@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { Message } from '../../shared/api';
 import type { HeardJob } from '../app/useJob';
 import { Button } from './Button';
@@ -22,6 +22,11 @@ export function Rail({ messages, onAsk, busy = false, answering, name, children 
   messages: Message[]; onAsk: (text: string) => unknown; busy?: boolean; answering?: HeardJob; name?: string; children?: ReactNode;
 }) {
   const [text, setText] = useState('');
+  // The log scrolls inside the rail and follows the newest message. Its own scrollTop only: scrollIntoView would scroll the page too.
+  const log = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (log.current) log.current.scrollTop = log.current.scrollHeight;
+  }, [messages.length, busy]);
   async function submit(e: FormEvent) {
     e.preventDefault();
     const q = text.trim();
@@ -32,7 +37,7 @@ export function Rail({ messages, onAsk, busy = false, answering, name, children 
   return (
     <aside className="coach" aria-label="Codemm">
       <div className="chead"><Emm width={40} name={name} />Codemm</div>
-      <div className="cbody" role="log" aria-busy={busy}>
+      <div className="cbody" role="log" aria-busy={busy} ref={log}>
         {messages.map((m, i) => <Entry key={i} m={m} />)}
         {busy && (
           <div className="note thinking a-up">

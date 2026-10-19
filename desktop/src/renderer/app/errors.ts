@@ -23,5 +23,20 @@ export const SAY: Record<Exclude<Problem, 'connect'>, string> = {
   other: "That didn't work. Try again.",
 };
 
+/** A sentence meant for a learner: whole, and with no path, command or tool name, which core's messages for agents carry. */
+const plain = (text: string) => /[.!?]$/.test(text) && !/[`/\\_]/.test(text);
+
+/**
+ * What a failure says. Codemm's words for a known problem; for any other, the message main let through, if it is a
+ * plain sentence (its first line only: a longer one can list exercises), else the generic one. An error made in the
+ * window itself, a bug, never passed main's filter, so it is never shown.
+ */
+export function sayOf(error: unknown, problem: Exclude<Problem, 'connect'>): string {
+  if (problem !== 'other') return SAY[problem];
+  if (error instanceof TypeError || error instanceof ReferenceError || error instanceof RangeError || error instanceof SyntaxError) return SAY.other;
+  const first = (error instanceof Error ? error.message : '').split('\n')[0].trim().replace(/:$/, '.');
+  return plain(first) ? first : SAY.other;
+}
+
 /** Core's repair guidance after a REPAIR code: safe text naming the damaged record and the fix. */
 export const repairDetail = (error: unknown) => (error instanceof Error ? error.message.split('\n').slice(1).join(' ') : '');

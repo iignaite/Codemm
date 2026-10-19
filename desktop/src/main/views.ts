@@ -25,8 +25,17 @@ export function tryView(core: CoreCheckView): TryResult {
   return { kind: 'ran', passed: core.passed, total: core.total, tests: testViews(core.tests).filter((t) => !t.hidden) };
 }
 
-/** A track's name without its version: `react` for `react@1`. */
-export const trackName = (ref: string) => ref.split('@')[0];
+/**
+ * A track's name for the learner, from its ref: `Python` for `python@1`, `Node Js` for `node-js@2`. No version, and
+ * no list of names: Codemm knows no language, so a name the track gives itself is a later step (1.1).
+ */
+export const trackName = (ref: string) =>
+  ref
+    .split('@')[0]
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(' ');
 
 /**
  * Why the last setup proposal failed, in Codemm's own words. Only the failed gate's name is read from core's message,

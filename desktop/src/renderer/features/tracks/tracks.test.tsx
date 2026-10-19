@@ -1,6 +1,7 @@
-import { screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
+import { OFFLINE, REPAIR } from '../../../shared/api';
 import { mockWithCourse, renderApp } from '../../test-utils';
 
 describe('tracks', () => {
@@ -16,5 +17,71 @@ describe('tracks', () => {
     await user.type(screen.getByRole('textbox', { name: 'Learn something new' }), 'Rust');
     await user.click(screen.getByRole('button', { name: 'Start' }));
     expect(await screen.findByRole('heading', { name: 'Researching Rust' })).toBeInTheDocument();
+  });
+
+  it('says on the card that a rebuild failed, and the same button tries again', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    const rebuild = api.rebuild.bind(api);
+    api.rebuild = async () => {
+      throw new Error('The rebuilt image behaves differently, so it wasn\'t accepted:\ndemo/ex-1: results changed');
+    };
+    renderApp({ to: 'tracks' }, api);
+    const react = await screen.findByRole('listitem', { name: 'React' });
+    await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
+    // The card says what happened, the first line of core's message and not the exercises it lists.
+    expect(await within(react).findByText("Couldn't rebuild React. The rebuilt image behaves differently, so it wasn't accepted.")).toBeInTheDocument();
+    expect(react).not.toHaveTextContent('ex-1');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(within(react).getByRole('button', { name: 'Rebuild' })).toBeEnabled();
+
+    // Docker's own reason and next step come through; a failure main only calls generic stays short.
+    api.rebuild = async () => {
+      throw new Error("Docker isn't running. Start Docker Desktop, then try again.");
+    };
+    await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
+    expect(await within(react).findByText("Couldn't rebuild React. Docker isn't running. Start Docker Desktop, then try again.")).toBeInTheDocument();
+    api.rebuild = async () => {
+      throw new Error("That didn't work. Try again.");
+    };
+    await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
+    expect(await within(react).findByText("Couldn't rebuild React.")).toBeInTheDocument();
+
+    api.rebuild = rebuild;
+    await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
+    await waitFor(() => expect(within(react).getByRole('status')).toHaveTextContent('Rebuilt.'));
+    expect(react).not.toHaveTextContent("Couldn't rebuild");
+  });
+
+  it("says when a rebuild failed because the computer is offline, and sends damaged records to the repair banner", async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    api.rebuild = async () => {
+      throw new Error(OFFLINE);
+    };
+    renderApp({ to: 'tracks' }, api);
+    const react = await screen.findByRole('listitem', { name: 'React' });
+    await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
+    expect(await within(react).findByText("You're offline. Connect to the internet, then try again.")).toBeInTheDocument();
+
+    api.rebuild = async () => {
+      throw new Error(`${REPAIR}\nRestore the course folder.`);
+    };
+    await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("Codemm's records need a repair.");
+  });
+
+  it('says a rebuild failed on the banner when the learner has left the page by then', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    let fail!: (error: Error) => void;
+    api.rebuild = () => new Promise<void>((_, reject) => (fail = reject));
+    renderApp({ to: 'tracks' }, api);
+    const react = await screen.findByRole('listitem', { name: 'React' });
+    await user.click(within(react).getByRole('button', { name: 'Rebuild' }));
+    await user.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name: 'Learn' }));
+    await screen.findByRole('heading', { name: 'React' });
+    act(() => fail(new Error("Docker isn't running. Start Docker Desktop, then try again.")));
+    expect(await screen.findByRole('alert')).toHaveTextContent("Docker isn't running. Start Docker Desktop, then try again.");
   });
 });

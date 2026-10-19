@@ -2,6 +2,7 @@
 // progress, the course's lessons, setup and the jobs still running.
 import type { CourseView, Proposal, SetupProblem, SetupState, TopicView } from '../shared/api';
 import type { CoreProgress } from './core/types';
+import { trackName } from './views';
 
 export type Setup = { state: Exclude<SetupState, 'failed'>; proposal?: Proposal } | { state: 'failed'; problem: SetupProblem; proposal?: Proposal };
 
@@ -19,8 +20,6 @@ export function otherReady(progress: CoreProgress, concepts: string[]): boolean 
   const mastered = new Set(progress.concepts.filter((c) => c.mastered).map((c) => c.id));
   return progress.concepts.some((c) => !concepts.includes(c.id) && !c.mastered && c.requires.every((r) => mastered.has(r)));
 }
-
-const trackName = (ref: string) => ref.split('@')[0];
 
 export function courseView(
   progress: CoreProgress,

@@ -310,6 +310,14 @@ describe('practice', () => {
     expect(await screen.findByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
   });
 
+  it("says why a Check or a Run couldn't start, in main's own words, with what to do", async () => {
+    const { user, api } = await open();
+    api.check = () => Promise.reject(new Error('Too many programs are running. Stop one, then check again.'));
+    await user.click(screen.getByRole('button', { name: 'Check' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Too many programs are running. Stop one, then check again.');
+    expect(screen.getByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
+  });
+
   it('says when the agent plan limit is reached, and records nothing', async () => {
     const { user } = await open(scenario('plan-limit'));
     await user.click(screen.getByRole('button', { name: 'Hint' }));

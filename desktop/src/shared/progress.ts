@@ -8,4 +8,5 @@ export const JOB_STAGES: Record<JobKind, readonly string[]> = {
   lesson: ['Starting', 'Writing the lesson', 'Saving the lesson'],
   author: ['Starting', 'Writing the exercise', 'Checking the exercise'],
   tutor: ['Thinking'],
+  rebuild: ['Building and checking'],
 };

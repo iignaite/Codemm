@@ -32,7 +32,7 @@ import { errorFields, SafeError } from './errors';
 import type { CoreApp, CoreProgress, CoreRoadmap } from './core/types';
 import { courseView, currentConcept, otherReady, type Setup } from './courseView';
 import { noLog, type Log } from './log';
-import { asNotCounted } from './notCounted';
+import { asNotCounted, rebuildFailure } from './notCounted';
 import { programs } from './programs';
 import { coursesOf, type desktopState } from './state';
 import type { usageStore } from './usage';
@@ -876,8 +876,24 @@ export function createLive(d: LiveDeps): Live {
     },
 
     async rebuild(ref) {
+      // A job of its own (§4.11), heard whatever course is on screen, since Tracks isn't a course's. Core reports no
+      // steps, so it has the one stage; it starts when its turn comes and ends with the rebuild, failed or not.
+      let tracker: JobTracker | undefined;
       // Tracked and guarded like the install, so quitting waits for it; builds take turns across courses (§4.13).
-      await tracked(queue('builds')(() => whenDockerReady(() => core.rebuildTrack(ref))));
+      await tracked(
+        queue('builds')(() => {
+          const t = (tracker = jobTracker('rebuild', { track: trackName(ref) }));
+          t.reach(0);
+          trackers.set(`rebuild:${ref}`, { tracker: t, audience: {} });
+          tellJob(t.snapshot(), {});
+          return whenDockerReady(() => core.rebuildTrack(ref));
+        }),
+      )
+        .catch((e: unknown) => Promise.reject(rebuildFailure(e)))
+        .finally(() => {
+          trackers.delete(`rebuild:${ref}`);
+          if (tracker) tellJob({ ...tracker.snapshot(), ended: true }, {});
+        });
     },
 
     // The course on screen: the approved one, as course() shows, not a draft being researched.

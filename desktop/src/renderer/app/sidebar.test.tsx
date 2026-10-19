@@ -2,7 +2,7 @@ import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createMock } from '../../main/mock';
-import { mockWithRoadmap, renderApp } from '../test-utils';
+import { jobAt, jobBus, mockWithRoadmap, renderApp } from '../test-utils';
 
 const sidebar = () => screen.getByRole('navigation', { name: 'Main' });
 
@@ -80,6 +80,8 @@ describe('narrow windows', () => {
     try {
       renderApp({ to: 'tracks' });
       expect(await screen.findByRole('navigation', { name: 'Main' })).toHaveClass('slim');
+      // Its logo is Emm: the wordmark's "<" alone looks like a Back button.
+      expect(sidebar().querySelector('.lg .emm')).not.toBeNull();
       expect(within(sidebar()).getByRole('button', { name: 'Tracks' })).not.toHaveTextContent('Tracks');
       // Wider again: the full sidebar comes back.
       wide();
@@ -96,6 +98,25 @@ describe('narrow windows', () => {
       const region = await within(sidebar()).findByRole('status', { name: 'Codemm updates' });
       await vi.waitFor(() => expect(region).toHaveTextContent('A new version is available.'));
       expect(within(region).getByRole('link', { name: 'Update' })).toHaveAttribute('href', 'https://github.com/iignaite/Codemm/releases/tag/v1.2.0');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('keeps a running job in reach in the slim sidebar: Emm alone, named for what it is and its stage', async () => {
+    const wide = narrowWindow();
+    try {
+      const api = createMock();
+      const tell = jobBus(api);
+      renderApp({ to: 'tracks' }, api);
+      await screen.findByRole('heading', { name: 'Tracks' });
+      act(() => tell(jobAt('s1', 'rebuild', { track: 'React', stage: 0, thinking: false })));
+      const job = await within(sidebar()).findByRole('button', { name: 'Rebuilding React, Building and checking' });
+      expect(job).not.toHaveTextContent('Rebuilding');
+      expect(job).toHaveAttribute('title', 'Rebuilding React, Building and checking');
+      // Wider again: the words come back.
+      wide();
+      expect(await within(sidebar()).findByText('Rebuilding React')).toBeInTheDocument();
     } finally {
       vi.unstubAllGlobals();
     }

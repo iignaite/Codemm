@@ -38,7 +38,7 @@ const bridge: Bridge = {
       s?.kind === 'search' ? [{ kind: 'search', query: text(s.query, 120) }]
         : s?.kind === 'read' ? [{ kind: 'read', url: text(s.url, 200) }]
           : s?.kind === 'step' ? [{ kind: 'step', label: text(s.label, 160) }] : [];
-    const kinds = ['research', 'roadmap', 'setup', 'lesson', 'author', 'tutor'];
+    const kinds = ['research', 'roadmap', 'setup', 'lesson', 'author', 'tutor', 'rebuild'];
     const forward = (_event: unknown, p: Record<string, unknown>) => {
       if (typeof p?.job !== 'string' || !kinds.includes(p.kind as string)) return;
       const retry = p.retry as { attempt?: unknown; of?: unknown } | undefined;
@@ -47,6 +47,7 @@ const bridge: Bridge = {
         job: text(p.job, 64),
         kind: p.kind as JobProgress['kind'],
         ...(typeof p.concept === 'string' ? { concept: text(p.concept, 64) } : {}),
+        ...(typeof p.track === 'string' ? { track: text(p.track, 64) } : {}),
         stage: count(p.stage),
         steps: (Array.isArray(p.steps) ? p.steps.slice(0, 8) : []).flatMap(step),
         count: count(p.count),

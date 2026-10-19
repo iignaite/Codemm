@@ -31,8 +31,8 @@ describe('live CodemmApi: several courses (§4.13)', () => {
     const react = await approved(t, 'React');
     const python = await approved(t, 'Python');
     expect(await t.api.courses()).toEqual([
-      { id: react, title: 'React', goal: 'React', track: 'react', current: false },
-      { id: python, title: 'Python', goal: 'Python', track: 'python', current: true },
+      { id: react, title: 'React', goal: 'React', track: 'React', current: false },
+      { id: python, title: 'Python', goal: 'Python', track: 'Python', current: true },
     ]);
     expect((await t.api.course())!.goal).toBe('Python');
     await t.api.switchCourse(react);
