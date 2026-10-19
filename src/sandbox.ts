@@ -413,14 +413,40 @@ export async function buildImage(
  * "No such image" or "No such object"; Podman: "image not known"). Any other failure is the runtime's, and throws as one.
  */
 export async function inspectImage(tag: string): Promise<{ id: string; hasVolumes: boolean } | undefined> {
-  const r = await cli(["image", "inspect", "--format", "{{.Id}} {{json .Config.Volumes}}", tag]);
+  // The whole record as JSON: Docker 29 leaves Config.Volumes out when an image declares none, and a template that
+  // names a missing key fails.
+  const r = await cli(["image", "inspect", "--format", "{{json .}}", tag]);
   if (r.exit !== 0) {
     if (/no such (image|object)|image not known/i.test(r.output)) return undefined;
     const down = await runtimeDown();
     throw new CodemmError(down ?? `The container runtime couldn't inspect the track image: ${r.output.trim().slice(0, 300)}`, down ? "docker" : runtimeKind(r.output));
   }
-  const [id, volumes] = r.output.trim().split(" ", 2);
-  return { id: id!, hasVolumes: !!volumes && volumes !== "null" && volumes !== "{}" };
+  const record = inspectRecord<{ Id?: unknown; Config?: { Volumes?: Record<string, unknown> | null } | null }>(r.output);
+  if (!record || typeof record.Id !== "string") throw new CodemmError(`The container runtime's image record couldn't be read: ${r.output.trim().slice(0, 300)}`, "docker");
+  const volumes = record.Config?.Volumes;
+  return { id: record.Id, hasVolumes: !!volumes && Object.keys(volumes).length > 0 };
+}
+
+/**
+ * The record of `inspect --format '{{json .}}'`. Docker and Podman 4.4+ print one compact object per line, maybe among
+ * warnings; Podman 4.3 and earlier print an indented array of records instead.
+ */
+export function inspectRecord<T>(output: string): T | undefined {
+  const parse = (text: string): T | undefined => {
+    try {
+      const value = JSON.parse(text) as unknown;
+      const record = Array.isArray(value) ? value[0] : value;
+      return record && typeof record === "object" ? (record as T) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  for (const line of output.split("\n")) {
+    const record = line.trim().startsWith("{") ? parse(line) : undefined;
+    if (record) return record;
+  }
+  const from = output.search(/[[{]/);
+  return from < 0 ? undefined : parse(output.slice(from));
 }
 
 /** Every container Codemm started, with the PID of the Codemm process that owns it. Throws if listing fails. */
