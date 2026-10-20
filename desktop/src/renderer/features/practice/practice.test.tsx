@@ -334,7 +334,8 @@ describe('Practice in the sidebar', () => {
     const { api, course } = await mockWithCourse();
     const user = userEvent.setup();
     renderApp({ to: 'learn' }, api);
-    await user.click(await screen.findByRole('button', { name: 'Practice' }));
+    await screen.findByRole('button', { name: 'Continue' });
+    await user.click(nav('Practice'));
     expect(await screen.findByRole('heading', { name: course.topics[0].title, level: 1 })).toBeInTheDocument();
     expect(screen.getByText('Practice opens after you finish the lessons.')).toBeInTheDocument();
     expect(nav('Practice')).toHaveAttribute('aria-current', 'page');
@@ -344,22 +345,43 @@ describe('Practice in the sidebar', () => {
     expect(nav('Learn')).toHaveAttribute('aria-current', 'page');
   });
 
-  it("shows the activity being written with its progress, then opens it by itself", async () => {
+  // Core reports a current topic's activity as `writing` before its lessons are read, and while setup runs.
+  it('says what the activity waits for: the lessons first, then setup', async () => {
+    const { api, course } = await mockWithCourse();
+    const real = (await api.course())!;
+    const topic = real.topics[0];
+    const read = topic.lessons.map((l) => ({ ...l, state: 'read' as const }));
+    for (const [over, lessons, why] of [
+      [{}, topic.lessons, 'Practice opens after you finish the lessons.'],
+      [{ setup: 'consent' as const }, read, 'Practice opens once setup is done.'],
+    ] as const) {
+      api.course = async () => ({ ...real, ...over, topics: real.topics.map((t, i) => (i === 0 ? { ...t, lessons: [...lessons], activity: 'writing' as const } : t)) });
+      const view = renderApp({ to: 'practice', concept: course.topics[0].id }, api);
+      expect(await screen.findByText(why)).toBeInTheDocument();
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it('shows the activity being written with its progress, reads nothing of it meanwhile, then opens it with focus', async () => {
     const { api, course } = await mockWithCourse({ read: true });
     const topic = course.topics[0].id;
     const real = api.course.bind(api);
-    let reads = 0;
+    let written = false;
     api.course = async () => {
       const c = (await real())!;
-      return ++reads < 4 ? { ...c, topics: c.topics.map((t) => (t.id === topic ? { ...t, activity: 'writing' as const } : t)) } : c;
+      return written ? c : { ...c, topics: c.topics.map((t) => (t.id === topic ? { ...t, activity: 'writing' as const } : t)) };
     };
+    const activity = vi.spyOn(api, 'activity');
     const tell = jobBus(api);
     tell(jobAt('author-1', 'author', { concept: topic }));
     renderApp({ to: 'practice', concept: topic }, api);
     expect(await screen.findByText('Practice opens here once your activity is written.')).toBeInTheDocument();
     expect(await screen.findByRole('progressbar', { name: 'Writing the activity' })).toBeInTheDocument();
+    expect(activity).not.toHaveBeenCalled();
+    written = true;
     tell(jobAt('author-1', 'author', { concept: topic, ended: true }));
-    expect(await screen.findByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Click Counter' })).toHaveFocus();
   });
 });
 

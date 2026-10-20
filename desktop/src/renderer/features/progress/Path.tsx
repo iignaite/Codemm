@@ -4,7 +4,7 @@ import { useRouter } from '../../app/router';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
 import { Icon } from '../../ui/Icon';
-import { continueRoute, reviewText } from '../../app/course';
+import { continueRoute, offeredTopic, reviewText } from '../../app/course';
 import { Writing } from '../lessons/Writing';
 
 const STATE_LABEL = { mastered: 'Mastered', now: 'Now', later: 'Later' } as const;
@@ -14,8 +14,8 @@ const STAGGERED = 8;
 
 /** The topic Codemm offers now: a due (or being written) review, otherwise the current topic. */
 function currentIndex(topics: TopicView[]): number {
-  const review = topics.findIndex((t) => t.review);
-  return review >= 0 ? review : topics.findIndex((t) => t.state === 'now');
+  const offered = offeredTopic(topics);
+  return offered ? topics.indexOf(offered) : -1;
 }
 
 /**

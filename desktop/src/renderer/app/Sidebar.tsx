@@ -8,6 +8,7 @@ import { Logo } from '../ui/Mark';
 import { useApi } from './api';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
+import { offeredTopic } from './course';
 import { Courses } from './Courses';
 import { ExternalLink } from '../ui/ExternalLink';
 import { WorkNow } from './WorkNow';
@@ -20,12 +21,11 @@ function sectionOf(route: Route): Section {
   return 'learn';
 }
 
-/** Practice is the topic now's activity. Its screen says when the activity waits for the lessons or is being written. */
+/** Practice is the activity of the topic Codemm offers now. Its screen says when that waits for the lessons or isn't ready. */
 function practiceRoute(course: CourseView | null | undefined): Route {
-  const now = course?.topics.find((t) => t.state === 'now');
   if (!course) return { to: 'goal' };
-  if (!now) return { to: 'learn' };
-  return { to: 'practice', concept: now.id };
+  const offered = offeredTopic(course.topics);
+  return offered ? { to: 'practice', concept: offered.id } : { to: 'learn' };
 }
 
 /** A narrow window, or a wide one at 200% zoom: the screen needs the sidebar's room (WCAG reflow). Matches app.css. */
