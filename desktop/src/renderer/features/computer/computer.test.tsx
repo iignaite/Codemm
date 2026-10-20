@@ -131,6 +131,7 @@ describe('check this computer', () => {
     problem = 'windows-server';
     expect(await within(installed).findByText("Docker Desktop doesn't run on Windows Server.")).toBeInTheDocument();
     expect(within(installed).queryByRole('button', { name: 'Open Windows Update' })).not.toBeInTheDocument();
+    expect(within(installed).queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
   });
 
   it('offers no install on Linux', async () => {
