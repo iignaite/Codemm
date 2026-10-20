@@ -112,6 +112,27 @@ describe('check this computer', () => {
     void user;
   });
 
+  it('on an older Windows, says why and opens Windows Update; Windows Server gets no such step', async () => {
+    const api = createMock({ docker: 'missing', platform: 'windows' });
+    const computer = api.computer;
+    let problem: 'windows-version' | 'windows-server' = 'windows-version';
+    api.computer = async () => ({ ...(await computer()), install: { phase: 'failed', problem } });
+    let opened = 0;
+    api.openWindowsUpdate = async () => void opened++;
+    const user = userEvent.setup();
+    renderApp({ to: 'computer', then: welcome }, api);
+    const installed = await screen.findByRole('listitem', { name: 'Docker is installed' });
+    expect(await within(installed).findByRole('alert')).toHaveTextContent(
+      'Docker Desktop needs Windows 10 22H2, or Windows 11 23H2 or later. Docker no longer supports older versions, so update Windows first.',
+    );
+    expect(within(installed).queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    await user.click(within(installed).getByRole('button', { name: 'Open Windows Update' }));
+    expect(opened).toBe(1);
+    problem = 'windows-server';
+    expect(await within(installed).findByText("Docker Desktop doesn't run on Windows Server.")).toBeInTheDocument();
+    expect(within(installed).queryByRole('button', { name: 'Open Windows Update' })).not.toBeInTheDocument();
+  });
+
   it('offers no install on Linux', async () => {
     open({ docker: 'missing', platform: 'linux' });
     const installed = await screen.findByRole('listitem', { name: 'Docker is installed' });

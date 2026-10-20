@@ -92,6 +92,7 @@ export function Setup() {
                 <div className="fix">
                   <p className="alert" role="alert">{INSTALL.problem[install.problem ?? 'failed']}</p>
                   {INSTALL.retry.has(install.problem) && <div className="actions"><Button onClick={() => act(() => api.installDocker())}>Try again</Button></div>}
+                  {install.problem === 'windows-version' && <div className="actions"><Button onClick={() => act(() => api.openWindowsUpdate())}>Open Windows Update</Button></div>}
                 </div>
               ) : !install && dockerInstalled ? (
                 // Docker's start window ended and it still isn't running: Check this computer's own step.
