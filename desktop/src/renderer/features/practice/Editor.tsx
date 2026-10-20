@@ -1,5 +1,7 @@
-import { useId, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { HLJSApi } from 'highlight.js';
 import type { LearnerFile } from '../../../shared/api';
+import { colorize, highlighter } from './colors';
 
 interface Props {
   files: LearnerFile[];
@@ -9,11 +11,27 @@ interface Props {
   tools: ReactNode;
 }
 
-/** A plain code editor: file tabs and line numbers. */
+/** A code editor: file tabs, line numbers, and the code colored by its file's extension where highlight.js knows it (§4.10). */
 export function Editor({ files, open, onOpen, onChange, tools }: Props) {
   const id = useId();
   const file = files.find((f) => f.path === open) ?? files[0];
   const lines = file.text.split('\n');
+  const [hljs, setHljs] = useState<HLJSApi>();
+  useEffect(() => {
+    let live = true;
+    void highlighter().then((h) => live && setHljs(h));
+    return () => void (live = false);
+  }, []);
+  const colored = useMemo(() => (hljs ? colorize(hljs, file.path, file.text) : undefined), [hljs, file.path, file.text]);
+  const copy = useRef<HTMLPreElement>(null);
+  const area = useRef<HTMLTextAreaElement>(null);
+  // The copy scrolls with the textarea, also when it first appears over one already scrolled.
+  const follow = useCallback(() => {
+    if (!copy.current || !area.current) return;
+    copy.current.scrollLeft = area.current.scrollLeft;
+    copy.current.scrollTop = area.current.scrollTop;
+  }, []);
+  useLayoutEffect(follow, [colored]);
   return (
     <div className="ed">
       <div className="etool">
@@ -40,16 +58,23 @@ export function Editor({ files, open, onOpen, onChange, tools }: Props) {
           <div className="lnum" aria-hidden="true">
             {lines.map((_, i) => <span key={i}>{i + 1}</span>)}
           </div>
-          <textarea
-            aria-label={file.path}
-            value={file.text}
-            rows={lines.length}
-            wrap="off"
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(e) => onChange(e.target.value)}
-          />
+          <div className="etext">
+            {/* highlight.js escapes the code and adds only class names. The copy is for the eyes; the textarea stays the editor. */}
+            {colored !== undefined && <pre className="hl" aria-hidden="true" ref={copy} dangerouslySetInnerHTML={{ __html: colored }} />}
+            <textarea
+              ref={area}
+              className={colored !== undefined ? 'lit' : undefined}
+              aria-label={file.path}
+              value={file.text}
+              rows={lines.length}
+              wrap="off"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(e) => onChange(e.target.value)}
+              onScroll={follow}
+            />
+          </div>
         </div>
       </div>
     </div>
