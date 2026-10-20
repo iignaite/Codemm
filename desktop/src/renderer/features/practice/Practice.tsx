@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Activity, CourseView, TopicView } from '../../../shared/api';
 import { useApi } from '../../app/api';
-import { continueRoute, settled } from '../../app/course';
+import { continueRoute, offeredTopic, settled } from '../../app/course';
 import { useConversation } from '../../app/useConversation';
 import { useRouter } from '../../app/router';
 import { Failed, Stale, Stalled } from '../../app/Problems';
@@ -127,12 +127,14 @@ function Workspace({ activity, course, focus }: { activity: Activity; course: Co
     later: () => act(() => api.skip(activity.concept), { to: 'learn' }),
     computer: () => go({ to: 'computer', then: { to: 'practice', concept: activity.concept } }),
     tracks: () => go({ to: 'tracks' }),
-    // Straight on to the next topic; a finished course shows its celebration. The same topic stays on Practice, which
-    // waits while its next activity is written.
+    // Straight on to the topic Codemm offers now; a finished course shows its celebration. The same topic, or a review,
+    // opens on Practice, which waits while its activity is written.
     next: async () => {
       try {
-        const now = (await api.course())?.topics.find((t) => t.state === 'now');
-        go(now?.id === activity.concept ? { to: 'practice', concept: activity.concept } : now ? continueRoute(now) : { to: 'learn' });
+        const course = await api.course();
+        const offered = course ? offeredTopic(course.topics) : undefined;
+        if (!offered) go({ to: 'learn' });
+        else go(offered.review || offered.id === activity.concept ? { to: 'practice', concept: offered.id } : continueRoute(offered));
       } catch (e) {
         fail(e);
       }

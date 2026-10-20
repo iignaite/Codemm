@@ -19,7 +19,8 @@ export async function mockWithRoadmap(options?: MockOptions): Promise<{ api: Cod
   return { api, roadmap: r.roadmap! };
 }
 
-async function until(api: CodemmApi, done: (c: CourseView) => boolean): Promise<CourseView> {
+/** The course once `done` holds, reading it again (which moves the mock's jobs along) a few times at most. */
+export async function until(api: CodemmApi, done: (c: CourseView) => boolean): Promise<CourseView> {
   for (let i = 0; i < 10; i++) {
     const c = (await api.course())!;
     if (done(c)) return c;
