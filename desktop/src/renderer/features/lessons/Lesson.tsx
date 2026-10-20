@@ -11,7 +11,7 @@ import { Sidebar } from '../../app/Sidebar';
 import { useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Icon } from '../../ui/Icon';
-import { lessonParts } from '../../ui/Markdown';
+import { useLessonParts } from '../../ui/Markdown';
 import { stagger } from '../../ui/motion';
 import { Rail } from '../../ui/Rail';
 import { Diagram } from './Diagram';
@@ -89,6 +89,7 @@ function Reader({ lesson, course, topic, onSaved, onNoted }: View & { onSaved: (
   const [editing, setEditing] = useState(false);
   const chat = useConversation({ lessonId: lesson.id }, 'Ask about anything here.');
   const { prev, next } = neighbours(topic, lesson.id);
+  const parts = useLessonParts(lesson.markdown, true);
   // Next on the last lesson leads to the activity: while it is written, say so beside it (the outline shows how far it is).
   // Only when it really is: `writing` also stands for an activity that waits for setup, or whose work has stopped.
   const waiting = topic.lessons.at(-1)?.id === lesson.id && topic.activity === 'writing' && course.setup === 'ready' && !course.stalled;
@@ -133,7 +134,7 @@ function Reader({ lesson, course, topic, onSaved, onNoted }: View & { onSaved: (
           )}
         </div>
         <div className="a-up">
-          {lessonParts(lesson.markdown, true).map((part, i) =>
+          {parts.map((part, i) =>
             'example' in part ? (
               <Example key={i} lesson={lesson} index={part.example} />
             ) : 'diagram' in part ? (
