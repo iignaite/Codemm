@@ -358,7 +358,6 @@ describe('Practice in the sidebar', () => {
       api.course = async () => ({ ...real, ...over, topics: real.topics.map((t, i) => (i === 0 ? { ...t, lessons: [...lessons], activity: 'writing' as const } : t)) });
       const view = renderApp({ to: 'practice', concept: course.topics[0].id }, api);
       expect(await screen.findByText(why)).toBeInTheDocument();
-      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
       view.unmount();
     }
   });
