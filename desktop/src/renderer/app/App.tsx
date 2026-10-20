@@ -19,7 +19,8 @@ import { RouterContext, type Route, type Router } from './router';
 import { useRouteFocus } from './useRouteFocus';
 import { WithSide } from './Sidebar';
 
-function Screen({ route }: { route: Route }) {
+/** `visit` counts navigations, so going to the screen already shown can open it fresh. */
+function Screen({ route, visit }: { route: Route; visit: number }) {
   switch (route.to) {
     case 'welcome':
       return <Welcome />;
@@ -44,12 +45,14 @@ function Screen({ route }: { route: Route }) {
     case 'lesson':
       return <Lesson key={route.lessonId} lessonId={route.lessonId} />;
     case 'practice':
-      return <Practice key={route.concept} concept={route.concept} />;
+      // Continue after a pass that didn't master the topic leads to the same topic's next activity: it opens fresh.
+      return <Practice key={visit} concept={route.concept} />;
   }
 }
 
 export function App({ api, start = { to: 'welcome' } }: { api: CodemmApi; start?: Route }) {
-  const [route, setRoute] = useState<Route>(start);
+  const [{ route, visit }, setPlace] = useState({ route: start, visit: 0 });
+  const setRoute = (next: Route) => setPlace((p) => ({ route: next, visit: p.visit + 1 }));
   const [failed, setFailed] = useState<{ text: string; agent: boolean }>();
   const body = useRef<HTMLDivElement>(null);
   useRouteFocus(route, body);
@@ -79,7 +82,7 @@ export function App({ api, start = { to: 'welcome' } }: { api: CodemmApi; start?
         <div className="win">
           <div className="tbar">Codemm</div>
           <div className="wbody" ref={body}>
-            <Screen route={route} />
+            <Screen route={route} visit={visit} />
           </div>
           {failed && (
             <div className="failed" role="alert">

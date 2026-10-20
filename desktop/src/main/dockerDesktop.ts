@@ -54,6 +54,9 @@ const PGREP = '/usr/bin/pgrep';
 const TASKLIST = 'C:\\Windows\\System32\\tasklist.exe';
 const SW_VERS = '/usr/bin/sw_vers';
 const REG = 'C:\\Windows\\System32\\reg.exe';
+/** Explorer opens a Settings page by its URI, started as a program with no shell. */
+const EXPLORER = 'C:\\Windows\\explorer.exe';
+const WINDOWS_UPDATE = 'ms-settings:windowsupdate';
 /** Docker, Inc's Apple Developer team. */
 const DOCKER_TEAM = /^TeamIdentifier=9BNSXJN65R$/m;
 /** Where Docker Desktop installs for all users (Codemm's install), and for one user (Docker's own default). */
@@ -100,7 +103,7 @@ export function systemProblem(platform: NodeJS.Platform, output: string): Docker
     return major < MACOS_MIN ? 'macos-version' : undefined;
   }
   const build = Number(/^\s*CurrentBuildNumber\s+REG_SZ\s+(\d+)/m.exec(output)?.[1]);
-  if (/^\s*InstallationType\s+REG_SZ\s+Server/m.test(output)) return 'windows-version';
+  if (/^\s*InstallationType\s+REG_SZ\s+Server/m.test(output)) return 'windows-server';
   if (!build) return undefined;
   return build >= WIN11_MIN || (build >= WIN10_MIN && build < WIN11) ? undefined : 'windows-version';
 }
@@ -265,6 +268,8 @@ export function dockerDesktop(d: DesktopDeps) {
     /** The install, until Docker has had its startup window: after that, Check this computer speaks for Docker. */
     status: () => (status?.phase === 'starting' && started !== undefined && d.now() - started > STARTING_MS ? undefined : status),
     open: () => openApp('Docker'),
+    /** Windows Update, where a Windows too old for Docker Desktop is updated. */
+    windowsUpdate: () => (d.platform === 'win32' ? d.launch(EXPLORER, [WINDOWS_UPDATE]) : Promise.resolve()),
     /** Docker Desktop's own app is here: a docker command alone (Homebrew's, say) isn't Docker Desktop. */
     installed: () => desktops.some((p) => d.exists(p)),
     /** Docker Desktop's app is running, opened by Codemm or the learner, whether or not its engine answers yet. */

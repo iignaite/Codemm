@@ -16,6 +16,7 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' 
   computer: [],
   installDocker: [],
   openDocker: [],
+  openWindowsUpdate: [],
   tracks: [],
   research: [{ topic: 'React', known: 'Python', depth: 'standard' }],
   reviseRoadmap: [concepts, 'Add testing'],

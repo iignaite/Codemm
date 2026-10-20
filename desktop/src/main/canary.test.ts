@@ -38,7 +38,7 @@ describe('the learner-safe boundary (D4)', () => {
           return {};
         },
       },
-      { docker: { install: () => void docker.push('install'), open: async () => void docker.push('open') } },
+      { docker: { install: () => void docker.push('install'), open: async () => void docker.push('open'), windowsUpdate: async () => void docker.push('windows-update') } },
     );
     const activity = await practising(t);
     const onScreen = t.c.roadmap!.course;
@@ -70,6 +70,7 @@ describe('the learner-safe boundary (D4)', () => {
       computer: [],
       installDocker: [],
       openDocker: [],
+      openWindowsUpdate: [],
       tracks: [],
       course: [],
       courses: [],
@@ -130,7 +131,7 @@ describe('the learner-safe boundary (D4)', () => {
     // The tutor's own searches and pages never reached the window.
     expect(jobs.some((p) => p.kind === 'tutor')).toBe(true);
     expect(jobs.filter((p) => p.kind !== 'research').every((p) => p.steps.every((s) => s.kind === 'step'))).toBe(true);
-    expect(docker).toEqual(['install', 'open']);
+    expect(docker).toEqual(['install', 'open', 'windows-update']);
 
     for (const payload of payloads) expect(payload).not.toMatch(leaks);
     for (const line of logged) expect(line).not.toMatch(leaks);
