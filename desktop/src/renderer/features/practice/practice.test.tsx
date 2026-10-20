@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CodemmApi, JobProgress } from '../../../shared/api';
 import { xterm } from '../../testing/xterm';
 import { scenario } from '../../../main/mock';
-import { mockWithCourse, renderApp } from '../../test-utils';
+import { jobAt, jobBus, mockWithCourse, renderApp } from '../../test-utils';
 
 vi.mock('@xterm/xterm', () => import('../../testing/xterm'));
 vi.mock('@xterm/addon-fit', () => import('../../testing/xterm'));
@@ -323,6 +323,43 @@ describe('practice', () => {
     await user.click(screen.getByRole('button', { name: 'Hint' }));
     expect(await screen.findByRole('alert')).toHaveTextContent("Your agent's plan limit is reached. Try again later.");
     expect(screen.getByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
+  });
+});
+
+// Practice is the activity for the topic now. It never sends the learner into the lessons unasked (§1).
+describe('Practice in the sidebar', () => {
+  const nav = (name: string) => within(screen.getByRole('navigation', { name: 'Main' })).getByRole('button', { name });
+
+  it('opens Practice before the lessons are read, says the activity waits for them, and leads there', async () => {
+    const { api, course } = await mockWithCourse();
+    const user = userEvent.setup();
+    renderApp({ to: 'learn' }, api);
+    await user.click(await screen.findByRole('button', { name: 'Practice' }));
+    expect(await screen.findByRole('heading', { name: course.topics[0].title, level: 1 })).toBeInTheDocument();
+    expect(screen.getByText('Practice opens after you finish the lessons.')).toBeInTheDocument();
+    expect(nav('Practice')).toHaveAttribute('aria-current', 'page');
+    expect(nav('Practice')).toHaveAttribute('title', 'Practice');
+    await user.click(screen.getByRole('button', { name: 'Go to the lessons' }));
+    expect(await screen.findByRole('button', { name: `Read ${course.topics[0].lessons[0].title}` })).toBeInTheDocument();
+    expect(nav('Learn')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it("shows the activity being written with its progress, then opens it by itself", async () => {
+    const { api, course } = await mockWithCourse({ read: true });
+    const topic = course.topics[0].id;
+    const real = api.course.bind(api);
+    let reads = 0;
+    api.course = async () => {
+      const c = (await real())!;
+      return ++reads < 4 ? { ...c, topics: c.topics.map((t) => (t.id === topic ? { ...t, activity: 'writing' as const } : t)) } : c;
+    };
+    const tell = jobBus(api);
+    tell(jobAt('author-1', 'author', { concept: topic }));
+    renderApp({ to: 'practice', concept: topic }, api);
+    expect(await screen.findByText('Practice opens here once your activity is written.')).toBeInTheDocument();
+    expect(await screen.findByRole('progressbar', { name: 'Writing the activity' })).toBeInTheDocument();
+    tell(jobAt('author-1', 'author', { concept: topic, ended: true }));
+    expect(await screen.findByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
   });
 });
 

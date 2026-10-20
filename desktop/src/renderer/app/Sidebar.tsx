@@ -8,7 +8,6 @@ import { Logo } from '../ui/Mark';
 import { useApi } from './api';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
-import { continueRoute } from './course';
 import { Courses } from './Courses';
 import { ExternalLink } from '../ui/ExternalLink';
 import { WorkNow } from './WorkNow';
@@ -21,11 +20,12 @@ function sectionOf(route: Route): Section {
   return 'learn';
 }
 
+/** Practice is the topic now's activity. Its screen says when the activity waits for the lessons or is being written. */
 function practiceRoute(course: CourseView | null | undefined): Route {
   const now = course?.topics.find((t) => t.state === 'now');
   if (!course) return { to: 'goal' };
   if (!now) return { to: 'learn' };
-  return continueRoute(now);
+  return { to: 'practice', concept: now.id };
 }
 
 /** A narrow window, or a wide one at 200% zoom: the screen needs the sidebar's room (WCAG reflow). Matches app.css. */
@@ -55,6 +55,8 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
       key={item.key}
       type="button"
       className="nav"
+      // The slim sidebar shows icons alone: each is named in its tooltip too.
+      title={slim ? item.label : undefined}
       aria-current={here === item.key ? 'page' : undefined}
       aria-label={slim ? item.label : undefined}
       onClick={() => go(item.to)}

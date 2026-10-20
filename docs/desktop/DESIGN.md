@@ -51,6 +51,8 @@ The prototype's review card, streaks, predict questions, editable lessons and "L
 - The tutor and every action are "Codemm". Agent names (Claude Code, Codex, Cursor) appear only on the connect screen.
 - The connect screen says "Codemm uses your agent and your account." It promises nothing about billing, since Codemm can't tell a plan from an API key. Every agent job starts from a learner action or the approved flow, and the bounds in §3.2 cap how much it uses.
 
+**Navigation.** The sidebar holds Learn (the course map), Practice and Tracks; beside a workspace it slims to icons, each named in its tooltip. Practice is the activity of the topic Codemm offers now, and always opens the activity screen, so it never lands in the lessons unasked. Until the activity opens, that screen shows the topic's title and says why: "Practice opens after you finish the lessons." or, with the job's progress (§4.11), "Practice opens here once your activity is written.", with Go to the lessons. It opens the activity by itself once it's written.
+
 ## 2. Architecture
 
 ```
