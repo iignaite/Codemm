@@ -6,6 +6,9 @@ export function continueRoute(topic: TopicView): Route {
   return topic.activity === 'open' ? { to: 'practice', concept: topic.id } : { to: 'topic', topicId: topic.id };
 }
 
+/** The topic Codemm offers now: a due (or being written) review, otherwise the current topic (§4.14). */
+export const offeredTopic = (topics: TopicView[]) => topics.find((t) => t.review) ?? topics.find((t) => t.state === 'now');
+
 /** When a mastered topic's next review comes, in days: never a date (§4.7). */
 export const reviewText = (days: number) => (days === 1 ? 'Review tomorrow' : `Review in ${days} days`);
 

@@ -8,7 +8,7 @@ import { Logo } from '../ui/Mark';
 import { useApi } from './api';
 import { useRouter, type Route } from './router';
 import { useLoad } from './useLoad';
-import { continueRoute } from './course';
+import { offeredTopic } from './course';
 import { Courses } from './Courses';
 import { ExternalLink } from '../ui/ExternalLink';
 import { WorkNow } from './WorkNow';
@@ -21,11 +21,11 @@ function sectionOf(route: Route): Section {
   return 'learn';
 }
 
+/** Practice is the activity of the topic Codemm offers now. Its screen says when that waits for the lessons or isn't ready. */
 function practiceRoute(course: CourseView | null | undefined): Route {
-  const now = course?.topics.find((t) => t.state === 'now');
   if (!course) return { to: 'goal' };
-  if (!now) return { to: 'learn' };
-  return continueRoute(now);
+  const offered = offeredTopic(course.topics);
+  return offered ? { to: 'practice', concept: offered.id } : { to: 'learn' };
 }
 
 /** Where the learner is already: going there again would only reset the screen (its results, a running program). */
@@ -58,6 +58,8 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
       key={item.key}
       type="button"
       className="nav"
+      // The slim sidebar shows icons alone: each is named in its tooltip too.
+      title={slim ? item.label : undefined}
       aria-current={here === item.key ? 'page' : undefined}
       aria-label={slim ? item.label : undefined}
       onClick={() => sameRoute(item.to, route) || go(item.to)}
