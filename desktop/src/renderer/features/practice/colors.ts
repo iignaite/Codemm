@@ -1,7 +1,7 @@
 import type { HLJSApi } from 'highlight.js';
 
-/** Coloring runs on each keystroke, so a longer file stays plain (§4.10). */
-export const MAX_COLORED = 64 * 1024;
+/** Coloring runs on each keystroke, so a longer file stays plain (§4.10): 32 KB takes about one frame. */
+export const MAX_COLORED = 32 * 1024;
 
 let loading: Promise<HLJSApi | undefined> | undefined;
 /** highlight.js's common build, in its own chunk, loaded once with the first editor. */

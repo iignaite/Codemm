@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { HLJSApi } from 'highlight.js';
 import type { LearnerFile } from '../../../shared/api';
 import { colorize, highlighter } from './colors';
@@ -24,6 +24,14 @@ export function Editor({ files, open, onOpen, onChange, tools }: Props) {
   }, []);
   const colored = useMemo(() => (hljs ? colorize(hljs, file.path, file.text) : undefined), [hljs, file.path, file.text]);
   const copy = useRef<HTMLPreElement>(null);
+  const area = useRef<HTMLTextAreaElement>(null);
+  // The copy scrolls with the textarea, also when it first appears over one already scrolled.
+  const follow = useCallback(() => {
+    if (!copy.current || !area.current) return;
+    copy.current.scrollLeft = area.current.scrollLeft;
+    copy.current.scrollTop = area.current.scrollTop;
+  }, []);
+  useLayoutEffect(follow, [colored]);
   return (
     <div className="ed">
       <div className="etool">
@@ -54,6 +62,7 @@ export function Editor({ files, open, onOpen, onChange, tools }: Props) {
             {/* highlight.js escapes the code and adds only class names. The copy is for the eyes; the textarea stays the editor. */}
             {colored !== undefined && <pre className="hl" aria-hidden="true" ref={copy} dangerouslySetInnerHTML={{ __html: colored }} />}
             <textarea
+              ref={area}
               className={colored !== undefined ? 'lit' : undefined}
               aria-label={file.path}
               value={file.text}
@@ -63,7 +72,7 @@ export function Editor({ files, open, onOpen, onChange, tools }: Props) {
               autoCapitalize="off"
               autoCorrect="off"
               onChange={(e) => onChange(e.target.value)}
-              onScroll={(e) => copy.current && ((copy.current.scrollLeft = e.currentTarget.scrollLeft), (copy.current.scrollTop = e.currentTarget.scrollTop))}
+              onScroll={follow}
             />
           </div>
         </div>

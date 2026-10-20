@@ -57,6 +57,29 @@ describe("the editor's colors (§4.10)", () => {
     expect(editor('Counter.zzz')).not.toHaveClass('lit');
   });
 
+  it('lines the copy up with a textarea that was already scrolled when the copy appears', async () => {
+    const user = await practice('Counter.zzz');
+    Object.defineProperty(editor('Counter.zzz'), 'scrollLeft', { value: 120, configurable: true });
+    const scrolled = vi.fn();
+    Object.defineProperty(HTMLPreElement.prototype, 'scrollLeft', { get: () => 0, set: scrolled, configurable: true });
+    try {
+      await user.click(screen.getByRole('tab', { name: 'App.jsx' }));
+      await waitFor(() => expect(copy()).toBeTruthy());
+      expect(scrolled).toHaveBeenCalledWith(120);
+    } finally {
+      Reflect.deleteProperty(HTMLPreElement.prototype, 'scrollLeft');
+    }
+  });
+
+  it('escapes markup in the code', async () => {
+    const { default: hljs } = await import('highlight.js/lib/common');
+    const code = '</pre><img src=x onerror=alert(1)>';
+    const shown = document.createElement('div');
+    shown.innerHTML = colorize(hljs, 'a.html', code)!;
+    expect(shown.querySelector(':not(span)')).toBeNull();
+    expect(shown.textContent).toBe(code);
+  });
+
   it('asks about the extension, or the name of a file without one, and leaves a long file plain', async () => {
     expect(nameOf('src/main.PY')).toBe('py');
     expect(nameOf('Makefile')).toBe('makefile');
