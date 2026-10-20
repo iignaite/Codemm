@@ -1,10 +1,10 @@
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { CodemmApi, JobProgress } from '../../../shared/api';
+import type { CodemmApi, JobProgress, TopicView } from '../../../shared/api';
 import { xterm } from '../../testing/xterm';
 import { scenario } from '../../../main/mock';
-import { jobAt, jobBus, mockWithCourse, renderApp } from '../../test-utils';
+import { jobAt, jobBus, mockWithCourse, renderApp, until } from '../../test-utils';
 
 vi.mock('@xterm/xterm', () => import('../../testing/xterm'));
 vi.mock('@xterm/addon-fit', () => import('../../testing/xterm'));
@@ -440,6 +440,62 @@ describe('Continue after a pass', () => {
     expect(await screen.findByRole('progressbar', { name: 'Writing the activity' })).toBeInTheDocument();
     await opensNext(5000);
     expect(screen.getByRole('heading', { name: 'Click Counter 2', level: 1 })).toHaveFocus();
+  });
+});
+
+// A review that comes due is the topic Codemm offers next, as on the course map (§4.14), so Continue opens it on Practice.
+describe('Continue to a review', () => {
+  // The first topic was mastered before. Passing the second masters it too, and then core offers the first one's review,
+  // so no topic is Now (courseView).
+  async function pass() {
+    const { api, course } = await mockWithCourse({ read: true });
+    const [first, second] = course.topics;
+    const done = await api.activity(first.id);
+    await api.saveFile(done.id, done.files[0].path, 'count + 1', done.files[0].digest);
+    await api.check(done.id);
+    const now = await until(api, (c) => c.topics[1].lessons.every((l) => l.state !== 'writing'));
+    for (const l of now.topics[1].lessons) await api.markRead(l.id);
+    await until(api, (c) => c.topics[1].activity === 'open');
+    const tell = jobBus(api);
+    renderApp({ to: 'practice', concept: second.id }, api);
+    const user = userEvent.setup();
+    await screen.findByRole('heading', { name: 'Click Counter' });
+    await write(user, 'count + 1');
+    await user.click(screen.getByRole('button', { name: 'Check' }));
+    expect(await within(results()).findByRole('heading', { name: '4 of 4 passed' })).toBeInTheDocument();
+    expect(results()).toHaveTextContent(`${second.title} mastered.`);
+    const review = { state: 'writing' as 'writing' | 'due' };
+    const real = api.course.bind(api);
+    api.course = async () => {
+      const c = (await real())!;
+      const offered = (t: TopicView): TopicView => ({ ...t, review: review.state, activity: review.state === 'due' ? 'open' : 'writing' });
+      return { ...c, topics: c.topics.map((t) => (t.id === first.id ? offered(t) : t.state === 'now' ? { ...t, state: 'later', activity: 'locked' } : t)) };
+    };
+    return { user, tell, first, review };
+  }
+  const opensReview = async () => {
+    expect(await screen.findByText('Review', { selector: '.pill' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Click Counter', level: 1 })).toBeInTheDocument();
+    expect(results()).toHaveTextContent('Only Check is graded.');
+  };
+
+  it('opens a review that came due', async () => {
+    const { user, review } = await pass();
+    review.state = 'due';
+    await user.click(within(results()).getByRole('button', { name: 'Continue' }));
+    await opensReview();
+  });
+
+  it('waits on Practice while the review is written, with its progress, and opens it by itself', async () => {
+    const { user, tell, first, review } = await pass();
+    tell(jobAt('author-1', 'author', { concept: first.id }));
+    await user.click(within(results()).getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByText('Practice opens here once your activity is written.')).toBeInTheDocument();
+    expect(await screen.findByRole('progressbar', { name: 'Writing the review' })).toBeInTheDocument();
+    review.state = 'due';
+    tell(jobAt('author-1', 'author', { concept: first.id, ended: true }));
+    await opensReview();
+    expect(screen.getByRole('heading', { name: 'Click Counter', level: 1 })).toHaveFocus();
   });
 });
 
