@@ -394,8 +394,8 @@ describe('Continue after a pass', () => {
     expect(results()).toHaveTextContent('Keep practicing JavaScript basics.');
     return view;
   }
-  const opensNext = async () => {
-    expect(await screen.findByRole('heading', { name: 'Click Counter 2', level: 1 })).toBeInTheDocument();
+  const opensNext = async (timeout?: number) => {
+    expect(await screen.findByRole('heading', { name: 'Click Counter 2', level: 1 }, { timeout })).toBeInTheDocument();
     expect(results()).toHaveTextContent('Only Check is graded.');
     expect(code().value).toContain('/* your code */');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -433,12 +433,13 @@ describe('Continue after a pass', () => {
     expect(code().value).toBe('wrong /* your code */');
   });
 
-  it("shows the next activity being written, with its progress, when it isn't ready yet", async () => {
+  it("waits on Practice while the next activity is written, with its progress, and opens it by itself", async () => {
     const { user } = await pass({ later: { after: 'check', set: { slow: 4 } } });
     await user.click(within(results()).getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByText('Practice opens here once your activity is written.')).toBeInTheDocument();
     expect(await screen.findByRole('progressbar', { name: 'Writing the activity' })).toBeInTheDocument();
-    await user.click(await screen.findByRole('button', { name: 'Start' }, { timeout: 5000 }));
-    await opensNext();
+    await opensNext(5000);
+    expect(screen.getByRole('heading', { name: 'Click Counter 2', level: 1 })).toHaveFocus();
   });
 });
 
