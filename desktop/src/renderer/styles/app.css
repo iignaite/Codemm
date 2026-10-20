@@ -215,8 +215,8 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .code .hl { position: absolute; inset: 0; margin: 0; padding: 0 16px 0 0; font: inherit; white-space: pre; overflow: hidden; pointer-events: none; color: var(--ink); }
 .code textarea.lit { color: transparent; caret-color: var(--ink); }
 .code textarea.lit::selection { color: transparent; background: color-mix(in srgb, var(--blue) 22%, transparent); }
-/* highlight.js's classes in the editor and a lesson's code (§4.3), each AA on white and on --soft, with no bold or
-   italic so the copy lines up with the textarea's text. */
+/* highlight.js's classes in the editor and in agent text's code blocks (§2.1, §4.3), each AA on white and on --soft,
+   with no bold or italic so the copy lines up with the textarea's text. */
 :is(.hl, .md pre) :is(.hljs-keyword, .hljs-selector-tag, .hljs-doctag) { color: var(--blue); }
 :is(.hl, .md pre) :is(.hljs-string, .hljs-regexp, .hljs-template-tag, .hljs-addition) { color: var(--green-ink); }
 :is(.hl, .md pre) :is(.hljs-comment, .hljs-quote) { color: var(--faint); }

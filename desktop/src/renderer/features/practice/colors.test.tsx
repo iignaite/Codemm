@@ -1,5 +1,6 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import MarkdownIt from 'markdown-it';
 import { describe, expect, it, vi } from 'vitest';
 import { mockWithCourse, renderApp } from '../../test-utils';
 import { colorize, MAX_COLORED, nameOf } from '../../ui/colors';
@@ -13,15 +14,14 @@ const editor = (name: string) => screen.getByRole('textbox', { name }) as HTMLTe
 /** The colored copy under the textarea. */
 const copy = () => document.querySelector('pre.hl');
 
-async function practice(rename?: string) {
+/** The practice screen, its first file renamed to `rename` and its statement saying `statement`. */
+async function practice({ rename, statement }: { rename?: string; statement?: string } = {}) {
   const { api, course } = await mockWithCourse({ read: true });
-  if (rename) {
-    const real = api.activity.bind(api);
-    api.activity = async (concept) => {
-      const a = await real(concept);
-      return { ...a, files: a.files.map((f, i) => (i === 0 ? { ...f, path: rename } : f)) };
-    };
-  }
+  const real = api.activity.bind(api);
+  api.activity = async (concept) => {
+    const a = await real(concept);
+    return { ...a, statement: statement ?? a.statement, files: a.files.map((f, i) => (i === 0 && rename ? { ...f, path: rename } : f)) };
+  };
   renderApp({ to: 'practice', concept: course.topics[0].id }, api);
   await screen.findByRole('heading', { name: 'Click Counter' });
   return userEvent.setup();
@@ -49,7 +49,7 @@ describe("the editor's colors (§4.10)", () => {
   });
 
   it("leaves a file plain when highlight.js knows nothing by its extension, and colors the next file it knows", async () => {
-    const user = await practice('Counter.zzz');
+    const user = await practice({ rename: 'Counter.zzz' });
     await user.click(screen.getByRole('tab', { name: 'App.jsx' }));
     await waitFor(() => expect(copy()).toBeTruthy());
     await user.click(screen.getByRole('tab', { name: 'Counter.zzz' }));
@@ -58,7 +58,7 @@ describe("the editor's colors (§4.10)", () => {
   });
 
   it('lines the copy up with a textarea that was already scrolled when the copy appears', async () => {
-    const user = await practice('Counter.zzz');
+    const user = await practice({ rename: 'Counter.zzz' });
     Object.defineProperty(editor('Counter.zzz'), 'scrollLeft', { value: 120, configurable: true });
     const scrolled = vi.fn();
     Object.defineProperty(HTMLPreElement.prototype, 'scrollLeft', { get: () => 0, set: scrolled, configurable: true });
@@ -88,5 +88,21 @@ describe("the editor's colors (§4.10)", () => {
     expect(colorize(hljs, 'js', 'let x = 1;')).toContain('hljs-keyword');
     expect(colorize(hljs, 'js', 'x'.repeat(MAX_COLORED + 1))).toBeUndefined();
     expect(colorize(hljs, 'zzz', 'let x = 1;')).toBeUndefined();
+  });
+});
+
+describe("the statement's colors (§2.1)", () => {
+  it("colors the statement's code by its fence's info string, and doesn't render it again on each keystroke", async () => {
+    const user = await practice({ statement: 'Count the clicks.\n\n```js\nlet count = 0;\n```\n\n```zzz\nlet other = 1;\n```' });
+    const statement = screen.getByRole('region', { name: 'Click Counter' });
+    await waitFor(() => expect(statement.querySelector('code.language-js .hljs-keyword')).toHaveTextContent('let'));
+    expect(statement.querySelector('code.language-zzz')!.innerHTML).toBe('let other = 1;\n');
+    const parse = vi.spyOn(MarkdownIt.prototype, 'parse');
+    try {
+      await user.type(editor('Counter.jsx'), 'x');
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
   });
 });
