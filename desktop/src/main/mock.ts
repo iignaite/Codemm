@@ -596,6 +596,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       if (docker() === 'stopped') dockerNow = 'starting';
     },
 
+    async openWindowsUpdate() {},
+
     async computer() {
       const platform = options.platform ?? hostPlatform();
       const d = docker();

@@ -60,8 +60,8 @@ export interface LiveDeps {
   log?: Log;
   /** Resolves once Docker isn't starting any more (§6.1). */
   dockerReady?: () => Promise<void>;
-  /** Installs and opens Docker Desktop for the learner (dockerDesktop.ts, §6.1). */
-  docker?: { install(): void; open(): Promise<void> };
+  /** Installs and opens Docker Desktop for the learner, and Windows Update when Windows is too old for it (dockerDesktop.ts, §6.1). */
+  docker?: { install(): void; open(): Promise<void>; windowsUpdate(): Promise<void> };
 }
 
 export interface Live extends CodemmApi {
@@ -591,6 +591,9 @@ export function createLive(d: LiveDeps): Live {
     },
     async openDocker() {
       await d.docker?.open();
+    },
+    async openWindowsUpdate() {
+      await d.docker?.windowsUpdate();
     },
     async computer() {
       const computer = await d.computer();

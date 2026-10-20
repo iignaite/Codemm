@@ -55,6 +55,7 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress'
   computer: [],
   installDocker: [],
   openDocker: [],
+  openWindowsUpdate: [],
   tracks: [],
   research: [goal],
   reviseRoadmap: [concepts, words],

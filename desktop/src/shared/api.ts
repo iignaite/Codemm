@@ -115,8 +115,9 @@ export interface ComputerCheck {
 
 /**
  * Codemm installing Docker Desktop for the learner (§6.1). `starting`: installed and opened; Docker's own window
- * asks the learner to accept its terms. Problems: `offline` and `disk` are this computer's; `macos-version` and
- * `windows-version`: Docker Desktop doesn't run on this macOS or Windows, so nothing downloaded; `unverified`: the
+ * asks the learner to accept its terms. Problems: `offline` and `disk` are this computer's; `macos-version`,
+ * `windows-version` and `windows-server`: Docker Desktop doesn't run on this macOS or Windows, so nothing downloaded
+ * (an older Windows updates in Windows Update; Windows Server never runs it); `unverified`: the
  * download wasn't signed by Docker, so it was deleted; `manual`: drag Docker to Applications in the window that
  * opened; `declined`: the learner said no to Windows' permission prompt; `restart`: Windows needs a restart;
  * `failed`: Docker's installer didn't finish.
@@ -125,7 +126,7 @@ export interface DockerInstall {
   phase: 'downloading' | 'checking' | 'installing' | 'starting' | 'failed';
   /** 0 to 1 while downloading. */
   progress?: number;
-  problem?: 'offline' | 'disk' | 'macos-version' | 'windows-version' | 'unverified' | 'manual' | 'declined' | 'restart' | 'failed';
+  problem?: 'offline' | 'disk' | 'macos-version' | 'windows-version' | 'windows-server' | 'unverified' | 'manual' | 'declined' | 'restart' | 'failed';
 }
 
 export interface Computer {
@@ -415,6 +416,8 @@ export interface CodemmApi {
   installDocker(): Promise<void>;
   /** Opens Docker Desktop. */
   openDocker(): Promise<void>;
+  /** Opens Windows Update, for a Windows too old for Docker Desktop. Does nothing elsewhere. */
+  openWindowsUpdate(): Promise<void>;
   tracks(): Promise<Track[]>;
 
   /** Starts the research job on the first call; call again to follow it. */

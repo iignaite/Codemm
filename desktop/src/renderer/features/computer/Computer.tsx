@@ -83,7 +83,10 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
         <p className="sub a-up" style={stagger(1)}>Codemm runs your code in Docker, on this computer.</p>
         <ul className="stack plain" ref={list} onFocus={() => (focusInList.current = true)}>
           {data.checks.map((c, i) => (
-            <CheckItem key={c.id} check={c} computer={data} index={i} onInstall={() => act(() => api.installDocker())} onOpen={() => act(() => api.openDocker())} />
+            <CheckItem
+              key={c.id} check={c} computer={data} index={i}
+              onInstall={() => act(() => api.installDocker())} onOpen={() => act(() => api.openDocker())} onUpdateWindows={() => act(() => api.openWindowsUpdate())}
+            />
           ))}
         </ul>
         <p className="quiet-text" role="status">
@@ -118,9 +121,10 @@ interface ItemProps {
   index: number;
   onInstall: () => void;
   onOpen: () => void;
+  onUpdateWindows: () => void;
 }
 
-function CheckItem({ check, computer, index, onInstall, onOpen }: ItemProps) {
+function CheckItem({ check, computer, index, onInstall, onOpen, onUpdateWindows }: ItemProps) {
   const name = CHECK_NAMES[check.id];
   const platform = computer.platform;
   // Right after Codemm installed Docker, its first start asks the learner to accept Docker's terms.
@@ -145,7 +149,7 @@ function CheckItem({ check, computer, index, onInstall, onOpen }: ItemProps) {
         {!busy && <span className={`check-state ${check.state}`}>{STATE_TEXT[check.state]}</span>}
       </div>
       {offerInstall && fix ? (
-        <InstallDocker install={computer.install} platform={platform} manualUrl={fix.link?.url} onInstall={onInstall} />
+        <InstallDocker install={computer.install} platform={platform} manualUrl={fix.link?.url} onInstall={onInstall} onUpdateWindows={onUpdateWindows} />
       ) : (
         fix && (
           <div className="fix">
@@ -162,7 +166,7 @@ function CheckItem({ check, computer, index, onInstall, onOpen }: ItemProps) {
 }
 
 /** Codemm installs Docker Desktop from Docker, checked, with Docker's own window for its terms (§6.1). */
-function InstallDocker({ install, platform, manualUrl, onInstall }: { install?: DockerInstall; platform: Platform; manualUrl?: string; onInstall: () => void }) {
+function InstallDocker({ install, platform, manualUrl, onInstall, onUpdateWindows }: { install?: DockerInstall; platform: Platform; manualUrl?: string; onInstall: () => void; onUpdateWindows: () => void }) {
   if (install && install.phase !== 'failed') {
     return (
       <div className="fix install">
@@ -175,6 +179,7 @@ function InstallDocker({ install, platform, manualUrl, onInstall }: { install?: 
     <div className="fix install">
       {problem && <p className="alert" role="alert">{INSTALL.problem[problem]}</p>}
       <div className="actions">
+        {problem === 'windows-version' && <Button onClick={onUpdateWindows}>Open Windows Update</Button>}
         {(!problem || INSTALL.retry.has(problem)) && <Button onClick={onInstall}>{problem ? 'Try again' : 'Install Docker'}</Button>}
         {manualUrl && <ExternalLink className="btn ghost" href={manualUrl}>Install it myself</ExternalLink>}
       </div>
