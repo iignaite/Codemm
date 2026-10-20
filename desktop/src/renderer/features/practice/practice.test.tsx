@@ -363,6 +363,17 @@ describe('Continue after a pass', () => {
     await opensNext();
   });
 
+  it('keeps the result and the code when the learner clicks Practice, where they already are', async () => {
+    const { user } = await open();
+    await write(user, 'wrong /* your code */');
+    await user.click(screen.getByRole('button', { name: 'Try it' }));
+    expect(await within(results()).findByRole('heading', { name: '1 of 2 visible tests passed' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Practice' }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(within(results()).getByRole('heading', { name: '1 of 2 visible tests passed' })).toBeInTheDocument();
+    expect(code().value).toBe('wrong /* your code */');
+  });
+
   it("shows the next activity being written, with its progress, when it isn't ready yet", async () => {
     const { user } = await pass({ later: { after: 'check', set: { slow: 4 } } });
     await user.click(within(results()).getByRole('button', { name: 'Continue' }));

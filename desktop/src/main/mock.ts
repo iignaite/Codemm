@@ -66,7 +66,7 @@ export interface MockOptions {
   slow?: number;
   /** Every job has been quiet for over 90 seconds, so its "still working" line shows. */
   quiet?: boolean;
-  /** Passing checks a topic needs to be mastered, each on a new activity, as core's mastery takes several (core §7). 1 by default. */
+  /** A topic is mastered by a pass on its `passes`th activity; each pass before that opens its next activity, as core's mastery takes several (core §7). 1 by default. */
   passes?: number;
   /** Changes the options after the first approval or check, to act out a mid-session failure. */
   later?: { after: 'approve' | 'check'; set: Partial<MockOptions> };
@@ -846,7 +846,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       course!.topics.splice(course!.topics.indexOf(stuck), 0, addConcept(added));
       // A new prerequisite gives the stuck topic a fresh start (§4.2).
       stuck.stuck = false;
-      find(activities, `${concept}-easy-1`).fails = 0;
+      for (const r of activities.values()) if (r.activity.concept === concept) r.fails = 0;
       advance();
     },
 
