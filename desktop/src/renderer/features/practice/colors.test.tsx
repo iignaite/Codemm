@@ -2,7 +2,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { mockWithCourse, renderApp } from '../../test-utils';
-import { colorize, MAX_COLORED, nameOf } from './colors';
+import { colorize, MAX_COLORED, nameOf } from '../../ui/colors';
 
 const loaded = vi.fn();
 vi.mock('highlight.js/lib/common', async (importActual) => (loaded(), importActual()));
@@ -27,9 +27,9 @@ async function practice(rename?: string) {
   return userEvent.setup();
 }
 
-// The order matters: the library loads once per file, so the screen without an editor goes first.
+// The order matters: the library loads once per file, so the screen without an editor or code to color goes first.
 describe("the editor's colors (§4.10)", () => {
-  it('loads no highlighter on a screen without an editor', async () => {
+  it('loads no highlighter on a screen without an editor or code to color', async () => {
     const { api, course } = await mockWithCourse();
     renderApp({ to: 'lesson', lessonId: course.topics[0].lessons[0].id }, api);
     await screen.findByRole('button', { name: 'Next' });
@@ -75,7 +75,7 @@ describe("the editor's colors (§4.10)", () => {
     const { default: hljs } = await import('highlight.js/lib/common');
     const code = '</pre><img src=x onerror=alert(1)>';
     const shown = document.createElement('div');
-    shown.innerHTML = colorize(hljs, 'a.html', code)!;
+    shown.innerHTML = colorize(hljs, 'html', code)!;
     expect(shown.querySelector(':not(span)')).toBeNull();
     expect(shown.textContent).toBe(code);
   });
@@ -85,8 +85,8 @@ describe("the editor's colors (§4.10)", () => {
     expect(nameOf('Makefile')).toBe('makefile');
     expect(nameOf('.env')).toBe('.env');
     const { default: hljs } = await import('highlight.js/lib/common');
-    expect(colorize(hljs, 'a.js', 'let x = 1;')).toContain('hljs-keyword');
-    expect(colorize(hljs, 'a.js', 'x'.repeat(MAX_COLORED + 1))).toBeUndefined();
-    expect(colorize(hljs, 'a.zzz', 'let x = 1;')).toBeUndefined();
+    expect(colorize(hljs, 'js', 'let x = 1;')).toContain('hljs-keyword');
+    expect(colorize(hljs, 'js', 'x'.repeat(MAX_COLORED + 1))).toBeUndefined();
+    expect(colorize(hljs, 'zzz', 'let x = 1;')).toBeUndefined();
   });
 });
