@@ -127,11 +127,12 @@ function Workspace({ activity, course, focus }: { activity: Activity; course: Co
     later: () => act(() => api.skip(activity.concept), { to: 'learn' }),
     computer: () => go({ to: 'computer', then: { to: 'practice', concept: activity.concept } }),
     tracks: () => go({ to: 'tracks' }),
-    // Straight on to the next topic; a finished course shows its celebration.
+    // Straight on to the next topic; a finished course shows its celebration. The same topic stays on Practice, which
+    // waits while its next activity is written.
     next: async () => {
       try {
         const now = (await api.course())?.topics.find((t) => t.state === 'now');
-        go(now ? continueRoute(now) : { to: 'learn' });
+        go(now?.id === activity.concept ? { to: 'practice', concept: activity.concept } : now ? continueRoute(now) : { to: 'learn' });
       } catch (e) {
         fail(e);
       }
