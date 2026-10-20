@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { HLJSApi } from 'highlight.js';
 import type { LearnerFile } from '../../../shared/api';
-import { colorize, highlighter } from './colors';
+import { colorize, highlighter, loadedHighlighter, nameOf } from '../../ui/colors';
 
 interface Props {
   files: LearnerFile[];
@@ -16,13 +15,13 @@ export function Editor({ files, open, onOpen, onChange, tools }: Props) {
   const id = useId();
   const file = files.find((f) => f.path === open) ?? files[0];
   const lines = file.text.split('\n');
-  const [hljs, setHljs] = useState<HLJSApi>();
+  const [hljs, setHljs] = useState(loadedHighlighter);
   useEffect(() => {
     let live = true;
     void highlighter().then((h) => live && setHljs(h));
     return () => void (live = false);
   }, []);
-  const colored = useMemo(() => (hljs ? colorize(hljs, file.path, file.text) : undefined), [hljs, file.path, file.text]);
+  const colored = useMemo(() => (hljs ? colorize(hljs, nameOf(file.path), file.text) : undefined), [hljs, file.path, file.text]);
   const copy = useRef<HTMLPreElement>(null);
   const area = useRef<HTMLTextAreaElement>(null);
   // The copy scrolls with the textarea, also when it first appears over one already scrolled.

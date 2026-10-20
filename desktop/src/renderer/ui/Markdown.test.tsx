@@ -1,6 +1,8 @@
 import { render } from '@testing-library/react';
+import hljs from 'highlight.js/lib/common';
 import { describe, expect, it } from 'vitest';
-import { lessonParts, Markdown } from './Markdown';
+import { highlighter } from './colors';
+import { lessonParts, Markdown, useLessonParts } from './Markdown';
 
 const html = (text: string) => render(<Markdown text={text} />).container;
 
@@ -73,5 +75,51 @@ describe('lessonParts', () => {
   it('shows, never runs, an example fence inside another fence or indented', () => {
     const parts = lessonParts(`\`\`\`\`md\n${fence(1)}\n\`\`\`\`\n\n    \`\`\`example\n    2\n    \`\`\`\n`);
     expect(parts.every((p) => 'html' in p)).toBe(true);
+  });
+});
+
+describe("a lesson's code (§4.3)", () => {
+  const shown = (text: string, colors?: typeof hljs) => {
+    const div = document.createElement('div');
+    div.innerHTML = lessonParts(text, false, colors).map((p) => ('html' in p ? p.html : '')).join('');
+    return div;
+  };
+
+  it("colors a fence by its info string's first word, as highlight.js's own table knows it, escaping the code", () => {
+    const code = 'let a = "</code></pre><img src=x onerror=alert(1)>";\n';
+    const c = shown(`\`\`\`js runnable\n${code}\`\`\``, hljs).querySelector('pre > code.language-js')!;
+    expect(c.querySelector('.hljs-keyword')).toHaveTextContent('let');
+    expect(c.querySelector(':not(span)')).toBeNull();
+    expect(c.textContent).toBe(code);
+  });
+
+  it('leaves an unknown or empty info string, and indented code, as they were', () => {
+    const text = '```zzz\nlet a = 1;\n```\n\n```\nlet a = 1;\n```\n\n    let a = 1;\n';
+    expect(shown(text, hljs).innerHTML).toBe(shown(text).innerHTML);
+    expect(shown(text, hljs).querySelector('[class^="hljs-"]')).toBeNull();
+  });
+
+  it('still cuts at example and mermaid fences, and keeps stripping raw HTML', () => {
+    const parts = lessonParts(`<script>alert(1)</script>\n\n${'```example\n1\n```'}\n\n${'```mermaid\nflowchart TD\n```'}\n\n${'```js\nlet a;\n```'}`, false, hljs);
+    expect(parts.map((p) => ('html' in p ? 'html' : 'example' in p ? 'example' : 'diagram'))).toEqual(['html', 'example', 'diagram', 'html']);
+    expect((parts[0] as { html: string }).html).not.toContain('<script');
+  });
+
+  it('colors a lesson opened after highlight.js has loaded on its first paint', async () => {
+    await highlighter();
+    const painted: string[] = [];
+    function Reader() {
+      const [part] = useLessonParts('```js\nlet a;\n```');
+      painted.push((part as { html: string }).html);
+      return null;
+    }
+    render(<Reader />);
+    expect(painted[0]).toContain('hljs-keyword');
+  });
+
+  it('marks the parts with a fence that names its code, so a lesson without one loads no highlighter', () => {
+    const code = (text: string) => lessonParts(text).map((p) => 'html' in p && p.code);
+    expect(code('Words.\n\n```\nplain\n```\n\n    indented\n\n```example\n1\n```\n\n```mermaid\nflowchart TD\n```')).toEqual([false, false, false]);
+    expect(code('```zzz\nx\n```\n\n```example\n1\n```\n\n- item\n\n  ```js\n  let a;\n  ```\n')).toEqual([true, false, true]);
   });
 });
