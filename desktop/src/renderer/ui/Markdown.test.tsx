@@ -1,6 +1,7 @@
-import { render } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import hljs from 'highlight.js/lib/common';
-import { describe, expect, it } from 'vitest';
+import MarkdownIt from 'markdown-it';
+import { describe, expect, it, vi } from 'vitest';
 import { highlighter } from './colors';
 import { lessonParts, Markdown, useLessonParts } from './Markdown';
 
@@ -121,5 +122,37 @@ describe("a lesson's code (§4.3)", () => {
     const code = (text: string) => lessonParts(text).map((p) => 'html' in p && p.code);
     expect(code('Words.\n\n```\nplain\n```\n\n    indented\n\n```example\n1\n```\n\n```mermaid\nflowchart TD\n```')).toEqual([false, false, false]);
     expect(code('```zzz\nx\n```\n\n```example\n1\n```\n\n- item\n\n  ```js\n  let a;\n  ```\n')).toEqual([true, false, true]);
+  });
+});
+
+describe("agent text's code (§2.1)", () => {
+  it("colors a fence by its info string's first word once highlight.js arrives, escaping the code", async () => {
+    const code = 'let a = "</code></pre><img src=x onerror=alert(1)>";\n';
+    const c = html(`<script>alert(1)</script>\n\n\`\`\`js runnable\n${code}\`\`\``);
+    await waitFor(() => expect(c.querySelector('pre > code.language-js .hljs-keyword')).toHaveTextContent('let'));
+    expect(c.querySelector('pre > code :not(span)')).toBeNull();
+    expect(c.querySelector('pre > code')!.textContent).toBe(code);
+    expect(c.querySelector('script')).toBeNull();
+  });
+
+  it('leaves an unknown or empty info string, and indented code, as they were', async () => {
+    await highlighter();
+    const text = '```zzz\nlet a = 1;\n```\n\n```\nlet a = 1;\n```\n\n    let a = 1;\n';
+    const [plain] = lessonParts(text);
+    expect(html(text).innerHTML).toBe(`<div class="md">${(plain as { html: string }).html}</div>`);
+  });
+
+  it('renders its text again only when the text changes, not on each render around it', () => {
+    const parse = vi.spyOn(MarkdownIt.prototype, 'parse');
+    try {
+      const { rerender } = render(<Markdown text="Some *text*." />);
+      rerender(<Markdown text="Some *text*." />);
+      rerender(<Markdown text="Some *text*." />);
+      expect(parse).toHaveBeenCalledTimes(1);
+      rerender(<Markdown text="Other text." />);
+      expect(parse).toHaveBeenCalledTimes(2);
+    } finally {
+      parse.mockRestore();
+    }
   });
 });

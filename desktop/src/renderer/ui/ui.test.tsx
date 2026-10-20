@@ -1,5 +1,10 @@
-import { render, screen } from '@testing-library/react';
+// highlight.js loads once per test file, so the replies with nothing to color go first (§2.1).
+const loaded = vi.hoisted(() => vi.fn());
+vi.mock('highlight.js/lib/common', async (importActual) => (loaded(), importActual()));
+
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import MarkdownIt from 'markdown-it';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { Button } from './Button';
@@ -94,6 +99,35 @@ describe('Rail', () => {
     await user.paste('q'.repeat(2500));
     expect(ask).toHaveValue('q'.repeat(2000));
     expect(screen.getByText('Up to 2,000 characters.')).toBeInTheDocument();
+  });
+
+  it('loads no highlighter for replies without a fence that names its code', async () => {
+    render(<Rail messages={[{ from: 'codemm', text: 'Look at `setCount`.\n\n```\nplain\n```\n\n    indented\n' }]} onAsk={vi.fn()} />);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole('log').querySelector('pre code')).toHaveTextContent('plain');
+    expect(loaded).not.toHaveBeenCalled();
+  });
+
+  it("colors the code in Codemm's replies once highlight.js arrives, and leaves an unknown info string plain", async () => {
+    render(<Rail messages={[{ from: 'codemm', text: '```js\nlet count = 0;\n```\n\n```zzz\nlet other = 1;\n```' }]} onAsk={vi.fn()} />);
+    const log = screen.getByRole('log');
+    await waitFor(() => expect(log.querySelector('code.language-js .hljs-keyword')).toHaveTextContent('let'));
+    expect(loaded).toHaveBeenCalledTimes(1);
+    expect(log.querySelector('code.language-js')).toHaveTextContent('let count = 0;');
+    expect(log.querySelector('code.language-zzz')!.innerHTML).toBe('let other = 1;\n');
+  });
+
+  it('renders a colored reply once, not again on each keystroke while the learner asks', async () => {
+    const user = userEvent.setup();
+    render(<Rail messages={[{ from: 'codemm', text: 'Look at `setCount`.\n\n```js\nlet count = 0;\n```' }]} onAsk={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole('log').querySelector('.hljs-keyword')).toBeTruthy());
+    const parse = vi.spyOn(MarkdownIt.prototype, 'parse');
+    try {
+      await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'Why?');
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
   });
 });
 

@@ -198,7 +198,7 @@ It never records learner code, hidden data, briefs, tutor or agent text, or sign
 ## Decisions
 
 - **No router or state library.** A `Route` union in `app/router.ts` covers about ten screens.
-- **No code editor library.** A plain textarea with a line gutter. highlight.js colors code, in the editor and in lessons, when its own table knows a file's extension or a fence's info string, so Codemm names no language (DESIGN §4.3, §4.10).
+- **No code editor library.** A plain textarea with a line gutter. highlight.js colors code, in the editor and in agent text (lessons, statements and Codemm's replies), when its own table knows a file's extension or a fence's info string, so Codemm names no language (DESIGN §2.1, §4.3, §4.10).
 - **Fonts.** Display is Schibsted Grotesk, text and UI is Atkinson Hyperlegible Next, and code is JetBrains Mono. They ship as woff2 files (latin subset, only the weights used) in `src/renderer/assets/fonts`, with their OFL licenses, which the installers also carry. Every family is set in `src/renderer/styles/fonts.css`. The wordmark is the outlined brand SVG from `docs/brand`.
 - **Real title bar.** `titleBarStyle: 'hidden'` plus a drag region, with window controls overlaid on Windows.
 - **Reordering.** Topics can be dragged. The grip button also opens a Move up/Move down menu, so dragging is never required.
