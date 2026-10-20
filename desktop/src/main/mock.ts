@@ -66,6 +66,8 @@ export interface MockOptions {
   slow?: number;
   /** Every job has been quiet for over 90 seconds, so its "still working" line shows. */
   quiet?: boolean;
+  /** Passing checks a topic needs to be mastered, each on a new activity, as core's mastery takes several (core §7). 1 by default. */
+  passes?: number;
   /** Changes the options after the first approval or check, to act out a mid-session failure. */
   later?: { after: 'approve' | 'check'; set: Partial<MockOptions> };
 }
@@ -286,9 +288,16 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       first.examples = [{ files: [{ path: 'main.py', text: 'name = input("What\'s your name? ")\nprint(f"Hello, {name}!")\n' }] }];
       first.style = 'io';
     }
+    const activity = exercise(concept.id, 1);
+    activities.set(activity.id, { activity, fails: 0 });
+    return { id: concept.id, title: concept.title, state: 'later' as const, mastery: 0, stuck: false, lessons: own.map((l) => ({ id: l.id, title: l.title, state: 'writing' as const })), activity: 'writing' as const };
+  }
+
+  /** A concept's `n`th activity, from its starter files. */
+  function exercise(concept: string, n: number): Activity {
     const activity: Activity = options.style === 'io' ? {
-      id: `${concept.id}-easy-1`,
-      concept: concept.id,
+      id: `${concept}-easy-1`,
+      concept,
       title: 'Greet by name',
       statement: 'Read a name, then print `Hello, <name>!`.',
       visibleTests: [
@@ -298,8 +307,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       files: [{ path: 'main.py', text: IO_STARTER, digest: digestOf(IO_STARTER) }],
       run: 'python3 main.py',
     } : {
-      id: `${concept.id}-easy-1`,
-      concept: concept.id,
+      id: `${concept}-easy-1`,
+      concept,
       title: 'Click Counter',
       statement: 'Make the count go up by one on each click.\n\nAfter three clicks it shows `Count: 3`.',
       visibleTests: [
@@ -311,8 +320,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         { path: 'App.jsx', text: APP, digest: digestOf(APP) },
       ],
     };
-    activities.set(activity.id, { activity, fails: 0 });
-    return { id: concept.id, title: concept.title, state: 'later' as const, mastery: 0, stuck: false, lessons: own.map((l) => ({ id: l.id, title: l.title, state: 'writing' as const })), activity: 'writing' as const };
+    return n === 1 ? activity : { ...activity, id: `${concept}-easy-${n}`, title: `${activity.title} ${n}` };
   }
 
   function start(concept: string) {
@@ -732,7 +740,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     },
 
     async activity(concept) {
-      const record = [...activities.values()].find((r) => r.activity.concept === concept);
+      // The newest: a topic gets a new activity after each pass that doesn't master it.
+      const record = [...activities.values()].reverse().find((r) => r.activity.concept === concept);
       if (!record) throw new Error(`No activity for ${concept}`);
       return structuredClone(record.activity);
     },
@@ -783,8 +792,16 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       const topic = topicOf(record.activity.concept);
       if (!done && !unedited) record.fails++;
       if (done && topic.state !== 'mastered') {
-        Object.assign(topic, { state: 'mastered', mastery: 1, activity: 'passed' });
-        advance();
+        const passes = [...activities.values()].filter((r) => r.activity.concept === topic.id).length;
+        if (passes >= (options.passes ?? 1)) {
+          Object.assign(topic, { state: 'mastered', mastery: 1, activity: 'passed' });
+          advance();
+        } else {
+          // Not mastered yet: the topic's next activity is written, then opens (tick).
+          const next = exercise(topic.id, passes + 1);
+          activities.set(next.id, { activity: next, fails: 0 });
+          topic.activity = 'writing';
+        }
       }
       topic.stuck = !done && record.fails >= 3;
       const visible = record.activity.run ? ioTests(run, record.activity) : [];

@@ -326,6 +326,52 @@ describe('practice', () => {
   });
 });
 
+// A pass that doesn't master the topic yet leads to the same topic's next activity, on the same screen (core §7).
+describe('Continue after a pass', () => {
+  async function pass(options?: Parameters<typeof mockWithCourse>[0]) {
+    const view = await open({ passes: 2, ...options });
+    await write(view.user, 'count + 1');
+    await view.user.click(screen.getByRole('button', { name: 'Check' }));
+    expect(await within(results()).findByRole('heading', { name: '4 of 4 passed' })).toBeInTheDocument();
+    expect(results()).toHaveTextContent('Keep practicing JavaScript basics.');
+    return view;
+  }
+  const opensNext = async () => {
+    expect(await screen.findByRole('heading', { name: 'Click Counter 2', level: 1 })).toBeInTheDocument();
+    expect(results()).toHaveTextContent('Only Check is graded.');
+    expect(code().value).toContain('/* your code */');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  };
+
+  it('opens the next activity at once, as soon as the result lands', async () => {
+    const { user } = await pass();
+    await user.click(within(results()).getByRole('button', { name: 'Continue' }));
+    await opensNext();
+  });
+
+  it('opens the next activity however fast the clicks come', async () => {
+    const { user } = await pass();
+    await user.dblClick(within(results()).getByRole('button', { name: 'Continue' }));
+    await opensNext();
+  });
+
+  it('still opens it after the screen re-renders under the result', async () => {
+    const { user } = await pass();
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm' }), 'Why?{Enter}');
+    await within(screen.getByRole('log')).findByText('Look at what you pass to setCount.');
+    await user.click(within(results()).getByRole('button', { name: 'Continue' }));
+    await opensNext();
+  });
+
+  it("shows the next activity being written, with its progress, when it isn't ready yet", async () => {
+    const { user } = await pass({ later: { after: 'check', set: { slow: 4 } } });
+    await user.click(within(results()).getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('progressbar', { name: 'Writing the activity' })).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Start' }, { timeout: 5000 }));
+    await opensNext();
+  });
+});
+
 describe('Run', () => {
   async function openIo(options?: Parameters<typeof mockWithCourse>[0], strict = false) {
     const { api, course } = await mockWithCourse({ read: true, style: 'io', ...options });
