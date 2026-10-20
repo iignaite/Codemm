@@ -337,7 +337,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - replaces the file through a temp file and a rename;
   - refuses with "Changed outside Codemm" when the file's current digest isn't the one the editor loaded, and the editor reloads.
 - **Try it and Check.** Try it calls `testExercise` (visible tests, not recorded), and Check calls `checkExercise` (recorded).
-- **Continue after a pass.** A passing Check says "‹topic› mastered." or "Keep practicing ‹topic›." with Continue, which goes where the course map's Continue goes for the topic Codemm offers now (core §7). While a topic's mastery needs more passes, that can be the same topic's next activity, which opens fresh, never under the last one's result. One still being written opens the topic page with its job's progress (§4.11). A finished course opens its celebration. The sidebar's item for the screen on show does nothing, so it never resets that screen.
+- **Continue after a pass.** A passing Check says "‹topic› mastered." or "Keep practicing ‹topic›." with Continue, which goes where the course map's Continue goes for the topic Codemm offers now (core §7). While a topic's mastery needs more passes, that can be the same topic's next activity, which opens fresh, never under the last one's result. One still being written opens the topic page with its job's progress (§4.11). A finished course opens its celebration. A sidebar item that leads to the screen on show does nothing, so it never resets that screen.
 
 ### 4.6 Per-job MCP server
 

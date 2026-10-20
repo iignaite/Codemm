@@ -364,12 +364,13 @@ describe('Continue after a pass', () => {
   });
 
   it('keeps the result and the code when the learner clicks Practice, where they already are', async () => {
-    const { user } = await open();
+    const { api, user } = await open();
+    const read = vi.spyOn(api, 'activity');
     await write(user, 'wrong /* your code */');
     await user.click(screen.getByRole('button', { name: 'Try it' }));
     expect(await within(results()).findByRole('heading', { name: '1 of 2 visible tests passed' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Practice' }));
-    await new Promise((r) => setTimeout(r, 50));
+    expect(read).not.toHaveBeenCalled();
     expect(within(results()).getByRole('heading', { name: '1 of 2 visible tests passed' })).toBeInTheDocument();
     expect(code().value).toBe('wrong /* your code */');
   });
