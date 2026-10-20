@@ -358,8 +358,8 @@ describe("this computer runs Docker Desktop, checked before the download (§6.1)
     expect(systemProblem('darwin', '10.16\n')).toBe('macos-version');
     for (const build of [19045, 22631, 26100]) expect([build, systemProblem('win32', windowsInfo(build))]).toEqual([build, undefined]);
     for (const build of [19044, 22000, 22621]) expect([build, systemProblem('win32', windowsInfo(build))]).toEqual([build, 'windows-version']);
-    expect(systemProblem('win32', windowsInfo(26100, 'Server'))).toBe('windows-version');
-    expect(systemProblem('win32', windowsInfo(20348, 'Server Core'))).toBe('windows-version');
+    expect(systemProblem('win32', windowsInfo(26100, 'Server'))).toBe('windows-server');
+    expect(systemProblem('win32', windowsInfo(20348, 'Server Core'))).toBe('windows-server');
   });
 
   it("an answer it can't read never stops the learner: Docker's own installer has the last word", () => {
@@ -378,7 +378,16 @@ describe("this computer runs Docker Desktop, checked before the download (§6.1)
     server.desktop.install();
     await server.desktop.done();
     expect(server.downloads).toEqual([]);
-    expect(server.desktop.status()).toEqual({ phase: 'failed', problem: 'windows-version' });
+    expect(server.desktop.status()).toEqual({ phase: 'failed', problem: 'windows-server' });
+  });
+
+  it('opens Windows Update, where an older Windows is updated, through explorer with no shell', async () => {
+    const pc = fake('win32');
+    await pc.desktop.windowsUpdate();
+    expect(pc.launched).toEqual([{ file: 'C:\\Windows\\explorer.exe', args: ['ms-settings:windowsupdate'] }]);
+    const mac = fake('darwin');
+    await mac.desktop.windowsUpdate();
+    expect(mac.launched).toEqual([]);
   });
 
   it('a check that fails to run goes on to the download', async () => {
@@ -493,7 +502,7 @@ describe('on this computer, for real', () => {
     expect(r.code).toBe(0);
     const build = Number(release().split('.')[2]);
     const runs = !/Server/i.test(version()) && (build >= 22631 || (build >= 19045 && build < 22000));
-    expect(systemProblem('win32', r.output)).toBe(runs ? undefined : 'windows-version');
+    expect(systemProblem('win32', r.output)).toBe(/Server/i.test(version()) ? 'windows-server' : runs ? undefined : 'windows-version');
   });
 
   it.runIf(process.platform === 'win32')("starts a program as administrator and hands back its own exit code", { timeout: 60_000 }, async (ctx) => {

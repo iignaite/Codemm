@@ -110,6 +110,7 @@ Your agent uses the MCP tools `list_tracks`, `save_track`, `save_roadmap`, `get_
 - **Setup runs code your agent wrote, with network access**, like `npm install` in someone else's project. Agree only to setups you'd run yourself. Checks always run with the network off and with memory, CPU, process and time limits.
 - **Grading is on the honor system.** Hidden tests are hidden from your agent's tools, not from your computer, and code in the sandbox could fake its own result. Codemm is built for self-learners, not graded classwork.
 - **Codemm proves an exercise is consistent, not that its statement is right.** If something reads wrong, tell Codemm.
+- **Docker Desktop can use a lot of memory**, up to half of your computer's by default. On a Mac, you can lower it in Docker Desktop under Settings, Resources, Advanced, Memory limit. On Windows with WSL 2, WSL sets this limit instead, also half by default; [Docker's settings page](https://docs.docker.com/desktop/settings-and-maintenance/settings/) points to where to change it. Too low a limit can make setups and checks fail, even for correct code; raise it again if they do.
 - **Your data** (tracks, courses and attempt history) lives in `~/.codemm`; set `CODEMM_HOME` to move it. The app keeps your exercise files in `~/Codemm`; from a terminal, your project folder holds `codemm.json` and `exercises/`.
 
 ## Documentation

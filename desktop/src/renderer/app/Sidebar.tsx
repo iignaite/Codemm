@@ -28,6 +28,9 @@ function practiceRoute(course: CourseView | null | undefined): Route {
   return offered ? { to: 'practice', concept: offered.id } : { to: 'learn' };
 }
 
+/** Where the learner is already: going there again would only reset the screen (its results, a running program). */
+const sameRoute = (a: Route, b: Route) => JSON.stringify(a) === JSON.stringify(b);
+
 /** A narrow window, or a wide one at 200% zoom: the screen needs the sidebar's room (WCAG reflow). Matches app.css. */
 const NARROW = '(max-width: 760px)';
 const narrowNow = () => typeof window.matchMedia === 'function' && window.matchMedia(NARROW).matches;
@@ -59,7 +62,7 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
       title={slim ? item.label : undefined}
       aria-current={here === item.key ? 'page' : undefined}
       aria-label={slim ? item.label : undefined}
-      onClick={() => go(item.to)}
+      onClick={() => sameRoute(item.to, route) || go(item.to)}
     >
       <Icon name={item.icon} color={here === item.key ? '#3DDB6C' : '#C9D5EA'} />
       {!slim && item.label}

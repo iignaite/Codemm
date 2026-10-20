@@ -69,6 +69,21 @@ describe('install what is missing', () => {
     expect(await within(agent).findByRole('alert', {}, { timeout: 4000 })).toHaveTextContent("You're offline. Connect to the internet, then try again.");
     expect(within(agent).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
+
+  it('on an older Windows, says why Docker stopped and opens Windows Update', async () => {
+    const user = userEvent.setup();
+    const api = createMock({ ...scenario('no-docker'), platform: 'windows' });
+    const computer = api.computer;
+    api.computer = async () => ({ ...(await computer()), install: { phase: 'failed', problem: 'windows-version' } });
+    let opened = 0;
+    api.openWindowsUpdate = async () => void opened++;
+    renderApp({ to: 'setup' }, api);
+    await user.click(await screen.findByRole('button', { name: "Install what's missing" }));
+    const docker = screen.getByRole('listitem', { name: 'Docker Desktop' });
+    expect(await within(docker).findByRole('alert')).toHaveTextContent('Docker no longer supports older versions, so update Windows first.');
+    await user.click(within(docker).getByRole('button', { name: 'Open Windows Update' }));
+    expect(opened).toBe(1);
+  });
 });
 
 describe("Docker after Codemm's install", () => {
