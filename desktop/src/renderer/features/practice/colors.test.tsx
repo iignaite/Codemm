@@ -1,0 +1,69 @@
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import { mockWithCourse, renderApp } from '../../test-utils';
+import { colorize, MAX_COLORED, nameOf } from './colors';
+
+const loaded = vi.fn();
+vi.mock('highlight.js/lib/common', async (importActual) => (loaded(), importActual()));
+vi.mock('@xterm/xterm', () => import('../../testing/xterm'));
+vi.mock('@xterm/addon-fit', () => import('../../testing/xterm'));
+
+const editor = (name: string) => screen.getByRole('textbox', { name }) as HTMLTextAreaElement;
+/** The colored copy under the textarea. */
+const copy = () => document.querySelector('pre.hl');
+
+async function practice(rename?: string) {
+  const { api, course } = await mockWithCourse({ read: true });
+  if (rename) {
+    const real = api.activity.bind(api);
+    api.activity = async (concept) => {
+      const a = await real(concept);
+      return { ...a, files: a.files.map((f, i) => (i === 0 ? { ...f, path: rename } : f)) };
+    };
+  }
+  renderApp({ to: 'practice', concept: course.topics[0].id }, api);
+  await screen.findByRole('heading', { name: 'Click Counter' });
+  return userEvent.setup();
+}
+
+// The order matters: the library loads once per file, so the screen without an editor goes first.
+describe("the editor's colors (§4.10)", () => {
+  it('loads no highlighter on a screen without an editor', async () => {
+    const { api, course } = await mockWithCourse();
+    renderApp({ to: 'lesson', lessonId: course.topics[0].lessons[0].id }, api);
+    await screen.findByRole('button', { name: 'Next' });
+    expect(loaded).not.toHaveBeenCalled();
+  });
+
+  it("colors the code by its file's extension, under the textarea, which stays the editor", async () => {
+    const user = await practice();
+    await waitFor(() => expect(copy()?.querySelector('[class^="hljs-"]')).toBeTruthy());
+    expect(loaded).toHaveBeenCalledTimes(1);
+    expect(copy()).toHaveAttribute('aria-hidden', 'true');
+    expect(editor('Counter.jsx')).toHaveClass('lit');
+    expect(copy()!.textContent).toBe(editor('Counter.jsx').value);
+    await user.type(editor('Counter.jsx'), 'const later = 1;');
+    expect(copy()!.textContent).toBe(editor('Counter.jsx').value);
+    expect(copy()!.innerHTML).not.toMatch(/<(?!\/?span[ >])/);
+  });
+
+  it("leaves a file plain when highlight.js knows nothing by its extension, and colors the next file it knows", async () => {
+    const user = await practice('Counter.zzz');
+    await user.click(screen.getByRole('tab', { name: 'App.jsx' }));
+    await waitFor(() => expect(copy()).toBeTruthy());
+    await user.click(screen.getByRole('tab', { name: 'Counter.zzz' }));
+    expect(copy()).toBeNull();
+    expect(editor('Counter.zzz')).not.toHaveClass('lit');
+  });
+
+  it('asks about the extension, or the name of a file without one, and leaves a long file plain', async () => {
+    expect(nameOf('src/main.PY')).toBe('py');
+    expect(nameOf('Makefile')).toBe('makefile');
+    expect(nameOf('.env')).toBe('.env');
+    const { default: hljs } = await import('highlight.js/lib/common');
+    expect(colorize(hljs, 'a.js', 'let x = 1;')).toContain('hljs-keyword');
+    expect(colorize(hljs, 'a.js', 'x'.repeat(MAX_COLORED + 1))).toBeUndefined();
+    expect(colorize(hljs, 'a.zzz', 'let x = 1;')).toBeUndefined();
+  });
+});

@@ -210,6 +210,18 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .code { position: relative; display: grid; grid-template-columns: 56px minmax(0, 1fr); padding: 16px 0; font: 14px/1.8 var(--mono); min-width: max-content; }
 .lnum { display: flex; flex-direction: column; align-items: flex-end; padding-right: 16px; color: var(--faint); user-select: none; }
 .code textarea { display: block; width: 100%; min-width: 480px; margin: 0; padding: 0 16px 0 0; border: none; background: transparent; font: inherit; white-space: pre; resize: none; overflow: hidden; outline: none; position: relative; z-index: 1; }
+/* The colored copy lies under the textarea, which keeps its caret and a see-through selection (§4.10). */
+.etext { position: relative; min-width: 0; }
+.code .hl { position: absolute; inset: 0; margin: 0; padding: 0 16px 0 0; font: inherit; white-space: pre; overflow: hidden; pointer-events: none; color: var(--ink); }
+.code textarea.lit { color: transparent; caret-color: var(--ink); }
+.code textarea.lit::selection { color: transparent; background: rgb(63 93 184 / 22%); }
+/* highlight.js's classes, each AA on white, with no bold or italic so the copy lines up with the textarea's text. */
+.hl .hljs-keyword, .hl .hljs-selector-tag, .hl .hljs-doctag { color: var(--blue); }
+.hl .hljs-string, .hl .hljs-regexp, .hl .hljs-template-tag, .hl .hljs-addition { color: var(--green-ink); }
+.hl .hljs-comment, .hl .hljs-quote { color: var(--faint); }
+.hl .hljs-number, .hl .hljs-literal, .hl .hljs-symbol, .hl .hljs-bullet, .hl .hljs-deletion { color: var(--orange-ink); }
+.hl .hljs-title, .hl .hljs-section, .hl .hljs-name, .hl .hljs-selector-id, .hl .hljs-selector-class { color: var(--note-ink); }
+.hl .hljs-built_in, .hl .hljs-type, .hl .hljs-attr, .hl .hljs-attribute, .hl .hljs-meta, .hl .hljs-tag, .hl .hljs-variable, .hl .hljs-template-variable { color: var(--blue-ink); }
 .code:focus-within { box-shadow: inset 0 0 0 3px var(--focus); }
 /* The terminal pane (§4.9): dark and monospace, between the editor and the results. */
 .term { flex-shrink: 0; height: 200px; display: flex; flex-direction: column; background: var(--navy-3); border-top: 1px solid var(--navy-line); }
