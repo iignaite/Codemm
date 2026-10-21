@@ -22,6 +22,18 @@ describe('how deep the roadmap goes', () => {
   });
 });
 
+describe('a goal not set up yet', () => {
+  it('says so only for the goal the learner settled on, not for each half-typed word', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    await api.connect('claude');
+    renderApp({ to: 'goal' }, api);
+    await user.type(await screen.findByRole('textbox', { name: 'What do you want to learn?' }), 'Data s');
+    expect(screen.queryByText(/isn't set up yet/)).not.toBeInTheDocument();
+    expect(await screen.findByText("Data s isn't set up yet.", undefined, { timeout: 2000 })).toBeInTheDocument();
+  });
+});
+
 describe('fields with a limit', () => {
   it('keeps the goal and what the learner knows within their limits, and says so, so research never gets bad input', async () => {
     const user = userEvent.setup();

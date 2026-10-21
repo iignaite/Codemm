@@ -32,6 +32,8 @@ export interface CoreExercise {
 
 export interface CoreRoadmap {
   course: string;
+  /** The course's name, as the agent wrote it (core §5); older roadmaps have none. */
+  title?: string;
   goal: string;
   track: string;
   style: string;

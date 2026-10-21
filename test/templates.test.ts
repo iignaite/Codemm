@@ -140,9 +140,9 @@ describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
     expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, difficulty, style, track, contract and earlier exercises from `next_step`/);
   });
 
-  it("asks the research job for its sources, and a roadmap change to keep them", () => {
+  it("asks the research job for its sources, and a roadmap change to keep them and the title", () => {
     expect(JOB_BRIEFS.research).toMatch(/`sources`/);
-    expect(JOB_BRIEFS.roadmap).toMatch(/Keep `sources`/);
+    expect(JOB_BRIEFS.roadmap).toMatch(/Keep `title` and `sources` unless asked/);
   });
 
   it("keeps the tutor's hint rule and keeps it away from saves", () => {
@@ -160,6 +160,10 @@ describe("roadmap granularity", () => {
     expect(text()).toMatch(/One concept is one skill: what one short lesson teaches and a few small graded exercises cover/);
     expect(text()).toMatch(/"useEffect dependency arrays" and "useEffect cleanup", not "useEffect"/);
     expect(text()).toMatch(/`requires` names the specific earlier skills/);
+  });
+
+  it("asks research for the course's name in plain words", () => {
+    expect(JOB_BRIEFS.research).toMatch(/`title` \(the course's name in a few plain words, at most 60 characters\)/);
   });
 
   it("sets 15 to 30 concepts as the default for a course, unless the learner asks for another depth, and checks real curricula", () => {

@@ -14,7 +14,7 @@ import { tempDir } from './temp';
 
 export const CANARY = 'printf("CANARY-SOLUTION-LINE %d", count + 1);';
 
-type FakeRoadmap = { course: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[]; sources?: { title: string; url: string }[] };
+type FakeRoadmap = { course: string; title?: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[]; sources?: { title: string; url: string }[] };
 
 const DOCKER_DOWN = "The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.";
 

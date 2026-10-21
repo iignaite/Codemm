@@ -67,6 +67,22 @@ describe("parseExerciseYaml", () => {
   });
 });
 
+describe("roadmap title", () => {
+  const base = "goal: G\ntrack: c@1\nstyle: io\nconcepts:\n  - { id: a, title: A, requires: [] }\n";
+
+  it("accepts a short display title, and none at all", () => {
+    expect(parseRoadmapYaml(base).title).toBeUndefined();
+    expect(parseRoadmapYaml(`title: Spring Boot\n${base}`).title).toBe("Spring Boot");
+  });
+
+  it.each([
+    ["an empty title", 'title: ""\n'],
+    ["a title over 60 characters", `title: "${"t".repeat(61)}"\n`],
+  ])("rejects %s", (_label, line) => {
+    expect(() => parseRoadmapYaml(`${line}${base}`)).toThrow(/title/);
+  });
+});
+
 describe("roadmap sources", () => {
   const base = "goal: G\ntrack: c@1\nstyle: io\nconcepts:\n  - { id: a, title: A, requires: [] }\n";
   const withSources = (items: string) => `${base}sources:\n${items}`;

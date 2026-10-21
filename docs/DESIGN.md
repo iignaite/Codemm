@@ -63,7 +63,7 @@ $CODEMM_HOME (default ~/.codemm)
   tracks/<id>@<version>/            installed track files + track.json (image id, styles)
   proposals/<id>@<version>/<digest>/  a track proposed in the desktop app, awaiting consent (§4.4) + proposal.json
   courses/<course>/
-    course.json                     { format_version, goal, track, style, concepts }
+    course.json                     { format_version, title?, goal, track, style, concepts }
     exercises/<slug>/               full exercise + exercise.json (inventory, expected io outputs)
     lessons/<id>/                   lesson.json, lesson.md (never changed after saving), notes.md (the learner's)
     events.jsonl                    append-only learner events (check, skip, assist, retry, read)
@@ -237,6 +237,7 @@ Other ceilings:
 ## 5. Roadmaps (courses)
 
 ```yaml
+title: "React"              # optional: the course's name in a few plain words, at most 60 characters
 goal: "Components and state in React"
 track: react@1              # a track pinned by version; it may not be installed yet
 style: unit                 # the default style for new exercises; must be offered by the track
@@ -248,9 +249,10 @@ sources:                    # optional: the roadmaps and docs the agent used, at
 ```
 
 - **First save** creates the course. Concept order in the file is the tie-break order.
+- **Title** is optional: the course's name as the learner would say it, which the desktop app shows. A course without one is named by its goal.
 - **Sources** are optional: at most 10, each a `title` of at most 120 characters and an https `url` with no credentials. The app shows them and opens them only in the learner's browser.
 - **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is. Proposing or installing a track that a course names but whose styles lack that course's style is refused, so a course can't be stranded; an install checks this under the track lock, which roadmap saves also take (after the course lock). `next_step` fails with "Edit the roadmap's style" if an installed track still doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
-- **Re-saving** an existing course may change `goal`, titles and order, add concepts, and change `requires` while staying acyclic. Edits keep concept ids, so renaming changes only the title. It may change `track` while the course has no exercises.
+- **Re-saving** an existing course may change `title`, `goal`, concept titles and order, add concepts, and change `requires` while staying acyclic. Edits keep concept ids, so renaming changes only the title. It may change `track` while the course has no exercises.
 - **Re-saving is rejected** if it changes `track` after exercises exist, or removes a concept that an exercise, event or lesson uses.
 - **A fresh start.** When a re-save adds a prerequisite to a stuck concept, Codemm appends a `retry` event for it (§7).
 - **Saving makes it active:** it sets the course in `codemm.json` for the bound workspace.
@@ -366,7 +368,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `list_tracks` | — | installed tracks: id, version, styles |
 | `save_track` | `files` | `{ installed: "id@v", warning? }` or diagnostics; with `--desktop`, `{ proposed: "id@v", note }` (§4.4) |
 | `save_roadmap` | `course`, `roadmap` (YAML text) | ok or errors |
-| `get_roadmap` | — | `{ course, goal, track, style, concepts }` |
+| `get_roadmap` | — | `{ course, title?, goal, track, style, concepts }` |
 | `next_step` | — | `setup` / `review` / `practice` / `author` / `stuck` / `done`; `author` carries the concept's `title`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests) |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
 | `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint, and for io the track's run command; a generated visible input shows its generator (`generated: true`), and a long expected output its first 64 KB with `expectedBytes` |

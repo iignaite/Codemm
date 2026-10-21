@@ -128,7 +128,7 @@ export type JobKind = "research" | "roadmap" | "setup" | "lesson" | "author" | "
 // briefs name only their own job's tools.
 
 const ROADMAP_YAML =
-  "The roadmap is YAML: \`goal\`, \`track\` (\`id@version\`), \`style\` (\`io\` or \`unit\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`) and optional \`sources\` (up to 10, each with a \`title\` and an https \`url\`).";
+  "The roadmap is YAML: \`title\` (the course's name in a few plain words, at most 60 characters), \`goal\`, \`track\` (\`id@version\`), \`style\` (\`io\` or \`unit\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`) and optional \`sources\` (up to 10, each with a \`title\` and an https \`url\`).";
 
 /** One short, single-purpose brief per job. The app adds the job's own details: the goal, request, concept or track. */
 export const JOB_BRIEFS: Record<JobKind, string> = {
@@ -145,7 +145,7 @@ export const JOB_BRIEFS: Record<JobKind, string> = {
 
 1. Call \`get_roadmap\`.
 2. Change only what was asked. Keep the ids of the concepts you keep, and keep \`requires\` free of cycles. To make a topic easier, add a prerequisite topic that it requires. ${GRANULARITY}
-3. Save the whole roadmap with \`save_roadmap\` under the same course id. ${ROADMAP_YAML} Keep \`sources\` unless asked to change them.
+3. Save the whole roadmap with \`save_roadmap\` under the same course id. ${ROADMAP_YAML} Keep \`title\` and \`sources\` unless asked to change them.
 4. If nothing should change, don't save, and say why in one sentence.`,
 
   setup: `You set up the environment for one Codemm track. ${CHECKED_RETRIES}
