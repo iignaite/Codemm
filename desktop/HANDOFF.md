@@ -28,7 +28,7 @@ Each state has a mock scenario, a test, and a specific next step on screen. Infr
 | Docker stops mid-session | "This check wasn't counted." The code stays and is saved, with a button to check this computer | `docker-stops` |
 | Offline during setup | "You're offline." Try again builds the same proposal | `offline-setup` |
 | Low disk during setup | "Not enough disk space." Try again builds the same proposal | `low-disk` |
-| Setup gates fail | "Couldn't set up React", then a new proposal: "Codemm has another way to set up React." | `setup-gates` |
+| Setup gates fail | "Couldn't set up React.", then a new proposal: "Codemm has another way to set up React." | `setup-gates` |
 | No agent installed | "Not installed" and a link to each agent's install page | `no-agent` |
 | Agent signed out | "Sign in to Codex, then try again." Codemm never asks for or reads credentials | `signed-out` |
 | Sign-in expires mid-session | the next agent call opens connect with the same line, then returns to where the learner was | `sign-in-expires` |

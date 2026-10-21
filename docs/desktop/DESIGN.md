@@ -277,8 +277,8 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 - **Editing in the app** builds a new roadmap and saves it through `app.saveRoadmap`, so core §5 rules apply:
   - Rename changes the title only; the id stays stable.
   - Add creates an id from the title (kebab case, made unique) with `requires: []`.
-  - Move changes order only. It is refused, with "Needs ‹title› first", when it would put a topic above one it requires. Move works without dragging.
-  - Remove is refused when another topic requires it ("‹title› needs this topic"). Core also rejects removing a concept that an exercise, event or lesson uses; the lesson part is new. Prerequisites are never rewritten silently.
+  - Move changes order only. It is refused, with "Needs ‹title› first.", when it would put a topic above one it requires. Move works without dragging.
+  - Remove is refused when another topic requires it ("‹title› needs this topic."). Core also rejects removing a concept that an exercise, event or lesson uses; the lesson part is new. Prerequisites are never rewritten silently.
   - Prerequisite changes go through "Ask Codemm for changes".
   - While "Ask Codemm for changes" or Go deeper runs, the learner's own edits wait: rename, remove, move, drag and add are off, and an open rename closes unsaved. Codemm changes the roadmap as it stood, so its result never overwrites an edit made meanwhile.
   - Go deeper keeps the learner's title on the topic it splits. The request asks the agent to keep the topic, with its id and title, as the first piece; if the result keeps the id but retitles it, the app puts the learner's title back and saves the draft.
@@ -344,7 +344,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - replaces the file through a temp file and a rename;
   - refuses with "Changed outside Codemm" when the file's current digest isn't the one the editor loaded, and the editor reloads.
 - **Try it and Check.** Try it calls `testExercise` (visible tests, not recorded), and Check calls `checkExercise` (recorded).
-- **Continue after a pass.** A passing Check says "‹topic› mastered." or "Keep practicing ‹topic›." with Continue. When the topic Codemm offers now is a review (due or in progress, §4.14) or the same topic while its mastery needs more passes, Continue opens Practice, fresh, never under the last one's result, and while that activity is written Practice waits with its job's progress (§1, §4.11) and opens it by itself. For another topic it goes where the course map's Continue goes (core §7). A finished course opens its celebration. A sidebar item that leads to the screen on show does nothing, so it never resets that screen.
+- **Continue after a pass.** A passing Check says "You mastered ‹topic›." or "Keep practicing ‹topic›." with Continue, ending once when the title has its own ? or !. When the topic Codemm offers now is a review (due or in progress, §4.14) or the same topic while its mastery needs more passes, Continue opens Practice, fresh, never under the last one's result, and while that activity is written Practice waits with its job's progress (§1, §4.11) and opens it by itself. For another topic it goes where the course map's Continue goes (core §7). A finished course opens its celebration. A sidebar item that leads to the screen on show does nothing, so it never resets that screen.
 
 ### 4.6 Per-job MCP server
 
