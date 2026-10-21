@@ -108,15 +108,14 @@ h1 { max-width: 11em; font-size: clamp(42px, 5.8vw, 74px); line-height: 1.02; le
 
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-/* The walk: Emm walks, the agents walk in, and Emm eats each one and takes its color.
+/* The walk: Emm runs to each agent, eats it and takes its color (hero.js moves it).
    Monochrome until it starts, then color comes in. */
 .walk { position: relative; aspect-ratio: 1 / .8; }
 .walk-glow { position: absolute; inset: 4% 6% 10%; border-radius: 50%; background: radial-gradient(closest-side, rgb(61 219 108 / .26), rgb(61 219 108 / .07) 55%, transparent 75%); filter: blur(10px); }
 .walk-scene { position: absolute; inset: 0; overflow: hidden; }
 .ground { position: absolute; left: 4%; right: 4%; bottom: 22%; height: 2px; border-radius: 1px; background: var(--ink); opacity: .12; }
-.walk .emm { position: absolute; left: 4%; bottom: calc(22% - 1px); width: 44%; height: auto; overflow: visible; transform-origin: 50% 100%; }
+.walk .emm { position: absolute; left: 4%; bottom: calc(18% + 1px); width: 44%; height: auto; overflow: visible; transform-origin: 50% 100%; }
 .walk .asleep { opacity: 0; }
-.walk .leg { transform-box: fill-box; transform-origin: 50% 0; }
 .tongue { position: absolute; left: 0; top: 0; z-index: 2; width: 0; height: 8px; border-radius: 4px; background: #F2708B; pointer-events: none; }
 .tongue::after { content: ""; position: absolute; right: -7px; top: -4px; width: 16px; height: 16px; border-radius: 50%; background: #E85A79; }
 /* Emm takes the color of the agent it last ate. */
@@ -229,11 +228,9 @@ h1 { max-width: 11em; font-size: clamp(42px, 5.8vw, 74px); line-height: 1.02; le
 @media (prefers-reduced-motion: no-preference) {
   .walk-scene { animation: colorin .8s var(--ease) .4s both; }
   .walk .asleep { animation: out .25s .5s both; }
-  .walk .awake { animation: in .25s .5s both, blink 4.5s 2s infinite; transform-box: fill-box; transform-origin: center; }
+  .walk .awake { animation: in .25s .5s both; }
+  .walk .eye { animation: blink 4.5s 2s infinite; transform-box: fill-box; transform-origin: center; }
   .walk .zz { animation: twinkle 1.4s ease-in-out 1; transform-box: fill-box; transform-origin: center; }
-  .walk .emm { animation: waddle .2s ease-in-out .8s infinite alternate; }
-  .walk .leg-a { animation: step .2s ease-in-out .8s infinite alternate; }
-  .walk .leg-b { animation: step .2s ease-in-out .6s infinite alternate-reverse; }
   .hero-text > * { animation: up .7s var(--ease) both; }
   .hero-text > :nth-child(2) { animation-delay: .08s; }
   .hero-text > :nth-child(3) { animation-delay: .16s; }
@@ -257,8 +254,6 @@ h1 { max-width: 11em; font-size: clamp(42px, 5.8vw, 74px); line-height: 1.02; le
 @keyframes flow { 0% { stroke-dashoffset: 14; opacity: 1; } 85% { opacity: 1; } 100% { stroke-dashoffset: -86; opacity: 0; } }
 @keyframes charge { from { opacity: .9; transform: scale(.9); } to { opacity: 0; transform: scale(1.35); } }
 @keyframes jolt { 40% { transform: scale(1.12); } }
-@keyframes waddle { from { transform: translateY(0) rotate(-1deg); } to { transform: translateY(-4px) rotate(1deg); } }
-@keyframes step { from { transform: rotate(-16deg); } to { transform: rotate(16deg); } }
 @keyframes blink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
 @keyframes float { from { transform: translateY(0); } to { transform: translateY(-6px); } }
 @keyframes twinkle { 50% { opacity: .3; transform: scale(.6); } }
