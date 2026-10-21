@@ -45,6 +45,8 @@ describe("the editor's colors (§4.10)", () => {
     expect(copy()!.textContent).toBe(editor('Counter.jsx').value);
     await user.type(editor('Counter.jsx'), 'const later = 1;');
     expect(copy()!.textContent).toBe(editor('Counter.jsx').value);
+    await user.type(editor('Counter.jsx'), 'a != b !== c <= d => e -> f;');
+    expect(copy()!.textContent).toBe(editor('Counter.jsx').value);
     expect(copy()!.innerHTML).not.toMatch(/<(?!\/?span[ >])/);
   });
 

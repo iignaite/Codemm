@@ -29,3 +29,13 @@ describe("the learner's own words", () => {
     }
   });
 });
+
+describe('code shows the characters typed', () => {
+  // JetBrains Mono joins "!=" into "≠", and the font shorthand turns ligatures back on under the body's "none". In the
+  // editor the colored copy is what the learner sees, so "if node != -1:" read as "if node  = -1:".
+  it('turns ligatures off in every rule that sets the mono font', () => {
+    const mono = css.split('\n').filter((line) => line.includes('var(--mono)') && !line.startsWith(':root'));
+    expect(mono.length).toBeGreaterThan(0);
+    for (const line of mono) expect(line).toMatch(/var\(--mono\).*font-variant-ligatures: none/);
+  });
+});
