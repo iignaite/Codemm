@@ -10,6 +10,7 @@ import { stagger } from '../../ui/motion';
 import { Banner } from '../../ui/Banner';
 import { Limit } from '../../ui/Limit';
 import { LIMITS } from '../../../shared/limits';
+import { shownTopic } from '../../ui/topic';
 
 /** How long typing pauses before the goal counts as settled, so the notice never names half a word. */
 const SETTLE_MS = 600;
@@ -69,7 +70,7 @@ export function Goal() {
           </Banner>
         )}
         {isNew && (
-          <Banner art={<Emm mood="look" width={56} />}><b>{goal} isn't set up yet.</b> Codemm will set it up.</Banner>
+          <Banner art={<Emm mood="look" width={56} />}><b>{shownTopic(goal)} isn't set up yet.</b> Codemm will set it up.</Banner>
         )}
       </form>
     </main>

@@ -31,7 +31,7 @@ export function Courses({ slim = false }: { slim?: boolean }) {
 
   // Two courses researched with the same words are told apart by their goals.
   const name = (c: CourseSummary) => (courses.some((o) => o !== c && o.title === c.title) ? c.goal : c.title);
-  const badge = (c: CourseSummary) => <span className="badge" style={{ background: hueColor(c.track) }} aria-hidden="true">{c.title[0]}</span>;
+  const badge = (c: CourseSummary) => <span className="badge" style={{ background: hueColor(c.track) }} aria-hidden="true">{[...c.title][0]?.toUpperCase()}</span>;
   return (
     <div className={slim ? 'courses slim-courses' : 'courses'}>
       {courses.map((c) => (

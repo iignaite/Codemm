@@ -190,6 +190,22 @@ describe('courses (§4.13)', () => {
     expect(within(sidebar()).getByRole('button', { name: 'New course' })).toBeInTheDocument();
   });
 
+  it("marks a course's badge with its title's first letter, capitalized, and an emoji whole", async () => {
+    narrowWindow();
+    try {
+      const api = await twoCourses();
+      api.courses = async () => [
+        { id: 'a', title: 'springboot?', goal: 'A', track: 'a', current: true },
+        { id: 'b', title: '🌱 Gardens', goal: 'B', track: 'b', current: false },
+      ];
+      renderApp({ to: 'tracks' }, api);
+      expect(await within(sidebar()).findByRole('button', { name: 'springboot?' })).toHaveTextContent(/^S$/);
+      expect(within(sidebar()).getByRole('button', { name: '🌱 Gardens' })).toHaveTextContent(/^🌱$/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('shows each course as its badge in the slim sidebar, named by its goal', async () => {
     narrowWindow();
     try {

@@ -32,6 +32,15 @@ describe('a goal not set up yet', () => {
     expect(screen.queryByText(/isn't set up yet/)).not.toBeInTheDocument();
     expect(await screen.findByText("Data s isn't set up yet.", undefined, { timeout: 2000 })).toBeInTheDocument();
   });
+
+  it('names the goal tidily, not with the punctuation typed', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    await api.connect('claude');
+    renderApp({ to: 'goal' }, api);
+    await user.type(await screen.findByRole('textbox', { name: 'What do you want to learn?' }), 'springboot?');
+    expect(await screen.findByText("Springboot isn't set up yet.", undefined, { timeout: 2000 })).toBeInTheDocument();
+  });
 });
 
 describe('fields with a limit', () => {
