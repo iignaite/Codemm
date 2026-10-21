@@ -56,6 +56,7 @@ if (stage) {
   let stride = STRIDE;
   let effort = 0; // 0 standing to 1 at full speed, eased
   let look = 0; // 0 looking ahead to 1 at the agent, eased
+  let agentX = 0; // where the agent ahead stands, in pixels
 
   const moving = () => !reduce.matches && !paused && visible && !document.hidden;
 
@@ -110,8 +111,8 @@ if (stage) {
     for (const leg of legs) leg.el.setAttribute('d', leg.d);
   }
 
-  function place(el, x, y, scale = 1, opacity = 1, tilt = 0) {
-    el.style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${tilt}deg) scale(${scale})`;
+  function place(el, x, y, scale = 1, opacity = 1) {
+    el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
     el.style.opacity = String(opacity);
   }
 
@@ -144,22 +145,24 @@ if (stage) {
     const startX = g.width + g.size * 0.2;
     const reachX = g.mouthX + g.width * 0.2;
     const t = clock - since;
+    const runLength = Math.max(0, startX - reachX) / g.scale; // in SVG units
     let speed = 0; // a share of the top speed
 
     if (phase === 'wait') {
       tongue.hidden = true;
-      if (clock >= START_MS) startRun(Math.max(0, startX - reachX) / g.scale);
+      if (clock >= START_MS) startRun(runLength);
     } else if (phase === 'run') {
       // The agent stands on the ground, so it comes toward Emm as fast as Emm runs.
       const r = travel(t, run.distance, SPEED, EASE_MS);
       gait = run.from + r.s / stride;
       speed = r.v / SPEED;
-      place(el, startX - r.s * g.scale, g.groundY - g.size);
+      agentX = startX - r.s * g.scale;
+      place(el, agentX, g.groundY - g.size);
       if (r.done) { phase = 'strike'; since = clock; }
     } else if (phase === 'strike' || phase === 'pull') {
       tongue.hidden = false;
       const q = Math.min(1, t / (phase === 'strike' ? STRIKE_MS : PULL_MS));
-      const full = reachX + g.size * 0.15 - g.mouthX;
+      const full = agentX + g.size * 0.15 - g.mouthX;
       const length = phase === 'strike' ? full * q : full * (1 - q);
       tongue.style.width = `${length}px`;
       tongue.style.transform = `translate3d(${g.mouthX}px, ${g.mouthY - 4}px, 0)`;
@@ -178,15 +181,17 @@ if (stage) {
       }
     } else if (phase === 'rest' && t >= REST_MS) {
       current = (current + 1) % agents.length;
-      startRun(Math.max(0, startX - reachX) / g.scale);
+      startRun(runLength);
     }
     // Emm glances at the agent as it slows down for it, and looks ahead again after eating.
     const glance = (phase === 'run' && t > EASE_MS && speed < 0.95) || phase === 'strike' || phase === 'pull';
-    if (step) {
+    if (step && phase !== 'wait') {
       effort += (speed - effort) * Math.min(1, step / 90);
       look += ((glance ? 1 : 0) - look) * Math.min(1, step / 60);
+      // Stopped mid-stride (the agent was clicked): Emm shifts its feet to stand square.
+      if (phase !== 'run') gait += (NEUTRAL + Math.round((gait - NEUTRAL) * 2) / 2 - gait) * Math.min(1, step / 90);
+      pose(gait, effort);
     }
-    if (phase !== 'wait') pose(gait, effort);
     requestAnimationFrame(frame);
   }
 
@@ -215,7 +220,13 @@ if (stage) {
 
   const showToggle = () => { toggle.hidden = reduce.matches; };
   showToggle();
-  reduce.addEventListener('change', () => { showToggle(); last = performance.now(); requestAnimationFrame(frame); });
+  reduce.addEventListener('change', () => {
+    showToggle();
+    // Back to motion: only the agent ahead, if any, stays on stage.
+    if (!reduce.matches) show(phase === 'wait' || phase === 'rest' ? -1 : current);
+    last = performance.now();
+    requestAnimationFrame(frame);
+  });
   new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; }).observe(stage);
   addEventListener('resize', () => { if (reduce.matches) still(); });
 

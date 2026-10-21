@@ -37,24 +37,34 @@ async function loadWith({ reduced, frames = [] }) {
   emm.querySelectorAll = (q) => (q === '.leg' ? legs : []);
   const parts = { '.walk-scene': element(), '.emm': emm, '.tongue': element(), '.motion': element() };
   const agents = [element(), element(), element()];
+  const media = { matches: reduced, change: [], addEventListener(_, fn) { this.change.push(fn); } };
   stage.querySelector = (q) => parts[q];
   stage.querySelectorAll = (q) => (q === '.agent' ? agents : []);
   Object.assign(globalThis, {
     document: { querySelector: (q) => (q === '.walk' ? stage : null), hidden: false },
-    matchMedia: () => ({ matches: reduced, addEventListener() {} }),
+    matchMedia: () => media,
     requestAnimationFrame: (fn) => frames.push(fn),
     IntersectionObserver: class { observe() {} },
     addEventListener() {},
     getComputedStyle: () => ({ boxShadow: 'none' }),
   });
   await import(`../public/hero.js?${Math.random()}`);
-  return { stage, parts, agents, legs, body };
+  return { stage, parts, agents, legs, body, media };
 }
 
 // Runs the page's frames, 16 ms apart, for the given time.
 function play(frames, ms, from = { now: performance.now() }) {
   for (const end = from.now + ms; from.now < end && frames.length; from.now += 16) frames.shift()(from.now);
   return from;
+}
+
+// Every foot back where the page draws it standing.
+function assertSquare(legs) {
+  const feet = (ds) => ds.map((d) => d.match(/-?[\d.]+/g).slice(2).map(Number));
+  const drawn = feet(LEGS.map(([d]) => d));
+  feet(legs.map((l) => l.attrs.d)).forEach(([x, y], i) => {
+    assert.ok(Math.abs(x - drawn[i][0]) < 0.05 && Math.abs(y - drawn[i][1]) < 0.1, `foot ${i} at ${x},${y}`);
+  });
 }
 
 // What a viewer sees of Emm and the agents.
@@ -68,13 +78,19 @@ test('with reduced motion, clicking an agent changes Emm\'s colors and starts no
   assert.deepEqual(started, []);
 });
 
-test('with reduced motion, Emm stands still in the pose the page draws', async () => {
+test('turning on reduced motion mid-run stands Emm still, and turning it off keeps one agent on stage', async () => {
   const frames = [];
-  const page = await loadWith({ reduced: true, frames });
-  play(frames, 2000);
+  const page = await loadWith({ reduced: false, frames });
+  const clock = play(frames, 1600); // mid-run
+  page.media.matches = true;
+  page.media.change.forEach((fn) => fn());
+  play(frames, 500, clock);
   assert.deepEqual(page.legs.map((l) => l.attrs.d), LEGS.map(([d]) => d));
   for (const part of Object.values(page.body)) assert.equal(part.attrs.transform, undefined);
   assert.equal(frames.length, 0); // and no frame loop keeps running
+  page.media.matches = false;
+  page.media.change.forEach((fn) => fn());
+  assert.deepEqual(page.agents.map((a) => a.hidden), [false, true, true]);
 });
 
 test('Emm wakes, runs to the first agent, and catches and eats it within three and a half seconds', async () => {
@@ -94,11 +110,20 @@ test('Emm runs on its legs: they step while it runs and stand square once it has
   while (tongue.hidden) play(frames, 16, clock); // runs until it stops and strikes
   while (!tongue.hidden) play(frames, 16, clock); // eats
   play(frames, 300, clock); // rests
-  const feet = (ds) => ds.map((d) => d.match(/-?[\d.]+/g).slice(2).map(Number));
-  const drawn = feet(LEGS.map(([d]) => d));
-  feet(page.legs.map((l) => l.attrs.d)).forEach(([x, y], i) => {
-    assert.ok(Math.abs(x - drawn[i][0]) < 0.05 && Math.abs(y - drawn[i][1]) < 0.1, `foot ${i} at ${x},${y}`);
-  });
+  assertSquare(page.legs);
+});
+
+test('clicked mid-stride, Emm catches the agent and then stands square', async () => {
+  for (const ms of [1000, 1300, 1600, 1900]) {
+    const frames = [];
+    const page = await loadWith({ reduced: false, frames });
+    const clock = play(frames, ms);
+    page.agents[0].listeners.click[0]();
+    play(frames, 16, clock);
+    assert.equal(page.parts['.tongue'].hidden, false);
+    play(frames, 700, clock); // eats and rests
+    assertSquare(page.legs);
+  }
 });
 
 test('the pause button freezes Emm and the agent mid-run, and play resumes', async () => {
