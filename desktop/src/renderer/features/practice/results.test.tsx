@@ -165,6 +165,13 @@ describe('the words', () => {
     expect(lines[1]).toContain('expected [1]');
   });
 
+  it('shows a name written as a sentence just as written', () => {
+    const sentences: CoreCheckView = { ...core, tests: [{ name: 'returns -1 when the list is empty', status: 'pass' }, { name: 'adds_one-to count', status: 'pass' }] };
+    render(<Results shown={{ kind: 'try', result: tryView(sentences) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    const lines = [...results().querySelectorAll('.tline')].map((l) => l.textContent);
+    expect(lines).toEqual(['returns -1 when the list is empty', 'adds_one-to count']);
+  });
+
   it("says why an unedited starter check wasn't counted", () => {
     render(<Results shown={{ kind: 'check', result: checkView({ ...core, recorded: false }, { stuck: false, mastered: false, later: true }), keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
     expect(results()).toHaveTextContent("This is the starter code, so this check wasn't counted. Edit it, then check again.");

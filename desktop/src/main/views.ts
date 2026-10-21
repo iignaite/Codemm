@@ -78,14 +78,20 @@ export function lessonView(l: CoreLesson): Lesson {
 /** One run of a lesson example, from core's capped output. */
 export const exampleRunView = (r: { exit: number; output: string; errors: string }): ExampleRun => ({ kind: 'ran', exit: r.exit, output: r.output, errors: r.errors });
 
-/** A heading's text as words: no code spans, emphasis or closing #s, which the title shows as plain text. */
-const plainTitle = (heading: string) =>
-  heading
+/**
+ * A heading's text as words: no code-span backticks, emphasis or closing #s, which the title shows as plain text. A
+ * code span is literal, so it is set aside while emphasis is removed: `__init__` keeps its underscores.
+ */
+function plainTitle(heading: string): string {
+  const code: string[] = [];
+  return heading
     .replace(/\s+#+\s*$/, '')
-    .replace(/`([^`]*)`/g, '$1')
+    .replace(/`([^`]*)`/g, (_, span: string) => `\uE000${code.push(span) - 1}\uE001`)
     .replace(/(\*\*|__)(.+?)\1/g, '$2')
     .replace(/(^|\W)[*_](\S(?:.*?\S)?)[*_](?=\W|$)/g, '$1$2')
+    .replace(/\uE000(\d+)\uE001/g, (_, i: string) => code[Number(i)])
     .trim();
+}
 
 /** The statement's first heading is the activity's title; the rest is its text. */
 export function activityView(ex: CoreExercise, files: Record<string, { text: string; digest: string }>, concept: string): Activity {

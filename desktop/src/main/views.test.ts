@@ -99,6 +99,11 @@ describe('views (§2.2, D4)', () => {
     expect(title('# Reverse a `list` with **care** and *style* #\n\nText.')).toBe('Reverse a list with care and style');
     expect(title('# Sum_of_squares ##\n\nText.')).toBe('Sum_of_squares');
     expect(title('# __Bold__ and _soft_\n\nText.')).toBe('Bold and soft');
+    // A code span is literal: its underscores and stars are code, never emphasis.
+    expect(title('# Write `__init__`\n\nText.')).toBe('Write __init__');
+    expect(title("# Guard with `if __name__ == '__main__'`\n\nText.")).toBe("Guard with if __name__ == '__main__'");
+    expect(title('# Multiply with `a * b * c`\n\nText.')).toBe('Multiply with a * b * c');
+    expect(title('# **Use `**kwargs`** well\n\nText.')).toBe('Use **kwargs well');
   });
 
   it('holds back a tutor reply that quotes hidden material verbatim', () => {

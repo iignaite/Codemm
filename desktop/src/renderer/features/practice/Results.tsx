@@ -8,8 +8,15 @@ import { Busy } from '../../ui/Busy';
 
 /** The core names visible results "visible/<name>"; the exercise names its tests "<name>". */
 export const testName = (name: string) => name.replace(/^visible\//, '');
-/** A test's name in words: "Test 2" for the file stem "02", "Empty list" for "empty_list". */
-const shownName = (name: string) => (/^\d+$/.test(name) ? `Test ${Number(name)}` : name.replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase()));
+/**
+ * A test's name in words: "Test 2" for the file stem "02", "Empty list" for "empty_list". A name that isn't a file stem
+ * is shown as written: "returns -1 when empty" keeps its minus.
+ */
+function shownName(name: string): string {
+  if (/^\d+$/.test(name)) return `Test ${Number(name)}`;
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) return name;
+  return name.replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase());
+}
 /** An output as Results shows it: its own lines, without the final line breaks. */
 const lines = (text: string) => text.replace(/\n+$/, '');
 
