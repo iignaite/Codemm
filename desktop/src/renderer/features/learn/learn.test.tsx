@@ -22,6 +22,38 @@ describe('how deep the roadmap goes', () => {
   });
 });
 
+describe('a goal not set up yet', () => {
+  it('says so only for the goal the learner settled on, not for each half-typed word', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    await api.connect('claude');
+    renderApp({ to: 'goal' }, api);
+    await user.type(await screen.findByRole('textbox', { name: 'What do you want to learn?' }), 'Data s');
+    expect(screen.queryByText(/isn't set up yet/)).not.toBeInTheDocument();
+    expect(await screen.findByText("Data s isn't set up yet.", undefined, { timeout: 2000 })).toBeInTheDocument();
+  });
+
+  it('says nothing for a set-up track typed with punctuation', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    await api.connect('claude');
+    api.tracks = async () => [{ ref: 'react@1', name: 'React' }];
+    renderApp({ to: 'goal' }, api);
+    await user.type(await screen.findByRole('textbox', { name: 'What do you want to learn?' }), 'react?');
+    await new Promise((r) => setTimeout(r, 800));
+    expect(screen.queryByText(/isn't set up yet/)).not.toBeInTheDocument();
+  });
+
+  it('names the goal tidily, not with the punctuation typed', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    await api.connect('claude');
+    renderApp({ to: 'goal' }, api);
+    await user.type(await screen.findByRole('textbox', { name: 'What do you want to learn?' }), 'springboot?');
+    expect(await screen.findByText("Springboot isn't set up yet.", undefined, { timeout: 2000 })).toBeInTheDocument();
+  });
+});
+
 describe('fields with a limit', () => {
   it('keeps the goal and what the learner knows within their limits, and says so, so research never gets bad input', async () => {
     const user = userEvent.setup();
@@ -52,7 +84,7 @@ describe('choose journey', () => {
     renderApp({ to: 'goal' }, api);
     const goal = await screen.findByRole('textbox', { name: 'What do you want to learn?' });
     await user.type(goal, 'React');
-    expect(await screen.findByText("React isn't set up yet.")).toBeInTheDocument();
+    expect(await screen.findByText("React isn't set up yet.", undefined, { timeout: 2000 })).toBeInTheDocument();
 
     const known = screen.getByRole('textbox', { name: 'What you already know (optional)' });
     expect(known).toHaveAttribute('placeholder', 'What you already know (optional)');

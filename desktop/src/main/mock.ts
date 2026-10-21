@@ -30,6 +30,7 @@ import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type 
 import { modelChoices, modelFor } from '../shared/models';
 import { AGENT_INFO } from './connect';
 import { addTopic } from '../shared/roadmap';
+import { shownTopic } from '../shared/topic';
 
 type Docker = 'missing' | 'stopped' | 'starting' | 'windows-containers' | 'no-sandbox' | 'sandbox-checking' | 'sandbox-offline' | 'sandbox-folder' | 'ready';
 
@@ -645,7 +646,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       }
       tellJob({ ...reported(all.length), ended: true });
       roadmap = {
-        title: goal.topic,
+        // As an agent would title it: the live app shows the agent's title (§4.13).
+        title: shownTopic(goal.topic),
         goal: goal.topic,
         track: goal.topic,
         installed: tracks.some((t) => t.name === goal.topic),

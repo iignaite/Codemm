@@ -14,6 +14,17 @@ async function roadmapped(options?: MockOptions) {
   return { api, roadmap: r.roadmap! };
 }
 
+describe('mock naming', () => {
+  it('names a researched course as the live app would: a title, not the punctuation typed', async () => {
+    const api = createMock();
+    await api.connect('claude');
+    const typed = { ...goal, topic: 'springboot?' };
+    let r = await api.research(typed);
+    while (r.state === 'running') r = await api.research(typed);
+    expect(r.roadmap).toMatchObject({ title: 'Springboot', goal: 'springboot?' });
+  });
+});
+
 async function settled(api: CodemmApi, until: (c: CourseView) => boolean): Promise<CourseView> {
   for (let i = 0; i < 10; i++) {
     const c = (await api.course())!;

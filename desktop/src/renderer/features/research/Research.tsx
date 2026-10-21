@@ -10,6 +10,7 @@ import { Emm } from '../../ui/Emm';
 import { EmmFill } from '../../ui/EmmFill';
 import { fillOf, JobBar, sayStep } from '../../ui/JobBar';
 import { Panel } from '../../ui/Panel';
+import { shownTopic } from '../../../shared/topic';
 
 /** Codemm's agent researches the goal and writes a roadmap, which the learner then edits. */
 export function Research({ goal }: { goal: Goal }) {
@@ -18,6 +19,7 @@ export function Research({ goal }: { goal: Goal }) {
   const { data, error, stale, reload } = useLoad(() => api.research(goal), [goal], { settled: (r) => r.state !== 'running' });
   // What the agent is looking at, the latest first (§4.9, §4.11).
   const job = useJob((p) => p.kind === 'research', []);
+  const topic = shownTopic(goal.topic);
   const steps = job?.progress.steps ?? [];
   const count = job?.progress.count ?? 0;
 
@@ -33,11 +35,11 @@ export function Research({ goal }: { goal: Goal }) {
       <div className="page-head">
         {/* While research runs, the heading's Emm is its progress, filling as it goes (§4.11). */}
         {job ? <EmmFill value={fillOf(job.progress)} width={110} dim={Boolean(job.progress.retry)} /> : <Emm mood="think" width={110} />}
-        <h1 className="h1 a-up">Researching {goal.topic}</h1>
+        <h1 className="h1 a-up">Researching {topic}</h1>
       </div>
       {job && (
         <section className="looking" aria-label="Research progress">
-          <JobBar job={job} label={`Researching ${goal.topic}`} noLine emm={false} />
+          <JobBar job={job} label={`Researching ${topic}`} noLine emm={false} />
           {steps.length > 0 && (
             <ol aria-label="What Codemm is looking at">
               {steps.map((step, i) => (
