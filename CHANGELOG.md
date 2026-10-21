@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-beta.4
+
+- **Courses get proper names.** Your agent names the course it researches ("Spring Boot", not "springboot?"), and what you type is tidied wherever it shows. Courses you already have keep the name typed for them.
+- **Code in color everywhere.** The editor, lessons, activity statements and the tutor's replies color code by its language.
+- **Continue goes where you expect.** After a pass, Continue opens the topic's next activity, or a review that's due. Practice always opens Practice and says when its activity is still being written.
+- **Clearer words on screen.** Fixes the sidebar's "No course yet" while a roadmap is open, Markdown symbols in activity titles, progress lines that read like test results, doubled punctuation, plurals and raw test names. The agent's roadmap replies no longer look like errors.
+- **Older Windows.** When Windows is too old for Docker Desktop, Codemm offers to open Windows Update.
+- **Base images are checked first.** A track whose Docker base image doesn't exist is refused before it reaches you.
+
 ## 1.0.0-beta.3
 
 - **Works with Docker 29.** The newest Docker Desktop (Mac and Windows) leaves an empty field out of image records, which made every setup, Try it and regenerate fail with "Docker stopped". Codemm now reads Docker's records in a way that doesn't depend on that, and CI also tests against the newest Docker Engine.
