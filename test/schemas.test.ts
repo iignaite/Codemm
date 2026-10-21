@@ -77,6 +77,7 @@ describe("roadmap title", () => {
 
   it.each([
     ["an empty title", 'title: ""\n'],
+    ["a blank title", 'title: "  "\n'],
     ["a title over 60 characters", `title: "${"t".repeat(61)}"\n`],
   ])("rejects %s", (_label, line) => {
     expect(() => parseRoadmapYaml(`${line}${base}`)).toThrow(/title/);

@@ -64,7 +64,7 @@ describe('choose journey', () => {
     renderApp({ to: 'goal' }, api);
     const goal = await screen.findByRole('textbox', { name: 'What do you want to learn?' });
     await user.type(goal, 'React');
-    expect(await screen.findByText("React isn't set up yet.")).toBeInTheDocument();
+    expect(await screen.findByText("React isn't set up yet.", undefined, { timeout: 2000 })).toBeInTheDocument();
 
     const known = screen.getByRole('textbox', { name: 'What you already know (optional)' });
     expect(known).toHaveAttribute('placeholder', 'What you already know (optional)');

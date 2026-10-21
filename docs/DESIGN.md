@@ -249,7 +249,7 @@ sources:                    # optional: the roadmaps and docs the agent used, at
 ```
 
 - **First save** creates the course. Concept order in the file is the tie-break order.
-- **Title** is optional: the course's name as the learner would say it, which the desktop app shows. A course without one is named by its goal.
+- **Title** is optional: the course's name as the learner would say it, which the desktop app shows (desktop §4.13). Blank space around it is dropped. A course without one is named by its goal.
 - **Sources** are optional: at most 10, each a `title` of at most 120 characters and an https `url` with no credentials. The app shows them and opens them only in the learner's browser.
 - **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is. Proposing or installing a track that a course names but whose styles lack that course's style is refused, so a course can't be stranded; an install checks this under the track lock, which roadmap saves also take (after the course lock). `next_step` fails with "Edit the roadmap's style" if an installed track still doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
 - **Re-saving** an existing course may change `title`, `goal`, concept titles and order, add concepts, and change `requires` while staying acyclic. Edits keep concept ids, so renaming changes only the title. It may change `track` while the course has no exercises.

@@ -69,17 +69,17 @@ describe('live CodemmApi: several courses (§4.13)', () => {
     expect((await t.api.courses())[0].title).toBe('Spring Boot');
   });
 
-  it("names a course without a title by the words the learner typed, else by its goal (W-5)", async () => {
+  it("names a course the agent gave no title by its goal, never by the words typed; an older course keeps its typed name", async () => {
     const goal = 'Develop systematic thinking about React applications, from components to state';
     const t = live({ research: (_job, usual) => (usual(), (t.c.roadmap!.goal = goal), {}) });
     await t.api.connect('claude');
-    const r = await settle(() => t.api.research({ topic: 'React', known: '', depth: 'standard' }), (x) => x.state !== 'running', 'Research');
-    expect(r.roadmap).toMatchObject({ title: 'React', goal });
+    const r = await settle(() => t.api.research({ topic: 'react?', known: '', depth: 'standard' }), (x) => x.state !== 'running', 'Research');
+    expect(r.roadmap).toMatchObject({ title: goal, goal });
     await t.api.approve(r.roadmap!.concepts);
-    expect(await t.api.course()).toMatchObject({ title: 'React', goal });
-    // A course from before names, or from the terminal, is named by its goal.
-    desktopState(t.dir).update((s) => ({ ...s, names: {} }));
-    expect((await t.api.course())!.title).toBe(goal);
+    expect(await t.api.course()).toMatchObject({ title: goal, goal });
+    // A course from before titles was named by the words typed then (W-5), and keeps that name.
+    desktopState(t.dir).update((s) => ({ ...s, names: { [t.c.roadmap!.course]: 'React' } }));
+    expect((await t.api.course())!.title).toBe('React');
   });
 
   it("stalls only the course whose background job failed, and Try again restarts only that course", async () => {

@@ -192,7 +192,7 @@ export function createLive(d: LiveDeps): Live {
   };
   /** The learner's courses on a track, and `course`: they share its setup (§4.13). */
   const onTrack = (ref: string, course: string) => [...new Set([course, ...coursesOf(d.state.read()).filter((c) => trackOf(c) === ref)])];
-  /** A course's name: the agent's title, else the words the learner typed for it, else its goal (W-5). */
+  /** A course's name: the agent's title, else the words typed for a course from before titles (W-5), else its goal. */
   const nameOf = (r: CoreRoadmap) => r.title ?? d.state.read().names?.[r.course] ?? r.goal;
   /** A roadmap as shown. Its sources are agent text too, so one that quotes hidden material, or can't be checked, is dropped. */
   const roadmapShown = (r: CoreRoadmap): Roadmap => {
@@ -635,8 +635,6 @@ export function createLive(d: LiveDeps): Live {
         start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, { onSource })
           .then(async (o) => {
             if (o.ok) {
-              // A course the agent gave no title is named by what the learner typed; the agent's goal stays beside it (W-5).
-              d.state.update((s) => ({ ...s, names: { ...s.names, [course]: goal.topic } }));
               // Quitting waits for this save, like any other run (stop()).
               const saving = addReads(course, reads).catch((e: Error) => log('sources-error', errorFields(e)));
               runs.add(saving);

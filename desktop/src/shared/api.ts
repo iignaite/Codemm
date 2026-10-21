@@ -158,7 +158,7 @@ export interface Concept {
 }
 
 export interface Roadmap {
-  /** The course's name: the agent's title, else the words the learner typed for it, else the goal (W-5). */
+  /** The course's name: the agent's title, else the words typed for a course from before titles (W-5), else the goal. */
   title: string;
   /** The goal the agent wrote, shown under the name when they differ. */
   goal: string;
