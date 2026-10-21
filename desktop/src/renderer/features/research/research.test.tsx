@@ -73,7 +73,7 @@ describe('research that fails', () => {
     await screen.findByRole('heading', { name: 'Researching React' });
     failing = true;
     const panel = await screen.findByRole('alert', {}, { timeout: 3000 });
-    expect(within(panel).getByRole('heading', { name: "Codemm couldn't finish that." })).toBeInTheDocument();
+    expect(within(panel).getByRole('heading', { name: "Codemm couldn't finish the research." })).toBeInTheDocument();
     expect(panel).toHaveTextContent("You're offline. Connect to the internet, then try again.");
     // Offline isn't the agent's doing, so there's no Check your agent (#68).
     expect(within(panel).queryByRole('button', { name: 'Check your agent' })).not.toBeInTheDocument();
@@ -106,7 +106,7 @@ describe('research that fails', () => {
     };
     renderApp({ to: 'research', goal }, api);
     const panel = await screen.findByRole('alert');
-    expect(within(panel).getByRole('heading', { name: "Codemm couldn't finish that." })).toBeInTheDocument();
+    expect(within(panel).getByRole('heading', { name: "Codemm couldn't finish the research." })).toBeInTheDocument();
     expect(panel).toHaveTextContent("You're offline.");
   });
 });

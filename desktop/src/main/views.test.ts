@@ -94,6 +94,13 @@ describe('views (§2.2, D4)', () => {
     expect(JSON.stringify(view)).not.toContain('/Users/me');
   });
 
+  it("takes the activity's title as words, without the heading's inline Markdown", () => {
+    const title = (statement: string) => activityView({ course: 'c', exercise: 'e', path: '/p', style: 'io', concepts: ['c'], difficulty: 1, files: [], statement, visibleTests: [] }, {}, 'c').title;
+    expect(title('# Reverse a `list` with **care** and *style* #\n\nText.')).toBe('Reverse a list with care and style');
+    expect(title('# Sum_of_squares ##\n\nText.')).toBe('Sum_of_squares');
+    expect(title('# __Bold__ and _soft_\n\nText.')).toBe('Bold and soft');
+  });
+
   it('holds back a tutor reply that quotes hidden material verbatim', () => {
     // Core picks the hidden texts (hiddenMaterial); the filter keeps their lines of 24 characters or more.
     const material = hiddenLines(['int main() {\n  printf("the hidden canary answer %d", 42);\n  return 0;\n}\n', 'short\n', 'expected hidden output canary line']);

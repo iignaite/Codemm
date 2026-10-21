@@ -73,11 +73,11 @@ describe('course editor', () => {
     const { user } = await open();
     await user.click(screen.getByRole('button', { name: 'Move JSX' }));
     await user.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Move up' }));
-    expect(within(screen.getByRole('main')).getByRole('status')).toHaveTextContent('Needs JavaScript basics first');
+    expect(within(screen.getByRole('main')).getByRole('status')).toHaveTextContent('Needs JavaScript basics first.');
     expect(names()).toEqual(['JavaScript basics', 'JSX', 'Lists and keys', 'Forms']);
 
     await user.click(screen.getByRole('button', { name: 'Remove JavaScript basics' }));
-    expect(within(screen.getByRole('main')).getByRole('status')).toHaveTextContent('JSX needs this topic');
+    expect(within(screen.getByRole('main')).getByRole('status')).toHaveTextContent('JSX needs this topic.');
   });
 
   it('cannot approve while a topic is being renamed', async () => {
@@ -179,6 +179,20 @@ describe('course editor', () => {
     act(() => hear({ ...job, ended: true }));
     await act(async () => finish({ roadmap, changed: false, text: 'No change.' }));
     expect(screen.queryByRole('group', { name: 'Changing the roadmap' })).not.toBeInTheDocument();
+  });
+
+  it("shows Codemm's reply as a note in Markdown, and keeps the alert for a refused edit", async () => {
+    const { api, roadmap, user } = await open();
+    api.reviseRoadmap = async () => ({ roadmap, changed: false, text: 'It already covers **hooks**.' });
+    await user.type(screen.getByRole('textbox', { name: 'Ask Codemm for changes' }), 'Add hooks{Enter}');
+    const status = within(screen.getByRole('main')).getByRole('status');
+    expect(await within(status).findByText('hooks', { selector: 'strong' })).toBeInTheDocument();
+    expect(status).not.toHaveTextContent('**');
+    expect(status.querySelector('.alert')).toBeNull();
+    expect(status.querySelector('.note')).not.toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Remove JavaScript basics' }));
+    expect(status.querySelector('.alert')).toHaveTextContent('JSX needs this topic.');
+    expect(status.querySelector('.note')).toBeNull();
   });
 
   it('asks Codemm for changes', async () => {

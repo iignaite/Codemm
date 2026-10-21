@@ -19,3 +19,13 @@ describe('the page never scrolls', () => {
     expect(rule('.win')).toContain('overflow: clip');
   });
 });
+
+describe("the learner's own words", () => {
+  it('keep their line breaks and wrap a long word, in a note and in the chat', () => {
+    for (const selector of ['.my-note span', '.you']) {
+      expect(rule(selector)).toContain('white-space: pre-wrap');
+      expect(rule(selector)).toContain('overflow-wrap: anywhere');
+      expect(rule(selector)).toContain('min-width: 0');
+    }
+  });
+});

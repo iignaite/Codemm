@@ -13,6 +13,7 @@ import { stagger } from '../../ui/motion';
 import { TopicItem } from './TopicItem';
 import { ExternalLink } from '../../ui/ExternalLink';
 import { Limit } from '../../ui/Limit';
+import { Markdown } from '../../ui/Markdown';
 import { LIMITS } from '../../../shared/limits';
 
 /** Rename, reorder, add or remove topics, or ask Codemm for changes. Then approve (§4.2). */
@@ -23,7 +24,10 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
   const [sources, setSources] = useState(roadmap.sources);
   const [editing, setEditing] = useState<string>();
   const [adding, setAdding] = useState(false);
+  /** Why the learner's own edit was refused. */
   const [notice, setNotice] = useState('');
+  /** What Codemm said when it changed nothing: agent-written Markdown, not an error. */
+  const [reply, setReply] = useState('');
   const [request, setRequest] = useState('');
   const [asking, setAsking] = useState(false);
   const dragFrom = useRef<string>(undefined);
@@ -53,10 +57,12 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
       next = change(concepts);
     } catch (e) {
       setNotice((e as Error).message);
+      setReply('');
       return;
     }
     setConcepts(next);
     setNotice('');
+    setReply('');
     api.saveDraft(next).catch((err: unknown) => fail(err, { to: 'course', roadmap: { ...roadmap, concepts: next, sources } }));
   }
 
@@ -95,7 +101,8 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
       if (retitled) await api.saveDraft(next);
       setConcepts(next);
       setSources(result.roadmap.sources);
-      setNotice(result.changed ? '' : result.text || 'No change.');
+      setNotice('');
+      setReply(result.changed ? '' : result.text || 'No change.');
       setRequest('');
     } catch (err) {
       // Come back to the edited roadmap, not the one this screen opened with.
@@ -164,7 +171,15 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
       <footer className="editor-foot">
         <div className="stack editor-col" style={{ gap: 10 }}>
           {job && <JobBar job={job} label="Changing the roadmap" />}
-          <p className={working ? 'quiet-text' : 'alert'} role="status">{working ? (job ? '' : 'Updating the roadmap…') : notice}</p>
+          <div role="status">
+            {working ? (
+              !job && <p className="quiet-text">Updating the roadmap…</p>
+            ) : reply ? (
+              <div className="note"><Markdown text={reply} className="md small" /></div>
+            ) : (
+              notice && <p className="alert">{notice}</p>
+            )}
+          </div>
           <div className="editor-actions">
             <form className="composer" onSubmit={ask}>
               <Field aria-label="Ask Codemm for changes" placeholder="Ask Codemm for changes" value={request} maxLength={LIMITS.words} disabled={working} onChange={(e) => setRequest(e.target.value)} />

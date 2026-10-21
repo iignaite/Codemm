@@ -78,13 +78,22 @@ export function lessonView(l: CoreLesson): Lesson {
 /** One run of a lesson example, from core's capped output. */
 export const exampleRunView = (r: { exit: number; output: string; errors: string }): ExampleRun => ({ kind: 'ran', exit: r.exit, output: r.output, errors: r.errors });
 
+/** A heading's text as words: no code spans, emphasis or closing #s, which the title shows as plain text. */
+const plainTitle = (heading: string) =>
+  heading
+    .replace(/\s+#+\s*$/, '')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/(^|\W)[*_](\S(?:.*?\S)?)[*_](?=\W|$)/g, '$1$2')
+    .trim();
+
 /** The statement's first heading is the activity's title; the rest is its text. */
 export function activityView(ex: CoreExercise, files: Record<string, { text: string; digest: string }>, concept: string): Activity {
   const m = /^#\s+([^\n]+)\n+/.exec(ex.statement);
   return {
     id: ex.exercise,
     concept,
-    title: m ? m[1].trim() : 'Activity',
+    title: m ? plainTitle(m[1]) : 'Activity',
     statement: m ? ex.statement.slice(m[0].length) : ex.statement,
     visibleTests: ex.visibleTests.map((t) => ({ name: t.name, ...(t.input !== undefined ? { input: t.input } : {}), ...(t.expected !== undefined ? { expected: t.expected } : {}) })),
     files: ex.files.filter((p) => files[p]).map((path) => ({ path, text: files[path].text, digest: files[path].digest })),

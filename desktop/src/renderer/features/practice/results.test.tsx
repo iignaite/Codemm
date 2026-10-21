@@ -102,7 +102,7 @@ describe('Results with real core result shapes', () => {
   it('names tests by the name the exercise uses, without the set prefix', () => {
     render(<Results shown={{ kind: 'try', result: tryView(core) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
     expect(results()).not.toHaveTextContent('visible/');
-    expect(results()).toHaveTextContent('02');
+    expect(results()).toHaveTextContent('Test 2');
   });
 });
 
@@ -134,5 +134,39 @@ describe('stuck', () => {
     expect(results()).toHaveTextContent('1 of 3 passed');
     expect(results()).toHaveTextContent('expected Count: 1');
     expect(screen.getByRole('img', { name: 'Hidden test 1 not yet' })).toBeInTheDocument();
+  });
+});
+
+describe('the words', () => {
+  const all = (tests: CoreCheckView['tests']): CoreCheckView => ({ ...core, passed: tests.length, total: tests.length, tests: tests.map((t) => ({ ...t, status: 'pass' as const })) });
+
+  it('says a mastered topic once, however its title ends', () => {
+    render(<Results shown={{ kind: 'check', result: checkView(all(core.tests), { stuck: false, mastered: true, later: true }), keepTrying: false }} name="Emm" topic="What is a closure?" visibleTests={visibleTests} ways={ways} />);
+    expect(results()).toHaveTextContent('You mastered What is a closure?');
+    expect(results()).not.toHaveTextContent('? mastered');
+    expect(results()).not.toHaveTextContent('?.');
+  });
+
+  it('counts one visible test as one test', () => {
+    const view = render(<Results shown={{ kind: 'try', result: tryView(all([{ name: 'visible/01', status: 'pass' }])) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(screen.getByRole('heading', { name: '1 of 1 visible test passed' })).toBeInTheDocument();
+    view.unmount();
+    render(<Results shown={{ kind: 'try', result: tryView({ ...core, total: 2, tests: core.tests.slice(0, 2) }) }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(screen.getByRole('heading', { name: '1 of 2 visible tests passed' })).toBeInTheDocument();
+  });
+
+  it('names a numbered test by its number, and a named one in words', () => {
+    const named: CoreCheckView = { ...core, tests: [{ name: 'visible/01', status: 'pass' }, { name: 'visible/empty_list', status: 'fail', actual: '[]' }] };
+    render(<Results shown={{ kind: 'try', result: tryView(named) }} name="Emm" topic="State" visibleTests={[...visibleTests, { name: 'empty_list', input: '', expected: '[1]' }]} ways={ways} />);
+    const lines = [...results().querySelectorAll('.tline')].map((l) => l.textContent);
+    expect(lines[0]).toBe('Test 1');
+    expect(lines[1]).toMatch(/^Empty list/);
+    // The lookup still finds the test by its own name.
+    expect(lines[1]).toContain('expected [1]');
+  });
+
+  it("says why an unedited starter check wasn't counted", () => {
+    render(<Results shown={{ kind: 'check', result: checkView({ ...core, recorded: false }, { stuck: false, mastered: false, later: true }), keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(results()).toHaveTextContent("This is the starter code, so this check wasn't counted. Edit it, then check again.");
   });
 });

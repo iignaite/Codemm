@@ -47,7 +47,7 @@ export function TopicPage({ topicId }: { topicId: string }) {
         <SetupOffer course={course} onChange={reload} />
       </div>
       {/* A lesson that wasn't written says so on its own row. */}
-      {course.stalled && !(course.stalled === 'lesson' && topic?.lessons.some((l) => l.state === 'failed')) && <Stalled stalled={course.stalled} retry={reload} />}
+      {course.stalled && !(course.stalled === 'lesson' && topic?.lessons.some((l) => l.state === 'failed')) && <Stalled stalled={course.stalled} work={course.stalledWork} retry={reload} />}
       {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );
@@ -122,7 +122,7 @@ function SetupFailed({ course, topicId, onRetry }: { course: CourseView; topicId
     'docker-busy': { title: 'Docker is busy or not answering.', text: 'Wait a moment, then try again.' },
     'docker-failed': { title: "Docker couldn't run that.", text: 'Try again, and restart Docker if it happens again.' },
     'docker-disk': { title: 'Docker ran out of disk space.', text: 'Remove unused images in Docker Desktop, then try again.' },
-    gates: { title: `Couldn't set up ${course.track}`, text: 'Try again, or stop and pick something else.' },
+    gates: { title: `Couldn't set up ${course.track}.`, text: 'Try again, or stop and pick something else.' },
   }[problem];
 
   // Try again runs once: a double click starts one retry.

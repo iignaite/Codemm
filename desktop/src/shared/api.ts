@@ -240,6 +240,8 @@ export interface CourseView {
   done: boolean;
   /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
   stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'disk' | 'rebuild' | 'lesson' | 'failed' | 'unstoppable';
+  /** The background work that stalled, so its banner can name it. */
+  stalledWork?: 'setup' | 'lesson' | 'author';
 }
 
 /** One of the learner's courses, to switch to (§4.13). The id is opaque and never shown. */

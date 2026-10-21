@@ -8,6 +8,8 @@ import { Busy } from '../../ui/Busy';
 
 /** The core names visible results "visible/<name>"; the exercise names its tests "<name>". */
 export const testName = (name: string) => name.replace(/^visible\//, '');
+/** A test's name in words: "Test 2" for the file stem "02", "Empty list" for "empty_list". */
+const shownName = (name: string) => (/^\d+$/.test(name) ? `Test ${Number(name)}` : name.replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase()));
 /** An output as Results shows it: its own lines, without the final line breaks. */
 const lines = (text: string) => text.replace(/\n+$/, '');
 
@@ -98,7 +100,7 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
   if (result.kind === 'ran') {
     return (
       <>
-        <div className="rhead"><h2 className="h3">{result.passed} of {result.total} visible tests passed</h2><span className="quiet-text">Not graded</span></div>
+        <div className="rhead"><h2 className="h3">{result.passed} of {result.total} visible {result.total === 1 ? 'test' : 'tests'} passed</h2><span className="quiet-text">Not graded</span></div>
         <TestLines tests={result.tests} visibleTests={visibleTests} />
       </>
     );
@@ -109,7 +111,7 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
         <Emm mood="cheer" width={170} name={name} />
         <div className="stack loose">
           <h2 className="h2 won a-pop" style={stagger(0, 300)}>{result.passed} of {result.total} passed</h2>
-          <p className="sub a-up" style={stagger(0, 600)}>{result.mastered ? `${topic} mastered.` : sentence(`Keep practicing ${topic}`)}</p>
+          <p className="sub a-up" style={stagger(0, 600)}>{sentence(result.mastered ? `You mastered ${topic}` : `Keep practicing ${topic}`)}</p>
           <div className="a-up" style={stagger(0, 800)}><Button size="lg" onClick={ways.next}>Continue</Button></div>
         </div>
       </div>
@@ -145,7 +147,7 @@ function Failing({ result, name, visibleTests }: { result: Extract<CheckResult, 
         {/* Under the ways forward, Codemm is already there. */}
         {name && <Emm mood="think" width={56} name={name} />}
         <h2 className="h3">{result.passed} of {result.total} passed</h2>
-        {!result.recorded && <span className="quiet-text">Change the code first. This check wasn't counted.</span>}
+        {!result.recorded && <span className="quiet-text">This is the starter code, so this check wasn't counted. Edit it, then check again.</span>}
       </div>
       <TestLines tests={result.tests} visibleTests={visibleTests} />
       {hidden.length > 0 && (
@@ -189,7 +191,7 @@ function TestLines({ tests, visibleTests }: { tests: TestView[]; visibleTests: V
         return (
           <div className="tline a-up" key={t.name} style={stagger(i, 350)}>
             <Status kind={t.status === 'pass' ? 'ok' : 'fail'} />
-            {name}
+            {shownName(name)}
             {/* An error says why the program stopped; only a wrong output compares expected and found. */}
             {t.status === 'error' && t.message && (
               <span className="cmp"><span className="f why">{t.message}</span></span>

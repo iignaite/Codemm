@@ -208,7 +208,7 @@ test('failure and environment screens pass WCAG AA checks', async ({ launch }) =
     await audit(page, `check this computer, ${scenario}`);
     await app.close();
   }
-  for (const [scenario, title] of [['offline-setup', "You're offline."], ['low-disk', 'Not enough disk space.'], ['setup-gates', "Couldn't set up React"]]) {
+  for (const [scenario, title] of [['offline-setup', "You're offline."], ['low-disk', 'Not enough disk space.'], ['setup-gates', "Couldn't set up React."]]) {
     const { app, page } = await launch(scenario);
     await toRoadmap(page);
     await button(page, 'Approve').click();

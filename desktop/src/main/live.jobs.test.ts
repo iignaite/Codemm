@@ -333,7 +333,7 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     await vi.waitFor(() => expect(heard.some((p) => p.kind === 'author' && p.ended)).toBe(true), { timeout: 4000 });
     const gate = heard.find((p) => p.part?.done === 3)!;
     expect(gate).toMatchObject({ kind: 'author', stage: 2, part: { done: 3, total: 3 } });
-    expect(gate.steps[0]).toEqual({ kind: 'step', label: 'Codemm is checking that the tests catch each broken version' });
+    expect(gate.steps[0]).toEqual({ kind: 'step', label: 'Codemm is checking that the tests catch mistakes' });
     // Other jobs' servers get no gate file.
     expect(t.jobs.ran.filter((j) => j.kind !== 'author').every((j) => !j.server([]).args.includes('--progress'))).toBe(true);
   });
@@ -425,7 +425,7 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     const { proposal } = await until(t.api, (c) => c.setup === 'consent');
     await t.api.install(proposal!.digest);
     // The author writes difficulty 1 when 2 was asked for: not done, so the work stalls instead of looping.
-    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'failed' });
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'failed', stalledWork: 'author' });
     for (let i = 0; i < 3; i++) await t.api.course();
     expect(t.jobs.ran.filter((j) => j.kind === 'author')).toHaveLength(1);
   });
@@ -445,7 +445,7 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     const t = live({ lesson: () => ({ ok: false, problem: 'infra' }) });
     const r = await researched(t);
     await t.api.approve(r.roadmap!.concepts);
-    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'failed' });
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'failed', stalledWork: 'lesson' });
   });
 
   it('starts no agent at all once one could not be stopped, until Codemm quits', async () => {

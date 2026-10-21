@@ -35,7 +35,10 @@ export const fillOf = (p: JobProgress) => {
 };
 
 /** A real fraction within the stage, as words: a setup's build steps, or which exercise gate runs. */
-export const partOf = (p: JobProgress) => (p.part && p.part.total > 0 ? (p.kind === 'setup' ? `Step ${p.part.done} of ${p.part.total}` : `${p.part.done} of ${p.part.total}`) : undefined);
+export const partOf = (p: JobProgress) => (p.part && p.part.total > 0 ? `step ${p.part.done} of ${p.part.total}` : undefined);
+
+/** A line and the fraction after it, in brackets, so "…the exercise isn't solved yet (step 2 of 3)" never reads as a test count. */
+const withPart = (text: string | undefined, part: string | undefined) => (part ? (text ? `${text} (${part})` : part[0].toUpperCase() + part.slice(1)) : text);
 
 /** Ticks once a second, for the elapsed time. */
 export function useNow() {
@@ -73,7 +76,7 @@ export function JobBar({ job, label, compact = false, noLine = false, emm = true
   const stage = Math.min(p.stage, stages.length - 1);
   const elapsed = clock(p.elapsedMs + since);
   const quiet = p.thinking && p.idleMs + since >= QUIET_MS;
-  const line = p.retry ? RETRYING : [nowLine(p), partOf(p)].filter(Boolean).join(' ') || undefined;
+  const line = p.retry ? RETRYING : withPart(nowLine(p), partOf(p));
   const fill = fillOf(p);
   const dim = Boolean(p.retry) || quiet;
   const meter = (
@@ -93,7 +96,7 @@ export function JobBar({ job, label, compact = false, noLine = false, emm = true
       <div className="job compact" role="group" aria-label={label}>
         {meter}
         {/* The outline is narrow: a real fraction reads with the stage (a gate's own sentence would wrap to lines). */}
-        <span className="job-step">{p.retry ? RETRYING : (p.part && p.part.total > 0 ? `${stages[stage]} ${partOf(p)}` : (line ?? stages[stage]))}</span>
+        <span className="job-step">{p.retry ? RETRYING : (p.part && p.part.total > 0 ? withPart(stages[stage], partOf(p)) : (line ?? stages[stage]))}</span>
         <span className="job-time">{elapsed}</span>
       </div>
     );

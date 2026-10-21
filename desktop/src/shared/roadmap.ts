@@ -24,14 +24,14 @@ export function moveTopic(concepts: Concept[], id: string, to: number): Concept[
   next.splice(to, 0, moved);
   const at = (cid: string) => next.findIndex((c) => c.id === cid);
   const missing = moved.requires.find((r) => at(r) > to);
-  if (missing) throw new Error(`Needs ${title(concepts, missing)} first`);
+  if (missing) throw new Error(`Needs ${title(concepts, missing)} first.`);
   const dependent = next.find((c) => c.requires.includes(id) && at(c.id) < to);
-  if (dependent) throw new Error(`${dependent.title} needs this topic`);
+  if (dependent) throw new Error(`${dependent.title} needs this topic.`);
   return next;
 }
 
 export function removeTopic(concepts: Concept[], id: string): Concept[] {
   const dependent = concepts.find((c) => c.requires.includes(id));
-  if (dependent) throw new Error(`${dependent.title} needs this topic`);
+  if (dependent) throw new Error(`${dependent.title} needs this topic.`);
   return concepts.filter((c) => c.id !== id);
 }

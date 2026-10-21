@@ -21,12 +21,12 @@ describe('roadmap edits (§4.2)', () => {
 
   it('moves a topic, but never above one it requires', () => {
     expect(moveTopic(concepts, 'state', 0).map((c) => c.id)).toEqual(['state', 'values', 'functions']);
-    expect(() => moveTopic(concepts, 'functions', 0)).toThrow('Needs Values first');
-    expect(() => moveTopic(concepts, 'values', 1)).toThrow('Functions needs this topic');
+    expect(() => moveTopic(concepts, 'functions', 0)).toThrow('Needs Values first.');
+    expect(() => moveTopic(concepts, 'values', 1)).toThrow('Functions needs this topic.');
   });
 
   it('removes a topic, but not one another topic requires', () => {
     expect(removeTopic(concepts, 'state').map((c) => c.id)).toEqual(['values', 'functions']);
-    expect(() => removeTopic(concepts, 'values')).toThrow('Functions needs this topic');
+    expect(() => removeTopic(concepts, 'values')).toThrow('Functions needs this topic.');
   });
 });
