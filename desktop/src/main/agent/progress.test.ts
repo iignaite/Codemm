@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { jobTracker } from './progress';
+import { GATES, jobTracker } from './progress';
 
 const clock = () => {
   let t = 1000;
@@ -133,11 +133,15 @@ describe('job progress (§4.11)', () => {
     expect(t.snapshot().part).toBeUndefined();
   });
 
+  it("names the exercise gates in the learner's words, never the gates' own", () => {
+    for (const label of Object.values(GATES)) expect(label).not.toMatch(/reference|starter|broken|mutant/i);
+  });
+
   it("shows which exercise gate runs, as a step and 1 to 3 of 3, until the save's result", () => {
     const t = jobTracker('author', { id: 'job-1' });
     t.event({ type: 'tool_call', id: 'c1', name: 'codemm.save_exercise' });
     t.gate('starter');
-    expect(t.snapshot()).toMatchObject({ stage: 2, part: { done: 2, total: 3 }, steps: [{ kind: 'step', label: 'Codemm is checking that the starter fails' }], thinking: false });
+    expect(t.snapshot()).toMatchObject({ stage: 2, part: { done: 2, total: 3 }, steps: [{ kind: 'step', label: "Codemm is checking that the exercise isn't solved yet" }], thinking: false });
     t.gate('starter');
     expect(t.snapshot().count).toBe(1);
     t.event({ type: 'tool_result', id: 'c1', error: true });

@@ -33,7 +33,7 @@ export function CourseMap() {
         <Path course={course} />
       </div>
       <Aside course={course} usage={usage ?? null} />
-      {course.stalled && <Stalled stalled={course.stalled} retry={reload} />}
+      {course.stalled && <Stalled stalled={course.stalled} work={course.stalledWork} retry={reload} />}
       {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );

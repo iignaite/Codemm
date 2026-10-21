@@ -286,7 +286,7 @@ describe('topic page and setup consent', () => {
     renderApp({ to: 'topic', topicId: TOPIC }, api);
     await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
     const alert = await screen.findByRole('alert');
-    expect(within(alert).getByRole('heading', { name: "Couldn't set up React" })).toBeInTheDocument();
+    expect(within(alert).getByRole('heading', { name: "Couldn't set up React." })).toBeInTheDocument();
     await user.click(within(alert).getByRole('button', { name: 'Try again' }));
     const dialog = await screen.findByRole('dialog', { name: 'Codemm has another way to set up React.' });
     // It says why the last try failed, and declining only closes it, as on the first ask.
@@ -366,10 +366,10 @@ describe('setup actions run once (a double click)', () => {
 describe('background work that stopped', () => {
   it('says so, and starts it again', async () => {
     const user = userEvent.setup();
-    const { api } = await mockWithCourse({ stalled: 'failed' });
+    const { api } = await mockWithCourse({ stalled: 'failed', stalledWork: 'lesson' });
     renderApp({ to: 'topic', topicId: TOPIC }, api);
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent("Codemm couldn't finish that.");
+    expect(alert).toHaveTextContent("Codemm couldn't finish writing a lesson.");
     expect(within(alert).getByRole('button', { name: 'Check your agent' })).toBeInTheDocument();
     await user.click(within(alert).getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
@@ -456,10 +456,10 @@ describe('background work that stopped', () => {
 describe('stalled work beside a lesson', () => {
   it('shows the banner on the lesson page, and Try again clears it', async () => {
     const user = userEvent.setup();
-    const { api } = await mockWithCourse({ stalled: 'failed' });
+    const { api } = await mockWithCourse({ stalled: 'failed', stalledWork: 'author' });
     renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent("Codemm couldn't finish that.");
+    expect(alert).toHaveTextContent("Codemm couldn't finish writing an activity.");
     await user.click(within(alert).getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
@@ -476,7 +476,8 @@ describe('stalled work beside a lesson', () => {
     await screen.findByRole('heading', { name: 'useState', level: 1 });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     options.stalled = 'failed';
-    expect(await screen.findByRole('alert')).toHaveTextContent("Codemm couldn't finish that.");
+    options.stalledWork = 'setup';
+    expect(await screen.findByRole('alert')).toHaveTextContent("Codemm couldn't finish setting up the course.");
   });
 });
 

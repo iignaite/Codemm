@@ -134,7 +134,7 @@ describe('choose journey', () => {
     api.research = (goal) => (failed ? research(goal) : ((failed = true), Promise.resolve({ state: 'failed' as const })));
     renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent("Codemm couldn't finish that.");
+    expect(alert).toHaveTextContent("Codemm couldn't finish the research.");
     expect(within(alert).getByRole('button', { name: 'Check your agent' })).toBeInTheDocument();
     await user.click(within(alert).getByRole('button', { name: 'Try again' }));
     expect(await screen.findByRole('button', { name: 'Approve' })).toBeInTheDocument();

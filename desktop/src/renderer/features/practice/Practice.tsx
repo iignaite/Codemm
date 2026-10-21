@@ -65,7 +65,7 @@ function Waiting({ topic, course, stale, retry }: { topic: TopicView; course: Co
           <Button onClick={() => go({ to: 'topic', topicId: topic.id })}>Go to the lessons</Button>
         </div>
       </div>
-      {course.stalled && <Stalled stalled={course.stalled} retry={retry} />}
+      {course.stalled && <Stalled stalled={course.stalled} work={course.stalledWork} retry={retry} />}
       {stale !== undefined && <Stale error={stale} retry={retry} />}
     </main>
   );
@@ -83,7 +83,7 @@ function Workspace({ activity, course, focus }: { activity: Activity; course: Co
   }, []);
   const { go, fail } = useRouter();
   const [open, setOpen] = useState(activity.files[0].path);
-  const chat = useConversation({ activityId: activity.id }, 'Use what you just read.');
+  const chat = useConversation({ activityId: activity.id }, 'Ask me if you get stuck.');
   const { add } = chat;
   const onReloaded = useCallback(() => add({ from: 'codemm', text: 'This file changed outside Codemm, so it was reloaded.' }), [add]);
   const { files, edit, save } = useLearnerFiles(activity, onReloaded);

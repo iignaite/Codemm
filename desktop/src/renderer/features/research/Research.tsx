@@ -81,7 +81,7 @@ function NotFinished({ goal, error, retry }: { goal: Goal; error?: unknown; retr
           : SAY[problem];
   return (
     <main className="center">
-      <Panel art={<Emm mood="soft" width={130} />} title="Codemm couldn't finish that." text={why}>
+      <Panel art={<Emm mood="soft" width={130} />} title="Codemm couldn't finish the research." text={why}>
         {/* Offline isn't the agent's doing. */}
         {problem !== 'offline' && <Button variant="ghost" size="lg" onClick={() => go({ to: 'connect', then: { to: 'research', goal } })}>Check your agent</Button>}
         <Button size="lg" onClick={retry}>Try again</Button>

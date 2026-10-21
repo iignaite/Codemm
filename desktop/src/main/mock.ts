@@ -54,6 +54,7 @@ export interface MockOptions {
   setupProblem?: SetupProblem;
   /** Read on every call: background work stopped with this until the learner tries again or connects again. */
   stalled?: CourseView['stalled'];
+  stalledWork?: CourseView['stalledWork'];
   /** 'io': activities read input and print, so they have Run. */
   style?: 'io';
   /** Run's time limit; 120 s by default. */
@@ -120,11 +121,11 @@ const BEATS: Record<Exclude<JobKind, 'research' | 'rebuild'> | 'install', Beat[]
     { stage: 0 },
     { stage: 1, step: step('Writing the exercise') },
     { stage: 2, step: CHECKING, codemm: true },
-    gate(1, 'Codemm is checking that the reference passes'),
-    gate(2, 'Codemm is checking that the starter fails'),
+    gate(1, 'Codemm is checking that the exercise can be solved'),
+    gate(2, "Codemm is checking that the exercise isn't solved yet"),
     { stage: 1, step: step('Writing the exercise'), retry: { attempt: 2, of: 3 } },
     { stage: 2, step: CHECKING, codemm: true, retry: { attempt: 2, of: 3 } },
-    gate(3, 'Codemm is checking that the tests catch each broken version', { attempt: 2, of: 3 }),
+    gate(3, 'Codemm is checking that the tests catch mistakes', { attempt: 2, of: 3 }),
   ],
   tutor: [{ stage: 0 }, { stage: 0, step: step('Reading the activity') }],
 };
@@ -704,7 +705,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async course() {
       if (!course) return null;
       tick(course);
-      return { ...structuredClone(course), ...(options.stalled ? { stalled: options.stalled } : {}) };
+      return { ...structuredClone(course), ...(options.stalled ? { stalled: options.stalled } : {}), ...(options.stalled && options.stalledWork ? { stalledWork: options.stalledWork } : {}) };
     },
 
     async install(digest) {
@@ -726,6 +727,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async retryJobs() {
       delete options.agentProblem;
       delete options.stalled;
+      delete options.stalledWork;
     },
 
     async lesson(id) {

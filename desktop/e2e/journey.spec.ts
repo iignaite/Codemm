@@ -1037,7 +1037,7 @@ test(`journey: ${label}`, async () => {
       await step('activity-open', part === 'activity' ? continueTopic : toActivity);
       await step('try-it', async () => {
         await button('Try it').click();
-        const ran = results().getByRole('heading', { name: /visible tests passed|wasn't counted/ });
+        const ran = results().getByRole('heading', { name: /visible tests? passed|wasn't counted/ });
         await until('Try it', () => visible(ran), 10 * MIN);
         return ran.innerText();
       });

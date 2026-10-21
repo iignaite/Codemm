@@ -44,6 +44,13 @@ describe('practice', () => {
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
   });
 
+  it('opens the tutor with a line that fits any activity, a review or a repeat too', async () => {
+    await open();
+    const rail = screen.getByRole('complementary', { name: 'Codemm' });
+    expect(rail).toHaveTextContent('Ask me if you get stuck.');
+    expect(rail).not.toHaveTextContent('Use what you just read.');
+  });
+
   it('tries the visible tests without grading', async () => {
     const { user } = await open();
     await user.click(screen.getByRole('button', { name: 'Try it' }));
@@ -57,7 +64,7 @@ describe('practice', () => {
     const { user } = await open();
     await user.click(screen.getByRole('button', { name: 'Check' }));
     expect(await within(results()).findByRole('heading', { name: '2 of 4 passed' })).toBeInTheDocument();
-    expect(results()).toHaveTextContent("Change the code first. This check wasn't counted.");
+    expect(results()).toHaveTextContent("This is the starter code, so this check wasn't counted. Edit it, then check again.");
     expect(within(results()).getByRole('img', { name: 'Hidden test 1 passed' })).toBeInTheDocument();
     expect(within(results()).getByRole('img', { name: 'Hidden test 2 not yet' })).toBeInTheDocument();
     expect(results()).toHaveTextContent('graded, not shown');
@@ -68,7 +75,7 @@ describe('practice', () => {
     await write(user, 'count + 1');
     await user.click(screen.getByRole('button', { name: 'Check' }));
     expect(await within(results()).findByRole('heading', { name: '4 of 4 passed' })).toBeInTheDocument();
-    expect(results()).toHaveTextContent('JavaScript basics mastered.');
+    expect(results()).toHaveTextContent('You mastered JavaScript basics.');
     await user.click(within(results()).getByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('heading', { name: 'JSX', level: 1 })).toBeInTheDocument();
   });
@@ -463,7 +470,7 @@ describe('Continue to a review', () => {
     await write(user, 'count + 1');
     await user.click(screen.getByRole('button', { name: 'Check' }));
     expect(await within(results()).findByRole('heading', { name: '4 of 4 passed' })).toBeInTheDocument();
-    expect(results()).toHaveTextContent(`${second.title} mastered.`);
+    expect(results()).toHaveTextContent(`You mastered ${second.title}.`);
     const review = { state: 'writing' as 'writing' | 'due' };
     const real = api.course.bind(api);
     api.course = async () => {

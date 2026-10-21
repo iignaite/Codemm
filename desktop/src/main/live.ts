@@ -135,6 +135,8 @@ export function createLive(d: LiveDeps): Live {
   const stalls = new Map<string, Stall>();
   /** Per course, the concept whose lesson job's failure is the stall: its row stays, with Try again. */
   const failedLessons = new Map<string, string>();
+  /** Per course, the kind of background work whose stall it is. */
+  const stalledWork = new Map<string, NonNullable<CourseView['stalledWork']>>();
   let tutorTurnCount = 0;
   /** Set once an agent survived its cancel: no agent starts again until Codemm quits (§3.1). */
   let unstoppable = false;
@@ -387,6 +389,7 @@ export function createLive(d: LiveDeps): Live {
         if (stalls.has(c)) return;
         const lesson = kind === 'lesson' && problem === 'failed';
         stalls.set(c, lesson ? 'lesson' : stallOf(problem));
+        if (kind === 'setup' || kind === 'lesson' || kind === 'author') stalledWork.set(c, kind);
         if (lesson && concept) failedLessons.set(c, concept);
       });
     const settled = (r: JobOutcome | Error) => {
@@ -404,6 +407,7 @@ export function createLive(d: LiveDeps): Live {
     if (!course) return;
     stalls.delete(course);
     failedLessons.delete(course);
+    stalledWork.delete(course);
     schedule(course);
   }
 
@@ -691,7 +695,8 @@ export function createLive(d: LiveDeps): Live {
       const stalled = stalls.get(roadmap.course);
       const failed = stalled === 'lesson' ? failedLessons.get(roadmap.course) : undefined;
       const view: CourseView = { title: nameOf(roadmap), ...courseView(progress, core.listLessons(ws, roadmap.course), state, jobs, undefined, failed) };
-      return stalled ? { ...view, stalled } : view;
+      const work = stalledWork.get(roadmap.course);
+      return stalled ? { ...view, stalled, ...(work ? { stalledWork: work } : {}) } : view;
     },
 
     async courses() {

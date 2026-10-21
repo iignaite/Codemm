@@ -11,8 +11,8 @@ import { JOBS, SAVE_BOUND } from './jobs';
 const SAVES: Partial<Record<JobKind, string>> = { research: 'save_roadmap', roadmap: 'save_roadmap', lesson: 'save_lesson', author: 'save_exercise' };
 const KEPT = 8;
 
-/** The exercise gates (core §6), in the order they run, as Codemm checks them. */
-export const GATES = { reference: 'Codemm is checking that the reference passes', starter: 'Codemm is checking that the starter fails', mutants: 'Codemm is checking that the tests catch each broken version' } as const;
+/** The exercise gates (core §6), in the order they run, in the learner's words: the gates' own names mean nothing to them. */
+export const GATES = { reference: 'Codemm is checking that the exercise can be solved', starter: "Codemm is checking that the exercise isn't solved yet", mutants: 'Codemm is checking that the tests catch mistakes' } as const;
 export type Gate = keyof typeof GATES;
 
 export interface TrackerOptions {

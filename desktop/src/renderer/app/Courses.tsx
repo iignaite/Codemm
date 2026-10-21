@@ -21,7 +21,9 @@ export function Courses({ slim = false }: { slim?: boolean }) {
   const { route, go, fail } = useRouter();
   const { data: courses } = useLoad(() => api.courses(), [route]);
   if (!courses) return null;
-  if (courses.length === 0) return slim ? null : <div className="pick none">No course yet</div>;
+  // The first course's research or roadmap is on screen: it isn't a course yet, but "No course yet" would deny it.
+  const drafting = route.to === 'research' || route.to === 'course';
+  if (courses.length === 0 && (slim || !drafting)) return slim ? null : <div className="pick none">No course yet</div>;
 
   async function open(course: CourseSummary) {
     try {

@@ -190,6 +190,17 @@ describe('courses (§4.13)', () => {
     expect(within(sidebar()).getByRole('button', { name: 'New course' })).toBeInTheDocument();
   });
 
+  it("doesn't say there is no course while the first one's roadmap or research is open, and offers New course", async () => {
+    const { api, roadmap } = await mockWithRoadmap();
+    const view = renderApp({ to: 'course', roadmap }, api);
+    expect(await within(sidebar()).findByRole('button', { name: 'New course' })).toBeInTheDocument();
+    expect(within(sidebar()).queryByText('No course yet')).not.toBeInTheDocument();
+    view.unmount();
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    expect(await within(sidebar()).findByRole('button', { name: 'New course' })).toBeInTheDocument();
+    expect(within(sidebar()).queryByText('No course yet')).not.toBeInTheDocument();
+  });
+
   it("marks a course's badge with its title's first character, capitalized when that stays one letter, and an emoji whole", async () => {
     narrowWindow();
     try {

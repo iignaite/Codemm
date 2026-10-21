@@ -18,9 +18,12 @@ const STALL = {
   lesson: "Codemm couldn't write this lesson.",
 };
 const named = (stalled: string): stalled is keyof typeof STALL => stalled in STALL;
+/** The work that stopped, by its kind, so the banner never says "that" with nothing on screen to point at. */
+const WORK = { setup: 'setting up the course', lesson: 'writing a lesson', author: 'writing an activity' };
+const unfinished = (work: CourseView['stalledWork']) => `Codemm couldn't finish ${work ? WORK[work] : "the course's next step"}.`;
 
 /** Background work stopped after its retry, and nothing was recorded (§5). A sign-out goes to connect instead. */
-export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['stalled']>; retry: () => void }) {
+export function Stalled({ stalled, work, retry }: { stalled: NonNullable<CourseView['stalled']>; work?: CourseView['stalledWork']; retry: () => void }) {
   const api = useApi();
   const { route, go, fail } = useRouter();
   // Try again runs once: a double click starts the work once.
@@ -42,7 +45,7 @@ export function Stalled({ stalled, retry }: { stalled: NonNullable<CourseView['s
 
   return (
     <div className="failed" role="alert">
-      {stalled === 'failed' ? "Codemm couldn't finish that." : named(stalled) ? STALL[stalled] : SAY[stalled]}
+      {stalled === 'failed' ? unfinished(work) : named(stalled) ? STALL[stalled] : SAY[stalled]}
       {stalled === 'failed' && <Button variant="text" onClick={() => go({ to: 'connect', then: route })}>Check your agent</Button>}
       {(stalled === 'docker' || stalled === 'docker-failed') && <Button variant="text" onClick={() => go({ to: 'computer', then: route })}>Check this computer</Button>}
       {stalled === 'rebuild' && <Button variant="text" onClick={() => go({ to: 'tracks' })}>Go to Tracks</Button>}
