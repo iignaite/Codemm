@@ -190,17 +190,21 @@ describe('courses (§4.13)', () => {
     expect(within(sidebar()).getByRole('button', { name: 'New course' })).toBeInTheDocument();
   });
 
-  it("marks a course's badge with its title's first letter, capitalized, and an emoji whole", async () => {
+  it("marks a course's badge with its title's first character, capitalized when that stays one letter, and an emoji whole", async () => {
     narrowWindow();
     try {
       const api = await twoCourses();
       api.courses = async () => [
         { id: 'a', title: 'springboot?', goal: 'A', track: 'a', current: true },
-        { id: 'b', title: '🌱 Gardens', goal: 'B', track: 'b', current: false },
+        { id: 'b', title: '🇵🇭 Cooking', goal: 'B', track: 'b', current: false },
+        { id: 'c', title: '👩‍💻 Code', goal: 'C', track: 'c', current: false },
+        { id: 'd', title: 'ßtraße', goal: 'D', track: 'd', current: false },
       ];
       renderApp({ to: 'tracks' }, api);
       expect(await within(sidebar()).findByRole('button', { name: 'springboot?' })).toHaveTextContent(/^S$/);
-      expect(within(sidebar()).getByRole('button', { name: '🌱 Gardens' })).toHaveTextContent(/^🌱$/);
+      expect(within(sidebar()).getByRole('button', { name: '🇵🇭 Cooking' })).toHaveTextContent(/^🇵🇭$/u);
+      expect(within(sidebar()).getByRole('button', { name: '👩‍💻 Code' })).toHaveTextContent(/^👩‍💻$/u);
+      expect(within(sidebar()).getByRole('button', { name: 'ßtraße' })).toHaveTextContent(/^ß$/);
     } finally {
       vi.unstubAllGlobals();
     }

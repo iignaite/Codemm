@@ -10,6 +10,8 @@ describe('a typed goal as shown while research runs', () => {
     ['éclair', 'Éclair'],
     ['🌱 gardens', '🌱 gardens'],
     ['???', '???'],
+    ['iOS dev', 'iOS dev'],
+    ['jQuery?', 'jQuery'],
   ])('shows %j as %j', (typed, shown) => {
     expect(shownTopic(typed)).toBe(shown);
   });

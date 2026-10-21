@@ -77,8 +77,10 @@ describe('live CodemmApi: several courses (§4.13)', () => {
     expect(r.roadmap).toMatchObject({ title: goal, goal });
     await t.api.approve(r.roadmap!.concepts);
     expect(await t.api.course()).toMatchObject({ title: goal, goal });
-    // A course from before titles was named by the words typed then (W-5), and keeps that name.
+    // A course from before titles was named by the words typed then (W-5), and keeps that name, even once a change adds a title.
     desktopState(t.dir).update((s) => ({ ...s, names: { [t.c.roadmap!.course]: 'React' } }));
+    expect((await t.api.course())!.title).toBe('React');
+    t.c.roadmap = { ...t.c.roadmap!, title: 'React apps' };
     expect((await t.api.course())!.title).toBe('React');
   });
 

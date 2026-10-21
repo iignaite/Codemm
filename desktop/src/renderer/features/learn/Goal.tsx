@@ -10,7 +10,7 @@ import { stagger } from '../../ui/motion';
 import { Banner } from '../../ui/Banner';
 import { Limit } from '../../ui/Limit';
 import { LIMITS } from '../../../shared/limits';
-import { shownTopic } from '../../ui/topic';
+import { shownTopic } from '../../../shared/topic';
 
 /** How long typing pauses before the goal counts as settled, so the notice never names half a word. */
 const SETTLE_MS = 600;
@@ -37,7 +37,8 @@ export function Goal() {
     const timer = setTimeout(() => setSettled(goal), SETTLE_MS);
     return () => clearTimeout(timer);
   }, [goal]);
-  const isNew = goal !== '' && goal === settled && tracks !== undefined && !tracks.some((t) => t.name.toLowerCase() === goal.toLowerCase());
+  const shown = shownTopic(goal);
+  const isNew = goal !== '' && goal === settled && tracks !== undefined && !tracks.some((t) => t.name.toLowerCase() === shown.toLowerCase());
 
   function start(e: FormEvent) {
     e.preventDefault();
@@ -70,7 +71,7 @@ export function Goal() {
           </Banner>
         )}
         {isNew && (
-          <Banner art={<Emm mood="look" width={56} />}><b>{shownTopic(goal)} isn't set up yet.</b> Codemm will set it up.</Banner>
+          <Banner art={<Emm mood="look" width={56} />}><b>{shown} isn't set up yet.</b> Codemm will set it up.</Banner>
         )}
       </form>
     </main>

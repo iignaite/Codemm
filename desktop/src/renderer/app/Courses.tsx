@@ -8,6 +8,14 @@ import { cacheFor, lessonCache } from './cache';
 import { useRouter } from './router';
 import { useLoad } from './useLoad';
 
+/** A badge's character: the title's first one as the eye sees it (a flag or a joined emoji whole), capitalized when that stays one letter ("ß" doesn't). */
+function initialOf(title: string): string {
+  const [first] = new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(title);
+  const char = first?.segment ?? '';
+  const upper = char.toUpperCase();
+  return upper.length === char.length ? upper : char;
+}
+
 export function Courses({ slim = false }: { slim?: boolean }) {
   const api = useApi();
   const { route, go, fail } = useRouter();
@@ -31,7 +39,7 @@ export function Courses({ slim = false }: { slim?: boolean }) {
 
   // Two courses researched with the same words are told apart by their goals.
   const name = (c: CourseSummary) => (courses.some((o) => o !== c && o.title === c.title) ? c.goal : c.title);
-  const badge = (c: CourseSummary) => <span className="badge" style={{ background: hueColor(c.track) }} aria-hidden="true">{[...c.title][0]?.toUpperCase()}</span>;
+  const badge = (c: CourseSummary) => <span className="badge" style={{ background: hueColor(c.track) }} aria-hidden="true">{initialOf(c.title)}</span>;
   return (
     <div className={slim ? 'courses slim-courses' : 'courses'}>
       {courses.map((c) => (

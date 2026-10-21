@@ -33,6 +33,17 @@ describe('a goal not set up yet', () => {
     expect(await screen.findByText("Data s isn't set up yet.", undefined, { timeout: 2000 })).toBeInTheDocument();
   });
 
+  it('says nothing for a set-up track typed with punctuation', async () => {
+    const user = userEvent.setup();
+    const api = createMock();
+    await api.connect('claude');
+    api.tracks = async () => [{ ref: 'react@1', name: 'React' }];
+    renderApp({ to: 'goal' }, api);
+    await user.type(await screen.findByRole('textbox', { name: 'What do you want to learn?' }), 'react?');
+    await new Promise((r) => setTimeout(r, 800));
+    expect(screen.queryByText(/isn't set up yet/)).not.toBeInTheDocument();
+  });
+
   it('names the goal tidily, not with the punctuation typed', async () => {
     const user = userEvent.setup();
     const api = createMock();

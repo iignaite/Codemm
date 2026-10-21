@@ -10,7 +10,7 @@ import { Emm } from '../../ui/Emm';
 import { EmmFill } from '../../ui/EmmFill';
 import { fillOf, JobBar, sayStep } from '../../ui/JobBar';
 import { Panel } from '../../ui/Panel';
-import { shownTopic } from '../../ui/topic';
+import { shownTopic } from '../../../shared/topic';
 
 /** Codemm's agent researches the goal and writes a roadmap, which the learner then edits. */
 export function Research({ goal }: { goal: Goal }) {

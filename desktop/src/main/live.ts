@@ -192,8 +192,8 @@ export function createLive(d: LiveDeps): Live {
   };
   /** The learner's courses on a track, and `course`: they share its setup (§4.13). */
   const onTrack = (ref: string, course: string) => [...new Set([course, ...coursesOf(d.state.read()).filter((c) => trackOf(c) === ref)])];
-  /** A course's name: the agent's title, else the words typed for a course from before titles (W-5), else its goal. */
-  const nameOf = (r: CoreRoadmap) => r.title ?? d.state.read().names?.[r.course] ?? r.goal;
+  /** A course's name: the words typed for a course from before titles (W-5), kept as it was, else the agent's title, else its goal. */
+  const nameOf = (r: CoreRoadmap) => d.state.read().names?.[r.course] ?? r.title ?? r.goal;
   /** A roadmap as shown. Its sources are agent text too, so one that quotes hidden material, or can't be checked, is dropped. */
   const roadmapShown = (r: CoreRoadmap): Roadmap => {
     const view = roadmapView(r, installed(r.track), nameOf(r));

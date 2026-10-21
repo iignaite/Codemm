@@ -6,7 +6,7 @@ import { JOB_STAGES } from '../../shared/progress';
 import { EmmFill } from '../ui/EmmFill';
 import { fillOf, QUIET_MS, RETRYING, useNow } from '../ui/JobBar';
 import { useShownJobs } from '../ui/shownJobs';
-import { shownTopic } from '../ui/topic';
+import { shownTopic } from '../../shared/topic';
 import { useApi } from './api';
 import { useRouter, type Route } from './router';
 import { useJobs, type HeardJob } from './useJob';
