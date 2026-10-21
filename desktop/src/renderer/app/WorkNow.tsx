@@ -6,6 +6,7 @@ import { JOB_STAGES } from '../../shared/progress';
 import { EmmFill } from '../ui/EmmFill';
 import { fillOf, QUIET_MS, RETRYING, useNow } from '../ui/JobBar';
 import { useShownJobs } from '../ui/shownJobs';
+import { shownTopic } from '../../shared/topic';
 import { useApi } from './api';
 import { useRouter, type Route } from './router';
 import { useJobs, type HeardJob } from './useJob';
@@ -20,7 +21,7 @@ function whatOf(p: JobProgress, course: Course): string {
   const topic = course?.topics.find((t) => t.id === p.concept)?.title;
   switch (p.kind) {
     case 'research':
-      return researching ? `Researching ${researching.topic}` : 'Researching';
+      return researching ? `Researching ${shownTopic(researching.topic)}` : 'Researching';
     case 'roadmap':
       return 'Changing the roadmap';
     case 'setup':

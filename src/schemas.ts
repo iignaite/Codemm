@@ -79,6 +79,8 @@ const Source = z.object({ title: z.string().min(1).max(120), url: httpsUrl }).st
 
 const RoadmapYaml = z
   .object({
+    /** The course's name as the learner would say it (optional: a course without one is named by its goal). */
+    title: z.string().trim().min(1).max(60).optional(),
     goal: z.string().min(1).max(500),
     track: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}@[1-9][0-9]{0,8}$/, "track must be pinned as id@version"),
     style: Style,

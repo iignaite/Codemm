@@ -6,6 +6,13 @@ import { createMock } from '../../../main/mock';
 import { renderApp } from '../../test-utils';
 
 describe('research progress', () => {
+  it('names the goal tidily, not with the punctuation typed', async () => {
+    const api = createMock();
+    api.research = async () => ({ state: 'running' });
+    renderApp({ to: 'research', goal: { topic: ' springboot? ', known: '', depth: 'standard' } }, api);
+    expect(await screen.findByRole('heading', { name: 'Researching Springboot' })).toBeInTheDocument();
+  });
+
   it('lists what research is looking at, the latest first, with a step count', async () => {
     const api = createMock();
     let hear: (p: JobProgress) => void = () => undefined;

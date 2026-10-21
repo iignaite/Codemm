@@ -95,8 +95,9 @@ export function createServer(ws: string, version: string, { course, tools, deskt
     "save_roadmap",
     {
       description:
-        "Create or update the course roadmap and make it active in this workspace. YAML with goal, track (id@version, installed or not yet), style (io|unit) " +
-        "and concepts [{id, title, requires}]. Keep concept ids stable when you edit it.",
+        "Create or update the course roadmap and make it active in this workspace. YAML with title (the course's name in a few plain words, " +
+        "at most 60 characters), goal, track (id@version, installed or not yet), style (io|unit) and concepts [{id, title, requires}]. " +
+        "Keep concept ids stable when you edit it.",
       inputSchema: { course: z.string().describe("Course id, e.g. c-pointers"), roadmap: z.string().describe("Roadmap YAML") },
     },
     ({ course: c, roadmap }) => respond(() => app.saveRoadmap(ws, c, roadmap, course)),
@@ -104,7 +105,7 @@ export function createServer(ws: string, version: string, { course, tools, deskt
 
   if (want("get_roadmap")) server.registerTool(
     "get_roadmap",
-    { description: "The course roadmap: goal, track, style and concepts with their prerequisites, and the track's contract once it's set up." },
+    { description: "The course roadmap: title, goal, track, style and concepts with their prerequisites, and the track's contract once it's set up." },
     () => respond(() => app.getRoadmap(ws, course, true)),
   );
 

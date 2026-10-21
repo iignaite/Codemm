@@ -56,7 +56,7 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
 
 /** With `withContract`, an installed track's contract too (as next_step's author step has it), for lesson examples. */
 export function getRoadmap(ws: string, bound?: string, withContract = false) {
-  const { course, goal, track, style, concepts, sources } = activeCourse(ws, bound);
+  const { course, title, goal, track, style, concepts, sources } = activeCourse(ws, bound);
   const installed = withContract ? store.readTrack(track) : undefined;
-  return { course, goal, track, style, concepts, ...(sources ? { sources } : {}), ...(installed ? { contract: trackContract(installed, style) } : {}) };
+  return { course, ...(title ? { title } : {}), goal, track, style, concepts, ...(sources ? { sources } : {}), ...(installed ? { contract: trackContract(installed, style) } : {}) };
 }

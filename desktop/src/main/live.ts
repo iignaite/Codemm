@@ -194,8 +194,8 @@ export function createLive(d: LiveDeps): Live {
   };
   /** The learner's courses on a track, and `course`: they share its setup (§4.13). */
   const onTrack = (ref: string, course: string) => [...new Set([course, ...coursesOf(d.state.read()).filter((c) => trackOf(c) === ref)])];
-  /** A course's name: the words the learner typed for it, or its goal (W-5). */
-  const nameOf = (r: { course: string; goal: string }) => d.state.read().names?.[r.course] ?? r.goal;
+  /** A course's name: the words typed for a course from before titles (W-5), kept as it was, else the agent's title, else its goal. */
+  const nameOf = (r: CoreRoadmap) => d.state.read().names?.[r.course] ?? r.title ?? r.goal;
   /** A roadmap as shown. Its sources are agent text too, so one that quotes hidden material, or can't be checked, is dropped. */
   const roadmapShown = (r: CoreRoadmap): Roadmap => {
     const view = roadmapView(r, installed(r.track), nameOf(r));
@@ -235,8 +235,9 @@ export function createLive(d: LiveDeps): Live {
   /** Saves the learner's edits to the active roadmap (the draft, if there is one) through core's roadmap rules (§4.2). JSON is YAML. */
   async function saveConcepts(concepts: Concept[]) {
     const current = core.getRoadmap(ws);
-    const { goal, track, style, sources } = current;
-    await core.saveRoadmap(ws, current.course, JSON.stringify({ goal, track, style, concepts, ...(sources ? { sources } : {}) }), current.course);
+    const { title, goal, track, style, sources } = current;
+    // JSON leaves out a title that is undefined.
+    await core.saveRoadmap(ws, current.course, JSON.stringify({ title, goal, track, style, concepts, ...(sources ? { sources } : {}) }), current.course);
   }
 
   // Every job's progress goes to whoever listens (main sends it to the app window): stages, steps and time (§4.11).
@@ -547,8 +548,8 @@ export function createLive(d: LiveDeps): Live {
     const sources = [...(r.sources ?? [])];
     for (const read of reads) if (!sources.some((s) => s.url === read.url)) sources.push(read);
     if (sources.length === (r.sources ?? []).length) return;
-    const { goal, track, style, concepts } = r;
-    await core.saveRoadmap(ws, course, JSON.stringify({ goal, track, style, concepts, sources: sources.slice(0, 10) }), course);
+    const { title, goal, track, style, concepts } = r;
+    await core.saveRoadmap(ws, course, JSON.stringify({ title, goal, track, style, concepts, sources: sources.slice(0, 10) }), course);
   }
 
   const api: Live = {
@@ -638,8 +639,6 @@ export function createLive(d: LiveDeps): Live {
         start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, { onSource })
           .then(async (o) => {
             if (o.ok) {
-              // The course is named by what the learner typed; the agent's goal stays beside it (W-5).
-              d.state.update((s) => ({ ...s, names: { ...s.names, [course]: goal.topic } }));
               // Quitting waits for this save, like any other run (stop()).
               const saving = addReads(course, reads).catch((e: Error) => log('sources-error', errorFields(e)));
               runs.add(saving);

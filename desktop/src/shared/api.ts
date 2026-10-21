@@ -158,7 +158,7 @@ export interface Concept {
 }
 
 export interface Roadmap {
-  /** The course's name: the words the learner typed for it, or the goal for a course without them (W-5). */
+  /** The course's name: the words typed for a course from before titles (W-5), else the agent's title, else the goal. */
   title: string;
   /** The goal the agent wrote, shown under the name when they differ. */
   goal: string;
@@ -229,7 +229,7 @@ export interface TopicView {
 }
 
 export interface CourseView {
-  /** The course's name, the words the learner typed (W-5): the map's heading, with the goal under it when they differ. */
+  /** The course's name (as Roadmap's): the map's heading, with the goal under it when they differ. */
   title: string;
   goal: string;
   track: string;
