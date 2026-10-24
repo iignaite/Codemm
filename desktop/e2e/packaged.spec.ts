@@ -18,7 +18,8 @@ test.skip(!exe || !resources, 'set CODEMM_PACKAGED and CODEMM_RESOURCES to a pac
 test('packaged: welcome, bundled MCP server and a JavaScript agent, with no Node on PATH', async () => {
   const home = tempDir('codemm-home-');
   const ws = tempDir('codemm-ws-');
-  const env = { ...process.env, PATH: fakeAgent(), CODEMM_HOME: home } as Record<string, string>;
+  // CODEMM_TEST_FIXED_PATH: on Windows, the registry's PATH (Node, npm, Git on a runner) is never merged into this one.
+  const env = { ...process.env, PATH: fakeAgent(), CODEMM_HOME: home, CODEMM_TEST_FIXED_PATH: '1' } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
 
   const out = await callTool({ command: exe!, args: [join(resources!, 'core', 'dist', 'cli.mjs'), 'mcp', '--workspace', ws, '--tools', 'list_tracks', '--desktop'], env: { ...env, PATH: '', ELECTRON_RUN_AS_NODE: '1' } }, 'list_tracks');

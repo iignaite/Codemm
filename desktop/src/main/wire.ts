@@ -9,6 +9,7 @@ import { AGENT_CLIS } from './agent/agents';
 import { ask } from './agent/bridge';
 import { signedInOf } from './agent/signedIn';
 import { find, withDockerFolders } from './agent/find';
+import { livePath, nodeRun } from './agent/livePath';
 import { computerCheck, waitWhileStarting } from './computer';
 import { agentInstaller, nodeAgentDeps } from './agentInstall';
 import { connector } from './connect';
@@ -95,6 +96,9 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     dockerReady: () => waitWhileStarting(computer, () => new Promise((r) => setTimeout(r, 3000))),
     docker: desktop,
     server: codemmServer({ runtime, coreDir, ws, env: process.env }),
+    // On Windows, what installers added to the registry's PATH since Codemm started (§3.1): agents, and Docker for
+    // Check this computer and core's docker calls, rely on it. A steady clock: one set back would hold off the next read.
+    livePath: livePath({ platform: process.platform, env: process.env, run: nodeRun, now: () => performance.now() }),
   });
 }
 
