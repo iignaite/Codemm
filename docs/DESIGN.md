@@ -1,6 +1,6 @@
-# Codemm 1.0 design
+# Codemm design
 
-Status: revised after two Astra design reviews (§13). The longer illustrated design, with research sources and the competitor survey, is the "Codemm Harness" design doc (v0.4, 17 Oct 2026). This file is the authoritative spec for the core that 1.0 ships. The desktop app that bundles it, and the core features the app needs, are specified in [desktop/DESIGN.md](desktop/DESIGN.md).
+Status: 1.0 as revised after two Astra design reviews (§13), plus the 1.1 scope in §2, which is specified and not built yet. The longer illustrated design, with research sources and the competitor survey, is the "Codemm Harness" design doc (v0.4, 17 Oct 2026). This file is the authoritative spec for the core that 1.0 ships. The desktop app that bundles it, and the core features the app needs, are specified in [desktop/DESIGN.md](desktop/DESIGN.md).
 
 ## 1. What Codemm is
 
@@ -14,9 +14,9 @@ Codemm runs the sandbox, checks each piece with deterministic gates, grades the 
 
 **What the gates guarantee:** each exercise is internally consistent and its hidden tests can tell the reference from plausible wrong answers. They do **not** prove that the statement matches the tests. A wrong reference with matching tests passes. Statement quality is the learner's and reviewer's call; an automated independent-solve check is deferred.
 
-## 2. 1.0 scope
+## 2. Scope
 
-### Release requirements (acceptance criteria)
+### 1.0 release requirements (acceptance criteria)
 
 Each item is verified by an automated test unless marked *journey*. Journeys run with real agents before the merge, and their evidence goes in the release notes.
 
@@ -47,7 +47,28 @@ Each item is verified by an automated test unless marked *journey*. Journeys run
 
 The desktop app, the private beta and the minimum model per agent are in scope for 1.0 ([desktop/DESIGN.md](desktop/DESIGN.md), [beta-plan.md](desktop/beta-plan.md)). The minimum models come from a small bench of the terminal flow ([bench/results.md](bench/results.md)); the desktop's per-job flow isn't benchmarked yet.
 
-### Deferred (not needed for 1.0)
+### 1.1 scope: several activities per topic, and plain practice
+
+A topic already gets several activities in core: each perfect first try raises its difficulty, and `next_step` asks for a new activity until about four perfect activities master it (§7). What 1.1 fixes is the wait and the view around that:
+
+- **Activity ahead.** The next activity of a topic is written while the learner works on the current one, so a pass doesn't end in a wait. Core says what "next" is; the app only follows it.
+- **The series.** The app shows which activity of a topic the learner is on, and past ones can be reopened (desktop §4.15).
+- **More practice.** On any topic the learner has reached, mastered ones included, the learner can ask for one more activity at the topic's current difficulty.
+- **I know this.** The learner can open a topic's activity without reading its lessons. The lessons stay.
+
+Core still picks every author target: the app asks core for a target by name (`ahead`, `more`) and never builds one itself.
+
+Each item is verified by an automated test. B1 to B5 are core; B6 to B11 are the desktop's, in [desktop/DESIGN.md](desktop/DESIGN.md) §9.
+
+| # | Requirement |
+|---|---|
+| B1 | **Ahead.** A `practice` step whose `lesson` field is absent carries `ahead: { difficulty }` when the next step, computed on the same log plus a perfect check of the step's exercise at the same time, is an `author` step for the same concept without `review`. `difficulty` is that step's. Otherwise the step has no `ahead`. Tests: a topic's first activity at difficulty 1 gives 2; after a failed check of it, 1; at difficulty 3, 3; an assisted exercise gives its current difficulty; none when the concept already has another exercise at that difficulty without a perfect check, when the pass would master the concept, or while a lesson is unread. |
+| B2 | **Targets on request.** `next_step` takes an optional `ahead: true` or `more: <concept>`, never both. With `ahead`, a `practice` step that has `ahead` comes back as the `author` step for its concept at that difficulty, with every field an author step has (`title`, `style`, `track`, `contract`, `earlier`, `lesson`); any other step comes back unchanged. With `more`, the concept must be in the roadmap and reached (mastered, or every prerequisite mastered), or the call fails saying which; the result is `practice` for the earliest exercise of that concept at its current difficulty the learner has never checked, or else `author` for the concept at that difficulty. Both give `setup` while the track isn't installed, record nothing, and carry nothing hidden (a canary test). |
+| B3 | **Unlock ("I know this").** `app.unlockActivity(ws, concept, bound?)` appends `{ kind: "unlock", at, concept }` under the course lock the first time (a second call records nothing) and refuses a concept that isn't in the roadmap. After it, `practice` and `author` steps for that concept carry no `lesson` field, even for lessons saved later. Replaying a log gives the same mastery, difficulty, streaks, deferrals and reviews with or without its `unlock` events. Loaders accept the event at `format_version` 1. |
+| B4 | **Exercise status.** `app.listExercises` gives each exercise `checked` (the log has a check of it) and `passed` (the log has a perfect check of it). |
+| B5 | **Author brief and tools.** The author brief (`JOB_BRIEFS.author` and the terminal author file) says to call `next_step` with the request the brief gives, if any, to write only for an `author` step, and to end without saving otherwise. The packed stdio test (A10) calls `next_step` with `ahead` and with `more`. The tool list doesn't change. |
+
+### Deferred
 
 - The full cross-host model bench, including the desktop's per-job flow.
 - Independent-solve gate, placement quiz, per-test concept tags.
@@ -55,6 +76,9 @@ The desktop app, the private beta and the minimum model per agent are in scope f
 - Multi-container tracks, course sharing, watch mode.
 - For heavy tests: per-exercise time limits (the track's `time_ms` applies to every exercise), running a check's test sets in parallel, a runner that stays warm across io cases (each case starts `run` afresh), and a unit `build` step timed apart from `test`.
 - Publishing to npm. GitHub releases are built as drafts, and only the owner publishes them.
+- **A practice-only course** (a roadmap with no lessons). More practice and I know this (1.1) may already cover a learner who only wants to practise; wait to see before adding a course kind.
+- **Writing the next topic's first activity ahead.** An exercise pins its concept in the roadmap (§5), so it would block removing a topic the learner hasn't reached, and the next topic's lessons already give its author job time.
+- **I know this in the terminal** (an `unlock` tool or CLI command), and a terminal tutor that authors ahead. The app needs neither from the agent.
 
 ## 3. Files and ids
 
@@ -66,7 +90,7 @@ $CODEMM_HOME (default ~/.codemm)
     course.json                     { format_version, title?, goal, track, style, concepts }
     exercises/<slug>/               full exercise + exercise.json (inventory, expected io outputs)
     lessons/<id>/                   lesson.json, lesson.md (never changed after saving), notes.md (the learner's)
-    events.jsonl                    append-only learner events (check, skip, assist, retry, read)
+    events.jsonl                    append-only learner events (check, skip, assist, retry, read, unlock)
     .lock                           held while mutating this course
 
 <workspace>/                        --workspace if given; otherwise learner commands use the nearest folder with
@@ -318,13 +342,14 @@ Gates 4 to 7 only ask whether everything passes, so their io runs stop a set at 
 
 ## 7. Learner model
 
-`events.jsonl` is the only learner state. It holds `check`, `skip`, `assist`, `retry` and `read` events, and everything below is recomputed by replaying them in order.
+`events.jsonl` is the only learner state. It holds `check`, `skip`, `assist`, `retry`, `read` and `unlock` events, and everything below is recomputed by replaying them in order.
 
 - **`check` event:** `{ kind: "check", at, exercise, concepts, difficulty, passed, total, assisted }`. It is recorded only when grading completed. Infrastructure failures record nothing: no container runtime, a missing image, or a host-side kill of the whole check. Learner-caused outcomes are graded, as `error`: build failures, timeouts and output floods. A check whose learner files are byte-identical to the starter is graded and shown but no `check` event is recorded (`recorded: false`): it isn't an attempt, so it can't count toward the fail streak, lower mastery or take the first try. Assistance and the current exercise are still updated as for any check.
 - **`skip` event:** `{ kind: "skip", at, concept }`. "Come back later": it defers the concept until its next `check` and never changes mastery, so it never satisfies a prerequisite or finishes a course.
 - **`retry` event:** `{ kind: "retry", at, concept }`. It resets the concept's fail streak, so a stuck concept isn't stuck, and leaves mastery and difficulty unchanged (§5).
 - **`read` event:** `{ kind: "read", at, lesson, concept }`. The learner acknowledged a lesson. It never changes mastery.
 - **`assist` event:** `{ kind: "assist", at, exercise }`. It marks that exercise as assisted for good, in every workspace.
+- **`unlock` event:** `{ kind: "unlock", at, concept }`. The learner said "I know this": the concept's activity opens without its lessons. It is recorded once per concept and never changes mastery, difficulty, streaks, deferrals or reviews. Replay skips it.
 
 For each `check`, in order, for each concept it lists:
 
@@ -355,7 +380,14 @@ Checks before the due time are ordinary checks. A concept that drops below maste
 7. Otherwise return `author` with the concept, difficulty and the course style.
 8. If there are no candidates, return `done`. A review can still come due later.
 
-`practice` and `author` carry a `lesson` field: `null` when the concept has no lesson yet, the id of the earliest unread lesson, or absent once every lesson for the concept is read. The tutor teaches first until it is absent. Lessons never change mastery.
+`practice` and `author` carry a `lesson` field: `null` when the concept has no lesson yet, the id of the earliest unread lesson, or absent once every lesson for the concept is read or the concept has an `unlock` event. The tutor teaches first until it is absent. Lessons never change mastery.
+
+**Ahead.** A `practice` step with no `lesson` field may also carry `ahead: { difficulty }`: the difficulty of the topic's next activity if the learner's next check of this one is perfect. Core finds it by computing the next step on the log plus that perfect check, at the same time, and keeps it only when that step is an `author` step for the same concept without `review`. So it is absent when the next activity already exists, when the pass would master the concept (the next step is then another topic), and while a lesson is unread. A first try that isn't assisted gives the next difficulty up; a retry or an assisted exercise gives the same one. An activity written ahead that the learner doesn't reach is never wasted: practice and reviews pick unused exercises at their difficulty (steps 2 and 6).
+
+**Asking for a target.** `next_step` takes an optional request, so a job can ask for its target by name. Core still picks the target:
+
+- `ahead: true` turns a `practice` step that has `ahead` into the `author` step for that concept and difficulty, with every field an author step has. Any other step comes back unchanged, so an author asked to write ahead after the learner has moved on writes nothing.
+- `more: <concept>` is "More practice". The concept must be in the roadmap, and reached: mastered, or with every prerequisite mastered. It returns `practice` for the earliest exercise of that concept at its current difficulty that the learner has never checked, or else `author` for that concept and difficulty, each with the concept's `lesson` field. Its checks are ordinary checks (rules 1 to 6), so on a mastered concept a check that isn't perfect can bring it back to practice, as a failed review does.
 
 **Corrupt log.** A truncated final line, from a crash mid-append, is ignored when reading. Before the next append, the log is backed up to `events.jsonl.bak-<time>` and the torn line is removed. Any other invalid line makes state-changing commands fail with the line number until it's repaired.
 
@@ -369,7 +401,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `save_track` | `files` | `{ installed: "id@v", warning? }` or diagnostics; with `--desktop`, `{ proposed: "id@v", note }` (§4.4) |
 | `save_roadmap` | `course`, `roadmap` (YAML text) | ok or errors |
 | `get_roadmap` | — | `{ course, title?, goal, track, style, concepts }` |
-| `next_step` | — | `setup` / `review` / `practice` / `author` / `stuck` / `done`; `author` carries the concept's `title`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests) |
+| `next_step` | `ahead?` or `more?` (§7) | `setup` / `review` / `practice` / `author` / `stuck` / `done`; `practice` may carry `ahead: { difficulty }`; `author` carries the concept's `title`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests) |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
 | `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint, and for io the track's run command; a generated visible input shows its generator (`generated: true`), and a long expected output its first 64 KB with `expectedBytes` |
 | `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |
@@ -382,7 +414,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 
 **Failure codes.** An error for this computer's problem carries a stable code (`src/errors.ts` `INFRA`) and the kind that follows from it: Docker missing or not running (`no-runtime`, `runtime-down`, `runtime-paused`, `socket-permission`, `runtime-context`), up but not answering (`runtime-busy`, `check-timeout`, `container-remove`), answering but failing (`windows-containers`, `credentials`, `container-start`, `docker-cpus`, `docker-log-driver`, `docker-file-sharing`, `runtime-failed`, `image-id`, `image-inspect`, `container-list`), Docker's disk or this computer's (`docker-disk`, `host-disk`), or the network (`offline`, `rate-limit`, `tls`, `network-timeout`). Every failed tool result starts with Codemm's own line, `codemm:<code, kind or error>`, so nothing a message quotes (a build log, a runner, a program, the agent's own files) can stand there. A write that runs out of space reaches the agent as `host-disk`, not as an unexpected error.
 
-**App functions without tools** (the desktop app calls them in-process): `listLessons`, `saveNotes`, `listExercises`, `listProposals`, `installProposal`, `dropProposal`, `readLearnerFiles` and `writeLearnerFile`. `writeLearnerFile(ws, slug, path, text, digest)` accepts only the exercise's track files, holds the workspace lock, refuses symlinked paths, and replaces the file through a temp file and a rename only if its current digest is the one the editor loaded ("Changed outside Codemm").
+**App functions without tools** (the desktop app calls them in-process): `listLessons`, `saveNotes`, `listExercises`, `listProposals`, `installProposal`, `dropProposal`, `readLearnerFiles`, `writeLearnerFile` and `unlockActivity`. `listExercises` gives each exercise's `checked` and `passed` from the log (B4); `unlockActivity(ws, concept)` records `unlock` once, under the course lock (§7). `writeLearnerFile(ws, slug, path, text, digest)` accepts only the exercise's track files, holds the workspace lock, refuses symlinked paths, and replaces the file through a temp file and a rename only if its current digest is the one the editor loaded ("Changed outside Codemm").
 
 ## 9. Host setup (`codemm init`)
 
@@ -435,7 +467,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 - **Unit (vitest):**
   - file and id validation; schemas;
   - output normalization and frame parsing;
-  - learner rules; roadmap rules;
+  - learner rules, including `ahead`, `more` and `unlock`; roadmap rules;
   - init merging; hook decisions; lock behavior.
 - **Docker integration**, with a POSIX-shell fixture track in both styles:
   - the judge, every gate, and the adversarial sandbox cases in A7;
