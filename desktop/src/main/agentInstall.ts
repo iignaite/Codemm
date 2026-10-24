@@ -54,7 +54,8 @@ const SIGNERS: Record<AgentId, { team: string; orgs: string[] }> = {
 const HOSTS: Record<AgentId, string[]> = {
   claude: ['downloads.claude.ai'],
   codex: ['releases.openai.com', 'chatgpt.com'],
-  cursor: ['cursor.com', 'downloads.cursor.com'],
+  // Only the script: Cursor's script downloads its package itself, from downloads.cursor.com.
+  cursor: ['cursor.com'],
 };
 
 /** The vendor's own download hosts, over https: checked at every hop, redirects included. */

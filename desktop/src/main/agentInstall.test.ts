@@ -163,6 +163,13 @@ describe('installing an agent for the learner', () => {
     expect(await run(f, 'codex')).toEqual({ phase: 'failed', problem: 'unverified' });
   });
 
+  it('fails when the Codex script exits 0 but leaves nothing Codemm can find, offline if it says so', async () => {
+    expect(await run(fake('darwin', { find: () => null }), 'codex')).toEqual({ phase: 'failed', problem: 'failed' });
+    const offline = fake('darwin', { find: () => null, answers: { '/bin/sh': { code: 0, output: 'curl: (6) Could not resolve host: releases.openai.com' } } });
+    expect(await run(offline, 'codex')).toEqual({ phase: 'failed', problem: 'offline' });
+    expect(offline.calls).toHaveLength(1);
+  });
+
   it('says offline when the Codex script could not reach OpenAI', async () => {
     const f = fake('darwin', { answers: { '/bin/sh': { code: 1, output: 'curl: (6) Could not resolve host: releases.openai.com' } } });
     expect(await run(f, 'codex')).toEqual({ phase: 'failed', problem: 'offline' });
@@ -259,7 +266,6 @@ describe('installing an agent for the learner', () => {
     expect(isAgentHost('codex')('https://chatgpt.com/codex/install.sh')).toBe(true);
     expect(isAgentHost('codex')('https://github.com/openai/codex')).toBe(false);
     expect(isAgentHost('cursor')('https://cursor.com/install?win32=true')).toBe(true);
-    expect(isAgentHost('cursor')('https://downloads.cursor.com/lab/2026.10.22-27dcf5f/windows/x64/agent-cli-package.zip')).toBe(true);
     expect(isAgentHost('cursor')('http://cursor.com/install')).toBe(false);
     expect(isAgentHost('cursor')('https://cursor.com.evil.com/install')).toBe(false);
     expect(isAgentHost('cursor')('https://evil.com/cursor.com/install')).toBe(false);
