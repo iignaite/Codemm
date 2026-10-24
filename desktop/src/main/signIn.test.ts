@@ -78,8 +78,14 @@ describe("the agent's own sign-in, where the learner sees it", () => {
     const f = fake('win32');
     const node = 'C:\\Users\\Ann Lee\\AppData\\Local\\cursor-agent\\versions\\2026.10.22-27dcf5f\\node.exe';
     const script = 'C:\\Users\\Ann Lee\\AppData\\Local\\cursor-agent\\versions\\2026.10.22-27dcf5f\\index.js';
-    await f.signIn('cursor', { path: node, js: false, args: ['--use-system-ca', script], env: { CURSOR_INVOKED_AS: 'cursor-agent' } });
-    expect(f.started).toEqual([{ file: node, args: ['--use-system-ca', script, 'login'], env: { CURSOR_INVOKED_AS: 'cursor-agent' } }]);
+    await f.signIn('cursor', { path: node, js: false, args: [script], env: { CURSOR_INVOKED_AS: 'cursor-agent' } });
+    expect(f.started).toEqual([{ file: node, args: [script, 'login'], env: { CURSOR_INVOKED_AS: 'cursor-agent' } }]);
+  });
+
+  it("Claude Code's Terminal script on a Mac quotes the words and environment before its arguments", async () => {
+    const f = fake('darwin');
+    await f.signIn('claude', { path: '/opt/node', js: false, args: ['/opt/claude cli.js'], env: { X: '$(id) a' } });
+    expect(f.written[0].text.split('\n')[2]).toBe("X='$(id) a' exec '/opt/node' '/opt/claude cli.js' auth login");
   });
 
   it("Claude Code's console window on Windows keeps the words before its arguments", async () => {

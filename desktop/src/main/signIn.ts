@@ -41,9 +41,9 @@ export function agentSignIn(d: SignInDeps) {
     // in a console window of its own. A program started straight from Codemm would have no window to show it in.
     if (id === 'claude' && d.platform === 'darwin') {
       const file = posix.join(d.tempDir(), 'Sign in to Claude Code.command');
-      // A Node-script agent runs with this app as Node, as its jobs do. The added environment is Codemm's own words.
+      // A Node-script agent runs with this app as Node, as its jobs do.
       const c = command(exe, [], d.runtime);
-      const env = Object.entries(c.env).map(([k, v]) => `${k}=${v} `).join('');
+      const env = Object.entries(c.env).map(([k, v]) => `${k}=${/^\w+$/.test(v) ? v : quote(v)} `).join('');
       const line = `${env}exec ${[c.file, ...c.args].map(quote).join(' ')}`;
       // Terminal runs it a moment later: only the file Codemm allowed at Sign in runs, not one an install put there since.
       const pin = `[ "$(/usr/bin/stat -L -f %i ${quote(exe.path)})" = ${d.inode(exe.path)} ] || { echo 'Claude Code changed. Sign in again from Codemm.'; exit 1; }`;
