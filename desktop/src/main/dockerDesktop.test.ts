@@ -133,6 +133,14 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
     expect(f.desktop.status()).toEqual({ phase: 'starting' });
   });
 
+  it('opens Docker already in ~/Applications instead of downloading it again', async () => {
+    const f = fake('darwin', { home: '/Users/me', exists: (p) => p === '/Users/me/Applications/Docker.app' });
+    f.desktop.install();
+    await f.desktop.done();
+    expect(f.downloads).toEqual([]);
+    expect(commands(f.calls)).toEqual(['/usr/bin/open -a /Users/me/Applications/Docker.app']);
+  });
+
   it('checks the disk before downloading, and says when this computer is offline', async () => {
     const low = fake('darwin', { freeBytes: async () => 2 * GiB });
     low.desktop.install();
@@ -430,6 +438,14 @@ describe('Docker Desktop itself, apart from a docker command (§6.1)', () => {
     const f = fake('win32', { localAppData: 'C:\\Users\\me\\AppData\\Local', exists: (p) => p === perUser });
     await f.desktop.open();
     expect(f.launched).toEqual([{ file: perUser, args: [] }]);
+  });
+
+  it("is installed in a Mac's ~/Applications too, and Open Docker Desktop opens that one", async () => {
+    const mac = fake('darwin', { home: '/Users/me', exists: (p) => p === '/Users/me/Applications/Docker.app' });
+    expect(mac.desktop.installed()).toBe(true);
+    expect(fake('darwin', { home: '/Users/me' }).desktop.installed()).toBe(false);
+    await mac.desktop.open();
+    expect(commands(mac.calls)).toEqual(['/usr/bin/open -a /Users/me/Applications/Docker.app']);
   });
 });
 
