@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exampleRefs, parseExerciseYaml, parseLesson, parseRoadmapYaml, parseTrackYaml } from "../src/schemas.js";
+import { exampleRefs, LearnerEventSchema, parseExerciseYaml, parseLesson, parseRoadmapYaml, parseTrackYaml } from "../src/schemas.js";
 
 describe("parseTrackYaml", () => {
   it("accepts an io track and clamps limits to the host ceilings", () => {
@@ -167,5 +167,14 @@ describe("lesson diagrams", () => {
     expect(parseLesson(lesson(text, [{ "main.sh": "echo hi\n" }])).examples).toHaveLength(1);
     // A diagram whose only line is a number is still a diagram, not an example.
     expect(() => parseLesson(lesson("```mermaid\n1\n```", [{ "main.sh": "echo hi\n" }]))).toThrow(/example 1 is never placed/);
+  });
+});
+
+describe("learner events", () => {
+  it("accepts unlock at format_version 1 only", () => {
+    const unlock = { format_version: 1, kind: "unlock", at: "2026-10-24T00:00:00.000Z", concept: "c.loops" };
+    expect(LearnerEventSchema.parse(unlock)).toEqual(unlock);
+    expect(() => LearnerEventSchema.parse({ ...unlock, format_version: 2 })).toThrow();
+    expect(() => LearnerEventSchema.parse({ ...unlock, concept: "Not An Id" })).toThrow();
   });
 });

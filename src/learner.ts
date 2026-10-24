@@ -25,6 +25,8 @@ export type AssistEvent = Extract<LearnerEvent, { kind: "assist" }>;
 export type RetryEvent = Extract<LearnerEvent, { kind: "retry" }>;
 /** The learner acknowledged reading a lesson. Never changes mastery. */
 export type ReadEvent = Extract<LearnerEvent, { kind: "read" }>;
+/** "I know this": the concept's activity opens without its lessons. Never changes mastery. */
+export type UnlockEvent = Extract<LearnerEvent, { kind: "unlock" }>;
 
 export type ConceptState = {
   mastery: number;
@@ -44,10 +46,11 @@ export type LessonSummary = { id: string; concept: string };
 
 /**
  * `lesson` on practice and author steps: null when the concept has no lesson yet, the earliest unread
- * lesson's id, or absent once every lesson for the concept is read.
+ * lesson's id, or absent once every lesson for the concept is read or the concept is unlocked.
+ * `ahead` on a practice step: the difficulty of the activity to write next, if this one's next check is perfect.
  */
 export type Step =
-  | { kind: "practice"; exercise: string; concept: string; difficulty: number; lesson?: string | null }
+  | { kind: "practice"; exercise: string; concept: string; difficulty: number; lesson?: string | null; ahead?: { difficulty: number } }
   | { kind: "author"; concept: string; difficulty: number; lesson?: string | null; review?: true }
   | { kind: "review"; concept: string; difficulty: number; exercise: string }
   | { kind: "stuck"; concept: string }
@@ -82,7 +85,7 @@ export function replay(log: LearnerEvent[]): Map<string, ConceptState> {
       assistedExercises.add(a.exercise);
       continue;
     }
-    if (a.kind === "read") continue;
+    if (a.kind === "read" || a.kind === "unlock") continue;
     const score = a.total > 0 ? a.passed / a.total : 0;
     const previousBest = best.get(a.exercise);
     const firstTry = previousBest === undefined;
@@ -145,8 +148,56 @@ export function topoOrder(roadmap: RoadmapGraph): string[] {
   return order;
 }
 
-/** `now` decides which reviews are due. */
+const checked = (log: LearnerEvent[], perfectOnly = false) =>
+  new Set(log.flatMap((a) => (a.kind === "check" && (!perfectOnly || isPerfect(a)) ? [a.exercise] : [])));
+
+/** Whether each exercise slug has a check in the log, and a perfect one. */
+export function exerciseStatus(log: LearnerEvent[]): (slug: string) => { checked: boolean; passed: boolean } {
+  const tried = checked(log);
+  const passed = checked(log, true);
+  return (slug) => ({ checked: tried.has(slug), passed: passed.has(slug) });
+}
+
+/** The `lesson` field of a practice or author step for this concept. */
+function lessonField(concept: string, log: LearnerEvent[], lessons: LessonSummary[]): { lesson?: string | null } {
+  if (log.some((a) => a.kind === "unlock" && a.concept === concept)) return {};
+  const read = new Set(log.flatMap((a) => (a.kind === "read" ? [a.lesson] : [])));
+  const own = lessons.filter((l) => l.concept === concept);
+  const unread = own.find((l) => !read.has(l.id));
+  return own.length === 0 ? { lesson: null } : unread ? { lesson: unread.id } : {};
+}
+
+/**
+ * `now` decides which reviews are due. A practice step with no lesson field carries `ahead` when the step
+ * after a perfect check of its exercise, at the same time, is a new activity for the same concept.
+ */
 export function nextStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], log: LearnerEvent[], lessons: LessonSummary[], now: string): Step {
+  const step = plainStep(roadmap, exercises, log, lessons, now);
+  if (step.kind !== "practice" || "lesson" in step) return step;
+  const exercise = exercises.find((e) => e.slug === step.exercise)!;
+  const pass: CheckEvent = { format_version: 1, kind: "check", at: now, exercise: exercise.slug, concepts: exercise.concepts, difficulty: exercise.difficulty, passed: 1, total: 1, assisted: false };
+  const after = plainStep(roadmap, exercises, [...log, pass], lessons, now);
+  return after.kind === "author" && after.concept === step.concept && !after.review ? { ...step, ahead: { difficulty: after.difficulty } } : step;
+}
+
+/**
+ * More practice: for a reached concept (mastered, or every prerequisite mastered), the earliest exercise at its
+ * current difficulty the log never checked, or else a new one. Null for a concept that isn't reached.
+ */
+export function moreStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], log: LearnerEvent[], lessons: LessonSummary[], concept: string): Step | null {
+  const states = replay(log);
+  const mastered = (id: string) => (states.get(id)?.mastery ?? PRIOR) >= MASTERED;
+  const requires = roadmap.concepts.find((c) => c.id === concept)?.requires ?? [];
+  if (!mastered(concept) && !requires.every(mastered)) return null;
+  const difficulty = states.get(concept)?.difficulty ?? 1;
+  const tried = checked(log);
+  const unused = exercises.find((e) => e.concepts.includes(concept) && e.difficulty === difficulty && !tried.has(e.slug));
+  const lesson = lessonField(concept, log, lessons);
+  return unused ? { kind: "practice", exercise: unused.slug, concept, difficulty, ...lesson } : { kind: "author", concept, difficulty, ...lesson };
+}
+
+/** The next step by §7's rules, without `ahead`. */
+function plainStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], log: LearnerEvent[], lessons: LessonSummary[], now: string): Step {
   const states = replay(log);
   const state = (id: string) => states.get(id) ?? fresh();
   const mastered = (id: string) => state(id).mastery >= MASTERED;
@@ -160,7 +211,7 @@ export function nextStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], lo
   if (due.length > 0) {
     const concept = due[0]!;
     const difficulty = state(concept).difficulty;
-    const tried = new Set(log.flatMap((a) => (a.kind === "check" ? [a.exercise] : [])));
+    const tried = checked(log);
     const unused = exercises.find((e) => e.concepts.includes(concept) && e.difficulty === difficulty && !tried.has(e.slug));
     return unused ? { kind: "review", concept, difficulty, exercise: unused.slug } : { kind: "author", concept, difficulty, review: true };
   }
@@ -175,12 +226,8 @@ export function nextStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], lo
   const s = state(concept);
   if (s.stuck) return { kind: "stuck", concept };
 
-  const read = new Set(log.flatMap((a) => (a.kind === "read" ? [a.lesson] : [])));
-  const own = lessons.filter((l) => l.concept === concept);
-  const unread = own.find((l) => !read.has(l.id));
-  const lesson = own.length === 0 ? { lesson: null } : unread ? { lesson: unread.id } : {};
-
-  const passed = new Set(log.flatMap((a) => (a.kind === "check" && isPerfect(a) ? [a.exercise] : [])));
+  const lesson = lessonField(concept, log, lessons);
+  const passed = checked(log, true);
   const fit = exercises.find((e) => e.concepts.includes(concept) && e.difficulty === s.difficulty && !passed.has(e.slug));
   if (fit) return { kind: "practice", exercise: fit.slug, concept, difficulty: s.difficulty, ...lesson };
   return { kind: "author", concept, difficulty: s.difficulty, ...lesson };

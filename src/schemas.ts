@@ -199,6 +199,7 @@ export const LearnerEventSchema = z.discriminatedUnion("kind", [
   z.object({ format_version: z.literal(1), kind: z.literal("assist"), at: z.string(), exercise: Id }),
   z.object({ format_version: z.literal(1), kind: z.literal("retry"), at: z.string(), concept: Id }),
   z.object({ format_version: z.literal(1), kind: z.literal("read"), at: z.string(), lesson: Id, concept: Id }),
+  z.object({ format_version: z.literal(1), kind: z.literal("unlock"), at: z.string(), concept: Id }),
 ]);
 export type LearnerEventRecord = z.infer<typeof LearnerEventSchema>;
 
