@@ -25,6 +25,8 @@ const MAX_BYTES = 2 * 1024 ** 3;
 /** No bytes for this long means the network is gone, however big the download. */
 const IDLE_MS = 60_000;
 const LEFT = 'The download left the vendor’s site.';
+/** Not Electron's browser user agent: cursor.com answers a browser with a web page, not its install script. */
+const USER_AGENT = 'Codemm';
 /** Node's and Chromium's names for a host that can't be reached. */
 const NETWORK =
   /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|ENETDOWN|net::ERR_(INTERNET_DISCONNECTED|NAME_NOT_RESOLVED|NAME_RESOLUTION_FAILED|ADDRESS_UNREACHABLE|CONNECTION_[A-Z_]+|NETWORK_[A-Z_]+|TIMED_OUT|PROXY_CONNECTION_FAILED|TUNNEL_CONNECTION_FAILED|EMPTY_RESPONSE)\b/;
@@ -98,6 +100,7 @@ export function electronGet(request: typeof net.request): Get {
     new Promise((resolve, reject) => {
       if (!allowed(url)) return reject(new Error(LEFT));
       const req = request({ url, redirect: 'manual' });
+      req.setHeader('User-Agent', USER_AGENT);
       let hops = 0;
       // A redirect not followed ends the request.
       req.on('redirect', (_status, _method, next) => {
@@ -121,7 +124,7 @@ export const fetchGet: Get = async (start, allowed, signal) => {
   let url = start;
   for (let hop = 0; hop <= MAX_HOPS; hop++) {
     if (!allowed(url)) throw new Error(LEFT);
-    const res = await fetch(url, { redirect: 'manual', signal });
+    const res = await fetch(url, { redirect: 'manual', signal, headers: { 'User-Agent': USER_AGENT } });
     const next = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
     if (!next) {
       const body = res.body ? Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]) : Readable.from([]);

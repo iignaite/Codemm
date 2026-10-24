@@ -59,7 +59,7 @@ test('no agent installed: Install, or get it by hand, on the connect screen', as
   await expect(claude.getByText('Not installed')).toBeVisible();
   await expect(claude.getByRole('button', { name: 'Install', exact: true })).toBeVisible();
   await expect(claude.getByRole('link', { name: 'Get it myself' })).toHaveAttribute('href', 'https://code.claude.com/docs/en/setup');
-  await expect(page.getByRole('link', { name: 'Get Cursor' })).toBeVisible();
+  await expect(page.getByRole('listitem', { name: 'Cursor' }).getByRole('button', { name: 'Install', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
   await app.close();
 });

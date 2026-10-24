@@ -88,6 +88,10 @@ class Request extends EventEmitter {
   constructor(readonly url: string) {
     super();
   }
+  headers: Record<string, string> = {};
+  setHeader(name: string, value: string) {
+    this.headers[name] = value;
+  }
   followRedirect() {
     this.followed++;
   }
@@ -138,6 +142,13 @@ describe("Electron's network stack: the system's proxy and certificates (§3.1)"
     away.made[0].emit('redirect', 302, 'GET', 'https://evil.example/b', {});
     await expect(left).rejects.toThrow('left');
     expect(away.made[0].followed).toBe(0);
+  });
+
+  // Electron sends its browser user agent by default, and cursor.com answers a browser with a web page, not the script.
+  it('names itself Codemm, not a browser, before the request is sent', () => {
+    const e = electron();
+    void e.get('https://desktop.docker.com/a', docker, new AbortController().signal);
+    expect(e.made[0].headers).toEqual({ 'User-Agent': 'Codemm' });
   });
 
   it('never requests a disallowed first URL, and stops after five redirects', async () => {
