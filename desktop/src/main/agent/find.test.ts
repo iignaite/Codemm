@@ -116,6 +116,16 @@ describe('find (§3.1)', () => {
     expect(find('claude', { platform: 'win32', path: '', home: at('home'), appData: at('.') })).toEqual(target);
   });
 
+  it("passes over npm's Claude Code while its binary is still the text placeholder its postinstall replaces", () => {
+    const { at } = tree();
+    mkdirSync(at('npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin'), { recursive: true });
+    writeFileSync(at('npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'), 'echo "Error: claude native binary not installed." >&2\nexit 1\n');
+    writeFileSync(at('npm', 'claude.cmd'), `${NPM_HEAD}"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*\r\n`);
+    mkdirSync(at('home', '.local', 'bin'), { recursive: true });
+    writeFileSync(at('home', '.local', 'bin', 'claude.exe'), 'MZ');
+    expect(find('claude', { platform: 'win32', path: '', home: at('home'), appData: at('.') })?.path).toBe(join(at('home'), '.local', 'bin', 'claude.exe'));
+  });
+
   it("finds what WinGet installs, through its command links, before the PATH it set is read", () => {
     const { at } = tree();
     mkdirSync(at('local', 'Microsoft', 'WinGet', 'Links'), { recursive: true });
@@ -150,7 +160,8 @@ describe('find (§3.1)', () => {
     const win = tree();
     mkdirSync(win.at('local', 'Programs', 'DockerDesktop', 'resources', 'bin'), { recursive: true });
     writeFileSync(win.at('local', 'Programs', 'DockerDesktop', 'resources', 'bin', 'docker.exe'), 'MZ');
-    const w: Where = { platform: 'win32', path: '', home: win.at('home'), localAppData: win.at('local') };
+    // Program Files of its own: a PC with Docker Desktop for all users would find that one first.
+    const w: Where = { platform: 'win32', path: '', home: win.at('home'), localAppData: win.at('local'), programFiles: win.at('pf') };
     expect(find('docker', w)?.path).toBe(join(win.at('local'), 'Programs', 'DockerDesktop', 'resources', 'bin', 'docker.exe'));
 
     const mac = tree();

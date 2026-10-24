@@ -21,6 +21,8 @@ const KEYS = ['HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Enviro
 const FRESH_MS = 2_000;
 /** How long a read may take: a slow or stuck reg.exe keeps the PATH as it is, so no screen waits on it longer. */
 const READ_MS = 2_000;
+/** After a read that hung or threw, how long until the next: polling screens never wait on a stuck reg.exe each time. */
+const RETRY_MS = 30_000;
 
 /** %NAME% from `env`, ignoring case. A name `env` doesn't have stays as it is, as Windows leaves it. */
 function expand(value: string, env: NodeJS.ProcessEnv): string {
@@ -55,31 +57,38 @@ export function mergePath(current: string, ...added: string[]): string {
 
 /**
  * Brings `env.PATH` up to date with the registry's. Calls at the same time share one read, and a read under 2 seconds
- * old is reused. A read that fails, or takes over 2 seconds, keeps the PATH as it is. Off Windows it does nothing: a GUI app there gets no shell
+ * old is reused. A read that fails, or takes over 2 seconds, keeps the PATH as it is; after one that hung or threw, the
+ * next waits 30 seconds. Off Windows it does nothing: a GUI app there gets no shell
  * PATH, and the usual folders cover it (find.ts).
  */
 export function livePath(d: PathDeps): () => Promise<void> {
   let reading: Promise<void> | undefined;
   let readAt: number | undefined;
 
-  async function read() {
+  let wait = FRESH_MS;
+
+  /** Whether reg.exe answered in time. A missing value (exit 1) is an answer: there is nothing to add. */
+  async function read(): Promise<boolean> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), READ_MS)));
     try {
       const values = await Promise.race([Promise.all(KEYS.map(async (key) => regPath((await d.run(REG, ['query', key, '/v', 'Path'])) ?? '', d.env))), late]);
       if (values) d.env.PATH = mergePath(d.env.PATH ?? '', ...values);
+      return values !== null;
     } finally {
       clearTimeout(timer);
     }
   }
 
   return () => {
-    if (d.platform !== 'win32') return Promise.resolve();
+    // CODEMM_TEST_FIXED_PATH is set only by the packaged and install tests, which stage a PATH with no Node, npm or Git.
+    if (d.platform !== 'win32' || d.env.CODEMM_TEST_FIXED_PATH) return Promise.resolve();
     if (reading) return reading;
-    if (readAt !== undefined && d.now() - readAt < FRESH_MS) return Promise.resolve();
+    if (readAt !== undefined && d.now() - readAt < wait) return Promise.resolve();
     reading = read()
-      .catch(() => undefined)
-      .finally(() => {
+      .catch(() => false)
+      .then((answered) => {
+        wait = answered ? FRESH_MS : RETRY_MS;
         readAt = d.now();
         reading = undefined;
       });

@@ -102,21 +102,26 @@ const isFile = (p: string) => {
   }
 };
 
-/** A `#!` launcher that runs Node is a script the app can run as Node. */
-function isNodeScript(file: string): boolean {
+/** A file's first `bytes` bytes as text, or '' when it can't be read. Only the start matters, and a binary can be large. */
+function head(file: string, bytes: number): string {
   try {
-    // Only the first line matters, and a native binary can be large.
-    const head = Buffer.alloc(200);
+    const buffer = Buffer.alloc(bytes);
     const fd = openSync(file, 'r');
     try {
-      return /^#!.*\bnode\b/.test(head.subarray(0, readSync(fd, head, 0, 200, 0)).toString('utf8'));
+      return buffer.subarray(0, readSync(fd, buffer, 0, bytes, 0)).toString('utf8');
     } finally {
       closeSync(fd);
     }
   } catch {
-    return false;
+    return '';
   }
 }
+
+/** A `#!` launcher that runs Node is a script the app can run as Node. */
+const isNodeScript = (file: string) => /^#!.*\bnode\b/.test(head(file, 200));
+
+/** A Windows program starts with "MZ". npm's Claude Code holds a text placeholder there until its postinstall runs. */
+const isWindowsProgram = (file: string) => head(file, 2) === 'MZ';
 
 /**
  * What an npm `.cmd` shim runs, read from its fixed format: the quoted path just before `%*`. That's a Node script, or
@@ -139,7 +144,7 @@ export function find(bin: string, w: Where = here()): Executable | null {
       const cmd = join(dir, `${bin}.cmd`);
       if (isFile(cmd)) {
         const target = shimTarget(cmd);
-        if (target && existsSync(target.path)) return target;
+        if (target && (target.js ? existsSync(target.path) : isWindowsProgram(target.path))) return target;
       }
       continue;
     }

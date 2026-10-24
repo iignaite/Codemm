@@ -61,7 +61,9 @@ describe('found once installed, with no restart (§3.1)', () => {
 
   it('a job starts on the PATH as it is now, which the agent and its Codemm server inherit', async () => {
     const order: string[] = [];
-    const t = live({ research: (_job, usual) => (order.push('job'), usual()) }, { freshPath: async () => void order.push('fresh') });
+    // Done only a moment later: a job that didn't wait for it would start first.
+    const freshPath = () => new Promise<void>((resolve) => setTimeout(() => (order.push('fresh'), resolve()), 5));
+    const t = live({ research: (_job, usual) => (order.push('job'), usual()) }, { freshPath });
     await researched(t);
     // Connect brings it up to date, and so does the job, just before it starts.
     expect(order).toEqual(['fresh', 'fresh', 'job']);

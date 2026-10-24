@@ -97,7 +97,8 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     docker: desktop,
     server: codemmServer({ runtime, coreDir, ws, env: process.env }),
     // On Windows, what installers added to the registry's PATH since Codemm started (§3.1).
-    freshPath: livePath({ platform: process.platform, env: process.env, run: nodeRun, now: () => Date.now() }),
+    // A steady clock: a wall clock set back would hold off the next read until it caught up.
+    freshPath: livePath({ platform: process.platform, env: process.env, run: nodeRun, now: () => performance.now() }),
   });
 }
 

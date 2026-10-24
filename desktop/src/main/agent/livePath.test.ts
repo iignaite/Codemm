@@ -86,23 +86,40 @@ describe('bringing PATH up to date (§3.1)', () => {
     expect(f.deps.env.PATH).toBe('C:\\Windows\\system32;C:\\Users\\me\\AppData\\Local\\cursor-agent;C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Links');
   });
 
-  it('keeps the current PATH when reg.exe fails or throws, and reads again next time', async () => {
-    const failed = fake({ run: async () => null });
-    await failed.refresh();
-    expect(failed.deps.env.PATH).toBe('C:\\Windows\\system32');
-    const threw = fake({
-      run: async () => {
-        throw new Error('spawn EACCES');
-      },
-    });
-    await expect(threw.refresh()).resolves.toBeUndefined();
-    expect(threw.deps.env.PATH).toBe('C:\\Windows\\system32');
+  it('keeps the current PATH when reg.exe fails, and reads again once that read is 2 seconds old', async () => {
+    const f = fake();
+    const works = f.deps.run;
+    f.deps.run = async () => null;
+    await f.refresh();
+    expect(f.deps.env.PATH).toBe('C:\\Windows\\system32');
+    f.deps.run = works;
+    f.tick(2_001);
+    await f.refresh();
+    expect(f.deps.env.PATH).toBe('C:\\Windows\\system32;C:\\Users\\me\\AppData\\Local\\cursor-agent');
+  });
+
+  it('keeps the current PATH when reg.exe throws, and tries again only after 30 seconds', async () => {
+    const f = fake();
+    const works = f.deps.run;
+    f.deps.run = async () => {
+      throw new Error('spawn EACCES');
+    };
+    await expect(f.refresh()).resolves.toBeUndefined();
+    expect(f.deps.env.PATH).toBe('C:\\Windows\\system32');
+    f.deps.run = works;
+    f.tick(29_999);
+    await f.refresh();
+    expect(f.reads()).toBe(0);
+    f.tick(1);
+    await f.refresh();
+    expect(f.deps.env.PATH).toBe('C:\\Windows\\system32;C:\\Users\\me\\AppData\\Local\\cursor-agent');
   });
 
   it('gives up on a reg.exe that hangs after 2 seconds and keeps the PATH, so no screen waits on it longer', async () => {
     vi.useFakeTimers();
     try {
-      const f = fake({ run: () => new Promise(() => undefined) });
+      let asked = 0;
+      const f = fake({ run: () => (asked++, new Promise(() => undefined)) });
       let done = false;
       void f.refresh().then(() => (done = true));
       await vi.advanceTimersByTimeAsync(1_999);
@@ -110,6 +127,10 @@ describe('bringing PATH up to date (§3.1)', () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(done).toBe(true);
       expect(f.deps.env.PATH).toBe('C:\\Windows\\system32');
+      // A stuck reg.exe isn't asked again on every look: polling screens never wait on it twice in 30 seconds.
+      f.tick(29_999);
+      void f.refresh();
+      expect(asked).toBe(2);
     } finally {
       vi.useRealTimers();
     }
@@ -120,6 +141,13 @@ describe('bringing PATH up to date (§3.1)', () => {
     f.registry.user = 'C:\\Users\\Jos\uFFFD\\bin;C:\\Users\\me\\bin';
     await f.refresh();
     expect(f.deps.env.PATH).toBe('C:\\Windows\\system32;C:\\Users\\me\\bin');
+  });
+
+  it('does nothing when a test staged its own PATH (the packaged and install tests: no Node, npm or Git)', async () => {
+    const f = fake({ env: { PATH: 'C:\\staged', CODEMM_TEST_FIXED_PATH: '1' } });
+    await f.refresh();
+    expect(f.calls).toEqual([]);
+    expect(f.deps.env.PATH).toBe('C:\\staged');
   });
 
   it('does nothing off Windows, where a GUI app gets no shell PATH to refresh', async () => {
