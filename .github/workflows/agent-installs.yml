@@ -45,7 +45,8 @@ jobs:
           # the lookup PR (#228) reads the live PATH or %LOCALAPPDATA%\cursor-agent.
           - { name: windows cursor script, os: windows-latest, agent: cursor, install: "irm 'https://cursor.com/install?win32=true' | iex", red: true }
           # Red until the lookup PR (#228) knows Docker Desktop's per-user folder.
-          - { name: windows docker per-user, os: windows-latest, agent: docker, docker: "--user --quiet --accept-license --backend=wsl-2", dockerbin: '%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin', red: true }
+          # Codemm's own install arguments (dockerDesktop.ts WIN_INSTALL): no --accept-license, Docker's terms stay in its window.
+          - { name: windows docker per-user, os: windows-latest, agent: docker, docker: "--user --quiet --backend=wsl-2", dockerbin: '%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin', red: true }
           - { name: windows docker all users, os: windows-latest, agent: docker, docker: "--quiet --accept-license", dockerbin: 'C:\Program Files\Docker\Docker\resources\bin' }
           - { name: macos claude script, os: macos-latest, agent: claude, install: "curl -fsSL https://claude.ai/install.sh | bash" }
           - { name: macos claude brew, os: macos-latest, agent: claude, install: "brew install --cask claude-code" }
