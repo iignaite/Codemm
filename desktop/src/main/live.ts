@@ -92,6 +92,12 @@ function repairable(e: unknown): unknown {
   return e;
 }
 
+/** What an author job writes, as core named it (§3.2): the app never builds one. */
+interface AuthorTarget {
+  concept: string;
+  difficulty: number;
+}
+
 interface Running {
   outcome: Promise<JobOutcome>;
   stop: AbortController;
@@ -233,6 +239,15 @@ export function createLive(d: LiveDeps): Live {
    */
   const safeIn = (course: string | undefined) => (text: string) => !course || shown(text, hidden(course)) === text;
 
+  /**
+   * Whether core still names an author job's target, read again when its turn comes: a check, a skip or the clock may
+   * have moved the course on while it waited (§3.2 "Still wanted"). A review's target counts.
+   */
+  function stillWanted(course: string, { concept, difficulty }: AuthorTarget): boolean {
+    const next = core.progress(ws, course).next;
+    return next.kind === 'author' && next.concept === concept && next.difficulty === difficulty;
+  }
+
   /** The roadmap not approved yet: the active course, unless it is one of the learner's courses. */
   function draft(): CoreRoadmap | null {
     const roadmap = roadmapOrNull();
@@ -268,8 +283,10 @@ export function createLive(d: LiveDeps): Live {
    */
   function start(
     key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'],
-    { resume, onSource, concept, retry, settled, track }: {
+    { resume, onSource, concept, retry, settled, track, target }: {
       resume?: string; onSource?: Job['onSource']; concept?: string; retry?: JobProgress['retry'];
+      /** An author job's target, as core named it: the job launches only while core still names it. */
+      target?: AuthorTarget;
       /** A track's setup: every course on the track hears its progress. */
       track?: string;
       /** Runs as the job ends, before its queue moves on: background work records its stall here. */
@@ -300,6 +317,11 @@ export function createLive(d: LiveDeps): Live {
       // Again after the lookup: another job may have found its agent unstoppable meanwhile.
       if (unstoppable) return { ok: false, problem: 'unstoppable', text: [] };
       if (stop.signal.aborted) return { ok: false, problem: 'failed', text: [] };
+      // Nothing to write: no agent starts and nothing stalls, and the course's next schedule starts what is due now.
+      if (target && course !== undefined && !stillWanted(course, target)) {
+        log('job-unwanted', { kind });
+        return { ok: true, text: [] };
+      }
       const began = Date.now();
       log('job-start', { kind, lane, agent: id });
       // The same backstop as tutor replies (§2.2): a step or page that shows hidden material is dropped.
@@ -385,7 +407,7 @@ export function createLive(d: LiveDeps): Live {
   /** Background work: a failure stalls it until the learner retries, instead of relaunching on every look. */
   function background(
     key: string, kind: JobKind, brief: string, course: string, done: Job['done'],
-    { lane = 'bg', concept, retry, track }: { lane?: 'fg' | 'bg'; concept?: string; retry?: JobProgress['retry']; track?: string } = {},
+    { lane = 'bg', concept, retry, track, target }: { lane?: 'fg' | 'bg'; concept?: string; retry?: JobProgress['retry']; track?: string; target?: AuthorTarget } = {},
   ) {
     if (stopping || stalls.has(course) || running.has(key)) return;
     // A track's setup belongs to every course on the track when it ends: they stall and move on together.
@@ -408,7 +430,7 @@ export function createLive(d: LiveDeps): Live {
       } else if (!r.ok && !running.get(key)?.stop.signal.aborted) stall(r.problem ?? 'failed');
     };
     // A finished job can make its course's next one due: the lesson before the activity, a proposal after gates.
-    start(key, lane, kind, brief, course, done, { concept, retry, settled, track }).then((o) => o.ok && courses().forEach((c) => schedule(c)), () => undefined);
+    start(key, lane, kind, brief, course, done, { concept, retry, settled, track, target }).then((o) => o.ok && courses().forEach((c) => schedule(c)), () => undefined);
   }
 
   /** Ends a course's stall and starts the work it still needs. */
@@ -497,7 +519,7 @@ export function createLive(d: LiveDeps): Live {
       const { difficulty } = progress.next;
       const before = new Set(core.listExercises(ws, course).map((e) => e.exercise));
       const made = () => core.listExercises(ws, course).some((e) => !before.has(e.exercise) && e.concepts.includes(concept.id) && e.difficulty === difficulty);
-      background(`author:${course}:${concept.id}:${difficulty}`, 'author', briefs.author(), course, made, { concept: concept.id });
+      background(`author:${course}:${concept.id}:${difficulty}`, 'author', briefs.author(), course, made, { concept: concept.id, target: { concept: concept.id, difficulty } });
     }
   }
 
