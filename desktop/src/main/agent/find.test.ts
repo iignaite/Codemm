@@ -2,8 +2,15 @@
 import { chmodSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dockerFolders, find, folders, here, shimTarget, withDockerFolders, type Where } from './find';
+import { dockerDesktopBins, dockerFolders, find, folders, here, shimTarget, withDockerFolders, type Where } from './find';
 import { tempDir } from '../testing/temp';
+
+/** What every npm `.cmd` shim starts with (npm's cmd-shim). */
+const NPM_HEAD = '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n';
+/** cmd-shim's body for a `#!/usr/bin/env node` target: a node.exe beside the shim if there is one, else node on PATH. */
+const NPM_NODE_SHIM = (target: string) =>
+  '\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\n\r\n' +
+  `endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\${target}" %*\r\n`;
 
 function tree() {
   const root = tempDir('codemm-find-');
@@ -76,15 +83,66 @@ describe('find (§3.1)', () => {
     expect(find('claude', w)?.path).toBe(join(at('home'), '.local', 'bin', 'claude.exe'));
   });
 
-  it("reads an npm .cmd shim's script instead of running the shim", () => {
+  it("reads an npm .cmd shim's script instead of running the shim, past the node.exe it would prefer", () => {
     const { at } = tree();
     mkdirSync(at('npm', 'node_modules', '@openai', 'codex', 'bin'), { recursive: true });
     writeFileSync(at('npm', 'node_modules', '@openai', 'codex', 'bin', 'codex.js'), '#!/usr/bin/env node\n');
-    writeFileSync(
-      at('npm', 'codex.cmd'),
-      '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n"%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n',
-    );
-    expect(shimTarget(at('npm', 'codex.cmd'))?.replace(/\\/g, '/')).toMatch(/node_modules\/@openai\/codex\/bin\/codex\.js$/);
+    writeFileSync(at('npm', 'codex.cmd'), NPM_HEAD + NPM_NODE_SHIM('node_modules\\@openai\\codex\\bin\\codex.js'));
+    const found = find('codex', { platform: 'win32', path: '', home: at('home'), appData: at('.') });
+    expect(found?.js).toBe(true);
+    expect(found?.path.replace(/\\/g, '/')).toMatch(/node_modules\/@openai\/codex\/bin\/codex\.js$/);
+  });
+
+  it('runs the native binary an npm shim points at: Claude Code from npm', () => {
+    const { at } = tree();
+    mkdirSync(at('npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin'), { recursive: true });
+    writeFileSync(at('npm', 'node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'), 'MZ');
+    // npm's shim for a target with no shebang (cmd-shim): it runs the file itself.
+    writeFileSync(at('npm', 'claude.cmd'), `${NPM_HEAD}"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*\r\n`);
+    const target = shimTarget(at('npm', 'claude.cmd'));
+    expect(target?.js).toBe(false);
+    expect(target?.path.replace(/\\/g, '/')).toMatch(/npm\/node_modules\/@anthropic-ai\/claude-code\/bin\/claude\.exe$/);
+    expect(find('claude', { platform: 'win32', path: '', home: at('home'), appData: at('.') })).toEqual(target);
+  });
+
+  it("finds what WinGet installs, through its command links, before the PATH it set is read", () => {
+    const { at } = tree();
+    mkdirSync(at('local', 'Microsoft', 'WinGet', 'Links'), { recursive: true });
+    writeFileSync(at('local', 'Microsoft', 'WinGet', 'Links', 'claude.exe'), 'MZ');
+    mkdirSync(at('pf', 'WinGet', 'Links'), { recursive: true });
+    writeFileSync(at('pf', 'WinGet', 'Links', 'codex.exe'), 'MZ');
+    const w: Where = { platform: 'win32', path: '', home: at('home'), localAppData: at('local'), programFiles: at('pf') };
+    expect(find('claude', w)).toEqual({ path: join(at('local'), 'Microsoft', 'WinGet', 'Links', 'claude.exe'), js: false });
+    expect(find('codex', w)).toEqual({ path: join(at('pf'), 'WinGet', 'Links', 'codex.exe'), js: false });
+    expect(here({ ProgramFiles: 'D:\\Programs' }).programFiles).toBe('D:\\Programs');
+  });
+
+  it("finds Docker Desktop installed for one user, on Windows (Docker's default since 4.83) and in a Mac's ~/Applications", () => {
+    const win = tree();
+    mkdirSync(win.at('local', 'Programs', 'DockerDesktop', 'resources', 'bin'), { recursive: true });
+    writeFileSync(win.at('local', 'Programs', 'DockerDesktop', 'resources', 'bin', 'docker.exe'), 'MZ');
+    const w: Where = { platform: 'win32', path: '', home: win.at('home'), localAppData: win.at('local') };
+    expect(find('docker', w)?.path).toBe(join(win.at('local'), 'Programs', 'DockerDesktop', 'resources', 'bin', 'docker.exe'));
+
+    const mac = tree();
+    const bin = mac.at('home', 'Applications', 'Docker.app', 'Contents', 'Resources', 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'codemm-fake-engine'), 'binary');
+    expect(find('codemm-fake-engine', posix('/usr/bin', mac.at('home')))).toEqual({ path: join(bin, 'codemm-fake-engine'), js: false });
+  });
+
+  it("knows Docker Desktop's own folders, where its credential helpers live, for all users and for one", () => {
+    expect(dockerDesktopBins(posix('', '/Users/me'))).toEqual(['/Applications/Docker.app/Contents/Resources/bin', join('/Users/me', 'Applications', 'Docker.app', 'Contents', 'Resources', 'bin')]);
+    const w: Where = { platform: 'win32', path: '', home: 'C:\\Users\\me', programFiles: 'D:\\Programs', localAppData: 'C:\\Users\\me\\AppData\\Local' };
+    expect(dockerDesktopBins(w)).toEqual([join('D:\\Programs', 'Docker', 'Docker', 'resources', 'bin'), join('C:\\Users\\me\\AppData\\Local', 'Programs', 'DockerDesktop', 'resources', 'bin')]);
+    expect(dockerDesktopBins({ platform: 'win32', path: '', home: 'C:\\Users\\me' })).toEqual([join('C:\\Program Files', 'Docker', 'Docker', 'resources', 'bin')]);
+  });
+
+  it("splits a Windows PATH on Windows' own separator, whichever computer runs the search", () => {
+    const { at } = tree();
+    mkdirSync(at('bin'));
+    writeFileSync(at('bin', 'codex.exe'), 'MZ');
+    expect(find('codex', { platform: 'win32', path: `C:\\Windows\\system32;${at('bin')}`, home: at('home'), searchDirs: [] })?.path).toBe(join(at('bin'), 'codex.exe'));
   });
 
   it("finds Docker where OrbStack, Rancher Desktop and Docker Desktop's own install link it (a GUI app's PATH has none of them)", () => {

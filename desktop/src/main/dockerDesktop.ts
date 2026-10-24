@@ -5,7 +5,7 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, rmSync, statfsSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
 import type { DockerInstall } from '../shared/api';
 import { downloader, OfflineError, type Get } from './download';
@@ -18,6 +18,8 @@ export interface DesktopDeps {
   /** %ProgramFiles% and %LOCALAPPDATA% on Windows, where Docker Desktop installs for all users and for one. */
   programFiles?: string;
   localAppData?: string;
+  /** The learner's home, whose ~/Applications can hold Docker.app on macOS. */
+  home?: string;
   /** The OS temp folder, where tempDir() makes Codemm's download folders. */
   tempRoot: string;
   tempDir(): string;
@@ -140,7 +142,7 @@ export function dockerDesktop(d: DesktopDeps) {
 
   const ok = (r: { code: number | null }) => r.code === 0;
   const desktops =
-    d.platform === 'darwin' ? [MAC_APP]
+    d.platform === 'darwin' ? [MAC_APP, ...(d.home ? [posix.join(d.home, 'Applications', 'Docker.app')] : [])]
     : d.platform === 'win32' ? [win32.join(d.programFiles ?? 'C:\\Program Files', WIN_DESKTOP), ...(d.localAppData ? [win32.join(d.localAppData, WIN_USER_DESKTOP)] : [])]
     : [];
   const quietly = (path: string) => {
@@ -234,8 +236,10 @@ export function dockerDesktop(d: DesktopDeps) {
     let dir: string | undefined;
     let keep = false;
     try {
-      if (d.platform === 'darwin' && d.exists(MAC_APP)) {
-        await openApp(MAC_APP);
+      // A Mac's Docker, in Applications or ~/Applications, opens instead of installing again.
+      const app = d.platform === 'darwin' ? desktops.find((p) => d.exists(p)) : undefined;
+      if (app) {
+        await openApp(app);
       } else {
         await assertSupported();
         dir = declined ?? d.tempDir();
@@ -267,13 +271,14 @@ export function dockerDesktop(d: DesktopDeps) {
     },
     /** The install, until Docker has had its startup window: after that, Check this computer speaks for Docker. */
     status: () => (status?.phase === 'starting' && started !== undefined && d.now() - started > STARTING_MS ? undefined : status),
-    open: () => openApp('Docker'),
+    open: () => openApp(desktops.find((p) => d.exists(p)) ?? 'Docker'),
     /** Windows Update, where a Windows too old for Docker Desktop is updated. */
     windowsUpdate: () => (d.platform === 'win32' ? d.launch(EXPLORER, [WINDOWS_UPDATE]) : Promise.resolve()),
     /** Docker Desktop's own app is here: a docker command alone (Homebrew's, say) isn't Docker Desktop. */
     installed: () => desktops.some((p) => d.exists(p)),
     /** Docker Desktop's app is running, opened by Codemm or the learner, whether or not its engine answers yet. */
     async running() {
+      // An unanchored pattern: it matches ~/Applications/Docker.app too.
       if (d.platform === 'darwin') return ok(await d.run(PGREP, ['-f', '/Applications/Docker.app/']));
       if (d.platform === 'win32') return /"Docker Desktop\.exe"/i.test((await d.run(TASKLIST, ['/FI', 'IMAGENAME eq Docker Desktop.exe', '/NH', '/FO', 'CSV'])).output);
       return false;
@@ -327,6 +332,7 @@ export function nodeDesktopDeps({ get, arch }: Network): DesktopDeps {
     arch,
     programFiles: process.env.ProgramFiles,
     localAppData: process.env.LOCALAPPDATA,
+    home: homedir(),
     tempRoot: tmpdir(),
     tempDir: () => mkdtempSync(join(tmpdir(), 'codemm-docker-')),
     freeBytes: async (dir) => {

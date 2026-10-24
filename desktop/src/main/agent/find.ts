@@ -1,19 +1,20 @@
 // Finds an agent CLI or Docker on this computer (DESIGN §3.1). GUI apps don't
 // load shell profiles, so besides PATH this looks in the usual install folders.
 // A `#!/usr/bin/env node` launcher, or an npm `.cmd` shim on Windows (never
-// run, because that needs a shell), becomes a Node script the app runs itself.
+// run, because that needs a shell), becomes the script or binary it would run.
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { delimiter, dirname, join, posix, resolve, win32 } from 'node:path';
 import type { Executable } from './bridge';
 
 export interface Where {
   platform: NodeJS.Platform;
   path: string;
   home: string;
-  /** %APPDATA% and %LOCALAPPDATA% on Windows. */
+  /** %APPDATA%, %LOCALAPPDATA% and %ProgramFiles% on Windows. */
   appData?: string;
   localAppData?: string;
+  programFiles?: string;
   /** Test-only: the folders searched after PATH, in place of the usual ones (CODEMM_TEST_SEARCH_DIRS). */
   searchDirs?: string[];
 }
@@ -21,7 +22,10 @@ export interface Where {
 export function here(env: NodeJS.ProcessEnv = process.env): Where {
   // CODEMM_TEST_SEARCH_DIRS is set only by the macOS journey, to stage "no Docker" with Docker Desktop installed.
   const searchDirs = env.CODEMM_TEST_SEARCH_DIRS?.split(delimiter).filter(Boolean);
-  return { platform: process.platform, path: env.PATH ?? '', home: homedir(), appData: env.APPDATA, localAppData: env.LOCALAPPDATA, ...(searchDirs ? { searchDirs } : {}) };
+  return {
+    platform: process.platform, path: env.PATH ?? '', home: homedir(), appData: env.APPDATA, localAppData: env.LOCALAPPDATA, programFiles: env.ProgramFiles,
+    ...(searchDirs ? { searchDirs } : {}),
+  };
 }
 
 /** The usual install folders, after PATH. */
@@ -34,7 +38,10 @@ export function folders(w: Where): string[] {
       w.localAppData && join(w.localAppData, 'Volta', 'bin'),
       // Where OpenAI's Windows install script puts Codex.
       w.localAppData && join(w.localAppData, 'Programs', 'OpenAI', 'Codex', 'bin'),
-      'C:\\Program Files\\Docker\\Docker\\resources\\bin',
+      // WinGet's command links, for the user and for the machine: Claude Code's and Codex's packages are portable.
+      w.localAppData && join(w.localAppData, 'Microsoft', 'WinGet', 'Links'),
+      w.programFiles && join(w.programFiles, 'WinGet', 'Links'),
+      ...dockerDesktopBins(w),
       join(w.home, '.local', 'bin'),
     ].filter((d): d is string => Boolean(d));
   }
@@ -52,7 +59,7 @@ export function folders(w: Where): string[] {
     join(w.home, '.local', 'share', 'fnm', 'aliases', 'default', 'bin'),
     join(w.home, 'Library', 'Application Support', 'fnm', 'aliases', 'default', 'bin'),
     // Container engines. Colima has no Docker client of its own: it uses Homebrew's, above.
-    '/Applications/Docker.app/Contents/Resources/bin',
+    ...dockerDesktopBins(w),
     join(w.home, '.docker', 'bin'), // Docker Desktop's per-user links
     join(w.home, '.orbstack', 'bin'),
     join(w.home, '.rd', 'bin'), // Rancher Desktop
@@ -109,24 +116,28 @@ function isNodeScript(file: string): boolean {
   }
 }
 
-/** The script an npm `.cmd` shim runs, read from its fixed format. */
-export function shimTarget(cmdFile: string): string | null {
+/**
+ * What an npm `.cmd` shim runs, read from its fixed format: the quoted path just before `%*`. That's a Node script, or
+ * for a package whose bin has no shebang, the file itself (Claude Code's `bin/claude.exe`).
+ */
+export function shimTarget(cmdFile: string): Executable | null {
   const text = readFileSync(cmdFile, 'utf8');
-  const m = /"%(?:~dp0|dp0)%\\([^"]+\.(?:c|m)?js)"/i.exec(text);
-  return m ? resolve(dirname(cmdFile), m[1]) : null;
+  const m = /"%(?:~dp0|dp0)%\\([^"]+\.((?:c|m)?js|exe))"[ \t]*%\*/i.exec(text);
+  return m ? { path: resolve(dirname(cmdFile), ...m[1].split('\\')), js: m[2].toLowerCase() !== 'exe' } : null;
 }
 
 /** Looks for `bin` on PATH, then in the usual folders. */
 export function find(bin: string, w: Where = here()): Executable | null {
-  const dirs = [...w.path.split(delimiter).filter(Boolean), ...folders(w)];
+  // The searched platform's own separator, whichever computer runs this (tests run both on every host).
+  const dirs = [...w.path.split((w.platform === 'win32' ? win32 : posix).delimiter).filter(Boolean), ...folders(w)];
   for (const dir of dirs) {
     if (w.platform === 'win32') {
       const exe = join(dir, `${bin}.exe`);
       if (isFile(exe)) return { path: exe, js: false };
       const cmd = join(dir, `${bin}.cmd`);
       if (isFile(cmd)) {
-        const script = shimTarget(cmd);
-        if (script && existsSync(script)) return { path: script, js: true };
+        const target = shimTarget(cmd);
+        if (target && existsSync(target.path)) return target;
       }
       continue;
     }
@@ -138,14 +149,25 @@ export function find(bin: string, w: Where = here()): Executable | null {
   return null;
 }
 
-/** Docker Desktop's own folders, where its credential helpers live. */
-const DOCKER_DESKTOP_BINS = ['/Applications/Docker.app/Contents/Resources/bin', 'C:\\Program Files\\Docker\\Docker\\resources\\bin'];
+/**
+ * Docker Desktop's own folders, where its credential helpers live: for all users, and for this one (macOS's
+ * ~/Applications; on Windows, Docker's default since 4.83).
+ */
+export function dockerDesktopBins(w: Where): string[] {
+  if (w.platform === 'win32') {
+    return [
+      join(w.programFiles ?? 'C:\\Program Files', 'Docker', 'Docker', 'resources', 'bin'),
+      ...(w.localAppData ? [join(w.localAppData, 'Programs', 'DockerDesktop', 'resources', 'bin')] : []),
+    ];
+  }
+  return ['/Applications/Docker.app/Contents/Resources/bin', join(w.home, 'Applications', 'Docker.app', 'Contents', 'Resources', 'bin')];
+}
 
 /**
  * The folders core's Docker calls need on PATH: where `docker` was found, where its link points, and
  * Docker Desktop's own folder. Docker runs credential helpers by name, and a GUI app's PATH has none of them.
  */
-export function dockerFolders(docker: string, desktopBins = DOCKER_DESKTOP_BINS): string[] {
+export function dockerFolders(docker: string, desktopBins = dockerDesktopBins(here())): string[] {
   const folders = [dirname(docker)];
   try {
     folders.push(dirname(realpathSync(docker)));
@@ -157,7 +179,7 @@ export function dockerFolders(docker: string, desktopBins = DOCKER_DESKTOP_BINS)
 }
 
 /** `path` with Docker's folders added once, after what was there (§3.1). */
-export function withDockerFolders(path: string, docker: string, desktopBins = DOCKER_DESKTOP_BINS): string {
+export function withDockerFolders(path: string, docker: string, desktopBins = dockerDesktopBins(here())): string {
   const folders = path.split(delimiter).filter(Boolean);
   return [...folders, ...dockerFolders(docker, desktopBins).filter((f) => !folders.includes(f))].join(delimiter);
 }
