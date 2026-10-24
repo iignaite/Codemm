@@ -1,7 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import type { AgentId } from '../shared/api';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Executable } from './agent/bridge';
+import { find } from './agent/find';
+import { tempDir } from './testing/temp';
 import { agentInstaller, isAgentHost, type AgentInstallDeps } from './agentInstall';
 import { OfflineError } from './download';
 
@@ -240,6 +244,21 @@ describe('installing an agent for the learner', () => {
     const failed = winCursor({ [SCRIPT_RUN]: { code: 1, output: GIT_LINE } });
     expect(await run(failed, 'cursor')).toEqual({ phase: 'failed', problem: 'failed' });
     expect(JSON.stringify(failed.install.status('cursor'))).not.toContain('Git');
+  });
+
+  it("Cursor on Windows, found the way Codemm finds it: the version's own node.exe is what's checked", async () => {
+    // The tree Cursor's script leaves in %LOCALAPPDATA%\cursor-agent, with an older version beside the new one.
+    const local = tempDir('codemm-local-');
+    const root = join(local, 'cursor-agent');
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, 'cursor-agent.cmd'), '@echo off\r\n');
+    for (const v of ['2026.10.16-e3cb207', '2026.10.22-27dcf5f']) {
+      mkdirSync(join(root, 'versions', v), { recursive: true });
+      for (const f of ['node.exe', 'index.js']) writeFileSync(join(root, 'versions', v, f), '');
+    }
+    const f = winCursor({}, { find: (bin) => find(bin, { platform: 'win32', path: '', home: local, localAppData: local, appData: local }) });
+    expect(await run(f, 'cursor')).toEqual({ phase: 'done' });
+    expect(f.calls.at(-1)!.env).toEqual({ CODEMM_FILE: join(root, 'versions', '2026.10.22-27dcf5f', 'node.exe') });
   });
 
   it("refuses a Cursor other than the version the script installs: a stale copy left by a failed run doesn't pass", async () => {

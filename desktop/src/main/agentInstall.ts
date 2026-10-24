@@ -189,9 +189,10 @@ export function agentInstaller(d: AgentInstallDeps) {
     const version = cursorVersion(d.readText(file), d.platform);
     if (!version) throw new Stop('failed');
     const exe = await runScript('cursor', file, '/bin/bash');
+    // On Windows find() gives versions\<v>\node.exe itself; on macOS, a link to versions/<v>/cursor-agent beside node.
     const folder = path.dirname(windows ? exe.path : d.realpath(exe.path));
     if (path.basename(folder) !== version) throw new Stop('failed');
-    await assertSigned('cursor', path.join(folder, windows ? 'node.exe' : 'node'));
+    await assertSigned('cursor', windows ? exe.path : path.join(folder, 'node'));
   }
 
   const INSTALLS: Record<AgentId, (dir: string) => Promise<void>> = { claude, codex, cursor };
