@@ -60,6 +60,8 @@ export interface LiveDeps {
   log?: Log;
   /** Resolves once Docker isn't starting any more (§6.1). */
   dockerReady?: () => Promise<void>;
+  /** Brings PATH up to date, on Windows from the registry (livePath.ts, §3.1): agents, Docker and core's docker calls rely on it. */
+  livePath?: () => Promise<void>;
   /**
    * Installs and opens Docker Desktop for the learner, Windows Update when Windows is too old for it, and Windows'
    * restart when WSL needs one (dockerDesktop.ts, §6.1).
@@ -119,6 +121,7 @@ export function createLive(d: LiveDeps): Live {
   const runJob = d.runJob ?? realRunJob;
   const log = d.log ?? noLog;
   const dockerReady = d.dockerReady ?? (async () => {});
+  const livePath = d.livePath ?? (async () => {});
   const briefs = briefsFrom(core.JOB_BRIEFS);
   const running = new Map<string, Running>();
   /**
@@ -290,6 +293,8 @@ export function createLive(d: LiveDeps): Live {
       if (stop.signal.aborted || (lane === 'bg' && course !== undefined && stalls.has(course))) return { ok: false, problem: 'failed', text: [] };
       // Nor does any job while an agent Codemm couldn't stop may still run (§3.1).
       if (unstoppable) return { ok: false, problem: 'unstoppable', text: [] };
+      // The agent, and the Codemm server it starts, inherit PATH as it is now.
+      await livePath();
       const { id, exe, model } = await d.connect.chosen();
       // Again after the lookup: another job may have found its agent unstoppable meanwhile.
       if (unstoppable) return { ok: false, problem: 'unstoppable', text: [] };
@@ -569,11 +574,13 @@ export function createLive(d: LiveDeps): Live {
     },
     onRunOutput: (listener) => programRuns.onOutput(listener),
     async agents() {
+      await livePath();
       const agents = await d.connect.agents();
       log('agents', Object.fromEntries(agents.map((a) => [a.id, a.untested ? `${a.state}-untested` : a.state])));
       return agents;
     },
     async connect(id) {
+      await livePath();
       const agent = await d.connect.connect(id);
       log('connect', { agent: id, state: agent.state, untested: agent.untested || undefined });
       // Signing in again ends every course's sign-out stall.
@@ -608,6 +615,7 @@ export function createLive(d: LiveDeps): Live {
       await d.docker?.restartWindows();
     },
     async computer() {
+      await livePath();
       const computer = await d.computer();
       log('computer', { platform: computer.platform, ...Object.fromEntries(computer.checks.map((c) => [c.id, c.detail ?? c.state])) });
       // Docker works again: every course it stalled starts again (§4.13).

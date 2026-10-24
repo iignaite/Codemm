@@ -5,9 +5,10 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, rmSync, statfsSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
 import type { DockerInstall } from '../shared/api';
+import { dockerDesktops } from './agent/find';
 import { downloader, OfflineError, type Get } from './download';
 import { POWERSHELL, RESTART } from './windows';
 import type { wsl } from './wsl';
@@ -19,6 +20,8 @@ export interface DesktopDeps {
   /** %ProgramFiles% and %LOCALAPPDATA% on Windows, where Docker Desktop installs for all users and for one. */
   programFiles?: string;
   localAppData?: string;
+  /** The learner's home, whose ~/Applications can hold Docker.app on macOS. */
+  home?: string;
   /** The OS temp folder, where tempDir() makes Codemm's download folders. */
   tempRoot: string;
   tempDir(): string;
@@ -62,9 +65,6 @@ const WINDOWS_UPDATE = 'ms-settings:windowsupdate';
 const SHUTDOWN = 'C:\\Windows\\System32\\shutdown.exe';
 /** Docker, Inc's Apple Developer team. */
 const DOCKER_TEAM = /^TeamIdentifier=9BNSXJN65R$/m;
-/** Where Docker Desktop installs for all users (Codemm's install), and for one user (Docker's own default). */
-const WIN_DESKTOP = 'Docker\\Docker\\Docker Desktop.exe';
-const WIN_USER_DESKTOP = 'Programs\\DockerDesktop\\Docker Desktop.exe';
 /**
  * Codemm's own folders an install can leave behind: a staging folder in Applications (placeApp), and a download
  * folder in the temp folder (tempDir) that a Mac's manual install kept. How old one is before it counts as left.
@@ -131,10 +131,8 @@ export function dockerDesktop(d: DesktopDeps, w?: Pick<ReturnType<typeof wsl>, '
   let started: number | undefined;
 
   const ok = (r: { code: number | null }) => r.code === 0;
-  const desktops =
-    d.platform === 'darwin' ? [MAC_APP]
-    : d.platform === 'win32' ? [win32.join(d.programFiles ?? 'C:\\Program Files', WIN_DESKTOP), ...(d.localAppData ? [win32.join(d.localAppData, WIN_USER_DESKTOP)] : [])]
-    : [];
+  // Docker Desktop's app wherever it installs, for all users or for this one (find.ts keeps the one list).
+  const desktops = dockerDesktops(d, path.join).map((desktop) => desktop.app);
   const quietly = (path: string) => {
     try {
       d.remove(path);
@@ -238,8 +236,10 @@ export function dockerDesktop(d: DesktopDeps, w?: Pick<ReturnType<typeof wsl>, '
     let dir: string | undefined;
     let keep = false;
     try {
-      if (d.platform === 'darwin' && d.exists(MAC_APP)) {
-        await openApp(MAC_APP);
+      // A Mac's Docker, in Applications or ~/Applications, opens instead of installing again.
+      const app = d.platform === 'darwin' ? desktops.find((p) => d.exists(p)) : undefined;
+      if (app) {
+        await openApp(app);
       } else {
         await assertSupported();
         dir = d.tempDir();
@@ -270,7 +270,7 @@ export function dockerDesktop(d: DesktopDeps, w?: Pick<ReturnType<typeof wsl>, '
     },
     /** The install, until Docker has had its startup window: after that, Check this computer speaks for Docker. */
     status: () => (status?.phase === 'starting' && started !== undefined && d.now() - started > STARTING_MS ? undefined : status),
-    open: () => openApp('Docker'),
+    open: () => openApp(desktops.find((p) => d.exists(p)) ?? 'Docker'),
     /** Windows Update, where a Windows too old for Docker Desktop is updated. */
     windowsUpdate: () => (d.platform === 'win32' ? d.launch(EXPLORER, [WINDOWS_UPDATE]) : Promise.resolve()),
     /** Restarts Windows, on the learner's click only, when WSL or Docker's installer needs it. Run, not launched: no console flashes. */
@@ -282,6 +282,7 @@ export function dockerDesktop(d: DesktopDeps, w?: Pick<ReturnType<typeof wsl>, '
     installed: () => desktops.some((p) => d.exists(p)),
     /** Docker Desktop's app is running, opened by Codemm or the learner, whether or not its engine answers yet. */
     async running() {
+      // An unanchored pattern: it matches ~/Applications/Docker.app too.
       if (d.platform === 'darwin') return ok(await d.run(PGREP, ['-f', '/Applications/Docker.app/']));
       if (d.platform === 'win32') return /"Docker Desktop\.exe"/i.test((await d.run(TASKLIST, ['/FI', 'IMAGENAME eq Docker Desktop.exe', '/NH', '/FO', 'CSV'])).output);
       return false;
@@ -335,6 +336,7 @@ export function nodeDesktopDeps({ get, arch }: Network): DesktopDeps {
     arch,
     programFiles: process.env.ProgramFiles,
     localAppData: process.env.LOCALAPPDATA,
+    home: homedir(),
     tempRoot: tmpdir(),
     tempDir: () => mkdtempSync(join(tmpdir(), 'codemm-docker-')),
     freeBytes: async (dir) => {

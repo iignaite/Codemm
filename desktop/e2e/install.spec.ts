@@ -25,7 +25,8 @@ test('installed: opens, installs both agents, and checks this computer', async (
   const profile = tempDir('codemm-profile-');
   // The run's own workspace (O5), never a real ~/Codemm.
   writeFileSync(join(profile, 'desktop.json'), JSON.stringify({ format_version: 1, sessions: {}, workspace: tempDir('codemm-ws-') }));
-  const env = { ...process.env, CODEMM_HOME: tempDir('codemm-home-'), PATH: process.env.INSTALL_PATH ?? process.env.PATH ?? '' } as Record<string, string>;
+  // CODEMM_TEST_FIXED_PATH: on Windows, the registry's PATH (Node, npm, Git on a runner) is never merged into the learner's.
+  const env = { ...process.env, CODEMM_HOME: tempDir('codemm-home-'), PATH: process.env.INSTALL_PATH ?? process.env.PATH ?? '', CODEMM_TEST_FIXED_PATH: '1' } as Record<string, string>;
   for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS']) delete env[key];
 
   let app!: ElectronApplication;
