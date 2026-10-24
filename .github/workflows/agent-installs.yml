@@ -1,0 +1,159 @@
+name: Agent installs
+
+# Every official way to install Claude Code, Codex, Cursor and Docker Desktop, on GitHub's macOS and Windows
+# machines, then Codemm's own lookup (desktop/src/main/agent/find.real.test.ts): found with the PATH a Codemm
+# already running had, and the agent answers its version. No sign-in, no credentials and no model calls. Docker
+# Desktop's engine can't run on these machines, so only its lookup is checked.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/agent-installs.yml"
+      - "desktop/src/main/agent/**"
+      - "desktop/src/main/dockerDesktop.ts"
+  # The vendors change their installers without telling us.
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows claude script, os: windows-latest, agent: claude, install: "irm https://claude.ai/install.ps1 | iex" }
+          # Red until the lookup runs the .exe an npm .cmd shim points at.
+          - { name: windows claude npm, os: windows-latest, agent: claude, install: "npm i -g @anthropic-ai/claude-code", red: true }
+          # Red until the lookup reads the live PATH or WinGet's Links folder.
+          - { name: windows claude winget, os: windows-latest, agent: claude, winget: Anthropic.ClaudeCode, red: true }
+          - { name: windows codex script, os: windows-latest, agent: codex, install: "irm https://chatgpt.com/codex/install.ps1 | iex" }
+          - { name: windows codex npm, os: windows-latest, agent: codex, install: "npm i -g @openai/codex" }
+          # Red until the lookup reads the live PATH or WinGet's Links folder.
+          - { name: windows codex winget, os: windows-latest, agent: codex, winget: OpenAI.Codex, red: true }
+          # Red until Codemm starts Cursor's Node directly (Cursor launcher PR) and reads the live PATH.
+          - { name: windows cursor script, os: windows-latest, agent: cursor, install: "irm 'https://cursor.com/install?win32=true' | iex", red: true }
+          # Red until the lookup knows Docker Desktop's per-user folder.
+          - { name: windows docker per-user, os: windows-latest, agent: docker, docker: "--user --quiet --accept-license --backend=wsl-2", dockerbin: '%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin', red: true }
+          - { name: windows docker all users, os: windows-latest, agent: docker, docker: "--quiet --accept-license", dockerbin: 'C:\Program Files\Docker\Docker\resources\bin' }
+          - { name: macos claude script, os: macos-latest, agent: claude, install: "curl -fsSL https://claude.ai/install.sh | bash" }
+          - { name: macos claude brew, os: macos-latest, agent: claude, install: "brew install --cask claude-code" }
+          - { name: macos claude npm, os: macos-latest, agent: claude, npm: "@anthropic-ai/claude-code" }
+          - { name: macos codex script, os: macos-latest, agent: codex, install: "curl -fsSL https://chatgpt.com/codex/install.sh | sh" }
+          - { name: macos codex brew, os: macos-latest, agent: codex, install: "brew install --cask codex" }
+          - { name: macos codex npm, os: macos-latest, agent: codex, npm: "@openai/codex" }
+          - { name: macos cursor script, os: macos-latest, agent: cursor, install: "curl https://cursor.com/install -fsS | bash" }
+          - { name: macos cursor brew, os: macos-latest, agent: cursor, install: "brew install --cask cursor-cli" }
+          - { name: macos docker brew, os: macos-latest, agent: docker, install: "brew install --cask docker-desktop", dockerbin: /Applications/Docker.app/Contents/Resources/bin }
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.red == true }}
+    timeout-minutes: 30
+    env:
+      AGENT: ${{ matrix.agent }}
+      INSTALL: ${{ matrix.install }}
+      WINGET: ${{ matrix.winget }}
+      DOCKER_BIN: ${{ matrix.dockerbin }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install the test's dependencies
+        working-directory: desktop
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      # A Mac app opened from Finder gets only the system folders. A Windows app keeps the PATH it started with,
+      # so this is a Codemm opened before the install: the runner's own PATH, without the runner's Docker.
+      - name: Remember the PATH Codemm starts with (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $path = ($env:PATH -split ';' | Where-Object { $_ -and -not (Test-Path (Join-Path $_ 'docker.exe')) }) -join ';'
+          "CODEMM_INSTALL_PATH=$path" >> $env:GITHUB_ENV
+          [Environment]::GetEnvironmentVariable('Path', 'User') | Set-Content "$env:RUNNER_TEMP\user-path.txt"
+          [Environment]::GetEnvironmentVariable('Path', 'Machine') | Set-Content "$env:RUNNER_TEMP\machine-path.txt"
+          if ($env:DOCKER_BIN) { "CODEMM_DOCKER_BIN=$([Environment]::ExpandEnvironmentVariables($env:DOCKER_BIN))" >> $env:GITHUB_ENV }
+      - name: Remember the PATH Codemm starts with (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "CODEMM_INSTALL_PATH=/usr/bin:/bin:/usr/sbin:/sbin" >> "$GITHUB_ENV"
+          if [ -n "$DOCKER_BIN" ]; then echo "CODEMM_DOCKER_BIN=$DOCKER_BIN" >> "$GITHUB_ENV"; fi
+
+      # The vendors' own commands, in Windows PowerShell as their docs say. No token reaches any of them.
+      - name: Install (Windows)
+        if: runner.os == 'Windows' && matrix.install
+        shell: powershell
+        run: ${{ matrix.install }}
+        env:
+          CODEX_NON_INTERACTIVE: "1"
+      - name: Install with WinGet
+        if: matrix.winget
+        shell: pwsh
+        run: |
+          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Write-Output "::notice::This runner has no winget, so $env:WINGET wasn't checked"
+            "SKIP=1" >> $env:GITHUB_ENV
+            exit 0
+          }
+          winget install --id $env:WINGET -e --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity
+      # Accepting Docker's license is fine on a throwaway runner; Codemm itself leaves that to Docker's own window.
+      - name: Install Docker Desktop (Windows)
+        if: matrix.docker
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $installer = "$env:RUNNER_TEMP\DockerDesktopInstaller.exe"
+          Invoke-WebRequest 'https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe' -OutFile $installer
+          $p = Start-Process $installer -ArgumentList "install ${{ matrix.docker }}" -Wait -PassThru
+          Write-Output "Docker Desktop's installer exited with $($p.ExitCode)"
+      - name: Install (macOS)
+        if: runner.os == 'macOS' && matrix.install
+        run: ${{ matrix.install }}
+        env:
+          CODEX_NON_INTERACTIVE: "1"
+      # A learner's npm is usually Homebrew's Node, not the runner's.
+      - name: Install with Homebrew's npm (macOS)
+        if: matrix.npm
+        run: |
+          brew install node
+          PATH="$(brew --prefix)/bin:$PATH" npm i -g ${{ matrix.npm }}
+
+      # What the lookup fixes need and no one could see without a Windows PC.
+      - name: Show where it landed (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          Write-Output "User PATH changed: $($user -ne (Get-Content -Raw "$env:RUNNER_TEMP\user-path.txt").TrimEnd())"
+          Write-Output "User PATH now: $user"
+          Write-Output "Machine PATH changed: $($machine -ne (Get-Content -Raw "$env:RUNNER_TEMP\machine-path.txt").TrimEnd())"
+          $show = { param($dir) if (Test-Path $dir) { Write-Output "--- $dir"; Get-ChildItem $dir -Force | Format-Table -AutoSize | Out-String -Width 200 } else { Write-Output "--- $dir is missing" } }
+          if ($env:INSTALL -like 'npm *') { & $show (npm prefix -g) }
+          if ($env:WINGET) { & $show "$env:LOCALAPPDATA\Microsoft\WinGet\Links"; winget list --id $env:WINGET }
+          if ($env:AGENT -eq 'cursor') {
+            $root = "$env:LOCALAPPDATA\cursor-agent"
+            & $show $root
+            Get-ChildItem "$root\versions" -Directory -ErrorAction SilentlyContinue | ForEach-Object { & $show $_.FullName }
+            foreach ($f in 'cursor-agent.cmd', 'cursor-agent.ps1') { Write-Output "--- $root\$f"; Get-Content "$root\$f" -ErrorAction SilentlyContinue }
+          }
+          if ($env:AGENT -eq 'docker') {
+            foreach ($root in "$env:LOCALAPPDATA\Programs\DockerDesktop", 'C:\Program Files\Docker') {
+              Write-Output "--- docker*.exe under $root"
+              Get-ChildItem $root -Recurse -Filter 'docker*.exe' -ErrorAction SilentlyContinue | ForEach-Object FullName
+            }
+          }
+
+      - name: Codemm finds it
+        if: env.SKIP != '1'
+        working-directory: desktop
+        shell: bash
+        env:
+          CODEMM_REAL_INSTALL: ${{ matrix.agent }}
+        run: npx vitest run src/main/agent/find.real.test.ts
