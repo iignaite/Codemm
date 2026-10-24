@@ -3,6 +3,7 @@
 // commands that stop at a deadline and keep only what they read. The agent
 // gets the app's environment unchanged (O1).
 import { spawn, type ChildProcess } from 'node:child_process';
+import { TASKKILL } from '../windows';
 
 /** An agent or tool found on this computer. `js`: a Node script, run with the app itself as Node. */
 export interface Executable {
@@ -66,7 +67,7 @@ async function killTree(child: ChildProcess, killAfterMs: number, parentExited: 
   if (windows) {
     // With the parent already gone, its tree can't be found or checked.
     if (parentExited) return false;
-    const taskkill = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
+    const taskkill = spawn(TASKKILL, ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
     const code = await withDeadline(new Promise<number | null>((r) => taskkill.on('close', r).on('error', () => r(null))), TREE_KILL_MS, null);
     if (code === null) taskkill.kill();
     return code === 0;

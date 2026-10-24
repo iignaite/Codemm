@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ask, command, groupAlive, run, spawnable, withDeadline, type Executable } from './bridge';
 import { tempDir } from '../testing/temp';
+import { TASKKILL } from '../windows';
 
 const parse = (line: string) => (line.startsWith('{') ? [JSON.parse(line) as Record<string, unknown>] : []);
 /** A fake agent: this Node running a script, the way the app runs a JavaScript agent. */
@@ -69,6 +70,11 @@ describe('bridge (D5)', () => {
     } finally {
       delete process.env.CODEMM_TEST_VALUE;
     }
+  });
+
+  it('stops a Windows process tree with taskkill by its full path, never by name', () => {
+    // A taskkill.exe earlier on PATH (now merged from the registry) could answer for it.
+    expect(TASKKILL).toBe('C:\\Windows\\System32\\taskkill.exe');
   });
 
   // On Windows this checks `taskkill /t /f` on the process tree; on POSIX, SIGTERM then SIGKILL to the group.
