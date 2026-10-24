@@ -43,7 +43,7 @@ export function folders(w: Where): string[] {
       // WinGet's command links, for the user and for the machine: Claude Code's and Codex's packages are portable.
       w.localAppData && join(w.localAppData, 'Microsoft', 'WinGet', 'Links'),
       w.programFiles && join(w.programFiles, 'WinGet', 'Links'),
-      ...dockerDesktopBins(w),
+      ...desktopBinsOf(w),
       join(w.home, '.local', 'bin'),
     ].filter((d): d is string => Boolean(d));
   }
@@ -61,7 +61,7 @@ export function folders(w: Where): string[] {
     join(w.home, '.local', 'share', 'fnm', 'aliases', 'default', 'bin'),
     join(w.home, 'Library', 'Application Support', 'fnm', 'aliases', 'default', 'bin'),
     // Container engines. Colima has no Docker client of its own: it uses Homebrew's, above.
-    ...dockerDesktopBins(w),
+    ...desktopBinsOf(w),
     join(w.home, '.docker', 'bin'), // Docker Desktop's per-user links
     join(w.home, '.orbstack', 'bin'),
     join(w.home, '.rd', 'bin'), // Rancher Desktop
@@ -157,24 +157,27 @@ export function find(bin: string, w: Where = here()): Executable | null {
 }
 
 /**
- * Docker Desktop's own folders, where its credential helpers live: for all users, and for this one (macOS's
- * ~/Applications; on Windows, Docker's default since 4.83).
+ * Where Docker Desktop installs, the one list of it: for all users, and for this one (macOS's ~/Applications; on
+ * Windows, Docker's default since 4.83). Each install's app, and the folder of its CLI and credential helpers.
+ * `join` is this computer's, as for every folder here; dockerDesktop.ts passes the target's, for its own tests.
  */
-export function dockerDesktopBins(w: Where): string[] {
+export function dockerDesktops(w: Pick<Where, 'platform' | 'programFiles' | 'localAppData'> & { home?: string }, pathJoin = join): { app: string; bin: string }[] {
   if (w.platform === 'win32') {
-    return [
-      join(w.programFiles ?? 'C:\\Program Files', 'Docker', 'Docker', 'resources', 'bin'),
-      ...(w.localAppData ? [join(w.localAppData, 'Programs', 'DockerDesktop', 'resources', 'bin')] : []),
-    ];
+    const roots = [pathJoin(w.programFiles ?? 'C:\\Program Files', 'Docker', 'Docker'), ...(w.localAppData ? [pathJoin(w.localAppData, 'Programs', 'DockerDesktop')] : [])];
+    return roots.map((root) => ({ app: pathJoin(root, 'Docker Desktop.exe'), bin: pathJoin(root, 'resources', 'bin') }));
   }
-  return ['/Applications/Docker.app/Contents/Resources/bin', join(w.home, 'Applications', 'Docker.app', 'Contents', 'Resources', 'bin')];
+  if (w.platform !== 'darwin') return [];
+  const apps = ['/Applications/Docker.app', ...(w.home ? [pathJoin(w.home, 'Applications', 'Docker.app')] : [])];
+  return apps.map((app) => ({ app, bin: pathJoin(app, 'Contents', 'Resources', 'bin') }));
 }
+
+const desktopBinsOf = (w: Where) => dockerDesktops(w).map((d) => d.bin);
 
 /**
  * The folders core's Docker calls need on PATH: where `docker` was found, where its link points, and
  * Docker Desktop's own folder. Docker runs credential helpers by name, and a GUI app's PATH has none of them.
  */
-export function dockerFolders(docker: string, desktopBins = dockerDesktopBins(here())): string[] {
+export function dockerFolders(docker: string, desktopBins = desktopBinsOf(here())): string[] {
   const folders = [dirname(docker)];
   try {
     folders.push(dirname(realpathSync(docker)));
@@ -186,7 +189,7 @@ export function dockerFolders(docker: string, desktopBins = dockerDesktopBins(he
 }
 
 /** `path` with Docker's folders added once, after what was there (§3.1). */
-export function withDockerFolders(path: string, docker: string, desktopBins = dockerDesktopBins(here())): string {
+export function withDockerFolders(path: string, docker: string, desktopBins = desktopBinsOf(here())): string {
   const folders = path.split(delimiter).filter(Boolean);
   return [...folders, ...dockerFolders(docker, desktopBins).filter((f) => !folders.includes(f))].join(delimiter);
 }

@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync, readdirSync, rmSync, statfsSync, statSync } fr
 import { homedir, tmpdir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
 import type { DockerInstall } from '../shared/api';
+import { dockerDesktops } from './agent/find';
 import { downloader, OfflineError, type Get } from './download';
 import { POWERSHELL } from './windows';
 
@@ -61,9 +62,6 @@ const EXPLORER = 'C:\\Windows\\explorer.exe';
 const WINDOWS_UPDATE = 'ms-settings:windowsupdate';
 /** Docker, Inc's Apple Developer team. */
 const DOCKER_TEAM = /^TeamIdentifier=9BNSXJN65R$/m;
-/** Where Docker Desktop installs for all users (Codemm's install), and for one user (Docker's own default). */
-const WIN_DESKTOP = 'Docker\\Docker\\Docker Desktop.exe';
-const WIN_USER_DESKTOP = 'Programs\\DockerDesktop\\Docker Desktop.exe';
 /**
  * Codemm's own folders an install can leave behind: a staging folder in Applications (placeApp), and a download
  * folder in the temp folder (tempDir) that a failed or declined install kept. How old one is before it counts as left.
@@ -141,10 +139,8 @@ export function dockerDesktop(d: DesktopDeps) {
   let declined: string | undefined;
 
   const ok = (r: { code: number | null }) => r.code === 0;
-  const desktops =
-    d.platform === 'darwin' ? [MAC_APP, ...(d.home ? [posix.join(d.home, 'Applications', 'Docker.app')] : [])]
-    : d.platform === 'win32' ? [win32.join(d.programFiles ?? 'C:\\Program Files', WIN_DESKTOP), ...(d.localAppData ? [win32.join(d.localAppData, WIN_USER_DESKTOP)] : [])]
-    : [];
+  // Docker Desktop's app wherever it installs, for all users or for this one (find.ts keeps the one list).
+  const desktops = dockerDesktops(d, path.join).map((desktop) => desktop.app);
   const quietly = (path: string) => {
     try {
       d.remove(path);

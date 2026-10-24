@@ -2,7 +2,8 @@
 import { chmodSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dockerDesktopBins, dockerFolders, find, folders, here, shimTarget, withDockerFolders, type Where } from './find';
+import { posix as posixPath, win32 } from 'node:path';
+import { dockerDesktops, dockerFolders, find, folders, here, shimTarget, withDockerFolders, type Where } from './find';
 import { tempDir } from '../testing/temp';
 
 /** What every npm `.cmd` shim starts with (npm's cmd-shim). */
@@ -171,11 +172,19 @@ describe('find (§3.1)', () => {
     expect(find('codemm-fake-engine', posix('/usr/bin', mac.at('home')))).toEqual({ path: join(bin, 'codemm-fake-engine'), js: false });
   });
 
-  it("knows Docker Desktop's own folders, where its credential helpers live, for all users and for one", () => {
-    expect(dockerDesktopBins(posix('', '/Users/me'))).toEqual(['/Applications/Docker.app/Contents/Resources/bin', join('/Users/me', 'Applications', 'Docker.app', 'Contents', 'Resources', 'bin')]);
-    const w: Where = { platform: 'win32', path: '', home: 'C:\\Users\\me', programFiles: 'D:\\Programs', localAppData: 'C:\\Users\\me\\AppData\\Local' };
-    expect(dockerDesktopBins(w)).toEqual([join('D:\\Programs', 'Docker', 'Docker', 'resources', 'bin'), join('C:\\Users\\me\\AppData\\Local', 'Programs', 'DockerDesktop', 'resources', 'bin')]);
-    expect(dockerDesktopBins({ platform: 'win32', path: '', home: 'C:\\Users\\me' })).toEqual([join('C:\\Program Files', 'Docker', 'Docker', 'resources', 'bin')]);
+  it("knows where Docker Desktop installs, for all users and for one: its app, and the folder of its CLI and credential helpers", () => {
+    expect(dockerDesktops({ platform: 'darwin', home: '/Users/me' }, posixPath.join)).toEqual([
+      { app: '/Applications/Docker.app', bin: '/Applications/Docker.app/Contents/Resources/bin' },
+      { app: '/Users/me/Applications/Docker.app', bin: '/Users/me/Applications/Docker.app/Contents/Resources/bin' },
+    ]);
+    expect(dockerDesktops({ platform: 'win32', home: 'C:\\Users\\me', programFiles: 'D:\\Programs', localAppData: 'C:\\Users\\me\\AppData\\Local' }, win32.join)).toEqual([
+      { app: 'D:\\Programs\\Docker\\Docker\\Docker Desktop.exe', bin: 'D:\\Programs\\Docker\\Docker\\resources\\bin' },
+      { app: 'C:\\Users\\me\\AppData\\Local\\Programs\\DockerDesktop\\Docker Desktop.exe', bin: 'C:\\Users\\me\\AppData\\Local\\Programs\\DockerDesktop\\resources\\bin' },
+    ]);
+    expect(dockerDesktops({ platform: 'win32', home: 'C:\\Users\\me' }, win32.join)).toEqual([
+      { app: 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe', bin: 'C:\\Program Files\\Docker\\Docker\\resources\\bin' },
+    ]);
+    expect(dockerDesktops({ platform: 'linux', home: '/home/me' })).toEqual([]);
   });
 
   it("splits a Windows PATH on Windows' own separator, whichever computer runs the search", () => {
