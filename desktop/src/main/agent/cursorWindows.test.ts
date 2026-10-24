@@ -49,10 +49,25 @@ describe("Cursor's own Node and script on Windows (§3.1)", () => {
     expect(cursorEntry(join(tempDir('codemm-cursor-'), 'gone'))).toBeNull();
   });
 
-  it("an Executable that runs Cursor's node.exe on its index.js, as its launcher does", () => {
+  it('a node.exe beside the launcher runs there, as the launcher does', () => {
+    const { root } = install({ '2026.10.22-27dcf5f': true });
+    writeFileSync(join(root, 'node.exe'), 'MZ');
+    writeFileSync(join(root, 'index.js'), '');
+    expect(cursorEntry(root)).toEqual({ node: join(root, 'node.exe'), script: join(root, 'index.js') });
+  });
+
+  it("an Executable that runs Cursor's node.exe on its index.js, with the launcher's environment", () => {
     const { root, entry } = install({ '2026.10.22-27dcf5f': true });
     const { node, script } = entry('2026.10.22-27dcf5f');
-    expect(cursorExecutable(root)).toEqual({ path: node, js: false, args: [script], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } });
-    expect(cursorExecutable(tempDir('codemm-cursor-'))).toBeNull();
+    const local = join('C:', 'Users', 'Ann Lee', 'AppData', 'Local');
+    expect(cursorExecutable(root, { LOCALAPPDATA: local })).toEqual({
+      path: node,
+      js: false,
+      args: [script],
+      env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd', NODE_COMPILE_CACHE: join(local, 'cursor-compile-cache') },
+    });
+    // The launcher keeps a compile cache the learner set.
+    expect(cursorExecutable(root, { LOCALAPPDATA: local, NODE_COMPILE_CACHE: 'D:\\cache' })?.env).toEqual({ CURSOR_INVOKED_AS: 'cursor-agent.cmd' });
+    expect(cursorExecutable(tempDir('codemm-cursor-'), {})).toBeNull();
   });
 });

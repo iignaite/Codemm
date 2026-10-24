@@ -26,6 +26,8 @@ function newest(a: string, b: string): number {
 
 /** The node.exe and index.js `cursor-agent.cmd` would run from this install root, or null (not installed). */
 export function cursorEntry(root: string): { node: string; script: string } | null {
+  // A launcher beside its own node.exe runs that, as cursor-agent.ps1 does.
+  if (isFile(join(root, 'node.exe')) && isFile(join(root, 'index.js'))) return { node: join(root, 'node.exe'), script: join(root, 'index.js') };
   const versions = join(root, 'versions');
   let names: string[];
   try {
@@ -38,8 +40,14 @@ export function cursorEntry(root: string): { node: string; script: string } | nu
   return v ? { node: join(versions, v, 'node.exe'), script: join(versions, v, 'index.js') } : null;
 }
 
-/** Cursor's own Node running its script, as its launcher runs it, or null when this root holds no usable version. */
-export function cursorExecutable(root: string): Executable | null {
+/**
+ * Cursor's own Node running its script, with the environment its launcher sets: the name it was started by, and a
+ * compile cache unless one is set. Null when this root holds no usable version.
+ */
+export function cursorExecutable(root: string, env: NodeJS.ProcessEnv = process.env): Executable | null {
   const entry = cursorEntry(root);
-  return entry && { path: entry.node, js: false, args: [entry.script], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } };
+  if (!entry) return null;
+  const added: Record<string, string> = { CURSOR_INVOKED_AS: 'cursor-agent.cmd' };
+  if (!env.NODE_COMPILE_CACHE && env.LOCALAPPDATA) added.NODE_COMPILE_CACHE = join(env.LOCALAPPDATA, 'cursor-compile-cache');
+  return { path: entry.node, js: false, args: [entry.script], env: added };
 }
