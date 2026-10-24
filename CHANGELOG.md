@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0-beta.5
+
+- **Codemm finds your agent the moment it's installed.** It reads Windows' current PATH every time it looks, so an agent or Docker installed while Codemm is open shows up without a restart, wherever its installer put it (npm, WinGet, Volta, nvm-windows, pnpm, Chocolatey or the vendor's own folder). The Connect, Welcome and Setup screens check again every few seconds.
+- **Codemm installs Cursor for you** on macOS and Windows, from Cursor's own site and checked, like Claude Code and Codex. Cursor is still marked experimental.
+- **Cursor works on Windows.** Codemm starts Cursor's own Node and script directly, so task briefs with quotes, `!` or `%` reach it unchanged.
+- **Docker and WSL on Windows without the installer's extra prompts.** Codemm sets up WSL when it's needed and installs Docker Desktop quietly. You still accept Docker's terms in Docker's own window.
+- **Change your agent from the sidebar.** A new Agent entry lets you switch between Claude Code, Codex and Cursor, and a sign-out no longer loops.
+- **Every character you type shows in the editor.** Code is drawn without font ligatures, so `!=` no longer looks like `=`.
+- **Install checks in CI** now install Claude Code, Codex, Cursor and Docker every common way on macOS and Windows.
+
 ## 1.0.0-beta.4
 
 - **Courses get proper names.** Your agent names the course it researches ("Spring Boot", not "springboot?"), and what you type is tidied wherever it shows. Courses you already have keep the name typed for them.
