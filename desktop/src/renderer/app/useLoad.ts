@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-/** How often screens re-read Codemm while it is still working, re-check this computer, and re-read a settled course. */
-export const timing = { pollMs: 500, recheckMs: 5000, idleMs: 600_000 };
+/**
+ * How often screens re-read Codemm while it is still working, re-check this computer, look for agents (one installed,
+ * removed or signed in elsewhere), and re-read a settled course.
+ */
+export const timing = { pollMs: 500, recheckMs: 5000, agentsMs: 3000, idleMs: 600_000 };
 
 export interface LoadOptions<T> {
   /** Keep re-reading every `every` ms until this says the data is done. */
@@ -9,6 +12,8 @@ export interface LoadOptions<T> {
   every?: number;
   /** Also re-read when the window regains focus, and every `timing.idleMs` once settled: time alone can change a course (a review comes due, core §7). */
   onFocus?: boolean;
+  /** Once settled, re-read every `idle` ms instead. */
+  idle?: number;
 }
 
 interface Loaded<T> {
@@ -23,20 +28,28 @@ interface Loaded<T> {
 }
 
 /**
- * Loads data for a screen. Reads never overlap: a reload while one is in flight waits for it, then reads once more.
- * New inputs (`deps`) start over at once.
+ * Loads data for a screen. Reads never overlap: a reload while one is in flight waits for it, drops what it read (it
+ * began before whatever the reload is for), then reads once more. New inputs (`deps`) start over at once. A timed
+ * re-read waits while the window is hidden.
  */
-export function useLoad<T>(load: () => Promise<T>, deps: unknown[], { settled, every = timing.pollMs, onFocus = false }: LoadOptions<T> = {}): Loaded<T> {
+export function useLoad<T>(load: () => Promise<T>, deps: unknown[], { settled, every = timing.pollMs, onFocus = false, idle }: LoadOptions<T> = {}): Loaded<T> {
   // `gen` counts input changes, not reloads: the data's own `gen` says which inputs it came from.
   const [state, setState] = useState<{ data?: T; gen?: number; error?: unknown; loading: boolean }>({ loading: true });
   const [tick, setTick] = useState(0);
   const gen = useRef(0);
   const reading = useRef(false);
   const again = useRef(false);
+  // A read that a reload overtook is dropped, so never call reload from an event that fires faster than a read.
   const reload = useCallback(() => {
     if (reading.current) again.current = true;
     else setTick((t) => t + 1);
   }, []);
+  /** A timed re-read waits while the window is hidden (minimized or covered), and reads once it shows again. */
+  const hiddenDue = useRef(false);
+  const poll = useCallback(() => {
+    if (document.hidden) hiddenDue.current = true;
+    else reload();
+  }, [reload]);
 
   // Declared first, so it runs before the read below.
   useEffect(() => {
@@ -61,17 +74,17 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[], { settled, e
     load().then(
       (data) => {
         if (!live) return;
-        setState({ data, gen: at, loading: false });
+        if (!again.current) setState({ data, gen: at, loading: false });
         done(() => {
-          if (settled && !settled(data)) timer = setTimeout(reload, every);
-          else if (onFocus) timer = setTimeout(reload, timing.idleMs);
+          const after = settled && !settled(data) ? every : (idle ?? (onFocus ? timing.idleMs : undefined));
+          if (after !== undefined) timer = setTimeout(poll, after);
         });
       },
       (error) => {
         if (!live) return;
         // The last data stays when it came from these inputs: one failed read doesn't take the screen away.
         // Data from other inputs never stands in for these.
-        setState((s) => (s.gen === at ? { data: s.data, gen: at, error, loading: false } : { error, loading: false }));
+        if (!again.current) setState((s) => (s.gen === at ? { data: s.data, gen: at, error, loading: false } : { error, loading: false }));
         done(() => undefined);
       },
     );
@@ -80,6 +93,16 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[], { settled, e
       clearTimeout(timer);
     };
   }, [...deps, tick]);
+
+  useEffect(() => {
+    const shown = () => {
+      if (document.hidden || !hiddenDue.current) return;
+      hiddenDue.current = false;
+      reload();
+    };
+    document.addEventListener('visibilitychange', shown);
+    return () => document.removeEventListener('visibilitychange', shown);
+  }, [reload]);
 
   useEffect(() => {
     if (!onFocus) return;

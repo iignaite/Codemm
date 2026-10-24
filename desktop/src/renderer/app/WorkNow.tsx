@@ -44,15 +44,19 @@ function stageOf(p: JobProgress, quiet: boolean): string {
   return p.part && p.part.total > 0 ? `${stage}, step ${p.part.done} of ${p.part.total}` : stage;
 }
 
+/** The course editor on the saved draft, which holds every edit made so far; the course map once there is none. */
+export async function editorRoute(api: CodemmApi): Promise<Route> {
+  const draft = await api.draft();
+  return draft ? { to: 'course', roadmap: draft } : { to: 'learn' };
+}
+
 /** The place a job belongs to. */
 async function placeOf(p: JobProgress, course: Course, api: CodemmApi): Promise<Route> {
   switch (p.kind) {
     case 'research':
       return researching ? { to: 'research', goal: researching } : { to: 'goal' };
-    case 'roadmap': {
-      const draft = await api.draft();
-      return draft ? { to: 'course', roadmap: draft } : { to: 'learn' };
-    }
+    case 'roadmap':
+      return editorRoute(api);
     case 'setup': {
       const now = course?.topics.find((t) => t.state === 'now');
       return now ? { to: 'topic', topicId: now.id } : { to: 'learn' };

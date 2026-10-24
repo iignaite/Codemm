@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
 import { Failed } from '../../app/Problems';
-import { useLoad } from '../../app/useLoad';
+import { timing, useLoad } from '../../app/useLoad';
 import { Busy } from '../../ui/Busy';
 import { Button } from '../../ui/Button';
 import { Emm } from '../../ui/Emm';
@@ -31,7 +31,11 @@ function Starting() {
 export function Welcome() {
   const api = useApi();
   const { go } = useRouter();
-  const { data, error, reload } = useLoad(async () => ({ agents: await api.agents(), course: await api.course() }), []);
+  // Looks again every few seconds until an agent is connected: one installed or signed in elsewhere shows up.
+  const { data, error, reload } = useLoad(async () => ({ agents: await api.agents(), course: await api.course() }), [], {
+    settled: (d) => d.agents.some((a) => a.state === 'connected'),
+    every: timing.agentsMs,
+  });
   // Read beside the agents, so Welcome shows at once: what Codemm could install here.
   const { data: computer } = useLoad(() => api.computer(), []);
   // A relaunch with a course in progress and the agent connected goes straight back to the course.

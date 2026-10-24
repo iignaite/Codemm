@@ -1,5 +1,5 @@
-// The main navigation (§1): Learn, Practice and Tracks, wide with the course or slim beside a workspace.
-import { useSyncExternalStore, type ReactNode } from 'react';
+// The main navigation (§1): Learn, Practice, Tracks and Agent, wide with the course or slim beside a workspace.
+import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import type { CourseView } from '../../shared/api';
 import { Button } from '../ui/Button';
 import { Emm } from '../ui/Emm';
@@ -11,7 +11,7 @@ import { useLoad } from './useLoad';
 import { offeredTopic } from './course';
 import { Courses } from './Courses';
 import { ExternalLink } from '../ui/ExternalLink';
-import { WorkNow } from './WorkNow';
+import { editorRoute, WorkNow } from './WorkNow';
 
 type Section = 'learn' | 'practice' | 'tracks';
 
@@ -45,14 +45,28 @@ function onNarrowChange(changed: () => void) {
 export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
   const slim = useSyncExternalStore(onNarrowChange, narrowNow) || slimHere;
   const api = useApi();
-  const { route, go } = useRouter();
+  const { route, go, fail } = useRouter();
   const { data: course } = useLoad(() => api.course(), [route]);
   const here = sectionOf(route);
-  const items: { key: Section; label: string; icon: IconName; to: Route }[] = [
+  const items: { key: Section | 'agent'; label: string; icon: IconName; to: Route | (() => Promise<Route>) }[] = [
     { key: 'learn', label: 'Learn', icon: 'path', to: course ? { to: 'learn' } : { to: 'goal' } },
     { key: 'practice', label: 'Practice', icon: 'code', to: practiceRoute(course) },
     { key: 'tracks', label: 'Tracks', icon: 'layers', to: { to: 'tracks' } },
+    // The connect screen, the only one that names agents: switching there, then Continue, comes back here. The course
+    // editor's route holds the roadmap it opened with, so it comes back on the saved draft, which has the edits since.
+    { key: 'agent', label: 'Agent', icon: 'plug', to: async () => ({ to: 'connect', then: route.to === 'course' ? await editorRoute(api) : route }) },
   ];
+  // The route on screen now, so an item that reads before it opens does nothing once the learner moved on.
+  const shown = useRef<Route>(undefined);
+  useEffect(() => {
+    shown.current = route;
+    return () => void (shown.current = undefined);
+  }, [route]);
+  async function open(to: Route | (() => Promise<Route>)) {
+    const from = route;
+    const target = typeof to === 'function' ? await to() : to;
+    if (shown.current === from && !sameRoute(target, route)) go(target);
+  }
   const nav = items.map((item) => (
     <button
       key={item.key}
@@ -62,7 +76,7 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
       title={slim ? item.label : undefined}
       aria-current={here === item.key ? 'page' : undefined}
       aria-label={slim ? item.label : undefined}
-      onClick={() => sameRoute(item.to, route) || go(item.to)}
+      onClick={() => void open(item.to).catch(fail)}
     >
       <Icon name={item.icon} color={here === item.key ? '#3DDB6C' : '#C9D5EA'} />
       {!slim && item.label}

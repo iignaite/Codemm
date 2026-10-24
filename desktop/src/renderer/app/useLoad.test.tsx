@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { useLoad } from './useLoad';
 
 /** A load the test answers by hand, counting reads. */
@@ -59,6 +59,45 @@ describe('useLoad', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(m.pending).toHaveLength(2);
     expect(result.current.data).toBe(2);
+  });
+
+  it('drops a read that a reload overtook: it began before whatever the reload is for', async () => {
+    const m = manual<string>();
+    const { result } = renderHook(() => useLoad(m.load, []));
+    await waitFor(() => expect(m.pending).toHaveLength(1));
+    await act(async () => m.pending[0].ok('first'));
+    act(() => result.current.reload());
+    await waitFor(() => expect(m.pending).toHaveLength(2));
+    // Something changed meanwhile, as when the learner connects an agent while the screen looks again.
+    act(() => result.current.reload());
+    await act(async () => m.pending[1].ok('before the change'));
+    expect(result.current.data).toBe('first');
+    await waitFor(() => expect(m.pending).toHaveLength(3));
+    await act(async () => m.pending[2].ok('after the change'));
+    expect(result.current.data).toBe('after the change');
+  });
+
+  it('once settled, keeps re-reading every `idle` ms when given', async () => {
+    let n = 0;
+    const { result } = renderHook(() => useLoad(async () => ++n, [], { settled: () => true, idle: 5 }));
+    await waitFor(() => expect(result.current.data).toBeGreaterThanOrEqual(3));
+  });
+
+  it('waits while the window is hidden (minimized or covered), and reads once it shows again', async () => {
+    let hidden = true;
+    const visibility = vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+    try {
+      let n = 0;
+      renderHook(() => useLoad(async () => ++n, [], { settled: () => false, every: 5 }));
+      await waitFor(() => expect(n).toBe(1));
+      await new Promise((r) => setTimeout(r, 40));
+      expect(n).toBe(1);
+      hidden = false;
+      act(() => void document.dispatchEvent(new Event('visibilitychange')));
+      await waitFor(() => expect(n).toBeGreaterThanOrEqual(3));
+    } finally {
+      visibility.mockRestore();
+    }
   });
 
   it('starts over at once when its inputs change, whatever is in flight', async () => {

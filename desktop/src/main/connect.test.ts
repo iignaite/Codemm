@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NO_AGENT, SIGNED_OUT } from '../shared/api';
 import type { AgentId, AgentInstall } from '../shared/api';
 import { connector, type AgentSetup, type Lookup } from './connect';
@@ -17,6 +17,11 @@ function lookup(over: Partial<Lookup> = {}): Lookup {
 
 const state = () => desktopState(tempDir('codemm-connect-'));
 
+// The clock stands still unless a test moves it: a sign-in check runs at most once every 5 s per agent.
+beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'] }));
+afterEach(() => void vi.useRealTimers());
+const later = (ms = 5000) => vi.setSystemTime(Date.now() + ms);
+
 describe('connect (§3.1, §3.3)', () => {
   it('checks a signed-out agent again on the next look, and connects the one the learner tried once signed in', async () => {
     let ok = false;
@@ -24,6 +29,7 @@ describe('connect (§3.1, §3.3)', () => {
     expect((await c.connect('codex')).state).toBe('signed-out');
     expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('signed-out');
     ok = true;
+    later();
     const agents = await c.agents();
     expect(agents.map((a) => [a.id, a.state])).toEqual([['claude', 'not-connected'], ['codex', 'connected'], ['cursor', 'missing']]);
     expect((await c.chosen()).id).toBe('codex');
@@ -97,6 +103,20 @@ describe('connect (§3.1, §3.3)', () => {
     expect((await connector(lookup(), s).agents()).find((a) => a.id === 'claude')!.model).toBe('sonnet');
   });
 
+  it('switching to a signed-out agent keeps the one before, so jobs still run, and switches once it is signed in', async () => {
+    let codex = false;
+    const s = state();
+    const c = connector(lookup({ signedIn: async (id) => id === 'claude' || codex }), s);
+    await c.connect('claude');
+    expect(await c.connect('codex')).toMatchObject({ state: 'signed-out' });
+    expect([s.read().agent, (await c.chosen()).id]).toEqual(['claude', 'claude']);
+    expect((await c.agents()).find((a) => a.id === 'claude')!.state).toBe('connected');
+    codex = true;
+    later();
+    expect((await c.agents()).map((a) => [a.id, a.state])).toEqual([['claude', 'not-connected'], ['codex', 'connected'], ['cursor', 'missing']]);
+    expect((await c.chosen()).id).toBe('codex');
+  });
+
   it('connects only after the sign-in check passes, and remembers the choice', async () => {
     const s = state();
     const c = connector(lookup({ signedIn: async (id) => id === 'codex' }), s);
@@ -106,12 +126,84 @@ describe('connect (§3.1, §3.3)', () => {
     expect((await c.agents()).find((a) => a.id === 'codex')?.state).toBe('connected');
   });
 
-  it('a failed connect runs the sign-in check once, not again for the same answer', async () => {
+  it("checks an agent's sign-in at most once every 5 seconds, however often the screens look: each check starts the agent", async () => {
     let checks = 0;
     const c = connector(lookup({ signedIn: async () => (checks++, false) }), state());
     expect(await c.connect('codex')).toMatchObject({ state: 'signed-out' });
     expect(checks).toBe(1);
-    // The next look checks again, so signing in elsewhere shows up.
+    // Connect, Welcome and Setup look every few seconds; the looks in between keep the last answer.
+    for (let i = 0; i < 3; i++) expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('signed-out');
+    later(4999);
+    await c.agents();
+    expect(checks).toBe(1);
+    // 5 seconds on, the next look checks again, so signing in elsewhere shows up.
+    later(1);
+    await c.agents();
+    expect(checks).toBe(2);
+    // So does the agent chosen before whose check couldn't answer: it isn't called signed out, and asked again later.
+    let asked = 0;
+    const s = state();
+    s.update((x) => ({ ...x, agent: 'claude' }));
+    const unsure = connector(lookup({ signedIn: async () => (asked++, null) }), s);
+    for (let i = 0; i < 3; i++) expect((await unsure.agents()).find((a) => a.id === 'claude')!.state).toBe('connected');
+    expect(asked).toBe(1);
+    later();
+    await unsure.agents();
+    expect(asked).toBe(2);
+  });
+
+  it('shares a sign-in check still running, so a job and a look never start the agent twice at once', async () => {
+    const answers: ((ok: boolean) => void)[] = [];
+    const s = state();
+    s.update((x) => ({ ...x, agent: 'codex' }));
+    const c = connector(lookup({ signedIn: () => new Promise<boolean>((done) => answers.push(done)) }), s);
+    const rechecking = c.recheck('codex');
+    const looking = c.agents();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(answers).toHaveLength(1);
+    answers.forEach((answer) => answer(true));
+    expect(await rechecking).toBe(true);
+    expect((await looking).find((a) => a.id === 'codex')!.state).toBe('connected');
+  });
+
+  it("a look waits for a check already running, so a relaunch never shows a signed-out agent connected", async () => {
+    const answers: ((ok: boolean) => void)[] = [];
+    const s = state();
+    s.update((x) => ({ ...x, agent: 'claude' }));
+    const c = connector(lookup({ signedIn: () => new Promise<boolean>((done) => answers.push(done)) }), s);
+    // At start, the course's first job asks before Welcome's first look.
+    const job = c.recheck('claude');
+    const look = c.agents();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(answers).toHaveLength(1);
+    answers[0](false);
+    expect((await look).find((a) => a.id === 'claude')!.state).toBe('signed-out');
+    expect(await job).toBe(false);
+  });
+
+  it('Connect asks afresh: a check that began before the learner signed in never answers for it', async () => {
+    const answers: ((ok: boolean) => void)[] = [];
+    const c = connector(lookup({ signedIn: () => new Promise<boolean>((done) => answers.push(done)) }), state());
+    // A look's check starts while the learner is still signing in; then they click Connect.
+    const job = c.recheck('codex');
+    const connecting = c.connect('codex');
+    await new Promise((r) => setTimeout(r, 0));
+    answers[0](false);
+    await job;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(answers).toHaveLength(2);
+    answers[1](true);
+    expect(await connecting).toMatchObject({ state: 'connected' });
+  });
+
+  it('counts the 5 seconds from when a slow check ended, so checks never run back to back', async () => {
+    let checks = 0;
+    // Each check takes 10 seconds, as `claude auth status` can on a busy computer.
+    const c = connector(lookup({ signedIn: async () => (checks++, later(10_000), false) }), state());
+    await c.connect('claude');
+    await c.agents();
+    expect(checks).toBe(1);
+    later();
     await c.agents();
     expect(checks).toBe(2);
   });
@@ -195,6 +287,7 @@ describe('connect (§3.1, §3.3)', () => {
       await c.signIn('codex');
       expect(t.signIns).toEqual([{ id: 'codex', path: '/home/.local/bin/codex' }]);
       signedIn = true;
+      later();
       expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('connected');
     });
 
@@ -256,6 +349,21 @@ describe('connect (§3.1, §3.3)', () => {
       const c = connector(lookup({ find: found(t.installedAfter), version, signedIn: async (id) => (ran.push(`signed-in ${id}`), true) }), st, t.s);
       expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('missing');
       expect(ran).toEqual([]);
+    });
+
+    it('a check after an install never switches away from an agent the learner connected since', async () => {
+      const t = setup(['claude']);
+      let codex: boolean | null = null;
+      const st = state();
+      const c = connector(lookup({ find: found(t.installedAfter), signedIn: async (id) => (id === 'codex' ? codex : true) }), st, t.s);
+      await c.install('codex');
+      // Its first check couldn't tell, so a later look asks again.
+      expect((await c.agents()).find((a) => a.id === 'codex')!.state).toBe('not-connected');
+      await c.connect('claude');
+      codex = true;
+      later();
+      expect((await c.agents()).map((a) => [a.id, a.state])).toEqual([['claude', 'connected'], ['codex', 'not-connected'], ['cursor', 'missing']]);
+      expect(st.read().agent).toBe('claude');
     });
 
     it('signing in again never marks a signed-in agent signed out', async () => {
