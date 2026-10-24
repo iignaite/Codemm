@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { agentInstaller, cursorVersion, nodeAgentDeps } from './agentInstall';
+import { agentInstaller, cursorVersion, isAgentHost, nodeAgentDeps } from './agentInstall';
 import { fetchGet } from './download';
 
 const network = { get: fetchGet, arch: process.arch };
@@ -64,26 +64,29 @@ describe.skipIf(!real)("the agents' real downloads (opt-in)", () => {
     expect(installer.status('codex')).toEqual(codex ? { phase: 'done' } : { phase: 'failed', problem: 'unverified' });
   });
 
-  it("downloads Cursor's scripts from cursor.com, and runs nothing", { timeout: 5 * 60_000 }, async () => {
-    for (const platform of ['darwin', 'win32'] as const) {
-      const deps = nodeAgentDeps(() => null, network);
-      let script = '';
-      const installer = agentInstaller({
-        ...deps,
-        platform,
-        tempDir: () => mkdtempSync(join(tmpdir(), 'codemm-agent-')),
-        run: async (_file, args) => {
-          script = readFileSync(args.at(-1)!, 'utf8');
-          return { code: 0, output: '' };
-        },
-      });
-      installer.install('cursor');
-      await installer.done('cursor');
-      // The version Codemm then requires is the one the script names.
-      expect(cursorVersion(script, platform)).toMatch(/^\d{4}\.\d{1,2}\.\d{1,2}-/);
-      expect(script).toContain('https://downloads.cursor.com/');
-      // Nothing is installed, so nothing is found.
-      expect(installer.status('cursor')).toEqual({ phase: 'failed', problem: 'failed' });
-    }
+  it("downloads Cursor's script from cursor.com, and runs nothing", { timeout: 5 * 60_000 }, async () => {
+    const deps = nodeAgentDeps(() => null, network);
+    let script = '';
+    const installer = agentInstaller({
+      ...deps,
+      run: async (_file, args) => {
+        script = readFileSync(args[0], 'utf8');
+        return { code: 0, output: '' };
+      },
+    });
+    installer.install('cursor');
+    await installer.done('cursor');
+    // The version Codemm then requires is the one the script names.
+    expect(cursorVersion(script, 'darwin')).toMatch(/^\d{4}\.\d{1,2}\.\d{1,2}-/);
+    expect(script).toContain('https://downloads.cursor.com/');
+    // Nothing is installed, so nothing is found.
+    expect(installer.status('cursor')).toEqual({ phase: 'failed', problem: 'failed' });
+  });
+
+  it("Cursor's Windows script names its version too", { timeout: 5 * 60_000 }, async () => {
+    const deps = nodeAgentDeps(() => null, network);
+    const file = join(mkdtempSync(join(tmpdir(), 'codemm-agent-')), 'install.ps1');
+    await deps.download('https://cursor.com/install?win32=true', file, () => undefined, isAgentHost('cursor'), 1024 * 1024);
+    expect(cursorVersion(readFileSync(file, 'utf8'), 'win32')).toMatch(/^\d{4}\.\d{1,2}\.\d{1,2}-/);
   });
 });
