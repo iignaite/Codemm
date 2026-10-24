@@ -1,6 +1,6 @@
 # Codemm desktop 1.0 design
 
-Status: trimmed to the owner-approved 1.0 scope (the scope ledger, 17 Oct 2026), after Astra's reviews (§14). It extends the core spec, `docs/DESIGN.md`, which stays authoritative for the harness. The core changes in §4 move into `docs/DESIGN.md` in the same PR as their code. The journeys follow the approved prototype (`codemm-journeys.html`, outside this repo). Agent CLI evidence: [agent-bridge.md](agent-bridge.md).
+Status: trimmed to the owner-approved 1.0 scope (the scope ledger, 17 Oct 2026), after Astra's reviews (§14). It extends the core spec, `docs/DESIGN.md`, which stays authoritative for the harness. The core changes in §4 move into `docs/DESIGN.md` in the same PR as their code. The journeys follow the approved prototype (`codemm-journeys.html`, outside this repo). 1.1 adds several activities per topic and plain practice (core §2 "1.1 scope"): §3.2, §4.3, §4.5, §4.14, §4.15 and B6 to B11 in §9; it is specified and not built yet. Agent CLI evidence: [agent-bridge.md](agent-bridge.md).
 
 ## Decisions
 
@@ -32,6 +32,7 @@ Status: trimmed to the owner-approved 1.0 scope (the scope ledger, 17 Oct 2026),
   5. Do the activity: edit, Run (io), Try it, Check, and see the results.
   6. Ask the tutor, behind the reply filter.
   7. Skip honestly, and see progress and completion.
+  8. *1.1:* go from one activity of a topic to the next without waiting, see which one this is, reopen past ones, ask for more practice, and skip a topic's lessons with "I know this" (§4.15).
 - **Failure states**, including the environment failures in §6.1.
 
 The prototype's review card, streaks, predict questions, editable lessons and "Let Codemm edit" are deferred (§12). Environments come from `list_tracks`; nothing in the app is per-language.
@@ -51,7 +52,7 @@ The prototype's review card, streaks, predict questions, editable lessons and "L
 - The tutor and every action are "Codemm". Agent names (Claude Code, Codex, Cursor) appear only on the connect screen.
 - The connect screen says "Codemm uses your agent and your account." It promises nothing about billing, since Codemm can't tell a plan from an API key. Every agent job starts from a learner action or the approved flow, and the bounds in §3.2 cap how much it uses.
 
-**Navigation.** The sidebar holds Learn (the course map), Practice, Tracks and Agent; beside a workspace it slims to icons, each named in its tooltip. Agent opens the connect screen (§3.1), where the learner can change agent at any time; Continue there comes back to the screen it left, through Check this computer, which moves on by itself when the computer is ready. The course editor comes back on its saved draft, so the edits made before are there. Practice is the activity of the topic Codemm offers now (a due or in-progress review first, as on the course map), and opens the activity screen, so it never lands in the lessons unasked; with no course it opens the goal screen, and with a finished course the map. Until the activity opens, that screen shows the topic's title and says why: "Practice opens after you finish the lessons.", "Practice opens once setup is done." or, with the job's progress (§4.11), "Practice opens here once your activity is written.", with Go to the lessons. It reads the course again until the activity opens or the course's work stops, then opens it and moves focus to its title.
+**Navigation.** The sidebar holds Learn (the course map), Practice, Tracks and Agent; beside a workspace it slims to icons, each named in its tooltip. Agent opens the connect screen (§3.1), where the learner can change agent at any time; Continue there comes back to the screen it left, through Check this computer, which moves on by itself when the computer is ready. The course editor comes back on its saved draft, so the edits made before are there. Practice is the activity of the topic Codemm offers now (a due or in-progress review first, as on the course map), and opens the activity screen, so it never lands in the lessons unasked; with no course it opens the goal screen, and with a finished course the map. Until the activity opens, that screen shows the topic's title and says why: "Practice opens after you finish the lessons." (with I know this, §4.3), "Practice opens once setup is done." or, with the job's progress (§4.11), "Practice opens here once your activity is written.", with Go to the lessons. It reads the course again until the activity opens or the course's work stops, then opens it and moves focus to its title.
 
 ## 2. Architecture
 
@@ -230,13 +231,19 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 | Roadmap change ("Ask Codemm for changes") | `get_roadmap`, `save_roadmap` | the course record changed, or the turn ended without error and without a save (shown as "No change" with the agent's text) |
 | Setup | `list_tracks`, `save_track` (proposes only) | a new proposal exists for the job's track |
 | Lesson | `get_roadmap`, `save_lesson` | a new lesson exists for the job's concept |
-| Author | `next_step`, `save_exercise` | a new exercise exists for the job's concept and difficulty |
+| Author | `next_step`, `save_exercise` | a new exercise exists for the job's concept and difficulty; for an ahead or More practice job, a new exercise exists for its concept (its difficulty can move with the learner's checks) |
 | Tutor | `progress`, `next_step`, `get_exercise`, `get_lesson`, `mark_lesson_read`, `get_roadmap`, `list_tracks` | the turn ends without error |
 
 - **Bound to a course.** Every job's server gets `--course <course>`, so switching courses in the app can't redirect a job's save.
 - **Checking the result.** "Done when" is checked against core records created after the job started, never against the agent's text. Before relaunching a failed job, main checks again, because a save can commit just before a crash.
 - **Fresh sessions.** Author, setup and lesson jobs start without history, which is cheaper and keeps the author's work out of the tutor's chat. The tutor resumes one session per course, from the same workspace folder, because both CLIs keep sessions per working directory.
 - **Concurrency.** At most two agent processes run at once per course: one foreground job and one background queue (§4.13). After approval, the first lesson runs in the foreground while setup, then authoring, runs in the background.
+- **Author targets come from core** (1.1). The app never builds a target; it starts an author job for one core names, and the job's agent reads it from `next_step`:
+  - **Next:** an `author` step. The brief adds no request.
+  - **Ahead:** a `practice` step with `ahead` (core §7), once the track is installed. The brief asks `next_step` for `ahead`. The job is keyed by its concept and difficulty, like the `author` step it stands in for, so a pass while it runs starts no second job and Continue waits on this one.
+  - **More practice:** the learner's request on a topic (§4.15). The brief asks `next_step` for `more` with the topic.
+  - **Still wanted.** When an author job's turn comes (it may wait behind another job, or another course's author), it launches only if core still names its target: the step's `author` target, the step's `ahead`, or for More practice an `author` answer to `more`. Otherwise it ends without starting an agent and stalls nothing.
+  - These are all author jobs, with the author's bounds below. At most one runs per course at a time, in the background queue.
 - **Bounds.**
 
   | Job | Deadline | Retry bound |
@@ -330,6 +337,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - an id: the earliest unread lesson.
   - absent: every lesson for the concept has been read.
   The activity stays locked, and the tutor teaches first, until the field is absent. The topic page and the lesson outline say why in words: "Opens after you finish the lessons". The author job can still run in the background, because the step names the activity. Lessons never change mastery.
+- **I know this** (1.1). While the current topic's activity waits only on its lessons, the topic page, the lesson outline and Practice's waiting screen (§1) offer "I know this". It calls `unlockActivity(concept)`, which records core's `unlock` once (core §7), and then the activity opens, or Practice waits with its job's progress while it is still being written. The lessons stay in the outline, readable and unread, and a lesson still being written goes on. Nothing about mastery changes. There is no confirmation: nothing is lost, and the lessons stay.
 - **Diagrams.** A top-level fence whose info string is `mermaid` is a diagram or chart: a flowchart, sequence, state or class diagram, a pie chart or an xy chart. The lesson screen draws it where the author placed it, and core only stores it (core §5).
   - **Local.** [Mermaid](https://github.com/mermaid-js/mermaid) (MIT) is bundled and loaded only when a lesson has a diagram; a lesson without one loads none of it. Nothing is fetched. Mermaid's default layout is ELK; Codemm sets dagre, and stubs out `elkjs` (`vite.config.mts`), the one bundled library under the EPL rather than MIT, ISC, BSD or Apache.
   - **Safe.** The source is agent text. Mermaid draws it at its strict level (labels encoded, no callbacks) with the sizes capped, and directives in the source can't change the security level, the sizes, HTML labels, the theme, the layout or the font. The drawing is shown only as an `<img>` of a `data:` URL, which runs no script, follows no link and loads nothing, and links, pictures, frames and scripts are also dropped from it. A source over 20,000 characters isn't drawn. The CSP stays as it is; mermaid's attempts at inline styles while it measures text are refused and show as notices in DevTools.
@@ -370,7 +378,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - replaces the file through a temp file and a rename;
   - refuses with "Changed outside Codemm" when the file's current digest isn't the one the editor loaded, and the editor reloads.
 - **Try it and Check.** Try it calls `testExercise` (visible tests, not recorded), and Check calls `checkExercise` (recorded).
-- **Continue after a pass.** A passing Check says "You mastered ‹topic›." or "Keep practicing ‹topic›." with Continue, ending once when the title has its own ? or !. When the topic Codemm offers now is a review (due or in progress, §4.14) or the same topic while its mastery needs more passes, Continue opens Practice, fresh, never under the last one's result, and while that activity is written Practice waits with its job's progress (§1, §4.11) and opens it by itself. For another topic it goes where the course map's Continue goes (core §7). A finished course opens its celebration. A sidebar item that leads to the screen on show does nothing, so it never resets that screen.
+- **Continue after a pass.** A passing Check says "You mastered ‹topic›." or "Keep practicing ‹topic›." with Continue, ending once when the title has its own ? or !. When the topic Codemm offers now is a review (due or in progress, §4.14) or the same topic while its mastery needs more passes, Continue opens Practice, fresh, never under the last one's result, and while that activity is written Practice waits with its job's progress (§1, §4.11) and opens it by itself. For another topic it goes where the course map's Continue goes (core §7). Since 1.1 the next activity of a topic is usually written by then (ahead, §3.2), so Practice opens it at once. A finished course opens its celebration. A sidebar item that leads to the screen on show does nothing, so it never resets that screen.
 
 ### 4.6 Per-job MCP server
 
@@ -496,7 +504,7 @@ The map is the course as a path the learner moves along (`renderer/features/prog
   - The leaf is an image named Mastered, Now or Later, so the state never depends on color alone.
 - **Green where the learner has been.** The branch is green between topics the learner has reached (mastered, or the current one) and grey elsewhere. A topic passed over sits on grey: one skipped with "Come back later", or a locked one behind a current topic that jumped ahead.
 - **Emm sits at the current topic.** The topic Codemm offers now is a card, marked `aria-current="step"`: a due or in-progress review, otherwise the Now topic. Emm, in the track's color, sits on the card's top edge, facing the topic. Emm thinks when the topic is stuck and looks at a review. Emm is decorative; the card says everything in words.
-  - **Now:** the title, a bar with one step per lesson and one for the activity, "Lessons 1 of 3" (a check and "Lessons" once all are read), and Continue.
+  - **Now:** the title, a bar with one step per lesson and one for the activity, "Lessons 1 of 3" (a check and "Lessons" once all are read), and Continue. Once the activity is open, the card also says which activity this is: "Activity 2" (§4.15), never "of N" or how many are left.
   - **Review due:** the title and Review.
   - **Review being written:** "Writing the review", replaced by its job's compact progress once the job runs (§4.11), and nothing to press.
 - **Easier and skip** change the path, not the map's controls. "Try an easier one" adds a topic before the stuck one, which becomes the one to do now. "Come back later" moves Now to the next topic ready. Both stay on the results screen (§3.2).
@@ -505,6 +513,19 @@ The map is the course as a path the learner moves along (`renderer/features/prog
 - **Finished.** A finished course opens on the completed-course screen. View course shows the path with every leaf mastered, nothing to continue, and Emm cheering where the branch ends.
 - **Motion.** The path fills and lands in order: each topic's part of the branch draws, its leaf pops on, its title rises, then the current card rises and Emm lands on it with a small squash. Topics after the eighth land together, so a long course takes no longer. Under reduced motion nothing moves.
 - **Narrow windows.** Under 1000 px the side column goes under the path. In narrow rows, a review date wraps under its topic and the card's button under its title.
+
+### 4.15 A topic's activities (1.1)
+
+A topic has a series of activities, one after another, until it is mastered (core §7). The app shows where the learner is in it and lets them go back or ask for more.
+
+- **Numbers.** An activity's number is its place among the topic's saved activities, oldest first, counting from 1. An exercise on two concepts has a number in each topic. Numbers come from `listExercises`, never from the exercise's id, which stays hidden.
+- **Activity N.** The course map's card (§4.14), the topic page and the activity screen name the activity on offer as "Activity 2". A review keeps its "Review" label instead. There is never an "of N", a count left or a streak.
+- **Past activities.** The topic page lists the topic's activities the learner has checked, and the one on offer, oldest first, as "Activity 1", "Activity 2", with a check on each passed one. An activity written ahead and not on offer yet isn't listed. Choosing one opens it on the activity screen with the learner's files as they left them; an activity not of that topic is refused. Checking a passed one again is a repeat pass, which changes nothing (core §7); checking one not passed yet is an ordinary check.
+- **Stuck.** With no `practice` or `review` step for the topic, its activity is the one the learner checked last (the latest saved, when none is checked), so the ways forward (§3.2) sit under the results the learner got, not under an activity written ahead.
+- **More practice.** The topic page of a mastered topic, or of the current topic once its activity is open, shows More practice. A later topic shows none, and main refuses it. More practice calls `morePractice(concept)`, which asks core's `next_step` for `more`:
+  - `practice`: Practice opens that activity.
+  - `author`: main starts a More practice author job (§3.2) and Practice waits with its progress ("Practice opens here once your activity is written."), asking again until an activity comes back, then opens it.
+  It writes at most one activity per request, and none when the topic has an activity at that difficulty the learner hasn't tried. Its checks are recorded like any other (core §7).
 
 ### 4.13 Several courses
 
@@ -717,6 +738,19 @@ Each item is verified by an automated test unless marked *journey* or *release*.
 | D21 | *Release*: the public 1.0 is signed. The macOS build passes notarization (`spctl -a -vv` accepts it), and the Windows installer passes `signtool verify /pa`. |
 | D22 | **Several courses.** With two approved courses, switching binds learner calls to the course on screen and keeps the other's records. A stall in one course never stops the other's work. The other course's running job finishes after a switch. Builds and author jobs take turns across courses. Each course resumes its own tutor session. A Docker stall ends once Check this computer passes, or once a check of that course succeeds. |
 
+### 1.1 acceptance criteria
+
+Core's B1 to B5 are in core §2. Each item here is verified by an automated test, with a fake core or the mock where it says so, and fake agents.
+
+| # | Requirement |
+|---|---|
+| B6 | **Author targets come from core.** An author job's brief carries only a request core understands (none, `ahead`, or `more` with a topic), never a concept or difficulty of the app's own. When its turn comes, an author job launches only if core still names its target (§3.2); otherwise no agent starts and its course doesn't stall. Test: an author job queued behind another, whose target the learner's check made stale, never spawns an agent. |
+| B7 | **Activity ahead.** With the track installed and a `practice` step that has `ahead`, main queues one background author job for that concept and difficulty, whose brief asks for `ahead`. It is the same job (same key) a later `author` step for that target starts, so a pass while it runs starts no second one. Test: a first-try pass after the ahead activity is saved opens the next activity from Continue with no new job; a pass while it is being written shows that job's progress on Practice. |
+| B8 | **The series.** The course view gives each topic its activities the learner has checked, and the one on offer, oldest first, each with its number (§4.15) and whether it is passed, and an activity written ahead isn't among them until it is on offer. The card, the topic page and the activity screen show "Activity N" for the one on offer, and no screen shows "of N" (renderer tests). Choosing a past activity opens it; one not of that topic is refused. A stuck topic opens the activity checked last. |
+| B9 | **More practice.** It shows on the topic page of a mastered topic and of the current topic with its activity open, and nowhere else (renderer tests). `morePractice` opens core's `practice` answer, or starts one More practice author job for an `author` answer, and Practice opens the new activity by itself once it is saved. Main refuses a topic core hasn't reached. A check of the activity records an event like any check. |
+| B10 | **I know this.** It shows on the topic page, the lesson outline and Practice's waiting screen while the current topic's activity waits only on its lessons, and nowhere else. It records `unlock` once (core B3), then opens the activity or waits for it to be written. The lessons stay listed and readable, and the topic's mastery is unchanged. |
+| B11 | **UI rules for 1.1.** Every new screen state passes D15 (no ids, versions, paths or timestamps; agent names only on connect) and D16 (AA, keyboard, screen-reader names, reduced motion). The mock (`CODEMM_MOCK`) shows each new state. |
+
 ## 10. Test strategy
 
 Work test-first. For each behavior, write a failing test, make it pass simply, then refactor while green.
@@ -730,6 +764,7 @@ Work test-first. For each behavior, write a failing test, make it pass simply, t
   Docker integration tests cover `installProposal`, the disk check and build-failure classification.
 - **Desktop main.** Pure modules get vitest tests: `agents` (launch, parse and versions against recorded fixtures), `views` (the boundary and the reply filter), roadmap edit rules, job bounds and done checks, plan-limit classification, and the check-this-computer state machine.
 - **Fakes.** A fake Docker covers the environment matrix (D13), and fake agent scripts replay recorded streams. CI never calls a real model or needs real Docker for desktop tests.
+- **1.1.** Core first, as above: `learner` (`ahead`, `more`, `unlock`, exercise status), then `app` and `mcp`. Then main's `live` tests with the fake core and fake agents (the job queue, More practice, unlock, the series), then renderer tests against the mock.
 - **Renderer.** A Playwright-for-Electron smoke test runs on macOS and Windows, with the D2 security checks, the D15 screen-text check and the D16 accessibility check.
 - **Journeys.** D17 to D19 run by hand with real agents on the owner's subscriptions.
 
@@ -753,7 +788,7 @@ Cut from 1.0 by the owner's scope ledger:
 
 - **Lessons:** predict questions, and learner edits of lesson text. Notes stay. (Runnable examples are in 1.0: §4.3.)
 - **Usage:** cost per topic. Totals per course and job kind are in 1.0 (§4.12); lesson caching stays (§4.3).
-- The prototype's review card, streaks and activity history. (Review scheduling itself is in 1.0: core §7.)
+- The prototype's review card and streaks. (Review scheduling itself is in 1.0: core §7, and a topic's past activities are in 1.1: §4.15.)
 - **Progress:** streaming install (setup) progress. Setup and jobs show `running`, `done` or `failed`; checks stream progress (§4.8).
 - **Assist:** a separate assist-edit job ("Let Codemm edit?"). The tutor explains, and the learner edits.
 - **Platforms:** Linux installers, Windows and Linux arm64, Colima, and Podman.
