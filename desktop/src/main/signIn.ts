@@ -7,7 +7,7 @@ import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import type { AgentId } from '../shared/api';
-import type { Executable } from './agent/bridge';
+import { command, type Executable } from './agent/bridge';
 import { POWERSHELL } from './windows';
 
 export interface SignInDeps {
@@ -36,27 +36,26 @@ export const CONSOLE = '$i = New-Object Diagnostics.ProcessStartInfo $env:CODEMM
 
 export function agentSignIn(d: SignInDeps) {
   return async (id: AgentId, exe: Executable): Promise<void> => {
-    const args = LOGIN[id];
+    // A Node-script agent runs with this app as Node, as its jobs do; Cursor on Windows, as its own Node on its script (§3.1).
+    const c = command(exe, LOGIN[id], d.runtime);
     // Claude Code asks for its login in a terminal. On a Mac, Terminal runs a one-line script; on Windows, it opens
     // in a console window of its own. A program started straight from Codemm would have no window to show it in.
     if (id === 'claude' && d.platform === 'darwin') {
       const file = posix.join(d.tempDir(), 'Sign in to Claude Code.command');
-      // A Node-script agent runs with this app as Node, as its jobs do.
-      const command = exe.js ? `ELECTRON_RUN_AS_NODE=1 exec ${quote(d.runtime)} ${quote(exe.path)}` : `exec ${quote(exe.path)}`;
+      const line = [...Object.entries(c.env).map(([k, v]) => `${k}=${quote(v)}`), 'exec', ...[c.file, ...c.args].map(quote)].join(' ');
       // Terminal runs it a moment later: only the file Codemm allowed at Sign in runs, not one an install put there since.
+      // The pin checks the agent's own file, `exe.path`.
       const pin = `[ "$(/usr/bin/stat -L -f %i ${quote(exe.path)})" = ${d.inode(exe.path)} ] || { echo 'Claude Code changed. Sign in again from Codemm.'; exit 1; }`;
-      d.write(file, `#!/bin/sh\n${pin}\n${command} ${args.join(' ')}\n`);
+      d.write(file, `#!/bin/sh\n${pin}\n${line}\n`);
       await d.start('/usr/bin/open', [file]);
       return;
     }
     if (id === 'claude' && d.platform === 'win32') {
       // Windows opens it at once, so nothing can replace the file in between, as Terminal's moment allows on a Mac.
-      const [file, words, env] = exe.js ? [d.runtime, [exe.path, ...args], { ELECTRON_RUN_AS_NODE: '1' }] : [exe.path, args, {}];
-      await d.start(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', CONSOLE], { CODEMM_FILE: file, CODEMM_ARGS: words.map(winQuote).join(' '), ...env });
+      await d.start(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', CONSOLE], { CODEMM_FILE: c.file, CODEMM_ARGS: c.args.map(winQuote).join(' '), ...c.env });
       return;
     }
-    if (exe.js) await d.start(d.runtime, [exe.path, ...args], { ELECTRON_RUN_AS_NODE: '1' });
-    else await d.start(exe.path, args);
+    await d.start(c.file, c.args, c.env);
   };
 }
 

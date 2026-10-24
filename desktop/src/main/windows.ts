@@ -7,6 +7,10 @@ import type { DesktopDeps } from './dockerDesktop';
  * Shared by the signature checks and installers that run it.
  */
 export const POWERSHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+
+/** taskkill by its full path, for the same reason: it stops an agent's process tree (agent/bridge.ts). */
+export const TASKKILL = 'C:\\Windows\\System32\\taskkill.exe';
+/** reg by its full path, for the same reason: Windows' version and a pending restart. */
 export const REG = 'C:\\Windows\\System32\\reg.exe';
 /** A restart that lets other apps ask to save first: with no wait, /f isn't implied. */
 const SHUTDOWN = 'C:\\Windows\\System32\\shutdown.exe';

@@ -38,8 +38,7 @@ jobs:
           - { name: windows codex script, os: windows-latest, agent: codex, install: "irm https://chatgpt.com/codex/install.ps1 | iex" }
           - { name: windows codex npm, os: windows-latest, agent: codex, npm: "@openai/codex" }
           - { name: windows codex winget, os: windows-latest, agent: codex, winget: OpenAI.Codex }
-          # Red until the Cursor launcher PR (#227) starts Cursor's own node.exe.
-          - { name: windows cursor script, os: windows-latest, agent: cursor, install: "irm 'https://cursor.com/install?win32=true' | iex", red: true }
+          - { name: windows cursor script, os: windows-latest, agent: cursor, install: "irm 'https://cursor.com/install?win32=true' | iex" }
           # Codemm's own install arguments (dockerDesktop.ts WIN_INSTALL): no --accept-license, Docker's terms stay in its window.
           - { name: windows docker per-user, os: windows-latest, agent: docker, docker: "--user --quiet --backend=wsl-2", dockerbin: '%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin' }
           - { name: windows docker all users, os: windows-latest, agent: docker, docker: "--quiet --accept-license", dockerbin: 'C:\Program Files\Docker\Docker\resources\bin' }
