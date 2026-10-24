@@ -1,5 +1,5 @@
 // The main navigation (§1): Learn, Practice, Tracks and Agent, wide with the course or slim beside a workspace.
-import { useSyncExternalStore, type ReactNode } from 'react';
+import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import type { CourseView } from '../../shared/api';
 import { Button } from '../ui/Button';
 import { Emm } from '../ui/Emm';
@@ -56,9 +56,16 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
     // editor's route holds the roadmap it opened with, so it comes back on the saved draft, which has the edits since.
     { key: 'agent', label: 'Agent', icon: 'plug', to: async () => ({ to: 'connect', then: route.to === 'course' ? await editorRoute(api) : route }) },
   ];
+  // The route on screen now, so an item that reads before it opens does nothing once the learner moved on.
+  const shown = useRef<Route>(undefined);
+  useEffect(() => {
+    shown.current = route;
+    return () => void (shown.current = undefined);
+  }, [route]);
   async function open(to: Route | (() => Promise<Route>)) {
+    const from = route;
     const target = typeof to === 'function' ? await to() : to;
-    if (!sameRoute(target, route)) go(target);
+    if (shown.current === from && !sameRoute(target, route)) go(target);
   }
   const nav = items.map((item) => (
     <button

@@ -152,16 +152,48 @@ describe('connect (§3.1, §3.3)', () => {
     expect(asked).toBe(2);
   });
 
-  it('shares a sign-in check still running, so a click, a job and a look never start the agent twice at once', async () => {
+  it('shares a sign-in check still running, so a job and a look never start the agent twice at once', async () => {
     const answers: ((ok: boolean) => void)[] = [];
-    const c = connector(lookup({ signedIn: () => new Promise<boolean>((done) => answers.push(done)) }), state());
-    const connecting = c.connect('codex');
+    const s = state();
+    s.update((x) => ({ ...x, agent: 'codex' }));
+    const c = connector(lookup({ signedIn: () => new Promise<boolean>((done) => answers.push(done)) }), s);
     const rechecking = c.recheck('codex');
+    const looking = c.agents();
     await new Promise((r) => setTimeout(r, 0));
     expect(answers).toHaveLength(1);
-    answers.forEach((answer) => answer(false));
-    expect(await connecting).toMatchObject({ state: 'signed-out' });
-    expect(await rechecking).toBe(false);
+    answers.forEach((answer) => answer(true));
+    expect(await rechecking).toBe(true);
+    expect((await looking).find((a) => a.id === 'codex')!.state).toBe('connected');
+  });
+
+  it("a look waits for a check already running, so a relaunch never shows a signed-out agent connected", async () => {
+    const answers: ((ok: boolean) => void)[] = [];
+    const s = state();
+    s.update((x) => ({ ...x, agent: 'claude' }));
+    const c = connector(lookup({ signedIn: () => new Promise<boolean>((done) => answers.push(done)) }), s);
+    // At start, the course's first job asks before Welcome's first look.
+    const job = c.recheck('claude');
+    const look = c.agents();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(answers).toHaveLength(1);
+    answers[0](false);
+    expect((await look).find((a) => a.id === 'claude')!.state).toBe('signed-out');
+    expect(await job).toBe(false);
+  });
+
+  it('Connect asks afresh: a check that began before the learner signed in never answers for it', async () => {
+    const answers: ((ok: boolean) => void)[] = [];
+    const c = connector(lookup({ signedIn: () => new Promise<boolean>((done) => answers.push(done)) }), state());
+    // A look's check starts while the learner is still signing in; then they click Connect.
+    const job = c.recheck('codex');
+    const connecting = c.connect('codex');
+    await new Promise((r) => setTimeout(r, 0));
+    answers[0](false);
+    await job;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(answers).toHaveLength(2);
+    answers[1](true);
+    expect(await connecting).toMatchObject({ state: 'connected' });
   });
 
   it('counts the 5 seconds from when a slow check ended, so checks never run back to back', async () => {

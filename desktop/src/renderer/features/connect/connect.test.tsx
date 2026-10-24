@@ -174,13 +174,21 @@ describe('changing the agent', () => {
 
   it("never connects the only installed agent by itself while another one is connected", async () => {
     // Cursor is experimental, so Claude Code is the only supported agent installed.
-    const api = createMock({ agents: { codex: 'missing' }, connected: 'cursor' });
-    const connect = vi.spyOn(api, 'connect');
-    renderApp({ to: 'connect' }, api);
-    expect(await within(await screen.findByRole('listitem', { name: 'Cursor' })).findByText('Connected')).toBeInTheDocument();
-    await new Promise((r) => setTimeout(r, 50));
-    expect(connect).not.toHaveBeenCalled();
-    expect(within(screen.getByRole('listitem', { name: 'Claude Code' })).getByRole('button', { name: 'Connect' })).toBeInTheDocument();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const api = createMock({ agents: { codex: 'missing' }, connected: 'cursor' });
+      const connect = vi.spyOn(api, 'connect');
+      const looks = vi.spyOn(api, 'agents');
+      renderApp({ to: 'connect' }, api);
+      expect(await within(await screen.findByRole('listitem', { name: 'Cursor' })).findByText('Connected')).toBeInTheDocument();
+      // The screen keeps looking: none of those looks connects it either.
+      for (let i = 0; i < 2; i++) await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(looks.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(connect).not.toHaveBeenCalled();
+      expect(within(screen.getByRole('listitem', { name: 'Claude Code' })).getByRole('button', { name: 'Connect' })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -195,8 +203,8 @@ describe('a sign-out that stopped background work', () => {
     expect(await screen.findByRole('heading', { name: 'Connect an agent' })).toBeInTheDocument();
     expect(await within(screen.getByRole('listitem', { name: 'Claude Code' })).findByText('Connected')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Continue' }));
+    // The course map's sign-out redirect would run in the same render as its topics.
     expect(await screen.findByRole('list', { name: 'Topics' })).toBeInTheDocument();
-    await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByRole('heading', { name: 'Connect an agent' })).not.toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { useLoad } from './useLoad';
 
 /** A load the test answers by hand, counting reads. */
@@ -81,6 +81,23 @@ describe('useLoad', () => {
     let n = 0;
     const { result } = renderHook(() => useLoad(async () => ++n, [], { settled: () => true, idle: 5 }));
     await waitFor(() => expect(result.current.data).toBeGreaterThanOrEqual(3));
+  });
+
+  it('waits while the window is hidden (minimized or covered), and reads once it shows again', async () => {
+    let hidden = true;
+    const visibility = vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+    try {
+      let n = 0;
+      renderHook(() => useLoad(async () => ++n, [], { settled: () => false, every: 5 }));
+      await waitFor(() => expect(n).toBe(1));
+      await new Promise((r) => setTimeout(r, 40));
+      expect(n).toBe(1);
+      hidden = false;
+      act(() => void document.dispatchEvent(new Event('visibilitychange')));
+      await waitFor(() => expect(n).toBeGreaterThanOrEqual(3));
+    } finally {
+      visibility.mockRestore();
+    }
   });
 
   it('starts over at once when its inputs change, whatever is in flight', async () => {

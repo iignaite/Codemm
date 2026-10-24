@@ -48,10 +48,14 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
   const checkedAt = new Map<AgentId, number>();
   const checking = new Map<AgentId, Promise<boolean | null>>();
   /** Whether a look may check the agent's sign-in again: Connect, Welcome and Setup look every few seconds. */
-  const due = (id: AgentId) => !checking.has(id) && Date.now() - (checkedAt.get(id) ?? -Infinity) >= RECHECK_MS;
+  const due = (id: AgentId) => Date.now() - (checkedAt.get(id) ?? -Infinity) >= RECHECK_MS;
 
-  /** The agent's own status command, shared while it runs; every check counts toward the next look's wait. */
-  function ask(id: AgentId, exe: Executable): Promise<boolean | null> {
+  /**
+   * The agent's own status command, shared while it runs, so one agent never runs two at once; every check counts
+   * toward the next look's wait. `fresh`: one that starts after any running now, which may predate a sign-in.
+   */
+  async function ask(id: AgentId, exe: Executable, fresh = false): Promise<boolean | null> {
+    if (fresh) await checking.get(id)?.catch(() => null);
     let check = checking.get(id);
     if (!check) {
       check = lookup.signedIn(id, exe).finally(() => {
@@ -157,7 +161,8 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
       tried = id;
       const exe = usable(id);
       if (exe) {
-        const ok = await ask(id, exe);
+        // The learner may have just signed in: a check already running could predate it.
+        const ok = await ask(id, exe, true);
         remember(id, ok);
         // Only the agent's own no is signed out: a check that can't tell connects, and a job says the rest.
         if (ok !== false) state.update((s) => ({ ...s, agent: id }));

@@ -141,7 +141,8 @@ describe('narrow windows', () => {
 describe('changing the agent', () => {
   it('opens the connect screen from Agent, and Continue comes back to the screen it left', async () => {
     const user = userEvent.setup();
-    renderApp({ to: 'tracks' }, createMock({ connected: 'claude' }));
+    // StrictMode, as the app's root: its replayed effects must not leave Agent dead.
+    renderApp({ to: 'tracks' }, createMock({ connected: 'claude' }), { strict: true });
     await screen.findByRole('heading', { name: 'Tracks' });
     // Agent names appear only on the connect screen.
     expect(sidebar()).not.toHaveTextContent(/Claude Code|Codex|Cursor/);
@@ -163,6 +164,21 @@ describe('changing the agent', () => {
     await user.click(await screen.findByRole('button', { name: 'Continue' }));
     expect(await screen.findByRole('button', { name: 'Remove JSX' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Remove Lists and keys' })).not.toBeInTheDocument();
+  });
+
+  it('does nothing once the learner moved on before Connect could open', async () => {
+    const user = userEvent.setup();
+    const { api, roadmap } = await mockWithRoadmap();
+    const draft = api.draft.bind(api);
+    const waiting: (() => void)[] = [];
+    api.draft = () => new Promise((done) => waiting.push(() => done(draft())));
+    renderApp({ to: 'course', roadmap }, api);
+    await user.click(await within(sidebar()).findByRole('button', { name: 'Agent' }));
+    await user.click(within(sidebar()).getByRole('button', { name: 'Tracks' }));
+    expect(await screen.findByRole('heading', { name: 'Tracks' })).toBeInTheDocument();
+    await act(async () => waiting.forEach((go) => go()));
+    expect(screen.getByRole('heading', { name: 'Tracks' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Connect an agent' })).not.toBeInTheDocument();
   });
 
   it('is in the slim sidebar too, named in its tooltip', async () => {

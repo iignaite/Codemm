@@ -374,7 +374,7 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     await until(t.api, (c) => c.topics[0].lessons.some((l) => l.state === 'ready'));
   });
 
-  it('switches agents mid-course: a running turn keeps its agent, the next uses the new one, each keeping its own tutor session', async () => {
+  it('keys tutor sessions by course and agent: a turn running across a switch saves under its own agent, and switching back resumes it', async () => {
     let held: (() => void) | undefined;
     const t = live({
       tutor: async (job) => {
