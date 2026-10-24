@@ -10,6 +10,8 @@ on:
       - ".github/workflows/agent-installs.yml"
       - "desktop/src/main/agent/**"
       - "desktop/src/main/dockerDesktop.ts"
+      - "desktop/src/shared/api.ts"
+      - "desktop/package-lock.json"
   # The vendors change their installers without telling us.
   schedule:
     - cron: "17 6 * * 1"
@@ -17,6 +19,11 @@ on:
 
 permissions:
   contents: read
+
+# A new push replaces the run before it, so these jobs never queue ahead of the PR's other macOS jobs.
+concurrency:
+  group: agent-installs-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   install:
@@ -26,18 +33,18 @@ jobs:
       matrix:
         include:
           - { name: windows claude script, os: windows-latest, agent: claude, install: "irm https://claude.ai/install.ps1 | iex" }
-          # Red until the lookup PR ("Find agents and Docker wherever they're installed") runs the .exe an npm .cmd shim points at.
-          - { name: windows claude npm, os: windows-latest, agent: claude, install: 'npm config set prefix "$env:APPDATA\npm"; npm i -g @anthropic-ai/claude-code', red: true }
-          # Red until the lookup PR ("Find agents and Docker wherever they're installed") reads the live PATH or WinGet's Links folder.
+          # Red until the lookup PR (#228) runs the .exe an npm .cmd shim points at.
+          - { name: windows claude npm, os: windows-latest, agent: claude, npm: "@anthropic-ai/claude-code", red: true }
+          # Red until the lookup PR (#228) reads the live PATH or WinGet's Links folder.
           - { name: windows claude winget, os: windows-latest, agent: claude, winget: Anthropic.ClaudeCode, red: true }
           - { name: windows codex script, os: windows-latest, agent: codex, install: "irm https://chatgpt.com/codex/install.ps1 | iex" }
-          - { name: windows codex npm, os: windows-latest, agent: codex, install: 'npm config set prefix "$env:APPDATA\npm"; npm i -g @openai/codex' }
-          # Red until the lookup PR ("Find agents and Docker wherever they're installed") reads the live PATH or WinGet's Links folder.
+          - { name: windows codex npm, os: windows-latest, agent: codex, npm: "@openai/codex" }
+          # Red until the lookup PR (#228) reads the live PATH or WinGet's Links folder.
           - { name: windows codex winget, os: windows-latest, agent: codex, winget: OpenAI.Codex, red: true }
-          # Red until the Cursor launcher PR ("Start Cursor directly on Windows") starts Cursor's own node.exe, and the
-          # lookup PR reads the live PATH or %LOCALAPPDATA%\cursor-agent.
+          # Red until the Cursor launcher PR ("Start Cursor directly on Windows") starts Cursor's own node.exe, and
+          # the lookup PR (#228) reads the live PATH or %LOCALAPPDATA%\cursor-agent.
           - { name: windows cursor script, os: windows-latest, agent: cursor, install: "irm 'https://cursor.com/install?win32=true' | iex", red: true }
-          # Red until the lookup PR ("Find agents and Docker wherever they're installed") knows Docker Desktop's per-user folder.
+          # Red until the lookup PR (#228) knows Docker Desktop's per-user folder.
           - { name: windows docker per-user, os: windows-latest, agent: docker, docker: "--user --quiet --accept-license --backend=wsl-2", dockerbin: '%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin', red: true }
           - { name: windows docker all users, os: windows-latest, agent: docker, docker: "--quiet --accept-license", dockerbin: 'C:\Program Files\Docker\Docker\resources\bin' }
           - { name: macos claude script, os: macos-latest, agent: claude, install: "curl -fsSL https://claude.ai/install.sh | bash" }
@@ -50,13 +57,15 @@ jobs:
           - { name: macos cursor brew, os: macos-latest, agent: cursor, install: "brew install --cask cursor-cli" }
           - { name: macos docker brew, os: macos-latest, agent: docker, install: "brew install --cask docker-desktop", dockerbin: /Applications/Docker.app/Contents/Resources/bin }
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.red == true }}
-    timeout-minutes: 30
+    timeout-minutes: 15
     env:
       AGENT: ${{ matrix.agent }}
       INSTALL: ${{ matrix.install }}
+      NPM_PACKAGE: ${{ matrix.npm }}
       WINGET: ${{ matrix.winget }}
+      DOCKER_ARGS: ${{ matrix.docker }}
       DOCKER_BIN: ${{ matrix.dockerbin }}
+      CODEX_NON_INTERACTIVE: "1"
     steps:
       # No token stays in .git/config, where a vendor's script could read it.
       - uses: actions/checkout@v4
@@ -74,6 +83,7 @@ jobs:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       # A Mac app opened from Finder gets only the system folders. A Windows app keeps the PATH it started with,
       # so this is a Codemm opened before the install: the runner's own PATH, without the runner's Docker.
+      # That PATH is the runner's process PATH, which holds more folders than Explorer would give an app.
       - name: Remember the PATH Codemm starts with (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -90,21 +100,22 @@ jobs:
           if [ -n "$DOCKER_BIN" ]; then echo "CODEMM_DOCKER_BIN=$DOCKER_BIN" >> "$GITHUB_ENV"; fi
 
       # The vendors' own commands, in Windows PowerShell as their docs say. No token reaches any of them.
-      # The npm rows use Node's own default global folder, %APPDATA%\npm, not the runner's C:\npm\prefix.
       - name: Install (Windows)
         if: runner.os == 'Windows' && matrix.install
         shell: powershell
-        run: ${{ matrix.install }}
-        env:
-          CODEX_NON_INTERACTIVE: "1"
+        run: Invoke-Expression $env:INSTALL
+      # Node's own default global folder, not the runner's C:\npm\prefix.
+      - name: Install with npm (Windows)
+        if: runner.os == 'Windows' && matrix.npm
+        shell: pwsh
+        run: npm i -g --prefix "$env:APPDATA\npm" $env:NPM_PACKAGE
       - name: Install with WinGet
         if: matrix.winget
         shell: pwsh
         run: |
           if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-            Write-Output "::notice::This runner has no winget, so $env:WINGET wasn't checked"
-            "SKIP=1" >> $env:GITHUB_ENV
-            exit 0
+            Write-Output "::error::This runner has no winget, so $env:WINGET can't be checked"
+            exit 1
           }
           winget install --id $env:WINGET -e --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity
       # Accepting Docker's license is fine on a throwaway runner; Codemm itself leaves that to Docker's own window.
@@ -115,23 +126,19 @@ jobs:
           $ProgressPreference = 'SilentlyContinue'
           $installer = "$env:RUNNER_TEMP\DockerDesktopInstaller.exe"
           Invoke-WebRequest 'https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe' -OutFile $installer
-          $p = Start-Process $installer -ArgumentList "install ${{ matrix.docker }}" -Wait -PassThru
+          $p = Start-Process $installer -ArgumentList "install $env:DOCKER_ARGS" -Wait -PassThru
           Write-Output "Docker Desktop's installer exited with $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "Docker Desktop didn't install" }
+      # pipefail, so a failed download fails here.
       - name: Install (macOS)
         if: runner.os == 'macOS' && matrix.install
-        # bash, not the default sh: pipefail, so a failed download fails here.
-        shell: bash
-        run: ${{ matrix.install }}
-        env:
-          CODEX_NON_INTERACTIVE: "1"
+        run: bash -o pipefail -c "$INSTALL"
       # A learner's npm is usually Homebrew's Node, not the runner's.
-      - name: Install with Homebrew's npm (macOS)
-        if: matrix.npm
-        shell: bash
+      - name: Install with npm (macOS)
+        if: runner.os == 'macOS' && matrix.npm
         run: |
           brew install node
-          PATH="$(brew --prefix)/bin:$PATH" npm i -g ${{ matrix.npm }}
+          PATH="$(brew --prefix)/bin:$PATH" npm i -g "$NPM_PACKAGE"
 
       # What the lookup fixes need and no one could see without a Windows PC. Only a log: it never fails the row.
       - name: Show where it landed (Windows)
@@ -145,10 +152,9 @@ jobs:
           Write-Output "User PATH now: $user"
           Write-Output "Machine PATH changed: $($machine -ne (Get-Content -Raw "$env:RUNNER_TEMP\machine-path.txt").TrimEnd())"
           $show = { param($dir) if (Test-Path $dir) { Write-Output "--- $dir"; Get-ChildItem $dir -Force | Format-Table -AutoSize | Out-String -Width 200 } else { Write-Output "--- $dir is missing" } }
-          if ($env:INSTALL -like 'npm *') {
-            $prefix = npm prefix -g
-            & $show $prefix
-            Get-ChildItem $prefix -Filter "$env:AGENT.cmd" | ForEach-Object { Write-Output "--- $($_.FullName)"; Get-Content $_.FullName }
+          if ($env:NPM_PACKAGE) {
+            & $show "$env:APPDATA\npm"
+            Get-ChildItem "$env:APPDATA\npm" -Filter "$env:AGENT.cmd" | ForEach-Object { Write-Output "--- $($_.FullName)"; Get-Content $_.FullName }
           }
           if ($env:WINGET) { & $show "$env:LOCALAPPDATA\Microsoft\WinGet\Links" }
           if ($env:AGENT -eq 'cursor') {
@@ -167,8 +173,9 @@ jobs:
             }
           }
 
+      # A red row's lookup may fail until its fix lands; its install must still work.
       - name: Codemm finds it
-        if: env.SKIP != '1'
+        continue-on-error: ${{ matrix.red == true }}
         working-directory: desktop
         shell: bash
         env:

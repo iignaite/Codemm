@@ -2,7 +2,9 @@
 // Opt-in, after a vendor's real install (.github/workflows/agent-installs.yml): Codemm's lookup finds the agent or
 // Docker with a GUI app's PATH, and the agent answers its version. No sign-in and no model calls.
 // CODEMM_REAL_INSTALL=claude|codex|cursor|docker CODEMM_INSTALL_PATH=<the PATH Codemm started with> npx vitest run src/main/agent/find.real.test.ts
-// For docker, CODEMM_DOCKER_BIN is the Docker Desktop folder core's Docker calls must get on PATH.
+// For docker, CODEMM_DOCKER_BIN is Docker Desktop's own CLI folder, which core's Docker calls must get on PATH.
+import { realpathSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AgentId } from '../../shared/api';
 import { AGENT_CLIS } from './agents';
@@ -22,8 +24,11 @@ describe.skipIf(!target)('a real install (opt-in)', () => {
     expect(docker).not.toBeNull();
     const folders = dockerFolders(docker!.path);
     console.log('docker folders', folders);
-    expect(process.env.CODEMM_DOCKER_BIN).toBeTruthy();
-    expect(folders.map(same)).toContain(same(process.env.CODEMM_DOCKER_BIN!));
+    const bin = process.env.CODEMM_DOCKER_BIN;
+    expect(bin).toBeTruthy();
+    // The docker found is Docker Desktop's own, through a link or not, and not some other docker on PATH.
+    expect(same(dirname(realpathSync(docker!.path)))).toBe(same(bin!));
+    expect(folders.map(same)).toContain(same(bin!));
   });
 
   it.runIf(target !== 'docker')('finds the agent and reads its version', { timeout: 120_000 }, async () => {
