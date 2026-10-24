@@ -74,6 +74,20 @@ describe("the agent's own sign-in, where the learner sees it", () => {
     ]);
   });
 
+  it("Cursor on Windows: its login runs Cursor's own Node on its script, with no shell", async () => {
+    const f = fake('win32');
+    const node = 'C:\\Users\\Ann Lee\\AppData\\Local\\cursor-agent\\versions\\2026.10.22-27dcf5f\\node.exe';
+    const script = 'C:\\Users\\Ann Lee\\AppData\\Local\\cursor-agent\\versions\\2026.10.22-27dcf5f\\index.js';
+    await f.signIn('cursor', { path: node, js: false, args: ['--use-system-ca', script], env: { CURSOR_INVOKED_AS: 'cursor-agent' } });
+    expect(f.started).toEqual([{ file: node, args: ['--use-system-ca', script, 'login'], env: { CURSOR_INVOKED_AS: 'cursor-agent' } }]);
+  });
+
+  it("Claude Code's console window on Windows keeps the words before its arguments", async () => {
+    const f = fake('win32');
+    await f.signIn('claude', { path: 'C:\\node.exe', js: false, args: ['C:\\Program Files\\claude\\cli.js'], env: { X: '1' } });
+    expect(f.started[0].env).toEqual({ CODEMM_FILE: 'C:\\node.exe', CODEMM_ARGS: '"C:\\Program Files\\claude\\cli.js" auth login', X: '1' });
+  });
+
   it('a Node-script agent runs with this app as Node, as jobs do', async () => {
     const f = fake('darwin');
     await f.signIn('codex', { path: '/lib/node_modules/@openai/codex/bin/codex.js', js: true });

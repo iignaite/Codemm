@@ -1,6 +1,9 @@
 // @vitest-environment node
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ask, groupAlive, run, spawnable, withDeadline, type Executable } from './bridge';
+import { ask, command, groupAlive, run, spawnable, withDeadline, type Executable } from './bridge';
+import { tempDir } from '../testing/temp';
 
 const parse = (line: string) => (line.startsWith('{') ? [JSON.parse(line) as Record<string, unknown>] : []);
 /** A fake agent: this Node running a script, the way the app runs a JavaScript agent. */
@@ -20,6 +23,28 @@ describe('bridge (D5)', () => {
     expect(target).toMatchObject({ file: '/Applications/Codemm.app/Contents/MacOS/Codemm', args: ['/x/codex.js', 'exec'] });
     expect(target.env.ELECTRON_RUN_AS_NODE).toBe('1');
     expect(spawnable({ path: '/bin/claude', js: false }, ['-p']).env.ELECTRON_RUN_AS_NODE).toBe(process.env.ELECTRON_RUN_AS_NODE);
+  });
+
+  it("runs an agent's own Node on its script, with the words and environment it needs first (Cursor on Windows)", () => {
+    const exe: Executable = { path: 'C:\\cursor-agent\\versions\\v\\node.exe', js: false, args: ['--use-system-ca', 'C:\\cursor-agent\\versions\\v\\index.js'], env: { CURSOR_INVOKED_AS: 'cursor-agent' } };
+    const target = spawnable(exe, ['-p', 'brief']);
+    expect(target).toMatchObject({ file: exe.path, args: ['--use-system-ca', 'C:\\cursor-agent\\versions\\v\\index.js', '-p', 'brief'] });
+    expect(target.env.CURSOR_INVOKED_AS).toBe('cursor-agent');
+    expect(target.env.PATH).toBe(process.env.PATH);
+    expect(command(exe, ['login'])).toEqual({ file: exe.path, args: [...exe.args!, 'login'], env: { CURSOR_INVOKED_AS: 'cursor-agent' } });
+    expect(command({ path: '/bin/claude', js: false }, ['-p'])).toEqual({ file: '/bin/claude', args: ['-p'], env: {} });
+  });
+
+  // No shell anywhere: a brief reaches the agent exactly as written, on Windows too (CI runs this there).
+  it('a brief with newlines, quotes, !, %PATH% and backticks reaches the agent byte for byte', async () => {
+    const dir = tempDir('codemm-args-');
+    const script = join(dir, 'index.js');
+    writeFileSync(script, 'console.log(JSON.stringify({ argv: process.argv.slice(2), as: process.env.CURSOR_INVOKED_AS }))\n');
+    const brief = 'Line one\n\n"Quoted" and \'single\' text!\r\nNot a variable: %PATH% !PATH! $env:PATH `whoami` $(id)\n& | < > ^ ; C:\\dir\\ "C:\\with space\\" \\\\"x\\\\" trailing\\\\';
+    const events: Record<string, unknown>[] = [];
+    const exe: Executable = { path: process.execPath, js: false, args: [script], env: { CURSOR_INVOKED_AS: 'cursor-agent' } };
+    await run(exe, ['-p', brief, ''], parse, { onEvent: (e) => events.push(e) });
+    expect(events).toEqual([{ argv: ['-p', brief, ''], as: 'cursor-agent' }]);
   });
 
   it('streams parsed events line by line and reports the exit code', async () => {

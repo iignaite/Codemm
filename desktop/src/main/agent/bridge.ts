@@ -8,13 +8,23 @@ import { spawn, type ChildProcess } from 'node:child_process';
 export interface Executable {
   path: string;
   js: boolean;
+  /** Words before the caller's arguments, and environment added for them: Cursor's own Node on its script (§3.1). */
+  args?: string[];
+  env?: Record<string, string>;
 }
 
-/** The process to spawn for an executable: a Node script runs as `ELECTRON_RUN_AS_NODE=1 <app> <script>`. */
-export function spawnable(exe: Executable, args: string[], runtime = process.execPath) {
+/** The program, arguments and added environment for an executable: a Node script runs as `ELECTRON_RUN_AS_NODE=1 <app> <script>`. */
+export function command(exe: Executable, args: string[], runtime = process.execPath) {
+  const words = [...(exe.args ?? []), ...args];
   return exe.js
-    ? { file: runtime, args: [exe.path, ...args], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } }
-    : { file: exe.path, args, env: { ...process.env } };
+    ? { file: runtime, args: [exe.path, ...words], env: { ELECTRON_RUN_AS_NODE: '1', ...exe.env } }
+    : { file: exe.path, args: words, env: { ...exe.env } };
+}
+
+/** The process to spawn for an executable, with the app's environment and what the executable adds. */
+export function spawnable(exe: Executable, args: string[], runtime = process.execPath) {
+  const target = command(exe, args, runtime);
+  return { ...target, env: { ...process.env, ...target.env } };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
