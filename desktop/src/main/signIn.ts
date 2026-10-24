@@ -30,7 +30,7 @@ const winQuote = (s: string) => (/\s/.test(s) ? `"${s}"` : s);
 /**
  * Opens a program through the Windows shell, as a double-click does, so a console program gets a console window of
  * its own. The program and its arguments arrive as environment variables, never inside the command text. .NET's
- * Process.Start, as Docker's elevated install uses (dockerDesktop.ts).
+ * Process.Start, as WSL's elevated setup uses (wsl.ts).
  */
 export const CONSOLE = '$i = New-Object Diagnostics.ProcessStartInfo $env:CODEMM_FILE, $env:CODEMM_ARGS; $i.UseShellExecute = $true; $null = [Diagnostics.Process]::Start($i)';
 

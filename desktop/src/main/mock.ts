@@ -32,7 +32,9 @@ import { AGENT_INFO } from './connect';
 import { addTopic } from '../shared/roadmap';
 import { shownTopic } from '../shared/topic';
 
-type Docker = 'missing' | 'stopped' | 'starting' | 'windows-containers' | 'no-sandbox' | 'sandbox-checking' | 'sandbox-offline' | 'sandbox-folder' | 'ready';
+/** Windows' WSL states are the running row's, as Docker Desktop's engine can't start without WSL. */
+type Wsl = 'wsl-missing' | 'wsl-old' | 'virtualization' | 'wsl-restart';
+type Docker = 'missing' | 'stopped' | 'starting' | 'windows-containers' | Wsl | 'no-sandbox' | 'sandbox-checking' | 'sandbox-offline' | 'sandbox-folder' | 'ready';
 
 export interface MockOptions {
   /** Read on every call, so a test can change it while the app runs. */
@@ -81,6 +83,8 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'docker-starting': { docker: 'starting' },
   'sandbox-checking': { docker: 'sandbox-checking' },
   'windows-containers': { docker: 'windows-containers', platform: 'windows' },
+  'wsl-missing': { docker: 'wsl-missing', platform: 'windows' },
+  'virtualization-off': { docker: 'virtualization', platform: 'windows' },
   'docker-stops': { later: { after: 'check', set: { docker: 'stopped' } } },
   'docker-stops-jobs': { later: { after: 'approve', set: { docker: 'stopped', stalled: 'docker' } } },
   'docker-wont-start': { docker: 'missing', dockerWontStart: true },
@@ -143,6 +147,10 @@ const DOCKER_DOWN: Record<Exclude<Docker, 'ready'>, string> = {
   stopped: "Docker isn't running.",
   starting: 'Docker is still starting.',
   'windows-containers': 'Docker Desktop is set to Windows containers.',
+  'wsl-missing': "Docker isn't running.",
+  'wsl-old': "Docker isn't running.",
+  virtualization: "Docker isn't running.",
+  'wsl-restart': "Docker isn't running.",
   'no-sandbox': "Codemm couldn't confirm the sandbox.",
   'sandbox-checking': "Codemm couldn't confirm the sandbox.",
   'sandbox-offline': "Codemm couldn't confirm the sandbox.",
@@ -245,6 +253,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   // Installing or opening Docker moves the mock's Docker along, one step per check (§6.1).
   let dockerNow: Docker | undefined;
   let install: DockerInstall | undefined;
+  const WSL_SETUP = new Set<Docker>(['wsl-missing', 'wsl-old']);
   const INSTALL_STEPS: DockerInstall[] = [{ phase: 'downloading', progress: 0.6 }, { phase: 'checking' }, { phase: 'installing' }, { phase: 'starting' }];
   const docker = () => dockerNow ?? options.docker ?? 'ready';
   const notCounted = () => ({ kind: 'not-counted' as const, reason: options.imageMissing ? REBUILD : DOCKER_DOWN[docker() as Exclude<Docker, 'ready'>] });
@@ -603,7 +612,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     },
 
     async installDocker() {
-      install = { phase: 'downloading', progress: 0 };
+      // With Docker Desktop installed, Windows' Install is WSL's setup alone.
+      install = WSL_SETUP.has(docker()) ? { phase: 'wsl' } : { phase: 'downloading', progress: 0 };
     },
 
     async openDocker() {
@@ -612,23 +622,29 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async openWindowsUpdate() {},
 
+    async restartWindows() {},
+
     async computer() {
       const platform = options.platform ?? hostPlatform();
       const d = docker();
       const reported = install;
       // The next check sees Docker one step further along.
-      if (install?.phase === 'starting') {
+      if (install?.phase === 'wsl') {
+        // A WSL just set up runs after a restart; one just updated, at once.
+        [install, dockerNow] = d === 'wsl-missing' ? [{ phase: 'failed', problem: 'restart' }, 'wsl-restart'] : [{ phase: 'starting' }, 'starting'];
+      } else if (install?.phase === 'starting') {
         install = undefined;
         dockerNow = options.dockerWontStart ? 'stopped' : 'ready';
-      } else if (install) {
+      } else if (install && install.phase !== 'failed') {
         install = INSTALL_STEPS[INSTALL_STEPS.findIndex((s) => JSON.stringify(s) === JSON.stringify(install)) + 1];
         if (install?.phase === 'starting') dockerNow = 'starting';
       } else if (dockerNow === 'starting') dockerNow = 'ready';
-      const failing = { missing: 0, stopped: 1, starting: 1, 'windows-containers': 1, 'no-sandbox': 2, 'sandbox-checking': 2, 'sandbox-offline': 2, 'sandbox-folder': 2, ready: Infinity }[d];
+      const failing = { missing: 0, stopped: 1, starting: 1, 'windows-containers': 1, 'wsl-missing': 1, 'wsl-old': 1, virtualization: 1, 'wsl-restart': 1, 'no-sandbox': 2, 'sandbox-checking': 2, 'sandbox-offline': 2, 'sandbox-folder': 2, ready: Infinity }[d];
       const checks = (['docker-installed', 'docker-running', 'sandbox'] as const).map((id, i) => ({
         id,
         state: i < failing ? ('ok' as const) : i === failing ? ('problem' as const) : ('waiting' as const),
-        ...(i === failing && (d === 'starting' || d === 'windows-containers') ? { detail: d } : {}),
+        ...(i === failing && (d === 'starting' || d === 'windows-containers' || d === 'wsl-missing' || d === 'wsl-old' || d === 'virtualization') ? { detail: d } : {}),
+        ...(i === failing && d === 'wsl-restart' ? { detail: 'restart' as const } : {}),
         ...(i === failing && d === 'sandbox-checking' ? { detail: 'checking' as const } : {}),
         ...(i === failing && SANDBOX_REASON[d] ? { reason: SANDBOX_REASON[d] } : {}),
       }));

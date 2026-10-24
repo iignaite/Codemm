@@ -104,8 +104,12 @@ export interface ComputerCheck {
   id: CheckId;
   /** `waiting`: an earlier check has to pass first. */
   state: 'ok' | 'problem' | 'waiting';
-  /** For a running problem: Docker is still starting or set to Windows containers; or, just after Docker came up, the sandbox is still being checked. */
-  detail?: 'starting' | 'windows-containers' | 'checking';
+  /**
+   * For a running problem: Docker is still starting or set to Windows containers; or, on Windows, what WSL needs
+   * first (set up, an update, virtualization turned on in the firmware, or a restart); or, just after Docker came up,
+   * the sandbox is still being checked.
+   */
+  detail?: 'starting' | 'windows-containers' | 'wsl-missing' | 'wsl-old' | 'virtualization' | 'restart' | 'checking';
   /**
    * For the sandbox: the self-test's own words, when it knows the cause on this computer (core §4.3): offline, out of
    * disk, or Docker's (a folder to share, its sign-in helper). `inconclusive`: what it saw, not a known cause.
@@ -114,19 +118,20 @@ export interface ComputerCheck {
 }
 
 /**
- * Codemm installing Docker Desktop for the learner (§6.1). `starting`: installed and opened; Docker's own window
- * asks the learner to accept its terms. Problems: `offline` and `disk` are this computer's; `macos-version`,
+ * Codemm installing Docker Desktop for the learner (§6.1). `wsl`: on Windows, WSL's own setup, which Windows asks
+ * permission for; `admin`: Docker's installer as administrator, when Windows says it needs one; `starting`: installed and opened; Docker's own window asks the learner to accept its terms.
+ * Problems: `offline` and `disk` are this computer's; `macos-version`,
  * `windows-version` and `windows-server`: Docker Desktop doesn't run on this macOS or Windows, so nothing downloaded
  * (an older Windows updates in Windows Update; Windows Server never runs it); `unverified`: the
  * download wasn't signed by Docker, so it was deleted; `manual`: drag Docker to Applications in the window that
- * opened; `declined`: the learner said no to Windows' permission prompt; `restart`: Windows needs a restart;
- * `failed`: Docker's installer didn't finish.
+ * opened; `declined`: the learner said no to Windows' permission prompt; `wsl-failed`: WSL's setup didn't
+ * finish; `restart`: Windows needs a restart; `failed`: Docker's installer didn't finish.
  */
 export interface DockerInstall {
-  phase: 'downloading' | 'checking' | 'installing' | 'starting' | 'failed';
+  phase: 'wsl' | 'downloading' | 'checking' | 'installing' | 'admin' | 'starting' | 'failed';
   /** 0 to 1 while downloading. */
   progress?: number;
-  problem?: 'offline' | 'disk' | 'macos-version' | 'windows-version' | 'windows-server' | 'unverified' | 'manual' | 'declined' | 'restart' | 'failed';
+  problem?: 'offline' | 'disk' | 'macos-version' | 'windows-version' | 'windows-server' | 'unverified' | 'manual' | 'declined' | 'wsl-failed' | 'restart' | 'failed';
 }
 
 export interface Computer {
@@ -414,12 +419,17 @@ export interface CodemmApi {
   /** Hears what Run's programs print; returns a function that stops listening. An event, not a call. */
   onRunOutput(listener: (output: RunOutput) => void): () => void;
   computer(): Promise<Computer>;
-  /** Downloads Docker Desktop from Docker, checks Docker signed it, installs and opens it. Follow it with computer(). */
+  /**
+   * Downloads Docker Desktop from Docker, checks Docker signed it, installs and opens it; on Windows, sets up WSL first
+   * when it needs it. Follow it with computer().
+   */
   installDocker(): Promise<void>;
   /** Opens Docker Desktop. */
   openDocker(): Promise<void>;
   /** Opens Windows Update, for a Windows too old for Docker Desktop. Does nothing elsewhere. */
   openWindowsUpdate(): Promise<void>;
+  /** Restarts Windows, when WSL or Docker's installer needs it. Does nothing elsewhere. */
+  restartWindows(): Promise<void>;
   tracks(): Promise<Track[]>;
 
   /** Starts the research job on the first call; call again to follow it. */

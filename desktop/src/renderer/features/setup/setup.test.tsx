@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createMock, scenario } from '../../../main/mock';
 import { renderApp } from '../../test-utils';
+import type { DockerInstall } from '../../../shared/api';
 
 const mac = (name: string) => createMock({ ...scenario(name), platform: 'mac' });
 
@@ -128,6 +129,23 @@ describe('install what is missing', () => {
     expect(await within(docker).findByRole('alert')).toHaveTextContent('Docker no longer supports older versions, so update Windows first.');
     await user.click(within(docker).getByRole('button', { name: 'Open Windows Update' }));
     expect(opened).toBe(1);
+  });
+
+  it("on Windows, shows WSL's setup in Docker's card, and Try again when the learner said no to Windows' prompt", async () => {
+    const user = userEvent.setup();
+    const api = createMock({ ...scenario('no-docker'), platform: 'windows' });
+    const computer = api.computer;
+    let install: DockerInstall = { phase: 'wsl' };
+    api.computer = async () => ({ ...(await computer()), install });
+    renderApp({ to: 'setup' }, api);
+    await user.click(await screen.findByRole('button', { name: "Install what's missing" }));
+    const docker = screen.getByRole('listitem', { name: 'Docker Desktop' });
+    expect(await within(docker).findByRole('progressbar', { name: 'Allow WSL, which Docker needs, when Windows asks (look in the taskbar).' })).toBeInTheDocument();
+    install = { phase: 'failed', problem: 'declined' };
+    expect(await within(docker).findByRole('alert')).toHaveTextContent('Windows asks for permission first. Try again, and choose Yes.');
+    expect(within(docker).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    install = { phase: 'failed', problem: 'restart' };
+    expect(await within(docker).findByText('Restart Windows, then open Codemm again.')).toBeInTheDocument();
   });
 });
 

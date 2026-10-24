@@ -340,13 +340,17 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
 });
 
 describe('Docker Desktop for the learner (§6.1)', () => {
-  it('installs and opens Docker through the installer, opens Windows Update, and logs the install', async () => {
+  it("installs and opens Docker through the installer, opens Windows Update, restarts Windows on the learner's click, and logs the install and the restart", async () => {
     const calls: string[] = [];
-    const t = live({}, { docker: { install: () => void calls.push('install'), open: async () => void calls.push('open'), windowsUpdate: async () => void calls.push('windows-update') } });
+    const t = live({}, {
+      docker: { install: () => void calls.push('install'), open: async () => void calls.push('open'), windowsUpdate: async () => void calls.push('windows-update'), restartWindows: async () => void calls.push('restart') },
+    });
     await t.api.installDocker();
     await t.api.openDocker();
     await t.api.openWindowsUpdate();
-    expect(calls).toEqual(['install', 'open', 'windows-update']);
+    await t.api.restartWindows();
+    expect(calls).toEqual(['install', 'open', 'windows-update', 'restart']);
     expect(readFileSync(t.logFile, 'utf8')).toMatch(/ docker-install\n/);
+    expect(readFileSync(t.logFile, 'utf8')).toMatch(/ restart\n/);
   });
 });
