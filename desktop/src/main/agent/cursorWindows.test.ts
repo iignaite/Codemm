@@ -29,8 +29,23 @@ describe("Cursor's own Node and script on Windows (§3.1)", () => {
   });
 
   it('a timestamped version folder counts, newest by its time on the same day', () => {
-    const { root, entry } = install({ '2026.06.12-f6aba9a': true, '2026.06.12-19-59-36-0123abc': true, '2026.06.12-9-59-36-fffffff': true });
+    const { root, entry } = install({ '2026.06.12-f6aba9a': true, '2026.06.12-19-59-36-0123abc': true, '2026.06.12-09-59-36-fffffff': true });
     expect(cursorEntry(root)).toEqual(entry('2026.06.12-19-59-36-0123abc'));
+  });
+
+  it('two builds on one date, as the launcher ties them: the same one every time, by name', () => {
+    const { root, entry } = install({ '2026.10.22-27dcf5f': true, '2026.10.22-a0b1c2d': true });
+    expect(cursorEntry(root)).toEqual(entry('2026.10.22-a0b1c2d'));
+  });
+
+  it('a hash in capitals counts, as PowerShell matches without case', () => {
+    const { root, entry } = install({ '2026.10.22-27DCF5F': true });
+    expect(cursorEntry(root)).toEqual(entry('2026.10.22-27DCF5F'));
+  });
+
+  it('a one-digit build time is not a version, as in the launcher', () => {
+    const { root, entry } = install({ '2026.10.16-e3cb207': true, '2026.10.22-9-59-36-fffffff': true });
+    expect(cursorEntry(root)).toEqual(entry('2026.10.16-e3cb207'));
   });
 
   it('skips staged, previous and temporary folders', () => {

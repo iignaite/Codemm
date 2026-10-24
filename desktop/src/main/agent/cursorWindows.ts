@@ -6,8 +6,8 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Executable } from './bridge';
 
-/** cursor-agent.ps1's version pattern: `2026.10.22-27dcf5f`, or with a build time, `2026.06.12-19-59-36-f6aba9a`. Staged `.new` and `.previous` folders never match. */
-const VERSION = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-(\d{2})-(\d{2})-(\d{2}))?-[a-f0-9]+$/;
+/** cursor-agent.ps1's version pattern, ignoring case as PowerShell's -match does: `2026.10.22-27dcf5f`, or with a build time, `2026.06.12-19-59-36-f6aba9a`. Staged `.new` and `.previous` folders never match. */
+const VERSION = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-(\d{2})-(\d{2})-(\d{2}))?-[a-f0-9]+$/i;
 
 const isFile = (p: string) => {
   try {
@@ -21,7 +21,7 @@ const isFile = (p: string) => {
 function newest(a: string, b: string): number {
   const [x, y] = [VERSION.exec(a)!, VERSION.exec(b)!];
   for (let i = 1; i <= 6; i++) if (Number(x[i] ?? 0) !== Number(y[i] ?? 0)) return Number(y[i] ?? 0) - Number(x[i] ?? 0);
-  return b.localeCompare(a);
+  return a < b ? 1 : a > b ? -1 : 0;
 }
 
 /** The node.exe and index.js `cursor-agent.cmd` would run from this install root, or null (not installed). */

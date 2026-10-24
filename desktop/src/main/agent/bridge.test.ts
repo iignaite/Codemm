@@ -26,12 +26,12 @@ describe('bridge (D5)', () => {
   });
 
   it("runs an agent's own Node on its script, with the words and environment it needs first (Cursor on Windows)", () => {
-    const exe: Executable = { path: 'C:\\cursor-agent\\versions\\v\\node.exe', js: false, args: ['C:\\cursor-agent\\versions\\v\\index.js'], env: { CURSOR_INVOKED_AS: 'cursor-agent' } };
+    const exe: Executable = { path: 'C:\\cursor-agent\\versions\\v\\node.exe', js: false, args: ['C:\\cursor-agent\\versions\\v\\index.js'], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } };
     const target = spawnable(exe, ['-p', 'brief']);
     expect(target).toMatchObject({ file: exe.path, args: ['C:\\cursor-agent\\versions\\v\\index.js', '-p', 'brief'] });
-    expect(target.env.CURSOR_INVOKED_AS).toBe('cursor-agent');
+    expect(target.env.CURSOR_INVOKED_AS).toBe('cursor-agent.cmd');
     expect(target.env.PATH).toBe(process.env.PATH);
-    expect(command(exe, ['login'])).toEqual({ file: exe.path, args: [...exe.args!, 'login'], env: { CURSOR_INVOKED_AS: 'cursor-agent' } });
+    expect(command(exe, ['login'])).toEqual({ file: exe.path, args: [...exe.args!, 'login'], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } });
     expect(command({ path: '/bin/claude', js: false }, ['-p'])).toEqual({ file: '/bin/claude', args: ['-p'], env: {} });
   });
 
@@ -42,9 +42,9 @@ describe('bridge (D5)', () => {
     writeFileSync(script, 'console.log(JSON.stringify({ argv: process.argv.slice(2), as: process.env.CURSOR_INVOKED_AS }))\n');
     const brief = 'Line one\n\n"Quoted" and \'single\' text!\r\nNot a variable: %PATH% !PATH! $env:PATH `whoami` $(id)\n& | < > ^ ; C:\\dir\\ "C:\\with space\\" \\\\"x\\\\" trailing\\\\';
     const events: Record<string, unknown>[] = [];
-    const exe: Executable = { path: process.execPath, js: false, args: [script], env: { CURSOR_INVOKED_AS: 'cursor-agent' } };
+    const exe: Executable = { path: process.execPath, js: false, args: [script], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } };
     await run(exe, ['-p', brief, ''], parse, { onEvent: (e) => events.push(e) });
-    expect(events).toEqual([{ argv: ['-p', brief, ''], as: 'cursor-agent' }]);
+    expect(events).toEqual([{ argv: ['-p', brief, ''], as: 'cursor-agent.cmd' }]);
   });
 
   it('streams parsed events line by line and reports the exit code', async () => {
