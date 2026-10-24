@@ -165,6 +165,11 @@ jobs:
               Write-Output "--- $($f.FullName)"
               Get-Content $f.FullName
             }
+            # The signer Codemm's Cursor install requires (agentInstall.ts), in the form it reads.
+            foreach ($node in Get-ChildItem "$root\versions\*\node.exe" -ErrorAction SilentlyContinue) {
+              $s = Get-AuthenticodeSignature -LiteralPath $node.FullName
+              Write-Output "--- signature of $($node.FullName): $($s.Status)|$($s.SignerCertificate.Subject)"
+            }
           }
           if ($env:AGENT -eq 'docker') {
             foreach ($root in "$env:LOCALAPPDATA\Programs\DockerDesktop", 'C:\Program Files\Docker') {
