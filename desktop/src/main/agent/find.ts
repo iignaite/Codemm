@@ -2,10 +2,12 @@
 // load shell profiles, so besides PATH this looks in the usual install folders.
 // A `#!/usr/bin/env node` launcher, or an npm `.cmd` shim on Windows (never
 // run, because that needs a shell), becomes the script or binary it would run.
+// Cursor's PowerShell launcher becomes Cursor's own node.exe on its index.js.
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import type { Executable } from './bridge';
+import { cursorExecutable } from './cursorWindows';
 
 export interface Where {
   platform: NodeJS.Platform;
@@ -39,7 +41,7 @@ export function folders(w: Where): string[] {
       w.localAppData && join(w.localAppData, 'Volta', 'bin'),
       // Where OpenAI's Windows install script puts Codex.
       w.localAppData && join(w.localAppData, 'Programs', 'OpenAI', 'Codex', 'bin'),
-      // Where Cursor's installer puts cursor-agent. Its .cmd starts PowerShell, so find() passes it over for now.
+      // Where Cursor's installer puts cursor-agent. Its .cmd starts PowerShell, so find() runs Cursor's own node.exe instead.
       w.localAppData && join(w.localAppData, 'cursor-agent'),
       // WinGet's command links, for the user and for the machine: Claude Code's and Codex's packages are portable.
       w.localAppData && join(w.localAppData, 'Microsoft', 'WinGet', 'Links'),
@@ -145,6 +147,9 @@ export function find(bin: string, w: Where = here()): Executable | null {
       if (isFile(cmd)) {
         const target = shimTarget(cmd);
         if (target && (target.js ? existsSync(target.path) : isWindowsProgram(target.path))) return target;
+        // Not an npm shim: Cursor's PowerShell launcher, whose own node.exe Codemm runs on its index.js (§3.1).
+        const cursor = cursorExecutable(dir);
+        if (cursor) return cursor;
       }
       continue;
     }
