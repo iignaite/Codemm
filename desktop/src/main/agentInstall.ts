@@ -76,6 +76,15 @@ export function signedBy(output: string, orgs: string[]): boolean {
   return attributes.some((a) => orgs.some((o) => a === `O=${o}` || a === `O="${o}"`));
 }
 
+/** A Cursor version, as its launchers match them: `2026.10.22-27dcf5f`, or with a build time, `2026.06.12-19-59-36-f6aba9a`. */
+const CURSOR_VERSION = /^\d{4}\.\d{1,2}\.\d{1,2}(-\d{2}-\d{2}-\d{2})?-[a-f0-9]+$/;
+
+/** The version Cursor's install script installs, from its `$version = '…'` line (Windows) or `FINAL_DIR=…/versions/…` (macOS). */
+export function cursorVersion(script: string, platform: NodeJS.Platform): string | null {
+  const m = platform === 'win32' ? /^\$version = '([^']*)'/m.exec(script) : /^FINAL_DIR="[^"]*\/versions\/([^"/]*)"/m.exec(script);
+  return m && CURSOR_VERSION.test(m[1]) ? m[1] : null;
+}
+
 class Stop extends Error {
   constructor(readonly problem: NonNullable<AgentInstall['problem']>) {
     super(problem);
@@ -140,12 +149,11 @@ export function agentInstaller(d: AgentInstallDeps) {
   }
 
   /**
-   * The vendor's own install script, as a file run by its interpreter (`sh` or `bash` on macOS, PowerShell on Windows),
-   * never a shell string. Then its CLI must be where Codemm looks. The script's output stays here: it is only read
-   * for being offline.
+   * A downloaded vendor install script, run as a file by its interpreter (`sh` or `bash` on macOS, PowerShell on
+   * Windows), never a shell string. Then its CLI must be where Codemm looks. The script's output stays here: it is
+   * only read for being offline.
    */
-  async function script(id: 'codex' | 'cursor', url: string, file: string, unix: string, env?: Record<string, string>) {
-    await get(id, url, file, MiB);
+  async function runScript(id: 'codex' | 'cursor', file: string, unix: string, env?: Record<string, string>) {
     status.set(id, { phase: 'installing' });
     const opts = { ...(env ? { env } : {}), timeoutMs: INSTALL_MS };
     const r =
@@ -162,19 +170,28 @@ export function agentInstaller(d: AgentInstallDeps) {
   /** OpenAI's own install script, without prompts; then its binary is checked against OpenAI's signature. */
   async function codex(dir: string) {
     const name = d.platform === 'win32' ? 'install.ps1' : 'install.sh';
-    const exe = await script('codex', `${CODEX_SCRIPTS}/${name}`, path.join(dir, name), '/bin/sh', { CODEX_NON_INTERACTIVE: '1' });
+    const file = path.join(dir, name);
+    await get('codex', `${CODEX_SCRIPTS}/${name}`, file, MiB);
+    const exe = await runScript('codex', file, '/bin/sh', { CODEX_NON_INTERACTIVE: '1' });
     await assertSigned('codex', d.platform === 'win32' ? exe.path : d.realpath(exe.path));
   }
 
   /**
-   * Cursor's own install script (bash on macOS: it uses bash's [[ ]]); then the Node.js that runs Cursor's code is
-   * checked against its signer. On Windows find() gives that node.exe itself; on macOS `cursor-agent` links to a
-   * launcher beside it. Nothing is signed by Cursor, and Cursor publishes no checksum (DESIGN §3.1).
+   * Cursor's own install script (bash on macOS: it uses bash's [[ ]]). Then Codemm must find the version the script
+   * names, not a copy an earlier run left, and that version's Node.js, which runs Cursor's code, is checked against
+   * its signer. On Windows find() gives that node.exe itself; on macOS `cursor-agent` links to a launcher beside it.
+   * Nothing is signed by Cursor, and Cursor publishes no checksum (DESIGN §3.1).
    */
   async function cursor(dir: string) {
     const windows = d.platform === 'win32';
-    const exe = await script('cursor', windows ? CURSOR_SCRIPT.win32 : CURSOR_SCRIPT.darwin, path.join(dir, windows ? 'install.ps1' : 'install.sh'), '/bin/bash');
-    await assertSigned('cursor', windows ? exe.path : path.join(path.dirname(d.realpath(exe.path)), 'node'));
+    const file = path.join(dir, windows ? 'install.ps1' : 'install.sh');
+    await get('cursor', windows ? CURSOR_SCRIPT.win32 : CURSOR_SCRIPT.darwin, file, MiB);
+    const version = cursorVersion(d.readText(file), d.platform);
+    if (!version) throw new Stop('failed');
+    const exe = await runScript('cursor', file, '/bin/bash');
+    const folder = path.dirname(windows ? exe.path : d.realpath(exe.path));
+    if (path.basename(folder) !== version) throw new Stop('failed');
+    await assertSigned('cursor', path.join(folder, windows ? 'node.exe' : 'node'));
   }
 
   const INSTALLS: Record<AgentId, (dir: string) => Promise<void>> = { claude, codex, cursor };

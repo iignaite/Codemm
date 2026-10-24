@@ -49,7 +49,7 @@ describe('mock: installing an agent', () => {
     const api = createMock({ ...scenario('no-agent'), platform: 'mac' });
     const codex = async () => (await api.agents()).find((a) => a.id === 'codex')!;
     expect(await codex()).toMatchObject({ state: 'missing', canInstall: true });
-    expect((await api.agents()).find((a) => a.id === 'cursor')!.canInstall).toBe(false);
+    expect((await api.agents()).find((a) => a.id === 'cursor')!.canInstall).toBe(true);
     await api.installAgent('codex');
     const phases: string[] = [];
     for (let a = await codex(); a.install?.phase !== 'done' && a.install?.phase !== 'failed'; a = await codex()) phases.push(a.install!.phase);

@@ -200,10 +200,15 @@ describe('installing an agent for the learner', () => {
   const SCRIPT_RUN = `${PS} -NoProfile -NonInteractive -ExecutionPolicy Bypass -File`;
   const OPENJS = 'Valid|CN=OpenJS Foundation, O=OpenJS Foundation, L=San Francisco, S=California, C=US\n';
   const GIT_LINE = 'Git for Windows (with Git Bash) is required to run a private worker.\nInstall it from https://git-scm.com/download/win\n';
+  /** The lines of Cursor's scripts that name the version they install. */
+  const SCRIPTS = {
+    'install.sh': 'TEMP_EXTRACT_DIR="$HOME/.local/share/cursor-agent/versions/.tmp-2026.10.22-27dcf5f-$(date +%s)"\nFINAL_DIR="$HOME/.local/share/cursor-agent/versions/2026.10.22-27dcf5f"\n',
+    'install.ps1': "$downloadUrl = 'https://downloads.cursor.com/lab/2026.10.22-27dcf5f/'\n$version = '2026.10.22-27dcf5f'\n",
+  };
   const macCursor = (over: Parameters<typeof fake>[1] = {}) =>
-    fake('darwin', { realpath: (file) => file.replace('/Users/me/.local/bin/cursor-agent', `${CURSOR_MAC}/cursor-agent`), ...over });
+    fake('darwin', { texts: SCRIPTS, realpath: (file) => file.replace('/Users/me/.local/bin/cursor-agent', `${CURSOR_MAC}/cursor-agent`), ...over });
   const winCursor = (answers: Record<string, { code: number | null; output: string }> = {}, over: Parameters<typeof fake>[1] = {}) =>
-    fake('win32', { found: () => NODE_EXE, answers: { [SIGN_CHECK]: { code: 0, output: OPENJS }, ...answers }, ...over });
+    fake('win32', { texts: SCRIPTS, found: () => NODE_EXE, answers: { [SIGN_CHECK]: { code: 0, output: OPENJS }, ...answers }, ...over });
 
   it("Cursor on a Mac: Cursor's script from cursor.com, run as `bash <file>`, then the Node.js it installed checked against the Node.js Foundation's signature", async () => {
     const f = macCursor();
@@ -231,6 +236,29 @@ describe('installing an agent for the learner', () => {
     expect([sign.file, ...sign.args.slice(0, 3)].join(' ')).toBe(SIGN_CHECK);
     expect(sign.env).toEqual({ CODEMM_FILE: NODE_EXE.path });
     expect(f.calls).toHaveLength(2);
+    expect(JSON.stringify(f.install.status('cursor'))).not.toContain('Git');
+    const failed = winCursor({ [SCRIPT_RUN]: { code: 1, output: GIT_LINE } });
+    expect(await run(failed, 'cursor')).toEqual({ phase: 'failed', problem: 'failed' });
+    expect(JSON.stringify(failed.install.status('cursor'))).not.toContain('Git');
+  });
+
+  it("refuses a Cursor other than the version the script installs: a stale copy left by a failed run doesn't pass", async () => {
+    const OLD = '2026.10.16-e3cb207';
+    const mac = macCursor({ realpath: (file) => file.replace('/Users/me/.local/bin/cursor-agent', `/Users/me/.local/share/cursor-agent/versions/${OLD}/cursor-agent`) });
+    expect(await run(mac, 'cursor')).toEqual({ phase: 'failed', problem: 'failed' });
+    expect(mac.calls).toHaveLength(1);
+    // On Windows, a locked node.exe can outlive the script's delete while the download fails, and the script exits 0.
+    const stale = `C:\\Users\\me\\AppData\\Local\\cursor-agent\\versions\\${OLD}`;
+    const win = winCursor({}, { found: () => ({ path: `${stale}\\node.exe`, js: false, args: [`${stale}\\index.js`] }) });
+    expect(await run(win, 'cursor')).toEqual({ phase: 'failed', problem: 'failed' });
+    expect(win.calls).toHaveLength(1);
+  });
+
+  it("runs no Cursor script that doesn't name the version it installs", async () => {
+    for (const f of [macCursor({ texts: { 'install.sh': '<html>' } }), winCursor({}, { texts: { 'install.ps1': "$version = '../../x'" } })]) {
+      expect(await run(f, 'cursor')).toEqual({ phase: 'failed', problem: 'failed' });
+      expect(f.calls).toEqual([]);
+    }
   });
 
   it("says a Cursor whose Node isn't the Node.js Foundation's is unverified", async () => {
