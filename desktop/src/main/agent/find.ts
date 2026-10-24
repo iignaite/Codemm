@@ -38,6 +38,8 @@ export function folders(w: Where): string[] {
       w.localAppData && join(w.localAppData, 'Volta', 'bin'),
       // Where OpenAI's Windows install script puts Codex.
       w.localAppData && join(w.localAppData, 'Programs', 'OpenAI', 'Codex', 'bin'),
+      // Where Cursor's installer puts cursor-agent. Its .cmd starts PowerShell, so find() passes it over for now.
+      w.localAppData && join(w.localAppData, 'cursor-agent'),
       // WinGet's command links, for the user and for the machine: Claude Code's and Codex's packages are portable.
       w.localAppData && join(w.localAppData, 'Microsoft', 'WinGet', 'Links'),
       w.programFiles && join(w.programFiles, 'WinGet', 'Links'),

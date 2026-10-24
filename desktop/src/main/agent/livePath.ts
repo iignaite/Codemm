@@ -19,6 +19,8 @@ const REG = 'C:\\Windows\\System32\\reg.exe';
 const KEYS = ['HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment', 'HKCU\\Environment'];
 /** Connect and Check this computer look every few seconds: a read this young is reused. */
 const FRESH_MS = 2_000;
+/** How long a read may take: a slow or stuck reg.exe keeps the PATH as it is, so no screen waits on it longer. */
+const READ_MS = 2_000;
 
 /** %NAME% from `env`, ignoring case. A name `env` doesn't have stays as it is, as Windows leaves it. */
 function expand(value: string, env: NodeJS.ProcessEnv): string {
@@ -35,24 +37,25 @@ export function regPath(output: string, env: NodeJS.ProcessEnv): string {
 }
 
 /**
- * `current`, then each folder of `added` it doesn't have yet, ignoring case and a trailing backslash. A folder reg.exe
- * couldn't spell (a name outside its code page) is left out: it names no folder.
+ * `current` exactly as it is, then each folder of `added` it doesn't have yet, ignoring case and a trailing backslash.
+ * A folder reg.exe couldn't spell (a name outside its code page) is left out: it names no folder.
  */
 export function mergePath(current: string, ...added: string[]): string {
   const key = (dir: string) => dir.toLowerCase().replace(/\\+$/, '');
-  const dirs = current.split(win32.delimiter).filter(Boolean);
-  const seen = new Set(dirs.map(key));
+  const seen = new Set(current.split(win32.delimiter).map(key));
+  const extra: string[] = [];
   for (const dir of added.flatMap((p) => p.split(win32.delimiter))) {
     if (!dir || dir.includes('\uFFFD') || seen.has(key(dir))) continue;
     seen.add(key(dir));
-    dirs.push(dir);
+    extra.push(dir);
   }
-  return dirs.join(win32.delimiter);
+  if (!extra.length) return current;
+  return current + (current === '' || current.endsWith(win32.delimiter) ? '' : win32.delimiter) + extra.join(win32.delimiter);
 }
 
 /**
  * Brings `env.PATH` up to date with the registry's. Calls at the same time share one read, and a read under 2 seconds
- * old is reused. A read that fails keeps the PATH as it is. Off Windows it does nothing: a GUI app there gets no shell
+ * old is reused. A read that fails, or takes over 2 seconds, keeps the PATH as it is. Off Windows it does nothing: a GUI app there gets no shell
  * PATH, and the usual folders cover it (find.ts).
  */
 export function livePath(d: PathDeps): () => Promise<void> {
@@ -60,8 +63,14 @@ export function livePath(d: PathDeps): () => Promise<void> {
   let readAt: number | undefined;
 
   async function read() {
-    const [machine, user] = await Promise.all(KEYS.map(async (key) => regPath((await d.run(REG, ['query', key, '/v', 'Path'])) ?? '', d.env)));
-    d.env.PATH = mergePath(d.env.PATH ?? '', machine, user);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), READ_MS)));
+    try {
+      const values = await Promise.race([Promise.all(KEYS.map(async (key) => regPath((await d.run(REG, ['query', key, '/v', 'Path'])) ?? '', d.env))), late]);
+      if (values) d.env.PATH = mergePath(d.env.PATH ?? '', ...values);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   return () => {
@@ -78,7 +87,7 @@ export function livePath(d: PathDeps): () => Promise<void> {
   };
 }
 
-/** The real runner: an argument array, no shell and no window, bounded so a stuck read never holds up a lookup. */
+/** The real runner: an argument array, no shell and no window. A stuck reg.exe is stopped when its read gives up. */
 export function nodeRun(file: string, args: string[]): Promise<string | null> {
-  return new Promise((resolve) => execFile(file, args, { windowsHide: true, timeout: 5_000 }, (error, stdout) => resolve(error ? null : stdout)));
+  return new Promise((resolve) => execFile(file, args, { windowsHide: true, timeout: READ_MS }, (error, stdout) => resolve(error ? null : stdout)));
 }

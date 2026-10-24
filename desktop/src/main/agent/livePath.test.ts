@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { livePath, mergePath, regPath, type PathDeps } from './livePath';
 
 const REG = 'C:\\Windows\\System32\\reg.exe';
@@ -31,6 +31,12 @@ describe("Windows' registry PATH (§3.1)", () => {
     expect(mergePath(current, 'c:\\windows\\System32\\;C:\\Machine', 'C:\\tools;;C:\\Machine\\;C:\\User')).toBe('C:\\Windows\\system32;C:\\Tools\\;C:\\Machine;C:\\User');
     expect(mergePath('', '', 'C:\\User')).toBe('C:\\User');
     expect(mergePath(current, '', '')).toBe(current);
+  });
+
+  it("never shrinks or reorders what PATH already had, Docker's folders added at start included", () => {
+    const current = 'C:\\Windows\\system32;;C:\\Program Files\\Docker\\Docker\\resources\\bin;';
+    expect(mergePath(current, 'C:\\Program Files\\Docker\\Docker\\resources\\bin;C:\\Machine', '')).toBe(`${current}C:\\Machine`);
+    expect(mergePath('C:\\Windows\\system32', '', 'C:\\User')).toBe('C:\\Windows\\system32;C:\\User');
   });
 });
 
@@ -91,6 +97,22 @@ describe('bringing PATH up to date (§3.1)', () => {
     });
     await expect(threw.refresh()).resolves.toBeUndefined();
     expect(threw.deps.env.PATH).toBe('C:\\Windows\\system32');
+  });
+
+  it('gives up on a reg.exe that hangs after 2 seconds and keeps the PATH, so no screen waits on it longer', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = fake({ run: () => new Promise(() => undefined) });
+      let done = false;
+      void f.refresh().then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(done).toBe(true);
+      expect(f.deps.env.PATH).toBe('C:\\Windows\\system32');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('drops a folder reg.exe could not spell (a name outside its code page), rather than hand children a broken PATH', async () => {

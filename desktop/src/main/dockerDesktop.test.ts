@@ -415,10 +415,9 @@ describe("this computer's own chip (§6.1)", () => {
 });
 
 describe('Docker Desktop itself, apart from a docker command (§6.1)', () => {
-  it('is installed when its app is where Docker puts it, for all users or for this one', () => {
+  it('is installed when its app is where Docker puts it, for all users or (on Windows) for this one', () => {
     expect(fake('darwin', { exists: (p) => p === '/Applications/Docker.app' }).desktop.installed()).toBe(true);
-    expect(fake('darwin', { home: '/Users/me', exists: (p) => p === '/Users/me/Applications/Docker.app' }).desktop.installed()).toBe(true);
-    expect(fake('darwin', { home: '/Users/me' }).desktop.installed()).toBe(false);
+    expect(fake('darwin').desktop.installed()).toBe(false);
     const perUser = 'C:\\Users\\me\\AppData\\Local\\Programs\\DockerDesktop\\Docker Desktop.exe';
     expect(fake('win32', { localAppData: 'C:\\Users\\me\\AppData\\Local', exists: (p) => p === perUser }).desktop.installed()).toBe(true);
     expect(fake('win32', { exists: (p) => p === 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe' }).desktop.installed()).toBe(true);
@@ -439,8 +438,12 @@ describe('Docker Desktop itself, apart from a docker command (§6.1)', () => {
     const f = fake('win32', { localAppData: 'C:\\Users\\me\\AppData\\Local', exists: (p) => p === perUser });
     await f.desktop.open();
     expect(f.launched).toEqual([{ file: perUser, args: [] }]);
+  });
 
+  it("is installed in a Mac's ~/Applications too, and Open Docker Desktop opens that one", async () => {
     const mac = fake('darwin', { home: '/Users/me', exists: (p) => p === '/Users/me/Applications/Docker.app' });
+    expect(mac.desktop.installed()).toBe(true);
+    expect(fake('darwin', { home: '/Users/me' }).desktop.installed()).toBe(false);
     await mac.desktop.open();
     expect(commands(mac.calls)).toEqual(['/usr/bin/open -a /Users/me/Applications/Docker.app']);
   });

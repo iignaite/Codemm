@@ -83,7 +83,18 @@ describe('find (§3.1)', () => {
     expect(find('claude', w)?.path).toBe(join(at('home'), '.local', 'bin', 'claude.exe'));
   });
 
-  it("reads an npm .cmd shim's script instead of running the shim, past the node.exe it would prefer", () => {
+  it("reads an npm .cmd shim's script instead of running the shim", () => {
+    const { at } = tree();
+    mkdirSync(at('npm', 'node_modules', '@openai', 'codex', 'bin'), { recursive: true });
+    writeFileSync(at('npm', 'node_modules', '@openai', 'codex', 'bin', 'codex.js'), '#!/usr/bin/env node\n');
+    writeFileSync(
+      at('npm', 'codex.cmd'),
+      '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\n"%_prog%"  "%dp0%\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n',
+    );
+    expect(shimTarget(at('npm', 'codex.cmd'))?.path.replace(/\\/g, '/')).toMatch(/node_modules\/@openai\/codex\/bin\/codex\.js$/);
+  });
+
+  it("finds the script in npm's real shim, past the node.exe beside it that the shim would prefer", () => {
     const { at } = tree();
     mkdirSync(at('npm', 'node_modules', '@openai', 'codex', 'bin'), { recursive: true });
     writeFileSync(at('npm', 'node_modules', '@openai', 'codex', 'bin', 'codex.js'), '#!/usr/bin/env node\n');
@@ -115,6 +126,24 @@ describe('find (§3.1)', () => {
     expect(find('claude', w)).toEqual({ path: join(at('local'), 'Microsoft', 'WinGet', 'Links', 'claude.exe'), js: false });
     expect(find('codex', w)).toEqual({ path: join(at('pf'), 'WinGet', 'Links', 'codex.exe'), js: false });
     expect(here({ ProgramFiles: 'D:\\Programs' }).programFiles).toBe('D:\\Programs');
+  });
+
+  it("looks in Cursor's own folder, but never runs the PowerShell launcher Cursor's installer puts there", () => {
+    const { at } = tree();
+    mkdirSync(at('local', 'cursor-agent'), { recursive: true });
+    // Cursor's own launcher, as its Windows installer wrote it on GitHub's runner (2026.10.22).
+    writeFileSync(
+      at('local', 'cursor-agent', 'cursor-agent.cmd'),
+      [
+        '@echo off', 'rem cursor-agent-promote-staged', 'if exist "%~dp0versions\\promote-staged.cmd" call "%~dp0versions\\promote-staged.cmd"', 'if errorlevel 1 exit /b 1',
+        '@echo off', 'setlocal enabledelayedexpansion', 'set "CURSOR_INVOKED_AS=%~nx0"', '', 'REM Get the directory of this script', 'set "SCRIPT_DIR=%~dp0"',
+        'REM Remove trailing backslash', 'if "%SCRIPT_DIR:~-1%"=="\\" set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"', '',
+        '%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\\cursor-agent.ps1" %*', '',
+      ].join('\r\n'),
+    );
+    const w: Where = { platform: 'win32', path: '', home: at('home'), localAppData: at('local') };
+    expect(folders(w)).toContain(join(at('local'), 'cursor-agent'));
+    expect(find('cursor-agent', w)).toBeNull();
   });
 
   it("finds Docker Desktop installed for one user, on Windows (Docker's default since 4.83) and in a Mac's ~/Applications", () => {
