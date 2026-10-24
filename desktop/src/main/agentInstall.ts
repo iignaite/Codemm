@@ -1,5 +1,5 @@
-// Installs Claude Code or Codex for the learner, the vendor's own way, into the learner's own folders: no Node,
-// npm or admin rights (DESIGN §3.1). Downloads come only from the vendor's https host, checked at every hop.
+// Installs Claude Code, Codex or Cursor for the learner, the vendor's own way, into the learner's own folders: no
+// Node, npm or admin rights (DESIGN §3.1). Downloads come only from the vendor's https host, checked at every hop.
 // Every command is an argument array, never a shell string, and nothing runs until it is verified where the vendor
 // publishes a way to verify it. Codemm never signs in for the learner: the agent's own login does that.
 import { createHash } from 'node:crypto';
@@ -8,6 +8,7 @@ import { createReadStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
 import type { AgentId, AgentInstall } from '../shared/api';
+import { AGENT_CLIS } from './agent/agents';
 import type { Executable } from './agent/bridge';
 import { nodeDesktopDeps, type DesktopDeps, type Network } from './dockerDesktop';
 import { OfflineError } from './download';
@@ -33,23 +34,31 @@ const SIGNATURE = '$s = Get-AuthenticodeSignature -LiteralPath $env:CODEMM_FILE;
 const CLAUDE_RELEASES = 'https://downloads.claude.ai/claude-code-releases';
 /** OpenAI's documented chatgpt.com/codex/install.* redirect here. */
 const CODEX_SCRIPTS = 'https://releases.openai.com/codex';
+/** Cursor's documented install commands fetch these. */
+const CURSOR_SCRIPT = { win32: 'https://cursor.com/install?win32=true', darwin: 'https://cursor.com/install' };
 const INSTALL_MS = 15 * 60_000;
-/** A failed script that couldn't reach the network: the computer is offline, not the install broken. */
-const OFFLINE_OUTPUT = /could not resolve host|network is unreachable|failed to connect|unable to connect|no such host|name resolution/i;
+/** A script that couldn't reach the network: the computer is offline, not the install broken. */
+const OFFLINE_OUTPUT = /could not resolve host|could not be resolved|network is unreachable|failed to connect|unable to connect|no such host|name resolution/i;
 
-/** Who signs each agent: Apple team ids (read from the vendors' notarized binaries) and Authenticode organizations. */
-const SIGNERS: Record<'claude' | 'codex', { team: string; orgs: string[] }> = {
+/**
+ * Who signs each agent: Apple team ids (read from the vendors' notarized binaries) and Authenticode organizations.
+ * Cursor signs nothing itself: its package runs its code on a Node.js the Node.js Foundation (macOS) or the OpenJS
+ * Foundation (Windows) signed, read from Cursor's 2026.10.22 package.
+ */
+const SIGNERS: Record<AgentId, { team: string; orgs: string[] }> = {
   claude: { team: 'Q6L2SF6YDW', orgs: ['Anthropic, PBC'] },
   codex: { team: '2DC432GLL2', orgs: ['OpenAI OpCo, LLC'] },
+  cursor: { team: 'HX7739G8FX', orgs: ['OpenJS Foundation'] },
 };
 
-const HOSTS: Record<'claude' | 'codex', string[]> = {
+const HOSTS: Record<AgentId, string[]> = {
   claude: ['downloads.claude.ai'],
   codex: ['releases.openai.com', 'chatgpt.com'],
+  cursor: ['cursor.com', 'downloads.cursor.com'],
 };
 
 /** The vendor's own download hosts, over https: checked at every hop, redirects included. */
-export const isAgentHost = (id: 'claude' | 'codex') => (url: string) => {
+export const isAgentHost = (id: AgentId) => (url: string) => {
   try {
     const u = new URL(url);
     return u.protocol === 'https:' && HOSTS[id].includes(u.hostname);
@@ -80,7 +89,7 @@ export function agentInstaller(d: AgentInstallDeps) {
   const ok = (r: { code: number | null }) => r.code === 0;
 
   /** A download from the vendor's host, at most `maxBytes`: small files stay small. */
-  async function get(id: 'claude' | 'codex', url: string, file: string, maxBytes: number, progress = false) {
+  async function get(id: AgentId, url: string, file: string, maxBytes: number, progress = false) {
     try {
       await d.download(url, file, (p) => progress && status.set(id, { phase: 'downloading', progress: p }), isAgentHost(id), maxBytes);
     } catch (e) {
@@ -92,7 +101,7 @@ export function agentInstaller(d: AgentInstallDeps) {
    * The vendor signed this file. On macOS, codesign itself checks that the signature is valid and that its
    * certificate is Apple-issued for the vendor's team; on Windows, Authenticode and the signer's organization.
    */
-  async function assertSigned(id: 'claude' | 'codex', file: string) {
+  async function assertSigned(id: AgentId, file: string) {
     const { team, orgs } = SIGNERS[id];
     if (d.platform === 'darwin') {
       const requirement = `-R=anchor apple generic and certificate leaf[subject.OU] = "${team}"`;
@@ -129,31 +138,54 @@ export function agentInstaller(d: AgentInstallDeps) {
     if (!ok(await d.run(bin, ['install'], { timeoutMs: INSTALL_MS }))) throw new Stop('failed');
   }
 
-  /** OpenAI's own install script, as a file run by its interpreter, without prompts; then its binary is checked. */
-  async function codex(dir: string) {
-    const script = path.join(dir, d.platform === 'win32' ? 'install.ps1' : 'install.sh');
-    await get('codex', `${CODEX_SCRIPTS}/${d.platform === 'win32' ? 'install.ps1' : 'install.sh'}`, script, MiB);
-    status.set('codex', { phase: 'installing' });
-    const env = { CODEX_NON_INTERACTIVE: '1' };
+  /**
+   * The vendor's own install script, as a file run by its interpreter (`sh` or `bash` on macOS, PowerShell on Windows),
+   * never a shell string. Then its CLI must be where Codemm looks. The script's output stays here: it is only read
+   * for being offline.
+   */
+  async function script(id: 'codex' | 'cursor', url: string, file: string, unix: string, env?: Record<string, string>) {
+    await get(id, url, file, MiB);
+    status.set(id, { phase: 'installing' });
+    const opts = { ...(env ? { env } : {}), timeoutMs: INSTALL_MS };
     const r =
       d.platform === 'win32'
-        ? await d.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script], { env, timeoutMs: INSTALL_MS })
-        : await d.run('/bin/sh', [script], { env, timeoutMs: INSTALL_MS });
-    if (!ok(r)) throw new Stop(OFFLINE_OUTPUT.test(r.output) ? 'offline' : 'failed');
-    status.set('codex', { phase: 'checking' });
-    const exe = d.find('codex');
-    if (!exe) throw new Stop('failed');
+        ? await d.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], opts)
+        : await d.run(unix, [file], opts);
+    // A script that exits 0 after a failed download (Cursor's PowerShell one doesn't stop on errors) installed nothing.
+    const exe = ok(r) ? d.find(AGENT_CLIS[id].bin) : null;
+    if (!exe) throw new Stop(OFFLINE_OUTPUT.test(r.output) ? 'offline' : 'failed');
+    status.set(id, { phase: 'checking' });
+    return exe;
+  }
+
+  /** OpenAI's own install script, without prompts; then its binary is checked against OpenAI's signature. */
+  async function codex(dir: string) {
+    const name = d.platform === 'win32' ? 'install.ps1' : 'install.sh';
+    const exe = await script('codex', `${CODEX_SCRIPTS}/${name}`, path.join(dir, name), '/bin/sh', { CODEX_NON_INTERACTIVE: '1' });
     await assertSigned('codex', d.platform === 'win32' ? exe.path : d.realpath(exe.path));
   }
 
-  async function installNow(id: 'claude' | 'codex') {
+  /**
+   * Cursor's own install script (bash on macOS: it uses bash's [[ ]]); then the Node.js that runs Cursor's code is
+   * checked against its signer. On Windows find() gives that node.exe itself; on macOS `cursor-agent` links to a
+   * launcher beside it. Nothing is signed by Cursor, and Cursor publishes no checksum (DESIGN §3.1).
+   */
+  async function cursor(dir: string) {
+    const windows = d.platform === 'win32';
+    const exe = await script('cursor', windows ? CURSOR_SCRIPT.win32 : CURSOR_SCRIPT.darwin, path.join(dir, windows ? 'install.ps1' : 'install.sh'), '/bin/bash');
+    await assertSigned('cursor', windows ? exe.path : path.join(path.dirname(d.realpath(exe.path)), 'node'));
+  }
+
+  const INSTALLS: Record<AgentId, (dir: string) => Promise<void>> = { claude, codex, cursor };
+
+  async function installNow(id: AgentId) {
     let dir: string | undefined;
     try {
       dir = d.tempDir();
       if ((await d.freeBytes(dir)) < GiB) throw new Stop('disk');
-      await (id === 'claude' ? claude(dir) : codex(dir));
+      await INSTALLS[id](dir);
       // Done only once Codemm finds it where it looks for agents.
-      if (!d.find(id === 'claude' ? 'claude' : 'codex')) throw new Stop('failed');
+      if (!d.find(AGENT_CLIS[id].bin)) throw new Stop('failed');
       status.set(id, { phase: 'done' });
     } catch (e) {
       status.set(id, { phase: 'failed', problem: e instanceof Stop ? e.problem : 'failed' });
@@ -168,7 +200,8 @@ export function agentInstaller(d: AgentInstallDeps) {
     }
   }
 
-  const canInstall = (id: AgentId): id is 'claude' | 'codex' => desktop && (id === 'claude' || id === 'codex');
+  /** Every agent installs the same way on macOS and Windows; nothing installs on Linux. */
+  const canInstall = (_id: AgentId) => desktop;
 
   return {
     canInstall,
