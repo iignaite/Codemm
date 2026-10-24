@@ -87,6 +87,31 @@ describe('check this computer (§6.1, D13)', () => {
     expect(await states(computerCheck(probe({ state: async () => 'down', desktopInstalled: () => false }), 'linux'))).toEqual(['ok', 'problem', 'waiting']);
   });
 
+  it("says what WSL needs instead of starting or Open Docker Desktop, while Docker's engine is down (§6.1)", async () => {
+    for (const [wsl, detail] of [['missing', 'wsl-missing'], ['old', 'wsl-old'], ['virtualization', 'virtualization'], ['restart', 'restart']] as const) {
+      const p = probe({ state: async () => 'down', startedAt: () => 0, wsl: async () => wsl });
+      expect(await states(computerCheck(p, 'win32'))).toEqual(['ok', `problem:${detail}`, 'waiting']);
+    }
+    // WSL is fine, or can't be read: Docker is starting, as before.
+    for (const wsl of ['ready', undefined] as const) {
+      const p = probe({ state: async () => 'down', startedAt: () => 0, wsl: async () => wsl });
+      expect(await states(computerCheck(p, 'win32'))).toEqual(['ok', 'problem:starting', 'waiting']);
+    }
+  });
+
+  it("asks for Windows' restart on the running row when Docker's installer needed one", async () => {
+    const p = probe({ state: async () => 'down', install: () => ({ phase: 'failed', problem: 'restart' }), wsl: async () => 'ready' });
+    expect(await states(computerCheck(p, 'win32'))).toEqual(['ok', 'problem:restart', 'waiting']);
+  });
+
+  it('asks nothing of WSL while Docker answers, or before Docker is installed', async () => {
+    let asked = 0;
+    const wsl = async () => (asked++, 'missing' as const);
+    expect(await states(computerCheck(probe({ wsl }), 'win32'))).toEqual(['ok', 'ok', 'ok']);
+    expect(await states(computerCheck(probe({ find: () => null, wsl }), 'win32'))).toEqual(['problem', 'waiting', 'waiting']);
+    expect(asked).toBe(0);
+  });
+
   it('asks to switch from Windows containers', async () => {
     expect(await states(computerCheck(probe({ state: async () => 'windows' }), 'win32'))).toEqual(['ok', 'problem:windows-containers', 'waiting']);
   });

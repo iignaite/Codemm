@@ -1,11 +1,13 @@
 // "Check this computer" (DESIGN §6.1): Docker is installed, it's running with
 // Linux containers, and the sandbox works. Only the first failing row is a
 // problem; the ones after it wait. Where Codemm installs Docker Desktop, a
-// docker command alone, with no engine answering, isn't installed yet.
+// docker command alone, with no engine answering, isn't installed yet. On
+// Windows, an engine that doesn't answer says what WSL needs, when that's why.
 import type { CheckId, Computer, ComputerCheck, DockerInstall, Platform } from '../shared/api';
 import type { Executable } from './agent/bridge';
 import { STARTING_MS } from './dockerDesktop';
 import { noLog, type Log } from './log';
+import type { WslState } from './wsl';
 
 export interface Probe {
   find(): Executable | null;
@@ -23,7 +25,12 @@ export interface Probe {
   /** Docker Desktop's app is running, whether or not its engine answers yet. */
   desktopRunning?(): Promise<boolean>;
   install?(): DockerInstall | undefined;
+  /** On Windows, what WSL needs for Docker Desktop's engine, when that can be read (wsl.ts). */
+  wsl?(): Promise<WslState | undefined>;
 }
+
+/** What WSL needs, as the running row says it: nothing when it's ready. */
+const WSL_DETAIL = { missing: 'wsl-missing', old: 'wsl-old', virtualization: 'virtualization', restart: 'restart' } as const;
 
 
 export const platformOf = (p: NodeJS.Platform): Platform => (p === 'darwin' ? 'mac' : p === 'win32' ? 'windows' : 'linux');
@@ -31,7 +38,8 @@ export const platformOf = (p: NodeJS.Platform): Platform => (p === 'darwin' ? 'm
 /**
  * A re-checkable check: it remembers a sandbox that passed. A Docker that doesn't answer is "starting" only for
  * 3 minutes after Codemm opened or installed it, or after this check first saw Docker Desktop's app running (the
- * learner opened it); otherwise it's stopped, and the fix is to open it (§6.1).
+ * learner opened it); otherwise it's stopped, and the fix is to open it (§6.1). What WSL needs comes before either:
+ * Docker's engine can't start without it.
  * A sandbox that fails within 3 minutes of Docker coming up is still being checked; after that, the fix is a restart.
  */
 export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.platform, log: Log = noLog): () => Promise<Computer> {
@@ -53,7 +61,13 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
     if (state !== 'down') openAt = undefined;
     else if (await probe.desktopRunning?.()) openAt ??= probe.now();
     else openAt = undefined;
-    if (state === 'down') return { at: 1, ...(recent(probe.startedAt?.()) || recent(openAt) ? { detail: 'starting' as const } : {}) };
+    if (state === 'down') {
+      // Docker's installer or WSL's setup asked for a restart: nothing starts before it.
+      if (probe.install?.()?.problem === 'restart') return { at: 1, detail: 'restart' };
+      const wsl = await probe.wsl?.();
+      if (wsl && wsl !== 'ready') return { at: 1, detail: WSL_DETAIL[wsl] };
+      return { at: 1, ...(recent(probe.startedAt?.()) || recent(openAt) ? { detail: 'starting' as const } : {}) };
+    }
     if (state === 'windows') return { at: 1, detail: 'windows-containers' };
     if (down) [down, upAt] = [false, probe.now()];
     if (!sandboxOk) {

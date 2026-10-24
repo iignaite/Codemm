@@ -62,8 +62,11 @@ export interface LiveDeps {
   dockerReady?: () => Promise<void>;
   /** Brings PATH up to date, on Windows from the registry (livePath.ts, §3.1): agents, Docker and core's docker calls rely on it. */
   livePath?: () => Promise<void>;
-  /** Installs and opens Docker Desktop for the learner, and Windows Update when Windows is too old for it (dockerDesktop.ts, §6.1). */
-  docker?: { install(): void; open(): Promise<void>; windowsUpdate(): Promise<void> };
+  /**
+   * Installs and opens Docker Desktop for the learner, Windows Update when Windows is too old for it, and Windows'
+   * restart when WSL needs one (dockerDesktop.ts, §6.1).
+   */
+  docker?: { install(): void; open(): Promise<void>; windowsUpdate(): Promise<void>; restartWindows(): Promise<void> };
 }
 
 export interface Live extends CodemmApi {
@@ -606,6 +609,10 @@ export function createLive(d: LiveDeps): Live {
     },
     async openWindowsUpdate() {
       await d.docker?.windowsUpdate();
+    },
+    async restartWindows() {
+      log('restart', {});
+      await d.docker?.restartWindows();
     },
     async computer() {
       await livePath();

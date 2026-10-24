@@ -14,6 +14,8 @@ import { computerCheck, waitWhileStarting } from './computer';
 import { agentInstaller, nodeAgentDeps } from './agentInstall';
 import { connector } from './connect';
 import { dockerDesktop, nativeArch, nodeDesktopDeps } from './dockerDesktop';
+import { restartWindows } from './windows';
+import { wsl } from './wsl';
 import { electronGet } from './download';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
@@ -61,7 +63,10 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
   };
   findDocker();
 
-  const desktop = dockerDesktop(nodeDesktopDeps(network));
+  const desktopDeps = nodeDesktopDeps(network);
+  // WSL 2, which Docker Desktop runs on in Windows: read while the engine is down, set up on Install's click.
+  const windowsWsl = wsl(desktopDeps);
+  const desktop = dockerDesktop(desktopDeps, desktopDeps.platform === 'win32' ? windowsWsl : undefined);
   // What an install left when it failed, was declined, or Codemm quit midway.
   void desktop.removeLeftovers();
   const computer = computerCheck({
@@ -71,6 +76,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     startedAt: desktop.startedAt,
     canInstall: desktop.canInstall,
     install: desktop.status,
+    wsl: windowsWsl.state,
     // Asked of the Docker found here, asynchronously and bounded, so a stuck engine never blocks the app. Core reads the
     // answer, and asks a silent engine once more, for longer, before calling it busy rather than stopped (§6.1).
     state: async (docker) => {
@@ -94,7 +100,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     progressDir: join(userData, 'progress'),
     log,
     dockerReady: () => waitWhileStarting(computer, () => new Promise((r) => setTimeout(r, 3000))),
-    docker: desktop,
+    docker: { ...desktop, restartWindows: () => restartWindows(desktopDeps) },
     server: codemmServer({ runtime, coreDir, ws, env: process.env }),
     // On Windows, what installers added to the registry's PATH since Codemm started (§3.1): agents, and Docker for
     // Check this computer and core's docker calls, rely on it. A steady clock: one set back would hold off the next read.
