@@ -17,7 +17,7 @@ function fake(platform: NodeJS.Platform) {
     tempDir: () => '/tmp/codemm-signin',
     write: (file, text) => void written.push({ file, text }),
     inode: () => 4242,
-    start: async (file, args, env) => void started.push({ file, args, ...(env ? { env } : {}) }),
+    start: async (file, args, env) => void started.push({ file, args, ...(env && Object.keys(env).length ? { env } : {}) }),
   };
   return { signIn: agentSignIn(deps), started, written };
 }
@@ -29,7 +29,7 @@ describe("the agent's own sign-in, where the learner sees it", () => {
     const path = "'/Users/o'\\''neil/.local/bin/claude'";
     // Terminal runs it a moment later: only the file Codemm allowed at Sign in runs, not one an install put there since.
     const pin = `[ "$(/usr/bin/stat -L -f %i ${path})" = 4242 ] || { echo 'Claude Code changed. Sign in again from Codemm.'; exit 1; }`;
-    expect(f.written).toEqual([{ file: '/tmp/codemm-signin/Sign in to Claude Code.command', text: `#!/bin/sh\n${pin}\nexec ${path} auth login\n` }]);
+    expect(f.written).toEqual([{ file: '/tmp/codemm-signin/Sign in to Claude Code.command', text: `#!/bin/sh\n${pin}\nexec ${path} 'auth' 'login'\n` }]);
     expect(f.started).toEqual([{ file: '/usr/bin/open', args: ['/tmp/codemm-signin/Sign in to Claude Code.command'] }]);
   });
 
@@ -38,7 +38,7 @@ describe("the agent's own sign-in, where the learner sees it", () => {
     await f.signIn('claude', { path: '/lib/node_modules/@anthropic-ai/claude-code/cli.js', js: true });
     expect(f.written[0].text.split('\n').slice(1, 3)).toEqual([
       `[ "$(/usr/bin/stat -L -f %i '/lib/node_modules/@anthropic-ai/claude-code/cli.js')" = 4242 ] || { echo 'Claude Code changed. Sign in again from Codemm.'; exit 1; }`,
-      "ELECTRON_RUN_AS_NODE=1 exec '/Applications/Codemm.app/Contents/MacOS/Codemm' '/lib/node_modules/@anthropic-ai/claude-code/cli.js' auth login",
+      "ELECTRON_RUN_AS_NODE='1' exec '/Applications/Codemm.app/Contents/MacOS/Codemm' '/lib/node_modules/@anthropic-ai/claude-code/cli.js' 'auth' 'login'",
     ]);
   });
 
@@ -72,6 +72,26 @@ describe("the agent's own sign-in, where the learner sees it", () => {
       { file: '/Users/me/.local/bin/codex', args: ['login'] },
       { file: '/Users/me/.local/bin/cursor-agent', args: ['login'] },
     ]);
+  });
+
+  it("Cursor on Windows: its login runs Cursor's own Node on its script, with no shell", async () => {
+    const f = fake('win32');
+    const node = 'C:\\Users\\Ann Lee\\AppData\\Local\\cursor-agent\\versions\\2026.10.22-27dcf5f\\node.exe';
+    const script = 'C:\\Users\\Ann Lee\\AppData\\Local\\cursor-agent\\versions\\2026.10.22-27dcf5f\\index.js';
+    await f.signIn('cursor', { path: node, js: false, args: [script], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } });
+    expect(f.started).toEqual([{ file: node, args: [script, 'login'], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } }]);
+  });
+
+  it("Claude Code's Terminal script on a Mac quotes the words and environment before its arguments", async () => {
+    const f = fake('darwin');
+    await f.signIn('claude', { path: '/opt/node', js: false, args: ['/opt/claude cli.js'], env: { X: '$(id) a' } });
+    expect(f.written[0].text.split('\n')[2]).toBe("X='$(id) a' exec '/opt/node' '/opt/claude cli.js' 'auth' 'login'");
+  });
+
+  it("Claude Code's console window on Windows keeps the words before its arguments", async () => {
+    const f = fake('win32');
+    await f.signIn('claude', { path: 'C:\\node.exe', js: false, args: ['C:\\Program Files\\claude\\cli.js'], env: { X: '1' } });
+    expect(f.started[0].env).toEqual({ CODEMM_FILE: 'C:\\node.exe', CODEMM_ARGS: '"C:\\Program Files\\claude\\cli.js" auth login', X: '1' });
   });
 
   it('a Node-script agent runs with this app as Node, as jobs do', async () => {

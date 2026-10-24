@@ -3,18 +3,29 @@
 // commands that stop at a deadline and keep only what they read. The agent
 // gets the app's environment unchanged (O1).
 import { spawn, type ChildProcess } from 'node:child_process';
+import { TASKKILL } from '../windows';
 
 /** An agent or tool found on this computer. `js`: a Node script, run with the app itself as Node. */
 export interface Executable {
   path: string;
   js: boolean;
+  /** Words before the caller's arguments, and environment added for them: Cursor's own Node on its script (§3.1). */
+  args?: string[];
+  env?: Record<string, string>;
 }
 
-/** The process to spawn for an executable: a Node script runs as `ELECTRON_RUN_AS_NODE=1 <app> <script>`. */
-export function spawnable(exe: Executable, args: string[], runtime = process.execPath) {
+/** The program, arguments and added environment for an executable: a Node script runs as `ELECTRON_RUN_AS_NODE=1 <app> <script>`. */
+export function command(exe: Executable, args: string[], runtime = process.execPath) {
+  const words = [...(exe.args ?? []), ...args];
   return exe.js
-    ? { file: runtime, args: [exe.path, ...args], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } }
-    : { file: exe.path, args, env: { ...process.env } };
+    ? { file: runtime, args: [exe.path, ...words], env: { ELECTRON_RUN_AS_NODE: '1', ...exe.env } }
+    : { file: exe.path, args: words, env: { ...exe.env } };
+}
+
+/** The process to spawn for an executable, with the app's environment and what the executable adds. */
+export function spawnable(exe: Executable, args: string[], runtime = process.execPath) {
+  const target = command(exe, args, runtime);
+  return { ...target, env: { ...process.env, ...target.env } };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -56,7 +67,7 @@ async function killTree(child: ChildProcess, killAfterMs: number, parentExited: 
   if (windows) {
     // With the parent already gone, its tree can't be found or checked.
     if (parentExited) return false;
-    const taskkill = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
+    const taskkill = spawn(TASKKILL, ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' });
     const code = await withDeadline(new Promise<number | null>((r) => taskkill.on('close', r).on('error', () => r(null))), TREE_KILL_MS, null);
     if (code === null) taskkill.kill();
     return code === 0;
