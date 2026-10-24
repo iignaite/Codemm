@@ -139,7 +139,7 @@ describe('find (§3.1)', () => {
     expect(here({ ProgramFiles: 'D:\\Programs' }).programFiles).toBe('D:\\Programs');
   });
 
-  it("looks in Cursor's own folder, but never runs the PowerShell launcher Cursor's installer puts there", () => {
+  it("looks in Cursor's own folder, and runs Cursor's own node.exe on its index.js, never the PowerShell launcher there", () => {
     const { at } = tree();
     mkdirSync(at('local', 'cursor-agent'), { recursive: true });
     // Cursor's own launcher, as its Windows installer wrote it on GitHub's runner (2026.10.22).
@@ -154,7 +154,31 @@ describe('find (§3.1)', () => {
     );
     const w: Where = { platform: 'win32', path: '', home: at('home'), localAppData: at('local') };
     expect(folders(w)).toContain(join(at('local'), 'cursor-agent'));
+    // No version to run: not installed (§3.1).
     expect(find('cursor-agent', w)).toBeNull();
+    const version = at('local', 'cursor-agent', 'versions', '2026.10.22-27dcf5f');
+    mkdirSync(version, { recursive: true });
+    writeFileSync(join(version, 'node.exe'), 'MZ');
+    writeFileSync(join(version, 'index.js'), '');
+    expect(find('cursor-agent', w)).toMatchObject({ path: join(version, 'node.exe'), js: false, args: [join(version, 'index.js')], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } });
+  });
+
+  it("never takes another tool's .cmd beside a node.exe and index.js for Cursor", () => {
+    const { at } = tree();
+    mkdirSync(at('bin'));
+    writeFileSync(at('bin', 'claude.cmd'), '@echo off\r\n');
+    writeFileSync(at('bin', 'node.exe'), 'MZ');
+    writeFileSync(at('bin', 'index.js'), '');
+    expect(find('claude', { platform: 'win32', path: at('bin'), home: at('home') })).toBeNull();
+  });
+
+  it("runs a node.exe beside Cursor's launcher, as the launcher does", () => {
+    const { at } = tree();
+    mkdirSync(at('bin'));
+    writeFileSync(at('bin', 'cursor-agent.cmd'), '@echo off\r\n');
+    writeFileSync(at('bin', 'node.exe'), 'MZ');
+    writeFileSync(at('bin', 'index.js'), '');
+    expect(find('cursor-agent', { platform: 'win32', path: at('bin'), home: at('home') })).toMatchObject({ path: at('bin', 'node.exe'), args: [at('bin', 'index.js')] });
   });
 
   it("finds Docker Desktop installed for one user, on Windows (Docker's default since 4.83) and in a Mac's ~/Applications", () => {
