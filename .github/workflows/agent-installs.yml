@@ -33,20 +33,15 @@ jobs:
       matrix:
         include:
           - { name: windows claude script, os: windows-latest, agent: claude, install: "irm https://claude.ai/install.ps1 | iex" }
-          # Red until the lookup PR (#228) runs the .exe an npm .cmd shim points at.
-          - { name: windows claude npm, os: windows-latest, agent: claude, npm: "@anthropic-ai/claude-code", red: true }
-          # Red until the lookup PR (#228) reads the live PATH or WinGet's Links folder.
-          - { name: windows claude winget, os: windows-latest, agent: claude, winget: Anthropic.ClaudeCode, red: true }
+          - { name: windows claude npm, os: windows-latest, agent: claude, npm: "@anthropic-ai/claude-code" }
+          - { name: windows claude winget, os: windows-latest, agent: claude, winget: Anthropic.ClaudeCode }
           - { name: windows codex script, os: windows-latest, agent: codex, install: "irm https://chatgpt.com/codex/install.ps1 | iex" }
           - { name: windows codex npm, os: windows-latest, agent: codex, npm: "@openai/codex" }
-          # Red until the lookup PR (#228) reads the live PATH or WinGet's Links folder.
-          - { name: windows codex winget, os: windows-latest, agent: codex, winget: OpenAI.Codex, red: true }
-          # Red until the Cursor launcher PR ("Start Cursor directly on Windows") starts Cursor's own node.exe, and
-          # the lookup PR (#228) reads the live PATH or %LOCALAPPDATA%\cursor-agent.
+          - { name: windows codex winget, os: windows-latest, agent: codex, winget: OpenAI.Codex }
+          # Red until the Cursor launcher PR (#227) starts Cursor's own node.exe.
           - { name: windows cursor script, os: windows-latest, agent: cursor, install: "irm 'https://cursor.com/install?win32=true' | iex", red: true }
-          # Red until the lookup PR (#228) knows Docker Desktop's per-user folder.
           # Codemm's own install arguments (dockerDesktop.ts WIN_INSTALL): no --accept-license, Docker's terms stay in its window.
-          - { name: windows docker per-user, os: windows-latest, agent: docker, docker: "--user --quiet --backend=wsl-2", dockerbin: '%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin', red: true }
+          - { name: windows docker per-user, os: windows-latest, agent: docker, docker: "--user --quiet --backend=wsl-2", dockerbin: '%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin' }
           - { name: windows docker all users, os: windows-latest, agent: docker, docker: "--quiet --accept-license", dockerbin: 'C:\Program Files\Docker\Docker\resources\bin' }
           - { name: macos claude script, os: macos-latest, agent: claude, install: "curl -fsSL https://claude.ai/install.sh | bash" }
           - { name: macos claude brew, os: macos-latest, agent: claude, install: "brew install --cask claude-code" }
