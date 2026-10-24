@@ -26,17 +26,18 @@ jobs:
       matrix:
         include:
           - { name: windows claude script, os: windows-latest, agent: claude, install: "irm https://claude.ai/install.ps1 | iex" }
-          # Red until the lookup runs the .exe an npm .cmd shim points at.
-          - { name: windows claude npm, os: windows-latest, agent: claude, install: "npm i -g @anthropic-ai/claude-code", red: true }
-          # Red until the lookup reads the live PATH or WinGet's Links folder.
+          # Red until the lookup PR ("Find agents and Docker wherever they're installed") runs the .exe an npm .cmd shim points at.
+          - { name: windows claude npm, os: windows-latest, agent: claude, install: 'npm config set prefix "$env:APPDATA\npm"; npm i -g @anthropic-ai/claude-code', red: true }
+          # Red until the lookup PR ("Find agents and Docker wherever they're installed") reads the live PATH or WinGet's Links folder.
           - { name: windows claude winget, os: windows-latest, agent: claude, winget: Anthropic.ClaudeCode, red: true }
           - { name: windows codex script, os: windows-latest, agent: codex, install: "irm https://chatgpt.com/codex/install.ps1 | iex" }
-          - { name: windows codex npm, os: windows-latest, agent: codex, install: "npm i -g @openai/codex" }
-          # Red until the lookup reads the live PATH or WinGet's Links folder.
+          - { name: windows codex npm, os: windows-latest, agent: codex, install: 'npm config set prefix "$env:APPDATA\npm"; npm i -g @openai/codex' }
+          # Red until the lookup PR ("Find agents and Docker wherever they're installed") reads the live PATH or WinGet's Links folder.
           - { name: windows codex winget, os: windows-latest, agent: codex, winget: OpenAI.Codex, red: true }
-          # Red until Codemm starts Cursor's Node directly (Cursor launcher PR) and reads the live PATH.
+          # Red until the Cursor launcher PR ("Start Cursor directly on Windows") starts Cursor's own node.exe, and the
+          # lookup PR reads the live PATH or %LOCALAPPDATA%\cursor-agent.
           - { name: windows cursor script, os: windows-latest, agent: cursor, install: "irm 'https://cursor.com/install?win32=true' | iex", red: true }
-          # Red until the lookup knows Docker Desktop's per-user folder.
+          # Red until the lookup PR ("Find agents and Docker wherever they're installed") knows Docker Desktop's per-user folder.
           - { name: windows docker per-user, os: windows-latest, agent: docker, docker: "--user --quiet --accept-license --backend=wsl-2", dockerbin: '%LOCALAPPDATA%\Programs\DockerDesktop\resources\bin', red: true }
           - { name: windows docker all users, os: windows-latest, agent: docker, docker: "--quiet --accept-license", dockerbin: 'C:\Program Files\Docker\Docker\resources\bin' }
           - { name: macos claude script, os: macos-latest, agent: claude, install: "curl -fsSL https://claude.ai/install.sh | bash" }
@@ -57,7 +58,10 @@ jobs:
       WINGET: ${{ matrix.winget }}
       DOCKER_BIN: ${{ matrix.dockerbin }}
     steps:
+      # No token stays in .git/config, where a vendor's script could read it.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -86,6 +90,7 @@ jobs:
           if [ -n "$DOCKER_BIN" ]; then echo "CODEMM_DOCKER_BIN=$DOCKER_BIN" >> "$GITHUB_ENV"; fi
 
       # The vendors' own commands, in Windows PowerShell as their docs say. No token reaches any of them.
+      # The npm rows use Node's own default global folder, %APPDATA%\npm, not the runner's C:\npm\prefix.
       - name: Install (Windows)
         if: runner.os == 'Windows' && matrix.install
         shell: powershell
@@ -112,21 +117,26 @@ jobs:
           Invoke-WebRequest 'https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe' -OutFile $installer
           $p = Start-Process $installer -ArgumentList "install ${{ matrix.docker }}" -Wait -PassThru
           Write-Output "Docker Desktop's installer exited with $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "Docker Desktop didn't install" }
       - name: Install (macOS)
         if: runner.os == 'macOS' && matrix.install
+        # bash, not the default sh: pipefail, so a failed download fails here.
+        shell: bash
         run: ${{ matrix.install }}
         env:
           CODEX_NON_INTERACTIVE: "1"
       # A learner's npm is usually Homebrew's Node, not the runner's.
       - name: Install with Homebrew's npm (macOS)
         if: matrix.npm
+        shell: bash
         run: |
           brew install node
           PATH="$(brew --prefix)/bin:$PATH" npm i -g ${{ matrix.npm }}
 
-      # What the lookup fixes need and no one could see without a Windows PC.
+      # What the lookup fixes need and no one could see without a Windows PC. Only a log: it never fails the row.
       - name: Show where it landed (Windows)
         if: runner.os == 'Windows'
+        continue-on-error: true
         shell: pwsh
         run: |
           $user = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -135,13 +145,20 @@ jobs:
           Write-Output "User PATH now: $user"
           Write-Output "Machine PATH changed: $($machine -ne (Get-Content -Raw "$env:RUNNER_TEMP\machine-path.txt").TrimEnd())"
           $show = { param($dir) if (Test-Path $dir) { Write-Output "--- $dir"; Get-ChildItem $dir -Force | Format-Table -AutoSize | Out-String -Width 200 } else { Write-Output "--- $dir is missing" } }
-          if ($env:INSTALL -like 'npm *') { & $show (npm prefix -g) }
-          if ($env:WINGET) { & $show "$env:LOCALAPPDATA\Microsoft\WinGet\Links"; winget list --id $env:WINGET }
+          if ($env:INSTALL -like 'npm *') {
+            $prefix = npm prefix -g
+            & $show $prefix
+            Get-ChildItem $prefix -Filter "$env:AGENT.cmd" | ForEach-Object { Write-Output "--- $($_.FullName)"; Get-Content $_.FullName }
+          }
+          if ($env:WINGET) { & $show "$env:LOCALAPPDATA\Microsoft\WinGet\Links" }
           if ($env:AGENT -eq 'cursor') {
             $root = "$env:LOCALAPPDATA\cursor-agent"
             & $show $root
             Get-ChildItem "$root\versions" -Directory -ErrorAction SilentlyContinue | ForEach-Object { & $show $_.FullName }
-            foreach ($f in 'cursor-agent.cmd', 'cursor-agent.ps1') { Write-Output "--- $root\$f"; Get-Content "$root\$f" -ErrorAction SilentlyContinue }
+            foreach ($f in Get-ChildItem "$root\*", "$root\versions\*", "$root\versions\*\*" -File -Include 'cursor-agent.cmd', 'cursor-agent.ps1', 'promote-staged.cmd' -ErrorAction SilentlyContinue) {
+              Write-Output "--- $($f.FullName)"
+              Get-Content $f.FullName
+            }
           }
           if ($env:AGENT -eq 'docker') {
             foreach ($root in "$env:LOCALAPPDATA\Programs\DockerDesktop", 'C:\Program Files\Docker') {
