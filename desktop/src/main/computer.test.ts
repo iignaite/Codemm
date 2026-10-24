@@ -99,6 +99,11 @@ describe('check this computer (§6.1, D13)', () => {
     }
   });
 
+  it("asks for Windows' restart on the running row when Docker's installer needed one", async () => {
+    const p = probe({ state: async () => 'down', install: () => ({ phase: 'failed', problem: 'restart' }), wsl: async () => 'ready' });
+    expect(await states(computerCheck(p, 'win32'))).toEqual(['ok', 'problem:restart', 'waiting']);
+  });
+
   it('asks nothing of WSL while Docker answers, or before Docker is installed', async () => {
     let asked = 0;
     const wsl = async () => (asked++, 'missing' as const);

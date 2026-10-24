@@ -273,8 +273,11 @@ export function dockerDesktop(d: DesktopDeps, w?: Pick<ReturnType<typeof wsl>, '
     open: () => openApp('Docker'),
     /** Windows Update, where a Windows too old for Docker Desktop is updated. */
     windowsUpdate: () => (d.platform === 'win32' ? d.launch(EXPLORER, [WINDOWS_UPDATE]) : Promise.resolve()),
-    /** Restarts Windows, on the learner's click only, when WSL or Docker's installer needs it. */
-    restartWindows: () => (d.platform === 'win32' ? d.launch(SHUTDOWN, ['/r', '/t', '0']) : Promise.resolve()),
+    /** Restarts Windows, on the learner's click only, when WSL or Docker's installer needs it. Run, not launched: no console flashes. */
+    async restartWindows() {
+      if (d.platform !== 'win32') return;
+      if (!ok(await d.run(SHUTDOWN, ['/r', '/t', '0']))) throw new Error("Windows didn't restart. Restart it from the Start menu, then open Codemm again.");
+    },
     /** Docker Desktop's own app is here: a docker command alone (Homebrew's, say) isn't Docker Desktop. */
     installed: () => desktops.some((p) => d.exists(p)),
     /** Docker Desktop's app is running, opened by Codemm or the learner, whether or not its engine answers yet. */

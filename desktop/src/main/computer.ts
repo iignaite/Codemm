@@ -62,6 +62,8 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
     else if (await probe.desktopRunning?.()) openAt ??= probe.now();
     else openAt = undefined;
     if (state === 'down') {
+      // Docker's installer or WSL's setup asked for a restart: nothing starts before it.
+      if (probe.install?.()?.problem === 'restart') return { at: 1, detail: 'restart' };
       const wsl = await probe.wsl?.();
       if (wsl && wsl !== 'ready') return { at: 1, detail: WSL_DETAIL[wsl] };
       return { at: 1, ...(recent(probe.startedAt?.()) || recent(openAt) ? { detail: 'starting' as const } : {}) };

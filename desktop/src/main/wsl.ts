@@ -8,8 +8,8 @@ import { POWERSHELL, RESTART } from './windows';
 export type WslDeps = Pick<DesktopDeps, 'platform' | 'programFiles' | 'run' | 'exists'>;
 
 /**
- * `ready`; `missing`: no WSL, or Windows' Virtual Machine Platform isn't running (WSL's setup turns it on); `old`:
- * older than Docker needs; `virtualization`: off in this PC's firmware; `restart`: set up, Windows needs a restart.
+ * `ready`; `missing`: no WSL, or Windows' Virtual Machine Platform is off (WSL's setup turns it on); `old`: older than
+ * Docker needs; `virtualization`: off in this PC's firmware; `restart`: set up, Windows needs a restart.
  */
 export type WslState = 'ready' | 'missing' | 'old' | 'virtualization' | 'restart';
 
@@ -21,8 +21,15 @@ const WSL = 'C:\\Windows\\System32\\wsl.exe';
 const PACKAGE = 'WSL\\wsl.exe';
 /** Docker Desktop's minimum WSL (its Windows install page). */
 const MIN = [2, 1, 5];
-/** A running hypervisor makes the firmware flag read false, so both are read. Multi-socket PCs list each processor. */
-const MACHINE = '$p = @(Get-CimInstance Win32_Processor)[0].VirtualizationFirmwareEnabled; $h = (Get-CimInstance Win32_ComputerSystem).HypervisorPresent; "$p|$h"';
+/**
+ * Firmware virtualization, a running hypervisor, and the Virtual Machine Platform's InstallState (1 on, 2 off, 3 absent).
+ * A running hypervisor makes the firmware flag read false, so both are read; Windows' own security features run one
+ * without the Virtual Machine Platform, so that's read too. Multi-socket PCs list each processor.
+ */
+export const MACHINE =
+  '$p = @(Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue)[0].VirtualizationFirmwareEnabled; ' +
+  '$h = (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).HypervisorPresent; ' +
+  '$v = (Get-CimInstance Win32_OptionalFeature -Filter "Name=\'VirtualMachinePlatform\'" -ErrorAction SilentlyContinue).InstallState; "$p|$h|$v"';
 /**
  * A program as administrator, in its own window: Windows asks the learner first. The program and its arguments
  * arrive as $env:CODEMM_FILE and $env:CODEMM_ARGS, and its own exit code comes back. A learner who says no ends it
@@ -42,10 +49,20 @@ export function versionOf(output: string): number[] | undefined {
   return m ? m.slice(1).map(Number) : undefined;
 }
 
-/** Whether the firmware allows virtualization and a hypervisor runs, as MACHINE prints them; unread ones are left out. */
-export function machineOf(output: string): { firmware?: boolean; hypervisor?: boolean } {
-  const [firmware, hypervisor] = output.trim().split('|').map((s) => (s === 'True' ? true : s === 'False' ? false : undefined));
-  return { ...(firmware !== undefined ? { firmware } : {}), ...(hypervisor !== undefined ? { hypervisor } : {}) };
+interface Machine {
+  firmware?: boolean;
+  hypervisor?: boolean;
+  /** The Virtual Machine Platform is on. */
+  vmp?: boolean;
+}
+
+/** MACHINE's answer; what it couldn't read is left out. */
+export function machineOf(output: string): Machine {
+  const [, p, h, v] = /^(\w*)\|(\w*)\|(\w*)\s*$/m.exec(output) ?? [];
+  const flag = (s?: string) => (s === 'True' ? true : s === 'False' ? false : undefined);
+  const vmp = v === '1' ? true : v === '2' || v === '3' ? false : undefined;
+  const read: Machine = { firmware: flag(p), hypervisor: flag(h), vmp };
+  return Object.fromEntries(Object.entries(read).filter(([, x]) => x !== undefined));
 }
 
 const older = (v: number[], min: number[]) => {
@@ -54,22 +71,35 @@ const older = (v: number[], min: number[]) => {
 };
 
 export function wsl(d: WslDeps) {
-  let machine: ReturnType<typeof machineOf> | undefined;
+  let machine: Promise<Machine> | undefined;
   let restart = false;
 
-  /** What WSL needs on this PC, or nothing when that can't be read (Docker's own messages speak then). */
+  /**
+   * Read once, by every check at once: none of it changes while Windows runs. An answer that failed is read again next
+   * time; one that timed out isn't, so a stuck PowerShell holds up one check only.
+   */
+  const readMachine = () =>
+    (machine ??= d.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', MACHINE], { timeoutMs: 15_000 }).then((r) => {
+      if (r.code !== 0 && r.code !== null) machine = undefined;
+      return machineOf(r.output);
+    }));
+
+  /**
+   * What WSL needs on this PC, or nothing when that can't be read (Docker's own messages speak then). The Virtual
+   * Machine Platform comes before WSL's version: WSL's setup turns it on, and its update doesn't.
+   */
   async function state(): Promise<WslState | undefined> {
     if (d.platform !== 'win32') return undefined;
     if (restart) return 'restart';
-    // Neither changes while Windows runs.
-    machine ??= machineOf((await d.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', MACHINE])).output);
-    if (machine.firmware === false && machine.hypervisor === false) return 'virtualization';
+    const m = await readMachine();
+    if (m.firmware === false && m.hypervisor === false) return 'virtualization';
     if (!d.exists(win32.join(d.programFiles ?? 'C:\\Program Files', PACKAGE))) return 'missing';
+    // Where the feature can't be read, no hypervisor running says the Virtual Machine Platform isn't on.
+    if (m.vmp === false || (m.vmp === undefined && m.hypervisor === false)) return 'missing';
     const r = await d.run(WSL, ['--version'], { env: { WSL_UTF8: '1' }, timeoutMs: 20_000 });
     const version = r.code === 0 ? versionOf(r.output) : undefined;
     if (!version) return undefined;
-    if (older(version, MIN)) return 'old';
-    return machine.hypervisor === false ? 'missing' : 'ready';
+    return older(version, MIN) ? 'old' : 'ready';
   }
 
   return {
@@ -89,8 +119,12 @@ export function wsl(d: WslDeps) {
       if (r.code === DECLINED) return 'declined';
       if (r.code !== null && RESTART.has(r.code)) restart = true;
       else if (r.code !== 0) return 'failed';
-      // A Virtual Machine Platform just turned on runs only after a restart.
-      else restart = (await state()) !== 'ready';
+      // A Virtual Machine Platform setup turns on runs only after a restart: none is needed only when it was on and
+      // running already, so WSL itself was all that was missing.
+      else if (now === 'missing') {
+        const m = await readMachine();
+        restart = !(m.vmp === true && m.hypervisor === true);
+      }
       return restart ? 'restart' : 'done';
     },
   };

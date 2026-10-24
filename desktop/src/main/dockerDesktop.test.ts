@@ -69,7 +69,7 @@ function fake(
     state: async () => over.wsl!.state,
     setUp: async (asking?: () => void) => {
       setUps.push(over.wsl!.state);
-      if (over.wsl!.state !== 'ready') asking?.();
+      if (over.wsl!.state === 'missing' || over.wsl!.state === 'old') asking?.();
       phases.push(status()?.phase);
       return over.wsl!.setUp;
     },
@@ -287,10 +287,13 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
   it("restarts Windows only when asked, with Windows' own shutdown and no forced close", async () => {
     const pc = fake('win32');
     await pc.desktop.restartWindows();
-    expect(pc.launched).toEqual([{ file: 'C:\\Windows\\System32\\shutdown.exe', args: ['/r', '/t', '0'] }]);
+    expect(commands(pc.calls)).toEqual(['C:\\Windows\\System32\\shutdown.exe /r /t 0']);
+    // A restart a policy blocks says so.
+    const blocked = fake('win32', { answers: { 'C:\\Windows\\System32\\shutdown.exe': { code: 5, output: 'Access is denied.' } } });
+    await expect(blocked.desktop.restartWindows()).rejects.toThrow("Windows didn't restart.");
     const mac = fake('darwin');
     await mac.desktop.restartWindows();
-    expect(mac.launched).toEqual([]);
+    expect(mac.calls).toEqual([]);
   });
 
   it('runs one install at a time, and can try again after a failure', async () => {

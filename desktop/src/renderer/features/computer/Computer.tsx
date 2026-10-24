@@ -113,6 +113,8 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
   );
 }
 
+/** The stops of WSL's own setup. */
+const WSL_PROBLEMS = new Set<DockerInstall['problem']>(['declined', 'wsl-failed', 'restart']);
 /** Codemm is downloading or installing Docker; once it's starting, Check this computer speaks for Docker. */
 const installing = (c?: ComputerView) => Boolean(c?.install && c.install.phase !== 'failed' && c.install.phase !== 'starting');
 
@@ -142,6 +144,8 @@ function CheckItem({ check, computer, index, onInstall, onOpen, onUpdateWindows,
   const offerInstall = check.state === 'problem' && (check.id === 'docker-installed' || wslStep) && computer.canInstall;
   const offerOpen = check.state === 'problem' && check.id === 'docker-running' && !check.detail && computer.canInstall;
   const offerRestart = check.state === 'problem' && check.detail === 'restart';
+  // A stop of Docker's own install belongs to the installed row: the WSL row shows only WSL's.
+  const install = wslStep && computer.install?.problem && !WSL_PROBLEMS.has(computer.install.problem) ? undefined : computer.install;
   const busy = Boolean(offerInstall && installing(computer));
   return (
     <li className={`card check a-up${check.state === 'ok' ? ' on' : ''}`} style={stagger(index + 2)} aria-label={name}>
@@ -155,7 +159,7 @@ function CheckItem({ check, computer, index, onInstall, onOpen, onUpdateWindows,
       </div>
       {offerInstall && fix ? (
         <InstallDocker
-          install={computer.install} platform={platform} manual={fix.link} onInstall={onInstall} onUpdateWindows={onUpdateWindows} onRestart={onRestart}
+          install={install} platform={platform} manual={fix.link} onInstall={onInstall} onUpdateWindows={onUpdateWindows} onRestart={onRestart}
           {...(wslStep ? { wsl: { label: wslStep, steps: fix.steps } } : {})}
         />
       ) : (

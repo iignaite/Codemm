@@ -208,7 +208,10 @@ describe('check this computer', () => {
   it("on Windows, sets up WSL when that's what Docker's engine needs, then offers Windows' restart", async () => {
     const api = createMock(scenario('wsl-missing'));
     let restarts = 0;
+    let installs = 0;
     api.restartWindows = async () => void restarts++;
+    const installDocker = api.installDocker;
+    api.installDocker = async () => (installs++, installDocker());
     const user = userEvent.setup();
     renderApp({ to: 'computer', then: welcome }, api);
     const running = await screen.findByRole('listitem', { name: 'Docker is running' });
@@ -220,13 +223,13 @@ describe('check this computer', () => {
     expect(within(running).queryByText("Docker's terms apply.")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Docker needs WSL. Checking again every few seconds.'));
     // Nothing restarts or asks for permission before the learner clicks.
-    expect(restarts).toBe(0);
+    expect([installs, restarts]).toEqual([0, 0]);
     await user.click(within(running).getByRole('button', { name: 'Set up WSL' }));
-    expect(await within(running).findByText('Restart Windows to finish setting up WSL. Save your work in other apps first.')).toBeInTheDocument();
+    expect(await within(running).findByText('Restart Windows to finish setting up Docker. Save your work in other apps first.')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Windows needs a restart.');
-    expect(restarts).toBe(0);
+    expect([installs, restarts]).toEqual([1, 0]);
     await user.click(within(running).getByRole('button', { name: 'Restart now' }));
-    expect(restarts).toBe(1);
+    expect([installs, restarts]).toEqual([1, 1]);
   });
 
   it("shows WSL's setup on the running row while Windows asks for permission", async () => {
@@ -237,6 +240,17 @@ describe('check this computer', () => {
     const running = await screen.findByRole('listitem', { name: 'Docker is running' });
     expect(await within(running).findByRole('progressbar', { name: 'Allow WSL, which Docker needs, when Windows asks (look in the taskbar).' })).toBeInTheDocument();
     expect(within(running).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it("keeps a stop of Docker's own install off the WSL row", async () => {
+    const api = createMock(scenario('wsl-missing'));
+    const computer = api.computer;
+    api.computer = async () => ({ ...(await computer()), install: { phase: 'failed', problem: 'unverified' } });
+    renderApp({ to: 'computer', then: welcome }, api);
+    const running = await screen.findByRole('listitem', { name: 'Docker is running' });
+    expect(await within(running).findByRole('button', { name: 'Set up WSL' })).toBeInTheDocument();
+    expect(running).toHaveTextContent("Docker needs WSL, Windows' own Linux support.");
+    expect(within(running).queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('on Windows, updates an old WSL, then waits while Docker starts', async () => {

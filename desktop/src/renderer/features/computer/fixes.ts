@@ -86,7 +86,7 @@ export const DETAILS: Record<NonNullable<ComputerCheck['detail']>, { fix: Fix; n
     notYet: 'Virtualization is off on this PC.',
   },
   restart: {
-    fix: { steps: ['Restart Windows to finish setting up WSL. Save your work in other apps first.'] },
+    fix: { steps: ['Restart Windows to finish setting up Docker. Save your work in other apps first.'] },
     notYet: 'Windows needs a restart.',
   },
   checking: {
