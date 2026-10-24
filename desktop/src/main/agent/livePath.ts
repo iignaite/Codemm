@@ -55,15 +55,15 @@ export function registryPaths(machine: string, user: string, env: NodeJS.Process
 
 /**
  * `current` exactly as it is, then each folder of `added` it doesn't have yet, ignoring case and a trailing backslash.
- * A folder reg.exe couldn't spell (a name outside its code page) is left out: it names no folder. Windows' own
- * separator, since this runs only there.
+ * A folder reg.exe couldn't spell (a name outside its code page), or one with a `%NAME%` nothing defines, is left out:
+ * it names no folder. Windows' own separator, since this runs only there.
  */
 export function mergePath(current: string, ...added: string[]): string {
   const key = (dir: string) => dir.toLowerCase().replace(/\\+$/, '');
   const seen = new Set(current.split(win32.delimiter).map(key));
   const extra: string[] = [];
   for (const dir of added.flatMap((p) => p.split(win32.delimiter))) {
-    if (!dir || dir.includes('\uFFFD') || seen.has(key(dir))) continue;
+    if (!dir || dir.includes('\uFFFD') || /%[^%]+%/.test(dir) || seen.has(key(dir))) continue;
     seen.add(key(dir));
     extra.push(dir);
   }

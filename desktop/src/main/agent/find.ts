@@ -130,7 +130,7 @@ const isWindowsProgram = (file: string) => head(file, 2) === 'MZ';
  */
 export function shimTarget(cmdFile: string): Executable | null {
   const text = readFileSync(cmdFile, 'utf8');
-  const m = /"%(?:~dp0|dp0)%\\([^"]+\.((?:c|m)?js|exe))"[ \t]*%\*/i.exec(text);
+  const m = /"%dp0%\\([^"]+\.((?:c|m)?js|exe))"[ \t]*%\*/i.exec(text);
   return m ? { path: resolve(dirname(cmdFile), ...m[1].split('\\')), js: m[2].toLowerCase() !== 'exe' } : null;
 }
 

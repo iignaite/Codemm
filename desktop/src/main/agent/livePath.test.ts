@@ -155,6 +155,15 @@ describe('bringing PATH up to date (§3.1)', () => {
     }
   });
 
+  it('never puts a folder whose %NAME% nothing defines into PATH: it names no folder', async () => {
+    expect(mergePath('C:\\Windows\\system32', '%NOT_SET%\\bin;C:\\Machine', '%nvm_symlink%')).toBe('C:\\Windows\\system32;C:\\Machine');
+    const f = fake();
+    // nvm-windows' Path entry before its variable exists in either key.
+    f.registry.user = '%NVM_SYMLINK%;C:\\Users\\me\\bin';
+    await f.refresh();
+    expect(f.deps.env.PATH).toBe('C:\\Windows\\system32;C:\\Users\\me\\bin');
+  });
+
   it('drops a folder reg.exe could not spell (a name outside its code page), rather than hand children a broken PATH', async () => {
     const f = fake();
     f.registry.user = 'C:\\Users\\Jos\uFFFD\\bin;C:\\Users\\me\\bin';
