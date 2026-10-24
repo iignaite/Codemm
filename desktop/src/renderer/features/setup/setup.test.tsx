@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createMock, scenario } from '../../../main/mock';
 import { renderApp } from '../../test-utils';
 
@@ -32,6 +32,45 @@ describe('install what is missing', () => {
     await user.click(await within(agent).findByRole('button', { name: 'Sign in' }, { timeout: 4000 }));
     window.dispatchEvent(new Event('focus'));
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' }, { timeout: 4000 })).toBeInTheDocument();
+  });
+
+  it('Welcome and Setup see an agent installed elsewhere within seconds, with no focus event', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const options = { ...scenario('nothing-installed'), platform: 'mac' as const };
+      const api = createMock(options);
+      const view = renderApp({ to: 'welcome' }, api);
+      expect(await screen.findByRole('button', { name: "Install what's missing" })).toBeInTheDocument();
+      // Installed in a terminal: only Docker is missing now.
+      options.agents = {};
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      // Still one action for Docker, and the agent is there to connect.
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Connect an agent' })).toBeInTheDocument());
+      view.unmount();
+      options.agents = { claude: 'missing', codex: 'missing', cursor: 'missing' };
+      renderApp({ to: 'setup' }, api);
+      expect(await screen.findByRole('listitem', { name: 'Agent' })).toBeInTheDocument();
+      options.agents = {};
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      await waitFor(() => expect(screen.queryByRole('listitem', { name: 'Agent' })).not.toBeInTheDocument());
+      expect(screen.getByRole('listitem', { name: 'Docker Desktop' })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('goes on to Connect once nothing is left to install, so an agent installed elsewhere gets connected', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const options = { ...scenario('no-agent'), platform: 'mac' as const };
+      renderApp({ to: 'setup' }, createMock(options));
+      expect(await screen.findByRole('listitem', { name: 'Agent' })).toBeInTheDocument();
+      options.agents = {};
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(await screen.findByRole('heading', { name: 'Connect an agent' })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('installs the agent the learner picks', async () => {

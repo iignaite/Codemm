@@ -11,6 +11,7 @@ import {
   REPAIR,
   SIGNED_OUT,
   UNSTOPPABLE,
+  type Agent,
   type CheckProgress,
   type JobProgress,
   type CodemmApi,
@@ -411,6 +412,11 @@ export function createLive(d: LiveDeps): Live {
     schedule(course);
   }
 
+  /** An agent is connected again, by Connect or by signing in elsewhere: every course a sign-out stalled starts again. */
+  function signedInAgain(agents: Agent[]) {
+    if (agents.some((a) => a.state === 'connected')) for (const [course, why] of [...stalls]) if (why === 'signed-out') resume(course);
+  }
+
   /** A Docker step of a course worked: a stall Docker, a disk or the track's image caused is over (§4.13). */
   function dockerWorked(course: string | undefined) {
     const why = course ? stalls.get(course) : undefined;
@@ -568,13 +574,13 @@ export function createLive(d: LiveDeps): Live {
     async agents() {
       const agents = await d.connect.agents();
       log('agents', Object.fromEntries(agents.map((a) => [a.id, a.untested ? `${a.state}-untested` : a.state])));
+      signedInAgain(agents);
       return agents;
     },
     async connect(id) {
       const agent = await d.connect.connect(id);
       log('connect', { agent: id, state: agent.state, untested: agent.untested || undefined });
-      // Signing in again ends every course's sign-out stall.
-      if (agent.state === 'connected') for (const [course, why] of [...stalls]) if (why === 'signed-out') resume(course);
+      signedInAgain([agent]);
       return agent;
     },
     async installAgent(id) {

@@ -46,6 +46,14 @@ test('connect, computer check, goal, course, lesson and practice', async ({ laun
   await button('Check').click();
   await expect(results.getByRole('heading', { name: '4 of 4 passed' })).toBeVisible();
 
+  // Another agent mid-course: Agent in the sidebar opens Connect, and Continue comes back to the activity.
+  await button('Agent').click();
+  const codex = page.getByRole('listitem', { name: 'Codex' });
+  await codex.getByRole('button', { name: 'Connect' }).click();
+  await expect(codex.getByText('Connected')).toBeVisible();
+  await button('Continue').click();
+  await expect(heading('Click Counter')).toBeVisible();
+
   await app.close();
 });
 

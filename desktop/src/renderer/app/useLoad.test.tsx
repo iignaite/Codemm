@@ -61,6 +61,28 @@ describe('useLoad', () => {
     expect(result.current.data).toBe(2);
   });
 
+  it('drops a read that a reload overtook: it began before whatever the reload is for', async () => {
+    const m = manual<string>();
+    const { result } = renderHook(() => useLoad(m.load, []));
+    await waitFor(() => expect(m.pending).toHaveLength(1));
+    await act(async () => m.pending[0].ok('first'));
+    act(() => result.current.reload());
+    await waitFor(() => expect(m.pending).toHaveLength(2));
+    // Something changed meanwhile, as when the learner connects an agent while the screen looks again.
+    act(() => result.current.reload());
+    await act(async () => m.pending[1].ok('before the change'));
+    expect(result.current.data).toBe('first');
+    await waitFor(() => expect(m.pending).toHaveLength(3));
+    await act(async () => m.pending[2].ok('after the change'));
+    expect(result.current.data).toBe('after the change');
+  });
+
+  it('once settled, keeps re-reading every `idle` ms when given', async () => {
+    let n = 0;
+    const { result } = renderHook(() => useLoad(async () => ++n, [], { settled: () => true, idle: 5 }));
+    await waitFor(() => expect(result.current.data).toBeGreaterThanOrEqual(3));
+  });
+
   it('starts over at once when its inputs change, whatever is in flight', async () => {
     const m = manual<string>();
     const { result, rerender } = renderHook(({ id }) => useLoad(m.load, [id]), { initialProps: { id: 'a' } });

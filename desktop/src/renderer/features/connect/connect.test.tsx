@@ -1,7 +1,7 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { createMock, scenario } from '../../../main/mock';
+import { createMock, scenario, type MockOptions } from '../../../main/mock';
 import { mockWithCourse, renderApp } from '../../test-utils';
 
 describe('connect journey', () => {
@@ -138,6 +138,105 @@ describe('the only agent', () => {
     await screen.findByRole('listitem', { name: 'Claude Code' });
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText('Connected')).not.toBeInTheDocument();
+  });
+});
+
+describe('changing the agent', () => {
+  it('switches to another installed agent: it shows connected with its model, and Continue goes back', async () => {
+    const user = userEvent.setup();
+    const api = createMock({ connected: 'claude' });
+    renderApp({ to: 'connect', then: { to: 'tracks' } }, api);
+    const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+    expect(within(claude).getByText('Connected')).toBeInTheDocument();
+    const codex = screen.getByRole('listitem', { name: 'Codex' });
+    await user.click(within(codex).getByRole('button', { name: 'Connect' }));
+    expect(await within(codex).findByText('Connected')).toBeInTheDocument();
+    expect(within(codex).getByRole('combobox', { name: 'Model' })).toHaveValue('gpt-5.6-luna');
+    // One agent is connected at a time: the one before offers Connect again, at once.
+    expect(within(claude).queryByText('Connected')).not.toBeInTheDocument();
+    expect(within(claude).queryByRole('combobox')).not.toBeInTheDocument();
+    expect(within(claude).getByRole('button', { name: 'Connect' })).toBeEnabled();
+    expect((await api.agents()).filter((a) => a.state === 'connected').map((a) => a.id)).toEqual(['codex']);
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('heading', { name: 'Tracks' })).toBeInTheDocument();
+  });
+
+  it('asks to sign in to a signed-out agent and keeps the one before connected, so the course goes on', async () => {
+    const user = userEvent.setup();
+    renderApp({ to: 'connect', then: { to: 'tracks' } }, createMock({ connected: 'claude', agents: { codex: 'signed-out' } }));
+    const codex = await screen.findByRole('listitem', { name: 'Codex' });
+    await user.click(within(codex).getByRole('button', { name: 'Connect' }));
+    expect(await within(codex).findByText('Sign in to Codex, then try again.')).toBeInTheDocument();
+    expect(within(codex).getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(within(screen.getByRole('listitem', { name: 'Claude Code' })).getByText('Connected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+  });
+
+  it("never connects the only installed agent by itself while another one is connected", async () => {
+    // Cursor is experimental, so Claude Code is the only supported agent installed.
+    const api = createMock({ agents: { codex: 'missing' }, connected: 'cursor' });
+    const connect = vi.spyOn(api, 'connect');
+    renderApp({ to: 'connect' }, api);
+    expect(await within(await screen.findByRole('listitem', { name: 'Cursor' })).findByText('Connected')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(connect).not.toHaveBeenCalled();
+    expect(within(screen.getByRole('listitem', { name: 'Claude Code' })).getByRole('button', { name: 'Connect' })).toBeInTheDocument();
+  });
+});
+
+describe('a sign-out that stopped background work', () => {
+  it('ends once the agent shows connected again, so Continue stays on the course', async () => {
+    const user = userEvent.setup();
+    const options: MockOptions = {};
+    const { api } = await mockWithCourse(options);
+    options.stalled = 'signed-out';
+    renderApp({ to: 'learn' }, api);
+    // The course map sends a sign-out to connect; the agent was signed in again elsewhere meanwhile.
+    expect(await screen.findByRole('heading', { name: 'Connect an agent' })).toBeInTheDocument();
+    expect(await within(screen.getByRole('listitem', { name: 'Claude Code' })).findByText('Connected')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('list', { name: 'Topics' })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole('heading', { name: 'Connect an agent' })).not.toBeInTheDocument();
+  });
+});
+
+describe('looking again while the screen is open', () => {
+  it('sees an agent installed elsewhere, then signed in, within seconds and with no focus event', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      // Linux: no Install button, so the learner installs it themselves, in a terminal.
+      const options = { ...scenario('no-agent'), platform: 'linux' as const };
+      renderApp({ to: 'connect' }, createMock(options));
+      const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
+      expect(within(claude).getByText('Not installed')).toBeInTheDocument();
+      // Installed, not signed in yet: the only agent installed is checked at once.
+      options.agents = { claude: 'signed-out', codex: 'missing', cursor: 'missing' };
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(await within(claude).findByText('Sign in to Claude Code, then try again.')).toBeInTheDocument();
+      // Signed in from the terminal.
+      options.agents = { codex: 'missing', cursor: 'missing' };
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(await within(claude).findByText('Connected')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sees an agent removed meanwhile', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const options = { agents: {}, platform: 'linux' as const };
+      renderApp({ to: 'connect' }, createMock(options));
+      const codex = await screen.findByRole('listitem', { name: 'Codex' });
+      expect(within(codex).getByRole('button', { name: 'Connect' })).toBeInTheDocument();
+      options.agents = { codex: 'missing' };
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(await within(codex).findByText('Not installed')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

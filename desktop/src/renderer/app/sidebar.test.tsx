@@ -1,4 +1,4 @@
-import { act, screen, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createMock } from '../../main/mock';
@@ -132,6 +132,49 @@ describe('narrow windows', () => {
       await userEvent.setup().click(await within(region).findByRole('button', { name: 'Restart' }));
       expect(region).toHaveTextContent('A new version is ready.');
       expect(restart).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe('changing the agent', () => {
+  it('opens the connect screen from Agent, and Continue comes back to the screen it left', async () => {
+    const user = userEvent.setup();
+    renderApp({ to: 'tracks' }, createMock({ connected: 'claude' }));
+    await screen.findByRole('heading', { name: 'Tracks' });
+    // Agent names appear only on the connect screen.
+    expect(sidebar()).not.toHaveTextContent(/Claude Code|Codex|Cursor/);
+    await user.click(within(sidebar()).getByRole('button', { name: 'Agent' }));
+    expect(await screen.findByRole('heading', { name: 'Connect an agent' })).toBeInTheDocument();
+    expect(within(screen.getByRole('listitem', { name: 'Claude Code' })).getByText('Connected')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    // Check this computer passes by itself on the way back.
+    expect(await screen.findByRole('heading', { name: 'Tracks' })).toBeInTheDocument();
+  });
+
+  it("comes back to the course editor with the learner's edits, which its draft holds", async () => {
+    const user = userEvent.setup();
+    const { api, roadmap } = await mockWithRoadmap();
+    renderApp({ to: 'course', roadmap }, api);
+    await user.click(await screen.findByRole('button', { name: 'Remove Lists and keys' }));
+    await waitFor(async () => expect((await api.draft())!.concepts.map((c) => c.title)).not.toContain('Lists and keys'));
+    await user.click(within(sidebar()).getByRole('button', { name: 'Agent' }));
+    await user.click(await screen.findByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('button', { name: 'Remove JSX' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove Lists and keys' })).not.toBeInTheDocument();
+  });
+
+  it('is in the slim sidebar too, named in its tooltip', async () => {
+    narrowWindow();
+    try {
+      const user = userEvent.setup();
+      renderApp({ to: 'tracks' }, createMock({ connected: 'claude' }));
+      const agent = await within(sidebar()).findByRole('button', { name: 'Agent' });
+      expect(agent).toHaveAttribute('title', 'Agent');
+      expect(agent).not.toHaveTextContent('Agent');
+      await user.click(agent);
+      expect(await screen.findByRole('heading', { name: 'Connect an agent' })).toBeInTheDocument();
     } finally {
       vi.unstubAllGlobals();
     }

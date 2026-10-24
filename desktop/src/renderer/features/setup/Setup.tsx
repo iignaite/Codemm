@@ -3,7 +3,7 @@ import type { Agent, AgentId, Computer, DockerInstall } from '../../../shared/ap
 import { useApi } from '../../app/api';
 import { useRouter } from '../../app/router';
 import { Failed, Stale } from '../../app/Problems';
-import { useLoad } from '../../app/useLoad';
+import { timing, useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
@@ -36,13 +36,23 @@ export function Setup() {
   const { go, fail } = useRouter();
   const [wanted, setWanted] = useState<{ docker: boolean; agent?: AgentId }>();
   const [choice, setChoice] = useState<AgentId>('claude');
-  // Once started, follow both installs, and look again when the learner comes back from a sign-in or Docker's window.
-  const { data, error, stale, reload } = useLoad(async () => ({ computer: await api.computer(), agents: await api.agents() }), [wanted], { settled: () => !wanted, onFocus: true });
+  // Until an agent is connected, look again every few seconds, so one installed elsewhere drops off the list. Once
+  // started, follow both installs. Coming back from a sign-in or Docker's window looks again too.
+  const { data, error, stale, reload } = useLoad(async () => ({ computer: await api.computer(), agents: await api.agents() }), [wanted], {
+    settled: (d) => !wanted && d.agents.some((a) => a.state === 'connected'),
+    every: wanted ? timing.pollMs : timing.agentsMs,
+    onFocus: true,
+  });
   const agent = wanted?.agent ? data?.agents.find((a) => a.id === wanted.agent) : undefined;
   const ready = Boolean(wanted && data && (!wanted.docker || data.computer.ready) && (!wanted.agent || agent?.state === 'connected'));
   useEffect(() => {
     if (ready) go({ to: 'goal' });
   }, [ready]);
+  // Everything was installed elsewhere meanwhile: connecting the agent is what's left.
+  const nothing = Boolean(!wanted && data && !Object.values(missing(data.computer, data.agents)).some(Boolean));
+  useEffect(() => {
+    if (nothing) go({ to: 'connect', then: { to: 'goal' } });
+  }, [nothing]);
 
   if (error) return <Failed error={error} retry={reload} />;
   if (!data) return null;

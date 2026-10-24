@@ -38,7 +38,7 @@ export interface MockOptions {
   /** Read on every call, so a test can change it while the app runs. */
   docker?: Docker;
   platform?: Platform;
-  /** Agents that aren't installed, or whose sign-in check fails. */
+  /** Agents that aren't installed, or whose sign-in check fails. Read on every look, as main's lookup is. */
   agents?: Partial<Record<AgentId, 'missing' | 'signed-out'>>;
   /** The track's image is missing or changed: checks aren't counted until it's rebuilt. */
   imageMissing?: boolean;
@@ -70,8 +70,8 @@ export interface MockOptions {
   quiet?: boolean;
   /** A topic is mastered by a pass on its `passes`th activity; each pass before that opens its next activity, as core's mastery takes several (core §7). 1 by default. */
   passes?: number;
-  /** Changes the options after the first approval or check, to act out a mid-session failure. */
-  later?: { after: 'approve' | 'check'; set: Partial<MockOptions> };
+  /** Changes the options after the first approval, check or look at the agents, to act out a mid-session change. */
+  later?: { after: 'approve' | 'check' | 'look'; set: Partial<MockOptions> };
 }
 
 /** Named environment states (D13), for tests and for `CODEMM_MOCK` in development. */
@@ -92,6 +92,8 @@ export const SCENARIOS: Record<string, MockOptions> = {
   'nothing-installed-offline': { docker: 'missing', agents: { claude: 'missing', codex: 'missing', cursor: 'missing' }, agentInstallProblem: 'offline' },
   'agent-install-offline': { agents: { claude: 'missing', codex: 'missing', cursor: 'missing' }, agentInstallProblem: 'offline' },
   'one-agent': { agents: { codex: 'missing', cursor: 'missing' } },
+  // Installed in a terminal while Codemm is open: Welcome and Connect see it within seconds.
+  'agent-found-later': { agents: { claude: 'missing', codex: 'missing', cursor: 'missing' }, later: { after: 'look', set: { agents: { codex: 'missing', cursor: 'missing' } } } },
   relaunch: { connected: 'claude' },
   'signed-out': { agents: { claude: 'signed-out', codex: 'signed-out', cursor: 'missing' } },
   'sign-in-expires': { later: { after: 'approve', set: { agentProblem: 'signed-out' } } },
@@ -265,7 +267,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     if (problem) throw new Error({ 'signed-out': SIGNED_OUT, 'plan-limit': PLAN_LIMIT, offline: OFFLINE, failed: AGENT_FAILED }[problem]);
   }
 
-  function happen(after: 'approve' | 'check') {
+  function happen(after: 'approve' | 'check' | 'look') {
     if (options.later?.after !== after) return;
     Object.assign(options, options.later.set);
     delete options.later;
@@ -496,6 +498,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     },
 
     async agents() {
+      // Installed or removed meanwhile, as in a terminal: an agent Codemm is installing follows its install instead.
+      for (const a of agents.filter((x) => !installs.has(x.id))) {
+        if (options.agents?.[a.id] === 'missing') a.state = 'missing';
+        else if (a.state === 'missing') a.state = 'not-connected';
+      }
       for (const [id, install] of installs) {
         if (install.phase === 'done' || install.phase === 'failed') continue;
         const next = AGENT_STEPS[AGENT_STEPS.findIndex((s) => JSON.stringify(s) === JSON.stringify(install)) + 1];
@@ -514,13 +521,18 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         a.state = tried === a.id ? 'connected' : 'not-connected';
         if (a.state === 'connected') agents.filter((x) => x !== a && x.state === 'connected').forEach((x) => (x.state = 'not-connected'));
       }
-      return agents.map((a) => ({
+      const seen = agents.map((a) => ({
         ...a,
         canInstall: a.canInstall && desktopHost(),
         ...(installs.has(a.id) ? { install: installs.get(a.id) } : {}),
         state: a.state === 'connected' && options.agentProblem === 'signed-out' ? 'signed-out' : a.state,
         untested: Boolean(options.untested) && a.state !== 'missing',
       }));
+      // An agent connected again, signed in elsewhere, ends a sign-out stall, as in main.
+      if (options.stalled === 'signed-out' && seen.some((a) => a.state === 'connected')) delete options.stalled;
+      // This look sees the agents as they were; the next one, a change made meanwhile.
+      happen('look');
+      return seen;
     },
 
     onCheckProgress(listener) {

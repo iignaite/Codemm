@@ -3,7 +3,7 @@ import type { Agent, AgentId, AgentInstall } from '../../../shared/api';
 import { useApi } from '../../app/api';
 import { useRouter, type Route } from '../../app/router';
 import { Failed, Stale } from '../../app/Problems';
-import { useLoad } from '../../app/useLoad';
+import { timing, useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
@@ -14,21 +14,23 @@ import { ExternalLink } from '../../ui/ExternalLink';
 export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
   const api = useApi();
   const { go, fail } = useRouter();
-  // Coming back to the window looks again: an agent installed or signed in meanwhile shows up. An install is
-  // followed until it ends.
-  const { data, error, stale, reload } = useLoad(() => api.agents(), [], { settled: (as) => !as.some((a) => running(a.install)), onFocus: true });
+  // Looks again every few seconds and when the window regains focus, so an agent installed, removed or signed in
+  // elsewhere shows up. An install is followed until it ends.
+  const { data, error, stale, reload } = useLoad(() => api.agents(), [], { settled: (as) => !as.some((a) => running(a.install)), onFocus: true, idle: timing.agentsMs });
   const [agents, setAgents] = useState<Agent[]>();
   useEffect(() => setAgents(undefined), [data]);
   const [busy, setBusy] = useState<string>();
   // The agent the learner is installing or signing in: once it's connected, Codemm moves on by itself.
   const [following, setFollowing] = useState<AgentId>();
   const list = agents ?? data;
-  // The only supported agent installed is the learner's choice already: its sign-in check runs at once, once.
+  // The only supported agent installed is the learner's choice already: its sign-in check runs at once, once, on the
+  // first look that finds one (installed in a terminal meanwhile, say). Never while another agent is connected.
   const picked = useRef(false);
   useEffect(() => {
     if (!data || picked.current) return;
-    picked.current = true;
     const installed = data.filter((a) => a.state !== 'missing' && !a.experimental);
+    if (installed.length === 0) return;
+    picked.current = true;
     if (installed.length === 1 && installed[0].state === 'not-connected' && !data.some((a) => a.state === 'connected')) void connect(installed[0].id);
   }, [data]);
   const next: Route = { to: 'computer', then, fromConnect: true };
@@ -38,7 +40,13 @@ export function Connect({ then = { to: 'goal' } }: { then?: Route }) {
   if (error) return <Failed error={error} retry={reload} />;
   if (!list) return null;
 
-  const replace = (agent: Agent) => setAgents((current) => (current ?? data)?.map((a) => (a.id === agent.id ? agent : a)));
+  /** Shows an agent's new state at once, then looks again: a look already under way began before the change. */
+  function replace(agent: Agent) {
+    // One agent is connected at a time: connecting another switches to it.
+    const before = (a: Agent) => (agent.state === 'connected' && a.state === 'connected' ? { ...a, state: 'not-connected' as const } : a);
+    setAgents((current) => (current ?? data)?.map((a) => (a.id === agent.id ? agent : before(a))));
+    reload();
+  }
 
   async function choose(id: AgentId, model: string) {
     try {

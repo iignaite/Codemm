@@ -208,6 +208,28 @@ describe('mock: agents', () => {
     await expect(api.research(goal)).rejects.toThrow(NO_AGENT);
   });
 
+  it('sees an agent installed, switched to or removed while the app runs, as main\'s lookup does', async () => {
+    const options = scenario('no-agent');
+    const api = createMock(options);
+    const states = async () => (await api.agents()).map((a) => a.state);
+    expect(await states()).toEqual(['missing', 'missing', 'missing']);
+    options.agents = { cursor: 'missing' };
+    expect(await states()).toEqual(['not-connected', 'not-connected', 'missing']);
+    await api.connect('claude');
+    await api.connect('codex');
+    expect(await states()).toEqual(['not-connected', 'connected', 'missing']);
+    options.agents = { codex: 'missing', cursor: 'missing' };
+    expect(await states()).toEqual(['not-connected', 'missing', 'missing']);
+    await expect(api.research(goal)).rejects.toThrow(NO_AGENT);
+  });
+
+  it('agent-found-later: Claude Code shows up on the look after the first, as if installed in a terminal', async () => {
+    const api = createMock(scenario('agent-found-later'));
+    const claude = async () => (await api.agents()).find((a) => a.id === 'claude')!.state;
+    expect(await claude()).toBe('missing');
+    expect(await claude()).toBe('not-connected');
+  });
+
   it('reports an agent that is installed but signed out', async () => {
     expect(await createMock(scenario('signed-out')).connect('codex')).toMatchObject({ state: 'signed-out' });
   });
@@ -316,7 +338,7 @@ describe('mock: environment', () => {
   });
 
   it('names every scenario, and rejects unknown ones', () => {
-    expect(Object.keys(SCENARIOS)).toHaveLength(29);
+    expect(Object.keys(SCENARIOS)).toHaveLength(30);
     expect(scenario(undefined)).toEqual({});
     expect(() => scenario('nope')).toThrow('Unknown mock scenario');
   });

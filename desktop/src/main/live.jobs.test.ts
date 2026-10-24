@@ -362,6 +362,46 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     expect((await t.api.course())!.stalled).toBeUndefined();
   });
 
+  it('a look that finds the agent signed in again ends a sign-out stall, so Connect and the course never send the learner back and forth', async () => {
+    let signedOut = true;
+    const t = live({ lesson: (_job, usual) => (signedOut ? ((signedOut = false), { ok: false, problem: 'signed-out' }) : usual()) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    await until(t.api, (c) => c.stalled === 'signed-out');
+    // Signed in from a terminal or the browser: the connect screen's next look shows it connected, with no click.
+    expect((await t.api.agents()).find((a) => a.id === 'claude')!.state).toBe('connected');
+    expect((await t.api.course())!.stalled).toBeUndefined();
+    await until(t.api, (c) => c.topics[0].lessons.some((l) => l.state === 'ready'));
+  });
+
+  it('switches agents mid-course: a running turn keeps its agent, the next uses the new one, each keeping its own tutor session', async () => {
+    let held: (() => void) | undefined;
+    const t = live({
+      tutor: async (job) => {
+        if (held) await new Promise<void>((done) => (held = done));
+        return { text: ['Think about it.'], session: `session-${job.agent}` };
+      },
+    });
+    const activity = await practising(t);
+    await t.api.ask({ activityId: activity.id }, 'Why?');
+    held = () => undefined;
+    const running = t.api.ask({ activityId: activity.id }, 'And then?');
+    await vi.waitFor(() => expect(t.jobs.ran.filter((j) => j.kind === 'tutor')).toHaveLength(2));
+    await t.api.connect('codex');
+    held();
+    held = undefined;
+    await running;
+    await t.api.ask({ activityId: activity.id }, 'Still there?');
+    await t.api.connect('claude');
+    await t.api.ask({ activityId: activity.id }, 'Back again?');
+    expect(t.jobs.ran.filter((j) => j.kind === 'tutor').map((j) => [j.agent, j.resume])).toEqual([
+      ['claude', undefined],
+      ['claude', 'session-claude'],
+      ['codex', undefined],
+      ['claude', 'session-claude'],
+    ]);
+  });
+
   it('removes leftover containers on start, and on stop after every job and running Check, and starts nothing after', async () => {
     const t = live({ setup: (job) => new Promise((done) => job.signal!.addEventListener('abort', () => done({ ok: false, problem: 'failed' }))) });
     expect(t.c.cleanups).toBe(1);

@@ -33,6 +33,9 @@ export interface AgentSetup {
 
 const NO_SETUP: AgentSetup = { canInstall: () => false, install: () => undefined, status: () => undefined, signIn: async () => undefined };
 
+/** A look checks an agent's sign-in again only this long after its last check ended: each check starts the agent. */
+export const RECHECK_MS = 5000;
+
 export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>, setup: AgentSetup = NO_SETUP) {
   /** The last sign-in answer per agent this session. */
   const signedIn = new Map<AgentId, boolean>();
@@ -41,8 +44,24 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
   const versions = new Map<AgentId, string | null>();
   /** The agent the learner last tried to connect: once it's signed in, it connects. */
   let tried: AgentId | undefined;
-  /** Agents whose sign-in was just checked: the view that follows uses that answer instead of asking again. */
-  const justChecked = new Set<AgentId>();
+  /** When each agent's last sign-in check ended, and the check still running. */
+  const checkedAt = new Map<AgentId, number>();
+  const checking = new Map<AgentId, Promise<boolean | null>>();
+  /** Whether a look may check the agent's sign-in again: Connect, Welcome and Setup look every few seconds. */
+  const due = (id: AgentId) => !checking.has(id) && Date.now() - (checkedAt.get(id) ?? -Infinity) >= RECHECK_MS;
+
+  /** The agent's own status command, shared while it runs; every check counts toward the next look's wait. */
+  function ask(id: AgentId, exe: Executable): Promise<boolean | null> {
+    let check = checking.get(id);
+    if (!check) {
+      check = lookup.signedIn(id, exe).finally(() => {
+        checking.delete(id);
+        checkedAt.set(id, Date.now());
+      });
+      checking.set(id, check);
+    }
+    return check;
+  }
 
   /**
    * The agent's CLI, unless Codemm has started installing it and no install is done yet. A failed attempt may have left
@@ -62,7 +81,7 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
   async function checkSignIn(id: AgentId) {
     const exe = usable(id);
     if (!exe) throw STARTED_INSTALL;
-    return lookup.signedIn(id, exe);
+    return ask(id, exe);
   }
 
   async function view(id: AgentId): Promise<Agent> {
@@ -80,19 +99,17 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
     const install = setup.status(id);
     if (exe) {
       if (!versions.has(id)) versions.set(id, await lookup.version(id, exe));
-      // Just installed by Codemm: check its sign-in once, and connect it if it's signed in.
-      if (install?.phase === 'done' && !signedIn.has(id)) {
-        tried = id;
+      // Just installed by Codemm: check its sign-in, and connect it if it's signed in and still the one tried last.
+      if (install?.phase === 'done' && !signedIn.has(id) && due(id)) {
         const ok = await checkSignIn(id);
         remember(id, ok);
-        if (ok) state.update((s) => ({ ...s, agent: id }));
-        else if (ok === false) justChecked.add(id);
+        if (ok && tried === id) state.update((s) => ({ ...s, agent: id }));
       }
       const chosen = state.read().agent === id;
       // The agent chosen before: check its sign-in once this launch, so a relaunch doesn't ask to connect again.
-      if (chosen && !signedIn.has(id)) remember(id, await checkSignIn(id));
-      // Signed out: check again on every look, so signing in from a terminal shows when the learner comes back.
-      if (signedIn.get(id) === false && !justChecked.delete(id) && (await checkSignIn(id))) {
+      if (chosen && !signedIn.has(id) && due(id)) remember(id, await checkSignIn(id));
+      // Signed out: check again on a later look, so signing in from a terminal or the browser shows within seconds.
+      if (signedIn.get(id) === false && due(id) && (await checkSignIn(id))) {
         signedIn.set(id, true);
         if (tried === id) state.update((s) => ({ ...s, agent: id }));
       }
@@ -109,13 +126,19 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
   }
 
   return {
-    agents: () => Promise.all(IDS.map(view)),
+    async agents(): Promise<Agent[]> {
+      const agents = await Promise.all(IDS.map(view));
+      // One agent is connected: one that signed in during this look may have become the choice after another's view.
+      const chosen = state.read().agent;
+      return agents.map((a) => (a.state === 'connected' && a.id !== chosen ? { ...a, state: 'not-connected' } : a));
+    },
 
     /** Starts installing a missing agent; follow it with agents(). */
     async install(id: AgentId): Promise<void> {
       if (setup.canInstall(id) && !usable(id)) {
-        // A fresh install gets a fresh sign-in check.
+        // A fresh install gets a fresh sign-in check, and connects once signed in unless the learner tries another.
         signedIn.delete(id);
+        tried = id;
         setup.install(id);
       }
     },
@@ -134,11 +157,10 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
       tried = id;
       const exe = usable(id);
       if (exe) {
-        const ok = await lookup.signedIn(id, exe);
+        const ok = await ask(id, exe);
         remember(id, ok);
         // Only the agent's own no is signed out: a check that can't tell connects, and a job says the rest.
         if (ok !== false) state.update((s) => ({ ...s, agent: id }));
-        else justChecked.add(id);
       }
       return view(id);
     },
@@ -172,7 +194,7 @@ export function connector(lookup: Lookup, state: ReturnType<typeof desktopState>
     async recheck(id: AgentId): Promise<boolean | null> {
       const exe = usable(id);
       if (!exe) return false;
-      const ok = await lookup.signedIn(id, exe);
+      const ok = await ask(id, exe);
       remember(id, ok);
       return ok;
     },
