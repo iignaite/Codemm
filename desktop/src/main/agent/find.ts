@@ -7,7 +7,7 @@ import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, r
 import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import type { Executable } from './bridge';
-import { cursorExecutable } from './cursorWindows';
+import { CURSOR_BIN, cursorExecutable } from './cursorWindows';
 
 export interface Where {
   platform: NodeJS.Platform;
@@ -148,7 +148,7 @@ export function find(bin: string, w: Where = here()): Executable | null {
         const target = shimTarget(cmd);
         if (target && (target.js ? existsSync(target.path) : isWindowsProgram(target.path))) return target;
         // Not an npm shim: Cursor's PowerShell launcher, whose own node.exe Codemm runs on its index.js (§3.1).
-        const cursor = cursorExecutable(dir);
+        const cursor = bin === CURSOR_BIN ? cursorExecutable(dir) : null;
         if (cursor) return cursor;
       }
       continue;

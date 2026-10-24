@@ -6,6 +6,9 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Executable } from './bridge';
 
+/** Cursor's CLI, by the name its installers give it. */
+export const CURSOR_BIN = 'cursor-agent';
+
 /** cursor-agent.ps1's version pattern, ignoring case as PowerShell's -match does: `2026.10.22-27dcf5f`, or with a build time, `2026.06.12-19-59-36-f6aba9a`. Staged `.new` and `.previous` folders never match. */
 const VERSION = /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-(\d{2})-(\d{2})-(\d{2}))?-[a-f0-9]+$/i;
 
@@ -47,7 +50,7 @@ export function cursorEntry(root: string): { node: string; script: string } | nu
 export function cursorExecutable(root: string, env: NodeJS.ProcessEnv = process.env): Executable | null {
   const entry = cursorEntry(root);
   if (!entry) return null;
-  const added: Record<string, string> = { CURSOR_INVOKED_AS: 'cursor-agent.cmd' };
+  const added: Record<string, string> = { CURSOR_INVOKED_AS: `${CURSOR_BIN}.cmd` };
   if (!env.NODE_COMPILE_CACHE && env.LOCALAPPDATA) added.NODE_COMPILE_CACHE = join(env.LOCALAPPDATA, 'cursor-compile-cache');
   return { path: entry.node, js: false, args: [entry.script], env: added };
 }

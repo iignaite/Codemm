@@ -1,5 +1,6 @@
 // Cursor Agent: launching a headless turn with Codemm's MCP server, and reading its JSON stream (DESIGN §3.1).
 import type { AgentCli, AgentEvent } from './agents';
+import { CURSOR_BIN } from './cursorWindows';
 import { json, obj, plain, PLAN_LIMIT, progress, readOf, searchOf, stepOf, str, TEXT_MAX, textOf, usageOf, versionRead } from './stream';
 
 /** Why a Cursor MCP result failed: an error, a rejection, a denial or an unknown tool, or a success the tool marked as an error. */
@@ -12,7 +13,7 @@ function cursorFailure(result: Record<string, unknown>): string | null {
 }
 
 export const cursor: AgentCli = {
-  bin: 'cursor-agent',
+  bin: CURSOR_BIN,
   launch({ prompt, server, tools, model, resume, web }) {
     // Cursor reads MCP servers and permissions from the working directory (and the learner's ~/.cursor, which stays
     // untouched): the job folder holds only the codemm server, and allows only the job's tools. Print mode approves

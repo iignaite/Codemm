@@ -163,6 +163,15 @@ describe('find (§3.1)', () => {
     expect(find('cursor-agent', w)).toMatchObject({ path: join(version, 'node.exe'), js: false, args: [join(version, 'index.js')], env: { CURSOR_INVOKED_AS: 'cursor-agent.cmd' } });
   });
 
+  it("never takes another tool's .cmd beside a node.exe and index.js for Cursor", () => {
+    const { at } = tree();
+    mkdirSync(at('bin'));
+    writeFileSync(at('bin', 'claude.cmd'), '@echo off\r\n');
+    writeFileSync(at('bin', 'node.exe'), 'MZ');
+    writeFileSync(at('bin', 'index.js'), '');
+    expect(find('claude', { platform: 'win32', path: at('bin'), home: at('home') })).toBeNull();
+  });
+
   it("runs a node.exe beside Cursor's launcher, as the launcher does", () => {
     const { at } = tree();
     mkdirSync(at('bin'));
