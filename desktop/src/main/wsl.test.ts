@@ -2,18 +2,29 @@
 import { describe, expect, it } from 'vitest';
 import { nodeDesktopDeps } from './dockerDesktop';
 import { fetchGet } from './download';
-import { ELEVATED, MACHINE, machineOf, versionOf, wsl, type WslDeps } from './wsl';
+import { ELEVATED } from './windows';
+import { MACHINE, machineOf, versionOf, wsl, type WslDeps } from './wsl';
 
 const WSL = 'C:\\Windows\\System32\\wsl.exe';
 const PACKAGE = 'C:\\Program Files\\WSL\\wsl.exe';
 const POWERSHELL = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+const REG = 'C:\\Windows\\System32\\reg.exe';
 /** `wsl --version` as WSL prints it with WSL_UTF8=1. */
 const VERSION = (v: string) => `WSL version: ${v}\r\nKernel version: 6.6.87.2-1\r\nWSLg version: 1.0.66\r\nWindows version: 10.0.26100.4652\r\n`;
 
 type Call = { file: string; args: string[]; env?: Record<string, string> };
 
 function fake(
-  over: { version?: { code: number | null; output: string }; machine?: string; machineCode?: number | null; elevated?: number; installed?: boolean; platform?: NodeJS.Platform } = {},
+  over: {
+    version?: { code: number | null; output: string };
+    machine?: string;
+    machineCode?: number | null;
+    elevated?: number;
+    installed?: boolean;
+    platform?: NodeJS.Platform;
+    /** Windows' servicing stack still needs a restart. */
+    rebootPending?: boolean;
+  } = {},
 ) {
   const calls: Call[] = [];
   let installed = over.installed ?? true;
@@ -32,6 +43,7 @@ function fake(
         return { code: over.elevated ?? 0, output: '' };
       }
       if (file === POWERSHELL) return { code: over.machineCode === undefined ? 0 : over.machineCode, output: `${machine}\r\n` };
+      if (file === REG) return { code: over.rebootPending ? 0 : 1, output: over.rebootPending ? '' : 'ERROR: The system was unable to find the specified registry key or value.\r\n' };
       return { code: 0, output: '' };
     },
   };
@@ -77,9 +89,19 @@ describe('WSL for Docker Desktop on Windows (§6.1)', () => {
   });
 
   it("never runs Windows' own wsl.exe while WSL isn't installed: it can offer to install it there and then", async () => {
-    const f = fake({ installed: false });
+    const f = fake({ installed: false, machine: 'True|True|2' });
     expect(await f.w.state()).toBe('missing');
     expect(commands(f.calls).some((c) => c.startsWith(WSL))).toBe(false);
+    // Where the feature can't be read, WSL's setup installs it.
+    expect(await fake({ installed: false, machine: 'True|True|' }).w.state()).toBe('missing');
+  });
+
+  it("updates an older WSL that isn't WSL 2.0's package (Windows' own, or the Store's 1.x) when the Virtual Machine Platform is on", async () => {
+    const f = fake({ installed: false, machine: 'True|True|1', elevated: 0 });
+    expect(await f.w.state()).toBe('old');
+    expect(commands(f.calls).some((c) => c.startsWith(WSL))).toBe(false);
+    expect(await f.w.setUp()).toBe('done');
+    expect(f.calls.find((c) => c.args[3] === ELEVATED)!.env).toEqual({ CODEMM_FILE: WSL, CODEMM_ARGS: '--update' });
   });
 
   it("needs an update below 2.1.5, and setup when Windows' Virtual Machine Platform is off", async () => {
@@ -92,8 +114,10 @@ describe('WSL for Docker Desktop on Windows (§6.1)', () => {
     expect(await fake({ machine: 'True|False|2' }).w.state()).toBe('missing');
     // Where the feature can't be read, no running hypervisor says the same.
     expect(await fake({ machine: 'True|False|' }).w.state()).toBe('missing');
-    // On but not running: a restart Codemm didn't ask for, or a hypervisor turned off. Codemm claims nothing.
-    expect(await fake({ machine: 'True|False|1' }).w.state()).toBe('ready');
+    // On but not running: a restart Windows still needs, as when Codemm was reopened before it.
+    expect(await fake({ machine: 'True|False|1', rebootPending: true }).w.state()).toBe('restart');
+    // With no restart pending, a hypervisor turned off on purpose: Codemm claims nothing rather than loop restarts.
+    expect(await fake({ machine: 'True|False|1' }).w.state()).toBeUndefined();
     // Setup comes before an update: the update doesn't turn the Virtual Machine Platform on.
     expect(await fake({ machine: 'True|False|2', version: { code: 0, output: VERSION('2.0.14.0') } }).w.state()).toBe('missing');
   });
@@ -110,6 +134,14 @@ describe('WSL for Docker Desktop on Windows (§6.1)', () => {
     expect(await fake({ platform: 'darwin' }).w.state()).toBeUndefined();
   });
 
+  it('reads WSL ready once: a check while Docker starts runs nothing', async () => {
+    const f = fake();
+    expect(await f.w.state()).toBe('ready');
+    const ran = f.calls.length;
+    expect(await f.w.state()).toBe('ready');
+    expect(f.calls).toHaveLength(ran);
+  });
+
   it("reads the machine once, even for checks at once: none of it changes while Windows runs", async () => {
     const f = fake();
     await Promise.all([f.w.state(), f.w.state()]);
@@ -119,13 +151,13 @@ describe('WSL for Docker Desktop on Windows (§6.1)', () => {
   });
 
   it('reads the machine again after an answer that failed, within 15 seconds each time', async () => {
-    const f = fake({ machineCode: 1, machine: '' });
+    const f = fake({ machineCode: 1, machine: '', installed: false });
     await f.w.state();
     await f.w.state();
     const reads = f.calls.filter((c) => c.file === POWERSHELL);
     expect(reads).toHaveLength(2);
     // A timed-out read isn't repeated: one stuck PowerShell holds up one check.
-    const stuck = fake({ machineCode: null, machine: '' });
+    const stuck = fake({ machineCode: null, machine: '', installed: false });
     await stuck.w.state();
     await stuck.w.state();
     expect(stuck.calls.filter((c) => c.file === POWERSHELL)).toHaveLength(1);
@@ -138,9 +170,6 @@ describe('WSL for Docker Desktop on Windows (§6.1)', () => {
     expect(elevate.file).toBe(POWERSHELL);
     // What runs reaches PowerShell as environment variables, never inside the command text.
     expect(elevate.env).toEqual({ CODEMM_FILE: WSL, CODEMM_ARGS: '--install --no-distribution' });
-    expect(ELEVATED).toContain("$i.Verb = 'runas'");
-    expect(ELEVATED).toContain('$p.WaitForExit(); exit $p.ExitCode');
-    expect(ELEVATED).not.toContain('Start-Process');
     // Until Windows restarts, that's what's left.
     expect(await f.w.state()).toBe('restart');
   });
@@ -160,6 +189,15 @@ describe('WSL for Docker Desktop on Windows (§6.1)', () => {
     expect(await f.w.setUp()).toBe('done');
     expect(f.calls.find((c) => c.args[3] === ELEVATED)!.env).toEqual({ CODEMM_FILE: WSL, CODEMM_ARGS: '--update' });
     expect(await f.w.state()).toBe('ready');
+  });
+
+  it('asks Windows only when WSL needs something', async () => {
+    let asked = 0;
+    await fake().w.setUp(() => asked++);
+    await fake({ machine: 'False|False|1' }).w.setUp(() => asked++);
+    expect(asked).toBe(0);
+    await fake({ installed: false, machine: 'True|True|2', elevated: 0 }).w.setUp(() => asked++);
+    expect(asked).toBe(1);
   });
 
   it('says when the learner said no, when the setup failed, and when Windows asks for a restart', async () => {
@@ -185,20 +223,11 @@ describe('on this computer, for real', () => {
   it.runIf(process.platform === 'win32')("reads this PC's WSL and virtualization without hanging", { timeout: 60_000 }, async () => {
     const calls: string[] = [];
     const state = await wsl({ ...real, run: (file, args, opts) => (calls.push([file, ...args].join(' ')), real.run(file, args, opts)) }).state();
-    // GitHub's runners are virtual machines: what they hold varies, so this records it rather than expecting it.
+    // GitHub's Windows runner (Windows Server 2025) has WSL 3.0.3, the Virtual Machine Platform on, and a hypervisor
+    // under it: WSL reads ready, from every answer.
     const machine = await real.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', MACHINE]);
     console.log('wsl state', state, calls, real.exists(PACKAGE), machine);
-    expect([undefined, 'ready', 'missing', 'old', 'virtualization']).toContain(state);
-    expect(machine.code).toBe(0);
-  });
-
-  it.runIf(process.platform === 'win32')('starts a program as administrator and hands back its own exit code', { timeout: 60_000 }, async (ctx) => {
-    // Only where Windows elevates without asking (CI): a permission prompt would wait for a click.
-    const uac = await real.run('C:\\Windows\\System32\\reg.exe', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System']);
-    if (!/^\s*(EnableLUA|ConsentPromptBehaviorAdmin)\s+REG_DWORD\s+0x0\s*$/m.test(uac.output)) ctx.skip();
-    // Robocopy given folders that aren't there is an error, exit code 16: the code comes back unchanged, with two words
-    // in the arguments as WSL's setup has.
-    const r = await real.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', ELEVATED], { env: { CODEMM_FILE: 'C:\\Windows\\System32\\Robocopy.exe', CODEMM_ARGS: '--install --no-distribution' }, timeoutMs: 45_000 });
-    expect(r).toMatchObject({ code: 16 });
+    expect(machineOf(machine.output)).toEqual({ firmware: expect.any(Boolean), hypervisor: true, vmp: true });
+    expect(state).toBe('ready');
   });
 });

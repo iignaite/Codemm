@@ -119,7 +119,10 @@ jobs:
             exit 1
           }
           winget install --id $env:WINGET -e --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity
-      # Accepting Docker's license is fine on a throwaway runner; Codemm itself leaves that to Docker's own window.
+      # Accepting Docker's license is fine on a throwaway runner for the all-users row; Codemm's own per-user row leaves
+      # it to Docker's own window. Codemm runs the installer unelevated, so its manifest must not ask for an
+      # administrator: a standard user would get error 740. This runner's user is an administrator, so only the
+      # manifest shows that.
       - name: Install Docker Desktop (Windows)
         if: matrix.docker
         shell: pwsh
@@ -127,9 +130,14 @@ jobs:
           $ProgressPreference = 'SilentlyContinue'
           $installer = "$env:RUNNER_TEMP\DockerDesktopInstaller.exe"
           Invoke-WebRequest 'https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe' -OutFile $installer
+          $level = [regex]::Match([Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($installer)), 'requestedExecutionLevel\s+level="(\w+)"').Groups[1].Value
+          Write-Output "Docker Desktop's installer asks for: $($level)"
+          if ($env:DOCKER_ARGS -like '*--user*' -and $level -ne 'asInvoker') { throw "Docker Desktop's installer now asks for $($level): Codemm's unelevated install would fail" }
           $p = Start-Process $installer -ArgumentList "install $env:DOCKER_ARGS" -Wait -PassThru
           Write-Output "Docker Desktop's installer exited with $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "Docker Desktop didn't install" }
+          $app = if ($env:DOCKER_ARGS -like '*--user*') { "$env:LOCALAPPDATA\Programs\DockerDesktop\Docker Desktop.exe" } else { 'C:\Program Files\Docker\Docker\Docker Desktop.exe' }
+          if (-not (Test-Path $app)) { throw "No $app" }
       # pipefail, so a failed download fails here.
       - name: Install (macOS)
         if: runner.os == 'macOS' && matrix.install

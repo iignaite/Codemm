@@ -10,7 +10,7 @@ import { join, posix, win32 } from 'node:path';
 import type { DockerInstall } from '../shared/api';
 import { dockerDesktops } from './agent/find';
 import { downloader, OfflineError, type Get } from './download';
-import { POWERSHELL, RESTART } from './windows';
+import { POWERSHELL, REG, RESTART } from './windows';
 import type { wsl } from './wsl';
 
 export interface DesktopDeps {
@@ -57,12 +57,9 @@ const RM = '/bin/rm';
 const PGREP = '/usr/bin/pgrep';
 const TASKLIST = 'C:\\Windows\\System32\\tasklist.exe';
 const SW_VERS = '/usr/bin/sw_vers';
-const REG = 'C:\\Windows\\System32\\reg.exe';
 /** Explorer opens a Settings page by its URI, started as a program with no shell. */
 const EXPLORER = 'C:\\Windows\\explorer.exe';
 const WINDOWS_UPDATE = 'ms-settings:windowsupdate';
-/** A restart that lets other apps ask to save first: with no wait, /f isn't implied. */
-const SHUTDOWN = 'C:\\Windows\\System32\\shutdown.exe';
 /** Docker, Inc's Apple Developer team. */
 const DOCKER_TEAM = /^TeamIdentifier=9BNSXJN65R$/m;
 /**
@@ -75,8 +72,9 @@ const STALE_MS = 60 * 60_000;
 /** The path arrives as $env:CODEMM_FILE, so nothing outside this text is ever parsed as PowerShell. */
 const SIGNATURE = '$s = Get-AuthenticodeSignature -LiteralPath $env:CODEMM_FILE; "$($s.Status)|$($s.SignerCertificate.Subject)"';
 /**
- * Docker's own per-user install, its default since 4.83: no administrator, so no permission prompt, and --quiet hides
- * its window and install-type page. No --accept-license: Docker's terms stay in Docker's own window, at its first start.
+ * Docker's own per-user install, its default since 4.83.0 (release notes, 2026-07-20): its installer asks for no
+ * administrator (its manifest is asInvoker), so there's no permission prompt, and --quiet hides its window and
+ * install-type page. No --accept-license: Docker's terms stay in Docker's own window, at its first start.
  */
 const WIN_INSTALL = ['install', '--user', '--quiet', '--backend=wsl-2'];
 
@@ -222,12 +220,12 @@ export function dockerDesktop(d: DesktopDeps, w?: Pick<ReturnType<typeof wsl>, '
     if (restart) throw new Stop('restart');
   }
 
-  /** Opens Docker Desktop; rejects if it can't. On Windows, the one installed, or else the one Codemm installs. */
+  /** Opens Docker Desktop; rejects if it can't. On Windows, whichever is installed, for all users or this one. */
   async function openApp(app: string) {
     if (d.platform === 'darwin') {
       if (!ok(await d.run(OPEN, ['-a', app]))) throw new Stop('failed');
     } else if (d.platform === 'win32') {
-      await d.launch(desktops.find((p) => d.exists(p)) ?? desktops.at(-1)!, []);
+      await d.launch(desktops.find((p) => d.exists(p)) ?? desktops[0], []);
     }
     started = d.now();
   }
@@ -264,8 +262,8 @@ export function dockerDesktop(d: DesktopDeps, w?: Pick<ReturnType<typeof wsl>, '
       if (!canInstall || busy) return;
       busy = true;
       // Feedback at once: the disk check and the first bytes take a moment. With Docker Desktop here, Windows' Install
-      // is WSL's setup alone.
-      status = d.platform === 'win32' && desktops.some((p) => d.exists(p)) ? { phase: 'wsl' } : { phase: 'downloading', progress: 0 };
+      // is WSL's setup alone, which says so once Windows asks.
+      status = d.platform === 'win32' && desktops.some((p) => d.exists(p)) ? undefined : { phase: 'downloading', progress: 0 };
       running = installNow().finally(() => (busy = false));
     },
     /** The install, until Docker has had its startup window: after that, Check this computer speaks for Docker. */
@@ -273,11 +271,6 @@ export function dockerDesktop(d: DesktopDeps, w?: Pick<ReturnType<typeof wsl>, '
     open: () => openApp(desktops.find((p) => d.exists(p)) ?? 'Docker'),
     /** Windows Update, where a Windows too old for Docker Desktop is updated. */
     windowsUpdate: () => (d.platform === 'win32' ? d.launch(EXPLORER, [WINDOWS_UPDATE]) : Promise.resolve()),
-    /** Restarts Windows, on the learner's click only, when WSL or Docker's installer needs it. Run, not launched: no console flashes. */
-    async restartWindows() {
-      if (d.platform !== 'win32') return;
-      if (!ok(await d.run(SHUTDOWN, ['/r', '/t', '0']))) throw new Error("Windows didn't restart. Restart it from the Start menu, then open Codemm again.");
-    },
     /** Docker Desktop's own app is here: a docker command alone (Homebrew's, say) isn't Docker Desktop. */
     installed: () => desktops.some((p) => d.exists(p)),
     /** Docker Desktop's app is running, opened by Codemm or the learner, whether or not its engine answers yet. */

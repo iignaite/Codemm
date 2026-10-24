@@ -14,6 +14,7 @@ import { computerCheck, waitWhileStarting } from './computer';
 import { agentInstaller, nodeAgentDeps } from './agentInstall';
 import { connector } from './connect';
 import { dockerDesktop, nativeArch, nodeDesktopDeps } from './dockerDesktop';
+import { restartWindows } from './windows';
 import { wsl } from './wsl';
 import { electronGet } from './download';
 import type { CoreApp } from './core/types';
@@ -99,7 +100,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
     progressDir: join(userData, 'progress'),
     log,
     dockerReady: () => waitWhileStarting(computer, () => new Promise((r) => setTimeout(r, 3000))),
-    docker: desktop,
+    docker: { ...desktop, restartWindows: () => restartWindows(desktopDeps) },
     server: codemmServer({ runtime, coreDir, ws, env: process.env }),
     // On Windows, what installers added to the registry's PATH since Codemm started (§3.1): agents, and Docker for
     // Check this computer and core's docker calls, rely on it. A steady clock: one set back would hold off the next read.

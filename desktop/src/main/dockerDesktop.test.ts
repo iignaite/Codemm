@@ -189,7 +189,10 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
   });
 
   it("on Windows: downloads the installer, checks Docker signed it, installs it for this learner with no prompt or window, then starts Docker", async () => {
-    const f = fake('win32', { arch: 'x64', tempDir: () => WIN_TMP, localAppData: 'C:\\Users\\me\\AppData\\Local', wsl: { state: 'ready', setUp: 'done' } });
+    const perUser = 'C:\\Users\\me\\AppData\\Local\\Programs\\DockerDesktop\\Docker Desktop.exe';
+    // Docker Desktop is there once its installer ran.
+    const ran = () => commands(f.calls).includes(INSTALL_KEY);
+    const f = fake('win32', { arch: 'x64', tempDir: () => WIN_TMP, localAppData: 'C:\\Users\\me\\AppData\\Local', exists: (p) => p === perUser && ran(), wsl: { state: 'ready', setUp: 'done' } });
     f.desktop.install();
     await f.desktop.done();
     expect(f.downloads).toEqual([{ url: 'https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe', file: WIN_EXE }]);
@@ -281,6 +284,8 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
     f.desktop.install();
     await f.desktop.done();
     expect(f.downloads).toEqual([]);
+    // WSL needed nothing, so nothing said Windows would ask.
+    expect(f.phases).toEqual([undefined]);
     expect(commands(f.calls).some((c) => c.includes('install --user'))).toBe(false);
     expect(f.launched).toEqual([{ file: allUsers, args: [] }]);
     expect(f.desktop.status()).toEqual({ phase: 'starting' });
@@ -290,18 +295,6 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
     await wslFirst.desktop.done();
     expect(wslFirst.downloads).toEqual([]);
     expect(wslFirst.desktop.status()).toEqual({ phase: 'failed', problem: 'restart' });
-  });
-
-  it("restarts Windows only when asked, with Windows' own shutdown and no forced close", async () => {
-    const pc = fake('win32');
-    await pc.desktop.restartWindows();
-    expect(commands(pc.calls)).toEqual(['C:\\Windows\\System32\\shutdown.exe /r /t 0']);
-    // A restart a policy blocks says so.
-    const blocked = fake('win32', { answers: { 'C:\\Windows\\System32\\shutdown.exe': { code: 5, output: 'Access is denied.' } } });
-    await expect(blocked.desktop.restartWindows()).rejects.toThrow("Windows didn't restart.");
-    const mac = fake('darwin');
-    await mac.desktop.restartWindows();
-    expect(mac.calls).toEqual([]);
   });
 
   it('runs one install at a time, and can try again after a failure', async () => {

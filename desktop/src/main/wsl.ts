@@ -3,7 +3,7 @@
 // Windows' permission prompt, and only when the learner clicked for it.
 import { win32 } from 'node:path';
 import type { DesktopDeps } from './dockerDesktop';
-import { POWERSHELL, RESTART } from './windows';
+import { DECLINED, ELEVATED, POWERSHELL, REG, RESTART } from './windows';
 
 export type WslDeps = Pick<DesktopDeps, 'platform' | 'programFiles' | 'run' | 'exists'>;
 
@@ -30,18 +30,8 @@ export const MACHINE =
   '$p = @(Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue)[0].VirtualizationFirmwareEnabled; ' +
   '$h = (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).HypervisorPresent; ' +
   '$v = (Get-CimInstance Win32_OptionalFeature -Filter "Name=\'VirtualMachinePlatform\'" -ErrorAction SilentlyContinue).InstallState; "$p|$h|$v"';
-/**
- * A program as administrator, in its own window: Windows asks the learner first. The program and its arguments
- * arrive as $env:CODEMM_FILE and $env:CODEMM_ARGS, and its own exit code comes back. A learner who says no ends it
- * with DECLINED. .NET's Process.Start keeps Windows' error as the inner exception, which Start-Process drops, and the
- * wait is for the program alone, not every process it leaves running.
- */
-export const ELEVATED =
-  '$i = New-Object Diagnostics.ProcessStartInfo $env:CODEMM_FILE, "$env:CODEMM_ARGS"; $i.Verb = \'runas\'; $i.UseShellExecute = $true; ' +
-  'try { $p = [Diagnostics.Process]::Start($i) } catch { $e = $_.Exception; while ($e) { if ($e.NativeErrorCode -eq 1223) { exit 1223 }; $e = $e.InnerException }; exit 1 }; ' +
-  'if (-not $p) { exit 1 }; $p.WaitForExit(); exit $p.ExitCode';
-/** ERROR_CANCELLED: the learner said no to Windows' permission prompt. */
-const DECLINED = 1223;
+/** Windows' servicing stack marks a restart it still needs here, as after turning a feature on. */
+const REBOOT_PENDING = 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending';
 
 /** WSL's own version, the first number `wsl --version` prints, whatever its language; UTF-16 read as UTF-8 too. */
 export function versionOf(output: string): number[] | undefined {
@@ -73,6 +63,8 @@ const older = (v: number[], min: number[]) => {
 export function wsl(d: WslDeps) {
   let machine: Promise<Machine> | undefined;
   let restart = false;
+  /** WSL read ready once stays ready while Codemm runs, so a check while Docker starts runs nothing. */
+  let ready = false;
 
   /**
    * Read once, by every check at once: none of it changes while Windows runs. An answer that failed is read again next
@@ -90,16 +82,24 @@ export function wsl(d: WslDeps) {
    */
   async function state(): Promise<WslState | undefined> {
     if (d.platform !== 'win32') return undefined;
+    if (ready) return 'ready';
     if (restart) return 'restart';
     const m = await readMachine();
     if (m.firmware === false && m.hypervisor === false) return 'virtualization';
-    if (!d.exists(win32.join(d.programFiles ?? 'C:\\Program Files', PACKAGE))) return 'missing';
     // Where the feature can't be read, no hypervisor running says the Virtual Machine Platform isn't on.
     if (m.vmp === false || (m.vmp === undefined && m.hypervisor === false)) return 'missing';
+    // On but not running: a restart Windows still needs, or else a hypervisor turned off on purpose, which Codemm
+    // leaves to Docker's own message rather than loop the learner through restarts.
+    if (m.hypervisor === false) return (await d.run(REG, ['query', REBOOT_PENDING])).code === 0 ? 'restart' : undefined;
+    // The Virtual Machine Platform is on but WSL 2.0's package isn't here: an older WSL (Windows' own, or the Store's
+    // 1.x) that its update replaces.
+    if (!d.exists(win32.join(d.programFiles ?? 'C:\\Program Files', PACKAGE))) return m.vmp === true ? 'old' : 'missing';
     const r = await d.run(WSL, ['--version'], { env: { WSL_UTF8: '1' }, timeoutMs: 20_000 });
     const version = r.code === 0 ? versionOf(r.output) : undefined;
     if (!version) return undefined;
-    return older(version, MIN) ? 'old' : 'ready';
+    if (older(version, MIN)) return 'old';
+    ready = true;
+    return 'ready';
   }
 
   return {
