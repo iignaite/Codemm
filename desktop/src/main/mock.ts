@@ -161,9 +161,9 @@ const SANDBOX_REASON: Partial<Record<Docker, NonNullable<ComputerCheck['reason']
   },
 };
 
-/** The connect screen's agents, as the connector describes them; Codemm installs Claude Code and Codex. */
+/** The connect screen's agents, as the connector describes them; Codemm installs each of them. */
 const AGENTS: Omit<Agent, 'state' | 'untested'>[] = (Object.keys(AGENT_INFO) as AgentId[]).map((id) => ({
-  id, ...AGENT_INFO[id], canInstall: id !== 'cursor', models: modelChoices(id), model: modelFor(id),
+  id, ...AGENT_INFO[id], canInstall: true, models: modelChoices(id), model: modelFor(id),
 }));
 
 const TOPICS: [string, string[]][] = [

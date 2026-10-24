@@ -40,7 +40,7 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
   // Downloads go through Chromium's network stack (the system's proxy and certificates), for this computer's own chip.
   const network = { get: electronGet(net.request), arch: nativeArch(process.arch, app.runningUnderARM64Translation) };
 
-  // Claude Code and Codex, installed the vendor's own way into the learner's folders, then their own sign-in.
+  // Claude Code, Codex and Cursor, installed the vendor's own way into the learner's folders, then their own sign-in.
   const installer = agentInstaller(nodeAgentDeps((bin) => find(bin), network));
   const connect = connector(
     {

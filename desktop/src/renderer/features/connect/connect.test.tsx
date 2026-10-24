@@ -254,7 +254,7 @@ describe('installing an agent', () => {
     renderApp({ to: 'connect', then: { to: 'goal' } }, createMock({ ...scenario('no-agent'), platform: 'mac' }));
     const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
     expect(within(claude).getByRole('link', { name: 'Get it myself' })).toHaveAttribute('href', 'https://code.claude.com/docs/en/setup');
-    expect(within(screen.getByRole('listitem', { name: 'Cursor' })).queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('listitem', { name: 'Cursor' })).getByRole('button', { name: 'Install' })).toBeInTheDocument();
     await user.click(within(claude).getByRole('button', { name: 'Install' }));
     expect(await within(claude).findByRole('progressbar', { name: 'Downloading Claude Code' })).toBeInTheDocument();
     await user.click(await within(claude).findByRole('button', { name: 'Sign in' }, { timeout: 4000 }));
