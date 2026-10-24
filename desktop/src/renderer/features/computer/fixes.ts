@@ -27,10 +27,11 @@ export const INSTALL = {
   terms: "Docker's terms apply.",
   termsUrl: 'https://www.docker.com/legal/docker-subscription-service-agreement/',
   phase: {
+    // Windows' permission prompt can open behind Codemm, flashing in the taskbar.
+    wsl: 'Allow WSL, which Docker needs, when Windows asks (look in the taskbar).',
     downloading: 'Downloading Docker Desktop',
     checking: "Checking it's from Docker…",
-    // Windows' permission prompt can open behind Codemm, flashing in the taskbar.
-    installing: { mac: 'Installing Docker…', windows: "Allow Docker's installer when Windows asks (look in the taskbar), then finish in its window.", linux: 'Installing Docker…' },
+    installing: 'Installing Docker…',
     starting: "Opening Docker. When it asks, accept Docker's terms in its window.",
   },
   problem: {
@@ -41,13 +42,17 @@ export const INSTALL = {
     'windows-server': "Docker Desktop doesn't run on Windows Server.",
     unverified: "The download wasn't signed by Docker, so Codemm deleted it.",
     manual: 'Drag Docker to Applications in the window that opened.',
-    declined: 'Windows asks for permission to install Docker. Try again, and choose Yes.',
+    declined: 'Windows asks for permission to set up WSL, which Docker needs. Try again, and choose Yes.',
+    'wsl-failed': "WSL's setup didn't finish.",
     restart: 'Restart Windows, then open Codemm again.',
     failed: "Docker's installer didn't finish.",
   } satisfies Record<NonNullable<DockerInstall['problem']>, string>,
   /** Problems where trying again can help; the others need the learner first. */
-  retry: new Set<DockerInstall['problem']>(['offline', 'disk', 'unverified', 'declined', 'failed']),
+  retry: new Set<DockerInstall['problem']>(['offline', 'disk', 'unverified', 'declined', 'wsl-failed', 'failed']),
 };
+
+/** WSL's setup, which the running row offers on Windows when that's what Docker's engine needs (§6.1). */
+export const WSL_STEP: Partial<Record<NonNullable<ComputerCheck['detail']>, string>> = { 'wsl-missing': 'Set up WSL', 'wsl-old': 'Update WSL' };
 
 /** A running problem with a known cause replaces the usual fix (§6.1). */
 export const DETAILS: Record<NonNullable<ComputerCheck['detail']>, { fix: Fix; notYet: string }> = {
@@ -58,6 +63,31 @@ export const DETAILS: Record<NonNullable<ComputerCheck['detail']>, { fix: Fix; n
   'windows-containers': {
     fix: { steps: ['Switch Docker Desktop to Linux containers: right-click the Docker icon, then choose Switch to Linux containers.'] },
     notYet: 'Docker Desktop is set to Windows containers.',
+  },
+  'wsl-missing': {
+    fix: {
+      steps: ["Docker needs WSL, Windows' own Linux support. Set it up, then restart Windows."],
+      link: { label: "Microsoft's steps", url: 'https://learn.microsoft.com/windows/wsl/install' },
+    },
+    notYet: 'Docker needs WSL.',
+  },
+  'wsl-old': {
+    fix: {
+      steps: ['Docker needs a newer WSL. Update it, then check again.'],
+      link: { label: "Microsoft's steps", url: 'https://learn.microsoft.com/windows/wsl/install' },
+    },
+    notYet: 'WSL needs an update.',
+  },
+  virtualization: {
+    fix: {
+      steps: ["Turn on virtualization in this PC's BIOS or UEFI settings, then start Windows again. Your PC maker's site shows how."],
+      link: { label: 'How to turn it on', url: 'https://support.microsoft.com/windows/enable-virtualization-on-windows-c5578302-6e43-4b4b-a449-8ced115f58e1' },
+    },
+    notYet: 'Virtualization is off on this PC.',
+  },
+  restart: {
+    fix: { steps: ['Restart Windows to finish setting up WSL. Save your work in other apps first.'] },
+    notYet: 'Windows needs a restart.',
   },
   checking: {
     fix: { steps: ['Still checking. This can take a minute after Docker starts.'] },
@@ -78,7 +108,7 @@ export const REASON = {
   notYet: { offline: "You're offline.", disk: 'Docker ran out of disk space.', docker: NOT_YET.sandbox } satisfies Record<NonNullable<ComputerCheck['reason']>['kind'], string>,
 };
 
-/** Step-by-step fixes per computer. Links go to Docker's official pages only. */
+/** Step-by-step fixes per computer. Links go to the makers' official pages only. */
 export const FIXES: Record<Platform, Record<CheckId, Fix>> = {
   mac: {
     'docker-installed': {

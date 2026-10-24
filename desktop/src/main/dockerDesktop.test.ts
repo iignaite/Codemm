@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { release, version } from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { dockerDesktop, ELEVATED, nativeArch, nodeDesktopDeps, systemProblem, type DesktopDeps } from './dockerDesktop';
+import { dockerDesktop, nativeArch, nodeDesktopDeps, systemProblem, type DesktopDeps } from './dockerDesktop';
+import type { WslState } from './wsl';
 import { fetchGet, OfflineError } from './download';
 
 const GiB = 1024 ** 3;
@@ -13,11 +14,16 @@ const REG = 'C:\\Windows\\System32\\reg.exe';
 /** Windows' own record of its version, as `reg query` prints it. */
 const windowsInfo = (build: number, type = 'Client') =>
   `\r\nHKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\r\n    CurrentBuild    REG_SZ    ${build}\r\n    CurrentBuildNumber    REG_SZ    ${build}\r\n    EditionID    REG_SZ    Core\r\n    InstallationType    REG_SZ    ${type}\r\n    ProductName    REG_SZ    Windows 10 Home\r\n`;
-const ELEVATE_KEY = `${POWERSHELL} -NoProfile -NonInteractive -Command ${ELEVATED}`;
+/** Docker's per-user install, unelevated and with no window of its own (DESIGN §6.1). */
+const INSTALL_KEY = `${WIN_EXE} install --user --quiet --backend=wsl-2`;
 
 type Call = { file: string; args: string[]; env?: Record<string, string> };
+type WslSetUp = () => Promise<'done' | 'restart' | 'declined' | 'failed'>;
 
-function fake(platform: NodeJS.Platform, over: Partial<DesktopDeps> & { answers?: Record<string, { code: number | null; output: string }> } = {}) {
+function fake(
+  platform: NodeJS.Platform,
+  over: Partial<DesktopDeps> & { answers?: Record<string, { code: number | null; output: string }>; wsl?: { state: WslState; setUp: Awaited<ReturnType<WslSetUp>> } } = {},
+) {
   const calls: Call[] = [];
   const launched: Call[] = [];
   const removed: string[] = [];
@@ -55,8 +61,21 @@ function fake(platform: NodeJS.Platform, over: Partial<DesktopDeps> & { answers?
     now: () => clock,
     ...over,
   };
-  const desktop = dockerDesktop(deps);
-  return { desktop, calls, launched, removed, downloads, tick: (ms: number) => (clock += ms) };
+  const setUps: string[] = [];
+  /** The phase shown while WSL's setup runs. */
+  const phases: (string | undefined)[] = [];
+  const status = () => desktop.status();
+  const wsl = over.wsl && {
+    state: async () => over.wsl!.state,
+    setUp: async (asking?: () => void) => {
+      setUps.push(over.wsl!.state);
+      if (over.wsl!.state !== 'ready') asking?.();
+      phases.push(status()?.phase);
+      return over.wsl!.setUp;
+    },
+  };
+  const desktop = dockerDesktop(deps, wsl);
+  return { desktop, calls, launched, removed, downloads, setUps, phases, tick: (ms: number) => (clock += ms) };
 }
 
 const commands = (calls: Call[]) => calls.map((c) => [c.file, ...c.args].join(' '));
@@ -161,30 +180,25 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
     expect(seen).toEqual([JSON.stringify({ phase: 'downloading', progress: 0.25 })]);
   });
 
-  it('on Windows: downloads the installer, checks Docker signed it, runs it as administrator in its own window, then starts Docker', async () => {
-    const f = fake('win32', { arch: 'x64', tempDir: () => WIN_TMP });
+  it("on Windows: downloads the installer, checks Docker signed it, installs it for this learner with no prompt or window, then starts Docker", async () => {
+    const f = fake('win32', { arch: 'x64', tempDir: () => WIN_TMP, localAppData: 'C:\\Users\\me\\AppData\\Local', wsl: { state: 'ready', setUp: 'done' } });
     f.desktop.install();
     await f.desktop.done();
     expect(f.downloads).toEqual([{ url: 'https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe', file: WIN_EXE }]);
     // This Windows runs Docker Desktop: checked before anything downloads.
     expect(commands(f.calls)[0]).toBe(`${REG} query HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion`);
-    const [verify, elevate] = f.calls.slice(1);
+    const [verify, install] = f.calls.slice(1);
     expect(verify.file).toBe(POWERSHELL);
     // The path reaches PowerShell as an environment variable, never inside the command text.
     expect(verify.env).toEqual({ CODEMM_FILE: WIN_EXE });
     expect(verify.args.join(' ')).not.toContain(WIN_TMP);
-    // Docker's installer needs an administrator: Windows asks the learner, as when they open it themselves.
-    expect(elevate.file).toBe(POWERSHELL);
-    expect(elevate.env).toEqual({ CODEMM_FILE: WIN_EXE });
-    expect(elevate.args.slice(0, 3)).toEqual(['-NoProfile', '-NonInteractive', '-Command']);
-    // Through .NET, not Start-Process, which drops Windows' "the learner said no" code and waits on every child too.
-    expect(elevate.args[3]).toContain("New-Object Diagnostics.ProcessStartInfo $env:CODEMM_FILE, 'install'");
-    expect(elevate.args[3]).toContain("$i.Verb = 'runas'");
-    expect(elevate.args[3]).toContain('$p.WaitForExit(); exit $p.ExitCode');
-    expect(elevate.args[3]).not.toContain('Start-Process');
-    expect(elevate.args.join(' ')).not.toContain(WIN_TMP);
+    // Docker's own per-user install, Docker's default: no administrator, so no permission prompt, and --quiet hides its
+    // window and install-type page. Docker's terms stay in Docker's own window, at its first start: no --accept-license.
+    expect(install).toEqual({ file: WIN_EXE, args: ['install', '--user', '--quiet', '--backend=wsl-2'] });
     expect(f.calls).toHaveLength(3);
-    expect(f.launched).toEqual([{ file: 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe', args: [] }]);
+    // WSL needed nothing, so nothing said it did.
+    expect(f.phases).toEqual(['downloading']);
+    expect(f.launched).toEqual([{ file: 'C:\\Users\\me\\AppData\\Local\\Programs\\DockerDesktop\\Docker Desktop.exe', args: [] }]);
     expect(f.removed).toEqual([WIN_TMP]);
     expect(f.desktop.status()).toEqual({ phase: 'starting' });
   });
@@ -200,46 +214,83 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
   });
 
   it('on Windows: says when Windows needs a restart, and when the installer did not finish', async () => {
-    const restart = fake('win32', { tempDir: () => WIN_TMP, answers: { [ELEVATE_KEY]: { code: 3010, output: '' } } });
-    restart.desktop.install();
-    await restart.desktop.done();
-    expect(restart.desktop.status()).toEqual({ phase: 'failed', problem: 'restart' });
-    expect(restart.launched).toEqual([]);
-
-    const cancelled = fake('win32', { tempDir: () => WIN_TMP, answers: { [ELEVATE_KEY]: { code: 1602, output: '' } } });
-    cancelled.desktop.install();
-    await cancelled.desktop.done();
-    expect(cancelled.desktop.status()).toEqual({ phase: 'failed', problem: 'failed' });
+    for (const code of [3010, 1641]) {
+      const restart = fake('win32', { tempDir: () => WIN_TMP, answers: { [INSTALL_KEY]: { code, output: '' } } });
+      restart.desktop.install();
+      await restart.desktop.done();
+      expect(restart.desktop.status()).toEqual({ phase: 'failed', problem: 'restart' });
+      expect(restart.launched).toEqual([]);
+    }
+    // Docker's unattended installer fails with 1 or 1603; any other code is a failure too.
+    for (const code of [1, 1602, 1603, null]) {
+      const failed = fake('win32', { tempDir: () => WIN_TMP, answers: { [INSTALL_KEY]: { code, output: '' } } });
+      failed.desktop.install();
+      await failed.desktop.done();
+      expect(failed.desktop.status()).toEqual({ phase: 'failed', problem: 'failed' });
+    }
   });
 
-  it("on Windows: says so when the learner says no to Windows' permission prompt, and asks again without downloading again", async () => {
-    let answer = 1223;
-    let saved = false;
-    let downloads = 0;
-    const signatures: string[] = [];
-    const f = fake('win32', {
-      tempDir: () => WIN_TMP,
-      download: async () => void ((saved = true), downloads++),
-      exists: (p) => p === WIN_EXE && saved,
-      run: async (file, args, opts) => {
-        if (args[3] !== ELEVATED && file === POWERSHELL) signatures.push(opts!.env!.CODEMM_FILE);
-        return { code: args[3] === ELEVATED ? answer : 0, output: file === REG ? windowsInfo(26100) : 'Valid|CN=Docker Inc, O=Docker Inc\n' };
-      },
-    });
+  it('on Windows: sets up WSL first, before anything downloads, then installs Docker and asks for a restart', async () => {
+    const f = fake('win32', { tempDir: () => WIN_TMP, wsl: { state: 'missing', setUp: 'restart' } });
+    f.desktop.install();
+    await f.desktop.done();
+    expect(f.setUps).toEqual(['missing']);
+    // Said while Windows asks permission for it.
+    expect(f.phases).toEqual(['wsl']);
+    expect(commands(f.calls)).toContain(INSTALL_KEY);
+    // WSL runs only after a restart: Docker opens then, not now.
+    expect(f.launched).toEqual([]);
+    expect(f.desktop.status()).toEqual({ phase: 'failed', problem: 'restart' });
+    expect(f.removed).toEqual([WIN_TMP]);
+  });
+
+  it('on Windows: an old WSL is updated, and Docker opens when no restart is needed', async () => {
+    const f = fake('win32', { wsl: { state: 'old', setUp: 'done' } });
+    f.desktop.install();
+    await f.desktop.done();
+    expect(f.setUps).toEqual(['old']);
+    expect(f.desktop.status()).toEqual({ phase: 'starting' });
+  });
+
+  it("on Windows: says so when the learner says no to Windows' permission prompt, and downloads nothing", async () => {
+    const f = fake('win32', { tempDir: () => WIN_TMP, wsl: { state: 'missing', setUp: 'declined' } });
     f.desktop.install();
     await f.desktop.done();
     expect(f.desktop.status()).toEqual({ phase: 'failed', problem: 'declined' });
+    expect(f.downloads).toEqual([]);
     expect(f.launched).toEqual([]);
-    // The checked download stays for Try again.
-    expect(f.removed).toEqual([]);
-    answer = 0;
+
+    const failed = fake('win32', { wsl: { state: 'missing', setUp: 'failed' } });
+    failed.desktop.install();
+    await failed.desktop.done();
+    expect(failed.desktop.status()).toEqual({ phase: 'failed', problem: 'wsl-failed' });
+    expect(failed.downloads).toEqual([]);
+  });
+
+  it('on Windows: never reinstalls over a Docker Desktop already here, for all users or this one; it sets up WSL and opens it', async () => {
+    const allUsers = 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe';
+    const f = fake('win32', { exists: (p) => p === allUsers, wsl: { state: 'ready', setUp: 'done' } });
     f.desktop.install();
     await f.desktop.done();
+    expect(f.downloads).toEqual([]);
+    expect(commands(f.calls).some((c) => c.includes('install --user'))).toBe(false);
+    expect(f.launched).toEqual([{ file: allUsers, args: [] }]);
     expect(f.desktop.status()).toEqual({ phase: 'starting' });
-    expect(downloads).toBe(1);
-    // Docker's signature is checked again before it runs; then the download goes.
-    expect(signatures).toEqual([WIN_EXE, WIN_EXE]);
-    expect(f.removed).toEqual([WIN_TMP]);
+
+    const wslFirst = fake('win32', { exists: (p) => p === allUsers, wsl: { state: 'missing', setUp: 'restart' } });
+    wslFirst.desktop.install();
+    await wslFirst.desktop.done();
+    expect(wslFirst.downloads).toEqual([]);
+    expect(wslFirst.desktop.status()).toEqual({ phase: 'failed', problem: 'restart' });
+  });
+
+  it("restarts Windows only when asked, with Windows' own shutdown and no forced close", async () => {
+    const pc = fake('win32');
+    await pc.desktop.restartWindows();
+    expect(pc.launched).toEqual([{ file: 'C:\\Windows\\System32\\shutdown.exe', args: ['/r', '/t', '0'] }]);
+    const mac = fake('darwin');
+    await mac.desktop.restartWindows();
+    expect(mac.launched).toEqual([]);
   });
 
   it('runs one install at a time, and can try again after a failure', async () => {
@@ -503,14 +554,5 @@ describe('on this computer, for real', () => {
     const build = Number(release().split('.')[2]);
     const runs = !/Server/i.test(version()) && (build >= 22631 || (build >= 19045 && build < 22000));
     expect(systemProblem('win32', r.output)).toBe(/Server/i.test(version()) ? 'windows-server' : runs ? undefined : 'windows-version');
-  });
-
-  it.runIf(process.platform === 'win32')("starts a program as administrator and hands back its own exit code", { timeout: 60_000 }, async (ctx) => {
-    // Only where Windows elevates without asking (CI): a permission prompt would wait for a click.
-    const uac = await real.run(REG, ['query', 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System']);
-    if (!/^\s*(EnableLUA|ConsentPromptBehaviorAdmin)\s+REG_DWORD\s+0x0\s*$/m.test(uac.output)) ctx.skip();
-    // Robocopy given one folder and no destination is a usage error, exit code 16: the code comes back unchanged.
-    const r = await real.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', ELEVATED], { env: { CODEMM_FILE: 'C:\\Windows\\System32\\Robocopy.exe' }, timeoutMs: 45_000 });
-    expect(r).toMatchObject({ code: 16 });
   });
 });

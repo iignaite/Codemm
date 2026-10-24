@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { createMock, scenario, type MockOptions } from '../../../main/mock';
 import { isSafeLink } from '../../../main/links';
 import { mockWithCourse, renderApp } from '../../test-utils';
-import { FIXES } from './fixes';
+import { DETAILS, FIXES } from './fixes';
 
 const welcome = { to: 'welcome' } as const;
 
@@ -205,6 +205,78 @@ describe('check this computer', () => {
     expect(await screen.findByRole('heading', { name: 'Click Counter' })).toBeInTheDocument();
   });
 
+  it("on Windows, sets up WSL when that's what Docker's engine needs, then offers Windows' restart", async () => {
+    const api = createMock(scenario('wsl-missing'));
+    let restarts = 0;
+    api.restartWindows = async () => void restarts++;
+    const user = userEvent.setup();
+    renderApp({ to: 'computer', then: welcome }, api);
+    const running = await screen.findByRole('listitem', { name: 'Docker is running' });
+    // The real cause, not "Docker is starting" or Open Docker Desktop.
+    expect(running).toHaveTextContent("Docker needs WSL, Windows' own Linux support. Set it up, then restart Windows.");
+    expect(within(running).queryByRole('button', { name: 'Open Docker Desktop' })).not.toBeInTheDocument();
+    expect(within(running).getByRole('link', { name: "Microsoft's steps" })).toHaveAttribute('href', 'https://learn.microsoft.com/windows/wsl/install');
+    // WSL is Windows' own: no Docker terms line here.
+    expect(within(running).queryByText("Docker's terms apply.")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Docker needs WSL. Checking again every few seconds.'));
+    // Nothing restarts or asks for permission before the learner clicks.
+    expect(restarts).toBe(0);
+    await user.click(within(running).getByRole('button', { name: 'Set up WSL' }));
+    expect(await within(running).findByText('Restart Windows to finish setting up WSL. Save your work in other apps first.')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Windows needs a restart.');
+    expect(restarts).toBe(0);
+    await user.click(within(running).getByRole('button', { name: 'Restart now' }));
+    expect(restarts).toBe(1);
+  });
+
+  it("shows WSL's setup on the running row while Windows asks for permission", async () => {
+    const api = createMock(scenario('wsl-missing'));
+    const computer = api.computer;
+    api.computer = async () => ({ ...(await computer()), install: { phase: 'wsl' } });
+    renderApp({ to: 'computer', then: welcome }, api);
+    const running = await screen.findByRole('listitem', { name: 'Docker is running' });
+    expect(await within(running).findByRole('progressbar', { name: 'Allow WSL, which Docker needs, when Windows asks (look in the taskbar).' })).toBeInTheDocument();
+    expect(within(running).queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('on Windows, updates an old WSL, then waits while Docker starts', async () => {
+    const user = open({ docker: 'wsl-old', platform: 'windows' });
+    const running = await screen.findByRole('listitem', { name: 'Docker is running' });
+    expect(running).toHaveTextContent('Docker needs a newer WSL. Update it, then check again.');
+    await user.click(within(running).getByRole('button', { name: 'Update WSL' }));
+    expect(await screen.findByText('This computer is ready.')).toBeInTheDocument();
+  });
+
+  it('on Windows, says to turn on virtualization in the firmware, which only the learner can do', async () => {
+    open(scenario('virtualization-off'));
+    const running = await screen.findByRole('listitem', { name: 'Docker is running' });
+    expect(running).toHaveTextContent("Turn on virtualization in this PC's BIOS or UEFI settings, then start Windows again.");
+    expect(within(running).queryAllByRole('button')).toEqual([]);
+    expect(within(running).getByRole('link', { name: 'How to turn it on' })).toHaveAttribute('href', expect.stringMatching(/^https:\/\/support\.microsoft\.com\//));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Virtualization is off on this PC. Checking again every few seconds.'));
+  });
+
+  it('offers Restart now when an install needs a restart, and says when WSL needed permission or failed', async () => {
+    const api = createMock({ docker: 'missing', platform: 'windows' });
+    const computer = api.computer;
+    let problem: 'restart' | 'declined' | 'wsl-failed' = 'restart';
+    api.computer = async () => ({ ...(await computer()), install: { phase: 'failed', problem } });
+    let restarts = 0;
+    api.restartWindows = async () => void restarts++;
+    const user = userEvent.setup();
+    renderApp({ to: 'computer', then: welcome }, api);
+    const installed = await screen.findByRole('listitem', { name: 'Docker is installed' });
+    await user.click(await within(installed).findByRole('button', { name: 'Restart now' }));
+    expect(restarts).toBe(1);
+    problem = 'declined';
+    expect(await within(installed).findByText('Windows asks for permission to set up WSL, which Docker needs. Try again, and choose Yes.')).toBeInTheDocument();
+    expect(within(installed).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(within(installed).queryByRole('button', { name: 'Restart now' })).not.toBeInTheDocument();
+    problem = 'wsl-failed';
+    expect(await within(installed).findByText("WSL's setup didn't finish.")).toBeInTheDocument();
+    expect(within(installed).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
   it('only links to official pages, and has a fix for every check on every platform', () => {
     for (const platform of ['mac', 'windows', 'linux'] as const) {
       for (const id of ['docker-installed', 'docker-running', 'sandbox'] as const) {
@@ -213,6 +285,7 @@ describe('check this computer', () => {
         if (fix?.link) expect(isSafeLink(fix.link.url)).toBe(true);
       }
     }
+    for (const { fix } of Object.values(DETAILS)) if (fix.link) expect(isSafeLink(fix.link.url)).toBe(true);
   });
 });
 

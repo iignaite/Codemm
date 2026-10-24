@@ -1,7 +1,7 @@
 // Installs and opens Docker Desktop for the learner (DESIGN §6.1), on a macOS or Windows that Docker supports. The
-// installer comes only from Docker's own download host, over https, and runs only if Docker signed it. Codemm never
-// accepts Docker's terms or types a password: Docker's own window and Windows' permission prompt do that. Every
-// command is an argument array, never a shell.
+// installer comes only from Docker's own download host, over https, and runs only if Docker signed it. On Windows,
+// WSL's own setup comes first when WSL needs it (wsl.ts). Codemm never accepts Docker's terms or types a password:
+// Docker's own window and Windows' permission prompt do that. Every command is an argument array, never a shell.
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, rmSync, statfsSync, statSync } from 'node:fs';
@@ -9,7 +9,8 @@ import { tmpdir } from 'node:os';
 import { join, posix, win32 } from 'node:path';
 import type { DockerInstall } from '../shared/api';
 import { downloader, OfflineError, type Get } from './download';
-import { POWERSHELL } from './windows';
+import { POWERSHELL, RESTART } from './windows';
+import type { wsl } from './wsl';
 
 export interface DesktopDeps {
   platform: NodeJS.Platform;
@@ -57,6 +58,8 @@ const REG = 'C:\\Windows\\System32\\reg.exe';
 /** Explorer opens a Settings page by its URI, started as a program with no shell. */
 const EXPLORER = 'C:\\Windows\\explorer.exe';
 const WINDOWS_UPDATE = 'ms-settings:windowsupdate';
+/** A restart that lets other apps ask to save first: with no wait, /f isn't implied. */
+const SHUTDOWN = 'C:\\Windows\\System32\\shutdown.exe';
 /** Docker, Inc's Apple Developer team. */
 const DOCKER_TEAM = /^TeamIdentifier=9BNSXJN65R$/m;
 /** Where Docker Desktop installs for all users (Codemm's install), and for one user (Docker's own default). */
@@ -64,7 +67,7 @@ const WIN_DESKTOP = 'Docker\\Docker\\Docker Desktop.exe';
 const WIN_USER_DESKTOP = 'Programs\\DockerDesktop\\Docker Desktop.exe';
 /**
  * Codemm's own folders an install can leave behind: a staging folder in Applications (placeApp), and a download
- * folder in the temp folder (tempDir) that a failed or declined install kept. How old one is before it counts as left.
+ * folder in the temp folder (tempDir) that a Mac's manual install kept. How old one is before it counts as left.
  */
 const STAGING = /^\.codemm-docker-[0-9a-f]{8}$/;
 const DOWNLOAD = /^codemm-docker-[A-Za-z0-9]{6}$/;
@@ -72,19 +75,10 @@ const STALE_MS = 60 * 60_000;
 /** The path arrives as $env:CODEMM_FILE, so nothing outside this text is ever parsed as PowerShell. */
 const SIGNATURE = '$s = Get-AuthenticodeSignature -LiteralPath $env:CODEMM_FILE; "$($s.Status)|$($s.SignerCertificate.Subject)"';
 /**
- * Docker's installer as administrator, in its own window: Windows asks the learner first. The path arrives as
- * $env:CODEMM_FILE, and the installer's own exit code comes back. A learner who says no ends it with DECLINED.
- * .NET's Process.Start keeps Windows' error as the inner exception, which Start-Process drops, and the wait is for
- * the installer alone, not every process it leaves running.
+ * Docker's own per-user install, its default since 4.83: no administrator, so no permission prompt, and --quiet hides
+ * its window and install-type page. No --accept-license: Docker's terms stay in Docker's own window, at its first start.
  */
-export const ELEVATED =
-  "$i = New-Object Diagnostics.ProcessStartInfo $env:CODEMM_FILE, 'install'; $i.Verb = 'runas'; $i.UseShellExecute = $true; " +
-  'try { $p = [Diagnostics.Process]::Start($i) } catch { $e = $_.Exception; while ($e) { if ($e.NativeErrorCode -eq 1223) { exit 1223 }; $e = $e.InnerException }; exit 1 }; ' +
-  'if (-not $p) { exit 1 }; $p.WaitForExit(); exit $p.ExitCode';
-/** ERROR_CANCELLED: the learner said no to Windows' permission prompt. */
-const DECLINED = 1223;
-/** Windows installer exit codes that mean "restart to finish". */
-const RESTART = new Set([3010, 1641]);
+const WIN_INSTALL = ['install', '--user', '--quiet', '--backend=wsl-2'];
 
 /** Docker Desktop's documented minimums (release notes 4.49 and 4.48): macOS 14; Windows 10 22H2 or Windows 11 23H2. */
 const MACOS_MIN = 14;
@@ -126,7 +120,7 @@ class Stop extends Error {
   }
 }
 
-export function dockerDesktop(d: DesktopDeps) {
+export function dockerDesktop(d: DesktopDeps, w?: Pick<ReturnType<typeof wsl>, 'setUp'>) {
   const canInstall = d.platform === 'darwin' || d.platform === 'win32';
   // The target's own paths, whichever computer runs this (tests run both on every host).
   const path = d.platform === 'win32' ? win32 : posix;
@@ -135,8 +129,6 @@ export function dockerDesktop(d: DesktopDeps) {
   let running: Promise<void> = Promise.resolve();
   let busy = false;
   let started: number | undefined;
-  /** The folder of a checked installer the learner said no to running: Try again runs it, checked again, without downloading it twice. */
-  let declined: string | undefined;
 
   const ok = (r: { code: number | null }) => r.code === 0;
   const desktops =
@@ -206,26 +198,38 @@ export function dockerDesktop(d: DesktopDeps) {
     }
   }
 
+  /**
+   * WSL's setup first, while the learner who clicked is there for Windows' permission prompt; then Docker Desktop,
+   * unless one is installed (Codemm never reinstalls over it). Windows restarts before Docker opens if WSL needs it.
+   */
   async function windows(dir: string) {
-    const exe = path.join(dir, 'DockerDesktopInstaller.exe');
-    if (!d.exists(exe)) await fetchTo(`https://desktop.docker.com/win/main/${chip}/Docker%20Desktop%20Installer.exe`, exe, dir, 8 * GiB);
-    status = { phase: 'checking' };
-    const signature = await d.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', SIGNATURE], { env: { CODEMM_FILE: exe } });
-    if (!ok(signature) || !dockerSigned(signature.output)) throw new Stop('unverified');
-    status = { phase: 'installing' };
-    // Its own window, as administrator: Windows asks for permission, and the learner accepts Docker's terms there.
-    const result = await d.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', ELEVATED], { env: { CODEMM_FILE: exe }, timeoutMs: 60 * 60_000 });
-    if (result.code === DECLINED) throw new Stop('declined');
-    if (result.code !== null && RESTART.has(result.code)) throw new Stop('restart');
-    if (!ok(result)) throw new Stop('failed');
+    let restart = false;
+    if (w) {
+      const wsl = await w.setUp(() => (status = { phase: 'wsl' }));
+      if (wsl === 'declined') throw new Stop('declined');
+      if (wsl === 'failed') throw new Stop('wsl-failed');
+      restart = wsl === 'restart';
+    }
+    if (!desktops.some((p) => d.exists(p))) {
+      const exe = path.join(dir, 'DockerDesktopInstaller.exe');
+      await fetchTo(`https://desktop.docker.com/win/main/${chip}/Docker%20Desktop%20Installer.exe`, exe, dir, 8 * GiB);
+      status = { phase: 'checking' };
+      const signature = await d.run(POWERSHELL, ['-NoProfile', '-NonInteractive', '-Command', SIGNATURE], { env: { CODEMM_FILE: exe } });
+      if (!ok(signature) || !dockerSigned(signature.output)) throw new Stop('unverified');
+      status = { phase: 'installing' };
+      const result = await d.run(exe, WIN_INSTALL, { timeoutMs: 60 * 60_000 });
+      if (result.code !== null && RESTART.has(result.code)) restart = true;
+      else if (!ok(result)) throw new Stop('failed');
+    }
+    if (restart) throw new Stop('restart');
   }
 
-  /** Opens Docker Desktop; rejects if it can't. */
+  /** Opens Docker Desktop; rejects if it can't. On Windows, the one installed, or else the one Codemm installs. */
   async function openApp(app: string) {
     if (d.platform === 'darwin') {
       if (!ok(await d.run(OPEN, ['-a', app]))) throw new Stop('failed');
     } else if (d.platform === 'win32') {
-      await d.launch(desktops.find((p) => d.exists(p)) ?? desktops[0], []);
+      await d.launch(desktops.find((p) => d.exists(p)) ?? desktops.at(-1)!, []);
     }
     started = d.now();
   }
@@ -238,8 +242,7 @@ export function dockerDesktop(d: DesktopDeps) {
         await openApp(MAC_APP);
       } else {
         await assertSupported();
-        dir = declined ?? d.tempDir();
-        declined = undefined;
+        dir = d.tempDir();
         if (d.platform === 'darwin') await mac(dir);
         else await windows(dir);
         await openApp(MAC_APP);
@@ -247,8 +250,7 @@ export function dockerDesktop(d: DesktopDeps) {
       status = { phase: 'starting' };
     } catch (e) {
       const problem = e instanceof Stop ? e.problem : 'failed';
-      keep = problem === 'manual' || problem === 'declined';
-      if (problem === 'declined') declined = dir;
+      keep = problem === 'manual';
       status = { phase: 'failed', problem };
     } finally {
       if (dir && !keep) quietly(dir);
@@ -261,8 +263,9 @@ export function dockerDesktop(d: DesktopDeps) {
     install() {
       if (!canInstall || busy) return;
       busy = true;
-      // Feedback at once: the disk check and the first bytes take a moment.
-      status = { phase: 'downloading', progress: 0 };
+      // Feedback at once: the disk check and the first bytes take a moment. With Docker Desktop here, Windows' Install
+      // is WSL's setup alone.
+      status = d.platform === 'win32' && desktops.some((p) => d.exists(p)) ? { phase: 'wsl' } : { phase: 'downloading', progress: 0 };
       running = installNow().finally(() => (busy = false));
     },
     /** The install, until Docker has had its startup window: after that, Check this computer speaks for Docker. */
@@ -270,6 +273,8 @@ export function dockerDesktop(d: DesktopDeps) {
     open: () => openApp('Docker'),
     /** Windows Update, where a Windows too old for Docker Desktop is updated. */
     windowsUpdate: () => (d.platform === 'win32' ? d.launch(EXPLORER, [WINDOWS_UPDATE]) : Promise.resolve()),
+    /** Restarts Windows, on the learner's click only, when WSL or Docker's installer needs it. */
+    restartWindows: () => (d.platform === 'win32' ? d.launch(SHUTDOWN, ['/r', '/t', '0']) : Promise.resolve()),
     /** Docker Desktop's own app is here: a docker command alone (Homebrew's, say) isn't Docker Desktop. */
     installed: () => desktops.some((p) => d.exists(p)),
     /** Docker Desktop's app is running, opened by Codemm or the learner, whether or not its engine answers yet. */
@@ -279,7 +284,7 @@ export function dockerDesktop(d: DesktopDeps) {
       return false;
     },
     /**
-     * Removes what an install left when it failed, was declined, or Codemm quit midway: only Codemm's own folders, over
+     * Removes what an install kept for a Mac's manual step, or left when Codemm quit midway: only Codemm's own folders, over
      * an hour old (a younger one may be another Codemm's install). A Mac's staging copy of Docker is about 2 GB, so rm
      * removes it, not the app's own process.
      */
