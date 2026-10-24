@@ -1,29 +1,48 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { livePath, mergePath, regPath, type PathDeps } from './livePath';
+import { livePath, mergePath, registryPaths, type PathDeps } from './livePath';
 
 const REG = 'C:\\Windows\\System32\\reg.exe';
 const MACHINE = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment';
 const USER = 'HKCU\\Environment';
-/** One `reg query <key> /v Path` answer, as reg.exe prints it. */
-const answer = (key: string, value: string, type = 'REG_EXPAND_SZ') => `\r\nHKEY_${key}\r\n    Path    ${type}    ${value}\r\n\r\n`;
+/** One `reg query <key>` answer, as reg.exe prints it: the key, then each value's name, type and data. */
+const key = (name: string, ...values: [string, string, string][]) => `\r\nHKEY_${name}\r\n${values.map(([n, type, data]) => `    ${n}    ${type}    ${data}\r\n`).join('')}\r\n`;
+/** A key holding only a Path. */
+const answer = (name: string, value: string, type = 'REG_EXPAND_SZ') => key(name, ['Path', type, value]);
+const user = (...values: [string, string, string][]) => registryPaths(key(MACHINE), key(USER, ...values), ENV)[1];
+const ENV = { USERPROFILE: 'C:\\Users\\me', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local', SystemRoot: 'C:\\Windows' };
 
 describe("Windows' registry PATH (§3.1)", () => {
-  it('reads the Path value and expands %NAME% from the environment, ignoring case, as Windows does', () => {
-    const env = { USERPROFILE: 'C:\\Users\\me', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' };
+  it("reads the machine's and the user's Path, and expands %NAME% from the environment, ignoring case, as Windows does", () => {
     const value = '%UserProfile%\\.local\\bin;%localappdata%\\Microsoft\\WinGet\\Links;C:\\Program Files\\Git\\cmd';
-    expect(regPath(answer(USER, value), env)).toBe('C:\\Users\\me\\.local\\bin;C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Git\\cmd');
-    // A name the environment doesn't have stays as it is.
-    expect(regPath(answer(USER, '%NOT_SET%\\bin'), env)).toBe('%NOT_SET%\\bin');
+    expect(registryPaths(answer(MACHINE, '%SYSTEMROOT%\\system32;%SystemRoot%'), answer(USER, value), ENV)).toEqual([
+      'C:\\Windows\\system32;C:\\Windows',
+      'C:\\Users\\me\\.local\\bin;C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Links;C:\\Program Files\\Git\\cmd',
+    ]);
+    // A name nothing defines stays as it is.
+    expect(user(['Path', 'REG_EXPAND_SZ', '%NOT_SET%\\bin'])).toBe('%NOT_SET%\\bin');
     // REG_SZ is plain text: Windows expands only REG_EXPAND_SZ.
-    expect(regPath(answer(USER, '%USERPROFILE%\\bin', 'REG_SZ'), env)).toBe('%USERPROFILE%\\bin');
-    // The value's name as Windows stored it, in any case.
-    expect(regPath('\r\nHKEY_LOCAL_MACHINE\\x\r\n    PATH    REG_SZ    C:\\Windows\\system32\r\n', env)).toBe('C:\\Windows\\system32');
+    expect(user(['Path', 'REG_SZ', '%USERPROFILE%\\bin'])).toBe('%USERPROFILE%\\bin');
+    // The value's name as Windows stored it, in any case, among the key's other values.
+    expect(user(['OneDrive', 'REG_EXPAND_SZ', 'C:\\Users\\me\\OneDrive'], ['PATH', 'REG_SZ', 'C:\\Tools'], ['Count', 'REG_DWORD', '0x1'])).toBe('C:\\Tools');
+  });
+
+  it('expands the variables an installer defines beside its Path entry, as a new process would see them', () => {
+    // nvm-windows and pnpm, installed while Codemm is open: Codemm's own environment has neither variable.
+    expect(user(['Path', 'REG_EXPAND_SZ', '%NVM_HOME%;%NVM_SYMLINK%;%PNPM_HOME%'], ['NVM_HOME', 'REG_SZ', 'C:\\Users\\me\\AppData\\Roaming\\nvm'], ['NVM_SYMLINK', 'REG_SZ', 'C:\\nvm4w\\nodejs'], ['PNPM_HOME', 'REG_EXPAND_SZ', '%LOCALAPPDATA%\\pnpm'])).toBe(
+      'C:\\Users\\me\\AppData\\Roaming\\nvm;C:\\nvm4w\\nodejs;C:\\Users\\me\\AppData\\Local\\pnpm',
+    );
+    // The machine's Path sees the machine's variables; the user's sees the user's over them.
+    const machine = key(MACHINE, ['ChocolateyInstall', 'REG_SZ', 'C:\\ProgramData\\chocolatey'], ['TOOLS', 'REG_SZ', 'C:\\machine-tools'], ['Path', 'REG_EXPAND_SZ', '%ChocolateyInstall%\\bin;%TOOLS%']);
+    expect(registryPaths(machine, key(USER, ['TOOLS', 'REG_SZ', 'C:\\user-tools'], ['Path', 'REG_EXPAND_SZ', '%TOOLS%;%ChocolateyInstall%\\lib']), ENV)).toEqual([
+      'C:\\ProgramData\\chocolatey\\bin;C:\\machine-tools',
+      'C:\\user-tools;C:\\ProgramData\\chocolatey\\lib',
+    ]);
   });
 
   it('reads nothing from an empty value, or an answer with no Path', () => {
-    expect(regPath(answer(USER, ''), {})).toBe('');
-    expect(regPath('ERROR: The system was unable to find the specified registry key or value.\r\n', {})).toBe('');
+    expect(user(['Path', 'REG_EXPAND_SZ', ''])).toBe('');
+    expect(registryPaths('ERROR: Access is denied.\r\n', key(USER, ['TEMP', 'REG_EXPAND_SZ', '%USERPROFILE%\\Temp']), ENV)).toEqual(['', '']);
   });
 
   it('keeps the current PATH first, then adds the machine folders, then the user folders it lacks, ignoring case and a trailing backslash', () => {
@@ -65,8 +84,8 @@ describe('bringing PATH up to date (§3.1)', () => {
     const f = fake();
     await f.refresh();
     expect(f.calls).toEqual([
-      [REG, 'query', MACHINE, '/v', 'Path'],
-      [REG, 'query', USER, '/v', 'Path'],
+      [REG, 'query', MACHINE],
+      [REG, 'query', USER],
     ]);
     expect(f.deps.env.PATH).toBe('C:\\Windows\\system32;C:\\Users\\me\\AppData\\Local\\cursor-agent');
   });

@@ -12,10 +12,13 @@ import { desktopState } from './state';
 import { live, researched } from './testing/fakes';
 import { tempDir } from './testing/temp';
 
-/** A Windows whose registry PATH an installer can change, and a clock to let a 2-second-old read go stale. */
+/**
+ * A Windows whose registry PATH an installer can change, and a clock to let a 2-second-old read go stale. PATH starts
+ * empty: a runner's own folders (System32 holds a docker.exe on GitHub's) would answer first.
+ */
 function windows() {
-  const env: NodeJS.ProcessEnv = { PATH: 'C:\\Windows\\system32', LOCALAPPDATA: tempDir('codemm-local-') };
-  const registry = { machine: 'C:\\Windows\\system32', user: '' };
+  const env: NodeJS.ProcessEnv = { PATH: '', LOCALAPPDATA: tempDir('codemm-local-') };
+  const registry = { machine: '', user: '' };
   let clock = 0;
   const refresh = livePath({
     platform: 'win32',

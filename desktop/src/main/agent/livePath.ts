@@ -24,23 +24,39 @@ const READ_MS = 2_000;
 /** After a read that hung or threw, how long until the next: polling screens never wait on a stuck reg.exe each time. */
 const RETRY_MS = 30_000;
 
-/** %NAME% from `env`, ignoring case. A name `env` doesn't have stays as it is, as Windows leaves it. */
-function expand(value: string, env: NodeJS.ProcessEnv): string {
-  const names = new Map(Object.entries(env).map(([name, v]) => [name.toLowerCase(), v]));
+/** %NAME% from `names` (lowercase), ignoring case. A name nothing defines stays as it is, as Windows leaves it. */
+function expand(value: string, names: Map<string, string | undefined>): string {
   return value.replace(/%([^%]+)%/g, (whole, name: string) => names.get(name.toLowerCase()) ?? whole);
 }
 
-/** The Path value in one `reg query <key> /v Path` answer, expanded when it is REG_EXPAND_SZ; '' when there is none. */
-export function regPath(output: string, env: NodeJS.ProcessEnv): string {
-  const m = /^[ \t]+Path[ \t]+(REG_SZ|REG_EXPAND_SZ)[ \t]+(.*)$/im.exec(output);
-  if (!m) return '';
-  const value = m[2].trim();
-  return m[1].toUpperCase() === 'REG_EXPAND_SZ' ? expand(value, env) : value;
+/** Every REG_SZ and REG_EXPAND_SZ value in one `reg query <key>` answer: four spaces, name, type, data. */
+function values(output: string): { name: string; type: string; data: string }[] {
+  return [...output.replace(/\r/g, '').matchAll(/^[ \t]+(.+?)[ \t]+(REG_SZ|REG_EXPAND_SZ)(?:[ \t]+(.*))?$/gm)].map((m) => ({ name: m[1], type: m[2], data: (m[3] ?? '').trim() }));
+}
+
+/**
+ * The machine's and the user's Path, from their `reg query <key>` answers, expanded as Windows builds a new process's
+ * environment: over this process's own variables, the machine's, then the user's, each key's REG_SZ values before its
+ * REG_EXPAND_SZ ones, and its Path last. So `%NVM_HOME%`, which nvm-windows defines beside its Path entry, expands too.
+ */
+export function registryPaths(machine: string, user: string, env: NodeJS.ProcessEnv): [string, string] {
+  const names = new Map(Object.entries(env).map(([name, value]) => [name.toLowerCase(), value]));
+  const pathOf = (output: string) => {
+    const all = values(output);
+    const isPath = (v: { name: string }) => v.name.toLowerCase() === 'path';
+    for (const type of ['REG_SZ', 'REG_EXPAND_SZ']) {
+      for (const v of all) if (v.type === type && !isPath(v)) names.set(v.name.toLowerCase(), type === 'REG_EXPAND_SZ' ? expand(v.data, names) : v.data);
+    }
+    const path = all.find(isPath);
+    return !path ? '' : path.type === 'REG_EXPAND_SZ' ? expand(path.data, names) : path.data;
+  };
+  return [pathOf(machine), pathOf(user)];
 }
 
 /**
  * `current` exactly as it is, then each folder of `added` it doesn't have yet, ignoring case and a trailing backslash.
- * A folder reg.exe couldn't spell (a name outside its code page) is left out: it names no folder.
+ * A folder reg.exe couldn't spell (a name outside its code page) is left out: it names no folder. Windows' own
+ * separator, since this runs only there.
  */
 export function mergePath(current: string, ...added: string[]): string {
   const key = (dir: string) => dir.toLowerCase().replace(/\\+$/, '');
@@ -67,14 +83,14 @@ export function livePath(d: PathDeps): () => Promise<void> {
 
   let wait = FRESH_MS;
 
-  /** Whether reg.exe answered in time. A missing value (exit 1) is an answer: there is nothing to add. */
+  /** Whether reg.exe answered in time. One that refused (a non-zero exit) answered quickly: there is nothing to add. */
   async function read(): Promise<boolean> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), READ_MS)));
     try {
-      const values = await Promise.race([Promise.all(KEYS.map(async (key) => regPath((await d.run(REG, ['query', key, '/v', 'Path'])) ?? '', d.env))), late]);
-      if (values) d.env.PATH = mergePath(d.env.PATH ?? '', ...values);
-      return values !== null;
+      const answers = await Promise.race([Promise.all(KEYS.map((key) => d.run(REG, ['query', key]))), late]);
+      if (answers) d.env.PATH = mergePath(d.env.PATH ?? '', ...registryPaths(answers[0] ?? '', answers[1] ?? '', d.env));
+      return answers !== null;
     } finally {
       clearTimeout(timer);
     }

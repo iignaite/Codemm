@@ -187,13 +187,6 @@ describe('find (§3.1)', () => {
     expect(dockerDesktops({ platform: 'linux', home: '/home/me' })).toEqual([]);
   });
 
-  it("splits a Windows PATH on Windows' own separator, whichever computer runs the search", () => {
-    const { at } = tree();
-    mkdirSync(at('bin'));
-    writeFileSync(at('bin', 'codex.exe'), 'MZ');
-    expect(find('codex', { platform: 'win32', path: `C:\\Windows\\system32;${at('bin')}`, home: at('home'), searchDirs: [] })?.path).toBe(join(at('bin'), 'codex.exe'));
-  });
-
   it("finds Docker where OrbStack, Rancher Desktop and Docker Desktop's own install link it (a GUI app's PATH has none of them)", () => {
     for (const where of [['.orbstack', 'bin'], ['.rd', 'bin'], ['.docker', 'bin']]) {
       const { at } = tree();

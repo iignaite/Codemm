@@ -4,7 +4,7 @@
 // run, because that needs a shell), becomes the script or binary it would run.
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, dirname, join, posix, resolve, win32 } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import type { Executable } from './bridge';
 
 export interface Where {
@@ -19,6 +19,7 @@ export interface Where {
   searchDirs?: string[];
 }
 
+/** This computer: its platform, its PATH and its folders, split on its own separator like every PATH here. */
 export function here(env: NodeJS.ProcessEnv = process.env): Where {
   // CODEMM_TEST_SEARCH_DIRS is set only by the macOS journey, to stage "no Docker" with Docker Desktop installed.
   const searchDirs = env.CODEMM_TEST_SEARCH_DIRS?.split(delimiter).filter(Boolean);
@@ -135,8 +136,7 @@ export function shimTarget(cmdFile: string): Executable | null {
 
 /** Looks for `bin` on PATH, then in the usual folders. */
 export function find(bin: string, w: Where = here()): Executable | null {
-  // The searched platform's own separator, whichever computer runs this (tests run both on every host).
-  const dirs = [...w.path.split((w.platform === 'win32' ? win32 : posix).delimiter).filter(Boolean), ...folders(w)];
+  const dirs = [...w.path.split(delimiter).filter(Boolean), ...folders(w)];
   for (const dir of dirs) {
     if (w.platform === 'win32') {
       const exe = join(dir, `${bin}.exe`);
@@ -188,7 +188,7 @@ export function dockerFolders(docker: string, desktopBins = desktopBinsOf(here()
   return [...new Set(folders)];
 }
 
-/** `path` with Docker's folders added once, after what was there (§3.1). */
+/** `path`, this computer's own, with Docker's folders added once, after what was there (§3.1). */
 export function withDockerFolders(path: string, docker: string, desktopBins = desktopBinsOf(here())): string {
   const folders = path.split(delimiter).filter(Boolean);
   return [...folders, ...dockerFolders(docker, desktopBins).filter((f) => !folders.includes(f))].join(delimiter);
