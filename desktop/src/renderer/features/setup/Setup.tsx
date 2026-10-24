@@ -16,6 +16,7 @@ import { ExternalLink } from '../../ui/ExternalLink';
 const TERMS: Partial<Record<AgentId, { vendor: string; url: string }>> = {
   claude: { vendor: 'Anthropic', url: 'https://www.anthropic.com/legal/consumer-terms' },
   codex: { vendor: 'OpenAI', url: 'https://openai.com/policies/' },
+  cursor: { vendor: 'Cursor', url: 'https://cursor.com/terms-of-service' },
 };
 
 /** What Codemm can install here: Docker when it isn't installed, and an agent when none is. */
@@ -47,7 +48,8 @@ export function Setup() {
   if (error) return <Failed error={error} retry={reload} />;
   if (!data) return null;
   const need = wanted ?? missing(data.computer, data.agents);
-  const choices = data.agents.filter((a) => a.canInstall);
+  // An experimental agent installs from Connect, where it says so, not in one click here.
+  const choices = data.agents.filter((a) => a.canInstall && !a.experimental);
 
   async function start() {
     const next = { docker: need.docker, ...(need.agent ? { agent: choice } : {}) };

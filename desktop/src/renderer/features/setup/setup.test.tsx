@@ -50,6 +50,12 @@ describe('install what is missing', () => {
     expect(agents.find((a) => a.id === 'claude')!.install).toBeUndefined();
   });
 
+  it('offers only supported agents: Cursor is experimental, so it installs from Connect, not here', async () => {
+    renderApp({ to: 'setup' }, mac('nothing-installed'));
+    const choice = await screen.findByRole('radiogroup', { name: 'Your agent' });
+    expect(within(choice).getAllByRole('radio').map((r) => r.getAttribute('value'))).toEqual(['claude', 'codex']);
+  });
+
   it('installs only what is missing: with an agent there, just Docker', async () => {
     renderApp({ to: 'setup' }, mac('no-docker'));
     expect(await screen.findByRole('listitem', { name: 'Docker Desktop' })).toBeInTheDocument();
