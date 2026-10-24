@@ -194,6 +194,11 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 - A native executable runs directly.
 - A JavaScript entry point (a `#!/usr/bin/env node` launcher, like the npm-installed Codex) runs as `ELECTRON_RUN_AS_NODE=1 <app executable> <script>`, so no system Node is needed.
 - On Windows, an npm `.cmd` shim is never run, because that needs a shell. The app reads the script path from npm's fixed shim format and runs that script the same way.
+- **Cursor on Windows** (`agent/cursorWindows.ts`). Cursor installs to `%LOCALAPPDATA%\cursor-agent`. There, `cursor-agent.cmd` runs Windows PowerShell 5.1 on `cursor-agent.ps1`, which runs `versions\<v>\node.exe` on `versions\<v>\index.js`.
+  - Codemm runs neither launcher. Node won't start a `.cmd` without a shell, and Codemm uses none. Through cmd and PowerShell 5.1, a multi-line brief would be cut at its first line, its `%VAR%` and `!` expanded and its quotes dropped.
+  - So a `cursor-agent.cmd` beside a `versions` folder becomes Cursor's own `node.exe` running its `index.js`, started directly, as Cursor's staff advise. It's Cursor's Node, not Electron's: Cursor ships native modules built for it. Like Cursor's macOS launcher, Codemm sets `CURSOR_INVOKED_AS=cursor-agent` and passes `--use-system-ca` when that Node takes it. It asks each Node once, and skips the flag when `AGENT_CLI_CREDENTIAL_STORE=file`. Sign in runs `login` the same way.
+  - **Version choice, to confirm on Windows:** the version folder `cursor-agent.ps1` names, if that folder is there. Otherwise, the newest `YYYY.M.D-<hash>` folder (with or without a `-HH-MM-SS` time), compared as numbers. Staged `.new`, `.previous` and temporary folders don't count, nor does a folder without both `node.exe` and `index.js`. With no such folder, Cursor isn't installed.
+  - Skipping the launcher also skips its `promote-staged.cmd`, so a staged self-update waits until Cursor next runs from a terminal.
 - The same lookup adds Docker's folder to `PATH` for core calls.
 
 ### 3.2 Jobs
