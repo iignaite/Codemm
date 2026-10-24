@@ -241,6 +241,52 @@ describe('installing Docker Desktop for the learner (§6.1)', () => {
     }
   });
 
+  it("on Windows: if Windows says Docker's installer needs an administrator after all, runs it once as one, for all users, saying so", async () => {
+    const ELEVATED_KEY = `${POWERSHELL} -NoProfile -NonInteractive -Command $i = New-Object`;
+    for (const refused of [{ code: null, output: '', failedToStart: 'EACCES' }, { code: 740, output: '' }]) {
+      const phases: (string | undefined)[] = [];
+      const f: ReturnType<typeof fake> = fake('win32', {
+        tempDir: () => WIN_TMP,
+        run: async (file, args, opts) => {
+          f.calls.push({ file, args, ...(opts?.env ? { env: opts.env } : {}) });
+          if (file === WIN_EXE) return refused;
+          if (args[3]?.startsWith('$i = New-Object')) return (phases.push(f.desktop.status()?.phase), { code: 0, output: '' });
+          return { code: 0, output: file === REG ? windowsInfo(26100) : 'Valid|CN=Docker Inc, O=Docker Inc\n' };
+        },
+      });
+      f.desktop.install();
+      await f.desktop.done();
+      const elevated = f.calls.filter((c) => [c.file, ...c.args].join(' ').startsWith(ELEVATED_KEY));
+      expect(elevated).toHaveLength(1);
+      // Docker's all-users install: as an administrator, a per-user one would go to that administrator's account.
+      expect(elevated[0].env).toEqual({ CODEMM_FILE: WIN_EXE, CODEMM_ARGS: 'install --quiet --backend=wsl-2' });
+      expect(phases).toEqual(['admin']);
+      expect(f.desktop.status()).toEqual({ phase: 'starting' });
+    }
+    // A learner who says no is told so, not "didn't finish".
+    const f = fake('win32', {
+      tempDir: () => WIN_TMP,
+      run: async (file, args) => {
+        if (file === WIN_EXE) return { code: 740, output: '' };
+        if (args[3]?.startsWith('$i = New-Object')) return { code: 1223, output: '' };
+        return { code: 0, output: file === REG ? windowsInfo(26100) : 'Valid|CN=Docker Inc, O=Docker Inc\n' };
+      },
+    });
+    f.desktop.install();
+    await f.desktop.done();
+    expect(f.desktop.status()).toEqual({ phase: 'failed', problem: 'declined' });
+  });
+
+  it("on Windows: a Docker Desktop already here needs no download folder", async () => {
+    let made = 0;
+    const f = fake('win32', { exists: (p) => p === 'C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe', tempDir: () => (made++, WIN_TMP), wsl: { state: 'ready', setUp: 'done' } });
+    f.desktop.install();
+    await f.desktop.done();
+    expect(made).toBe(0);
+    expect(f.removed).toEqual([]);
+    expect(f.desktop.status()).toEqual({ phase: 'starting' });
+  });
+
   it('on Windows: sets up WSL first, before anything downloads, then installs Docker and asks for a restart', async () => {
     const f = fake('win32', { tempDir: () => WIN_TMP, wsl: { state: 'missing', setUp: 'restart' } });
     f.desktop.install();
@@ -558,6 +604,10 @@ describe('on this computer, for real', () => {
     expect(r.code).toBe(0);
     // Darwin 23 is macOS 14.
     expect(systemProblem('darwin', r.output)).toBe(Number(release().split('.')[0]) >= 23 ? undefined : 'macos-version');
+  });
+
+  it("says why a program couldn't start, apart from one that ran and failed", async () => {
+    expect(await real.run(process.platform === 'win32' ? 'C:\\no\\such\\program.exe' : '/no/such/program', [])).toEqual({ code: null, output: '', failedToStart: 'ENOENT' });
   });
 
   it.runIf(process.platform === 'win32')("reads this Windows' build and edition as Docker's check does", async () => {

@@ -97,7 +97,7 @@ describe('install what is missing', () => {
     const docker = screen.getByRole('listitem', { name: 'Docker Desktop' });
     expect(await within(docker).findByRole('progressbar', { name: 'Allow WSL, which Docker needs, when Windows asks (look in the taskbar).' })).toBeInTheDocument();
     install = { phase: 'failed', problem: 'declined' };
-    expect(await within(docker).findByRole('alert')).toHaveTextContent('Windows asks for permission to set up WSL, which Docker needs. Try again, and choose Yes.');
+    expect(await within(docker).findByRole('alert')).toHaveTextContent('Windows asks for permission first. Try again, and choose Yes.');
     expect(within(docker).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     install = { phase: 'failed', problem: 'restart' };
     expect(await within(docker).findByText('Restart Windows, then open Codemm again.')).toBeInTheDocument();

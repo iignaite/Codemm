@@ -283,7 +283,7 @@ describe('check this computer', () => {
     await user.click(await within(installed).findByRole('button', { name: 'Restart now' }));
     expect(restarts).toBe(1);
     problem = 'declined';
-    expect(await within(installed).findByText('Windows asks for permission to set up WSL, which Docker needs. Try again, and choose Yes.')).toBeInTheDocument();
+    expect(await within(installed).findByText('Windows asks for permission first. Try again, and choose Yes.')).toBeInTheDocument();
     expect(within(installed).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
     expect(within(installed).queryByRole('button', { name: 'Restart now' })).not.toBeInTheDocument();
     problem = 'wsl-failed';

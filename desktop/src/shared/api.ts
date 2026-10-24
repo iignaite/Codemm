@@ -119,16 +119,16 @@ export interface ComputerCheck {
 
 /**
  * Codemm installing Docker Desktop for the learner (§6.1). `wsl`: on Windows, WSL's own setup, which Windows asks
- * permission for; `starting`: installed and opened; Docker's own window asks the learner to accept its terms.
+ * permission for; `admin`: Docker's installer as administrator, when Windows says it needs one; `starting`: installed and opened; Docker's own window asks the learner to accept its terms.
  * Problems: `offline` and `disk` are this computer's; `macos-version`,
  * `windows-version` and `windows-server`: Docker Desktop doesn't run on this macOS or Windows, so nothing downloaded
  * (an older Windows updates in Windows Update; Windows Server never runs it); `unverified`: the
  * download wasn't signed by Docker, so it was deleted; `manual`: drag Docker to Applications in the window that
- * opened; `declined`: the learner said no to Windows' permission prompt for WSL; `wsl-failed`: WSL's setup didn't
+ * opened; `declined`: the learner said no to Windows' permission prompt; `wsl-failed`: WSL's setup didn't
  * finish; `restart`: Windows needs a restart; `failed`: Docker's installer didn't finish.
  */
 export interface DockerInstall {
-  phase: 'wsl' | 'downloading' | 'checking' | 'installing' | 'starting' | 'failed';
+  phase: 'wsl' | 'downloading' | 'checking' | 'installing' | 'admin' | 'starting' | 'failed';
   /** 0 to 1 while downloading. */
   progress?: number;
   problem?: 'offline' | 'disk' | 'macos-version' | 'windows-version' | 'windows-server' | 'unverified' | 'manual' | 'declined' | 'wsl-failed' | 'restart' | 'failed';

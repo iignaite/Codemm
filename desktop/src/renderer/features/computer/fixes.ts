@@ -32,6 +32,7 @@ export const INSTALL = {
     downloading: 'Downloading Docker Desktop',
     checking: "Checking it's from Docker…",
     installing: 'Installing Docker…',
+    admin: "Allow Docker's installer when Windows asks (look in the taskbar).",
     starting: "Opening Docker. When it asks, accept Docker's terms in its window.",
   },
   problem: {
@@ -42,7 +43,7 @@ export const INSTALL = {
     'windows-server': "Docker Desktop doesn't run on Windows Server.",
     unverified: "The download wasn't signed by Docker, so Codemm deleted it.",
     manual: 'Drag Docker to Applications in the window that opened.',
-    declined: 'Windows asks for permission to set up WSL, which Docker needs. Try again, and choose Yes.',
+    declined: 'Windows asks for permission first. Try again, and choose Yes.',
     'wsl-failed': "WSL's setup didn't finish.",
     restart: 'Restart Windows, then open Codemm again.',
     failed: "Docker's installer didn't finish.",
