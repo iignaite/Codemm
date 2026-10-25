@@ -8,6 +8,7 @@ import type { AgentId, AgentJobKind } from '../../shared/api';
 import { AGENT_CLIS, PLAN_LIMIT, type AgentEvent, type Invocation, type McpServer } from './agents';
 import { infra as failureIn, infraOf, needsRebuild, type Cause, type Failure, type Infra } from '../core/failures';
 import { run, type Executable } from './bridge';
+import { CHANGE_APPROACH } from './briefs';
 
 /** A job the agent runs: the kinds of progress that aren't Codemm's own (shared/api.ts). */
 export type JobKind = AgentJobKind;
@@ -18,6 +19,8 @@ interface JobSpec {
   /** The save tool whose failures count toward the bound. */
   save?: string;
   web?: boolean;
+  /** A relaunch continues the failed attempt's session, told to change its approach, instead of starting fresh. */
+  resumes?: true;
 }
 
 const MIN = 60_000;
@@ -26,7 +29,7 @@ export const JOBS: Record<JobKind, JobSpec> = {
   roadmap: { tools: ['get_roadmap', 'save_roadmap'], deadlineMs: 10 * MIN },
   setup: { tools: ['list_tracks', 'save_track'], deadlineMs: 10 * MIN },
   lesson: { tools: ['get_roadmap', 'save_lesson'], deadlineMs: 5 * MIN, save: 'save_lesson' },
-  author: { tools: ['next_step', 'save_exercise'], deadlineMs: 15 * MIN, save: 'save_exercise' },
+  author: { tools: ['next_step', 'save_exercise'], deadlineMs: 15 * MIN, save: 'save_exercise', resumes: true },
   tutor: { tools: ['progress', 'next_step', 'get_exercise', 'get_lesson', 'mark_lesson_read', 'get_roadmap', 'list_tracks'], deadlineMs: 5 * MIN },
 };
 
@@ -214,7 +217,9 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     if (job.blocked?.()) return { ok: false, problem: 'unstoppable', text: last?.text ?? [] };
     if (job.usable?.() === false) return { ok: false, problem: 'signed-out', text: last?.text ?? [] };
     if (attempt > 0) job.onRelaunch?.();
-    last = await once(job);
+    // An author relaunches in its own session (it knows what it tried), told to change its approach.
+    const again = attempt > 0 && JOBS[job.kind].resumes && last?.session ? { ...job, resume: last.session, brief: `${job.brief}\n\n${CHANGE_APPROACH}` } : job;
+    last = await once(again);
     // Said at once: the caller stops every other agent on this, and a cleanup waiting on Docker must not delay it.
     if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
     // Before a relaunch or the end, an attempt Codemm ended leaves no container behind. Why a cleanup failed is

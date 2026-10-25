@@ -29,7 +29,9 @@ ${hang ? 'setInterval(() => {}, 1000);' : `process.exit(${exitCode});`}`,
   };
   const argv = () => JSON.parse(require('node:fs').readFileSync(join(dir, 'runs'), 'utf8').trim().split('\n')[0]) as string[];
   const cwds = () => require('node:fs').readFileSync(join(dir, 'cwds'), 'utf8').trim().split('\n') as string[];
-  return { exe: { path: script, js: true }, runs, argv, cwds };
+  /** Every run's arguments, in order. */
+  const argvs = () => (require('node:fs').readFileSync(join(dir, 'runs'), 'utf8').trim().split('\n') as string[]).map((l) => JSON.parse(l) as string[]);
+  return { exe: { path: script, js: true }, runs, argv, argvs, cwds };
 }
 
 const init = { type: 'system', subtype: 'init', session_id: 's1' };
@@ -97,6 +99,22 @@ describe('jobs (§3.2)', () => {
     const heard: string[] = [];
     await runJob(job(agent.exe, { kind: 'lesson', done: () => false, onEvent: (e) => heard.push(e.type), onRelaunch: () => heard.push('relaunch') }));
     expect(heard).toEqual(['session', 'text', 'done', 'relaunch', 'session', 'text', 'done']);
+  });
+
+  it("relaunches an author in its own session, told to change its approach, so the second attempt isn't the first again", async () => {
+    // Seen with Codex on Flask: three saves failed the same gate, and the fresh relaunch started from nothing.
+    const agent = fakeAgent([init, call('a', 'save_exercise'), result('a', true), call('b', 'save_exercise'), result('b', true), call('c', 'save_exercise'), result('c', true), success]);
+    await runJob(job(agent.exe, { kind: 'author', brief: 'Write one exercise.', done: () => false }));
+    const [first, second] = agent.argvs();
+    expect(first).not.toContain('--resume');
+    expect(second![second!.indexOf('--resume') + 1]).toBe('s1');
+    expect(second![second!.indexOf('-p') + 1]).toMatch(/^Write one exercise\.\n\n.*Change your approach/s);
+  });
+
+  it('relaunches other jobs fresh, as before', async () => {
+    const agent = fakeAgent([init, success]);
+    await runJob(job(agent.exe, { kind: 'lesson', done: () => false }));
+    expect(agent.argvs().map((a) => a.includes('--resume'))).toEqual([false, false]);
   });
 
   it('is not relaunched when its save landed just before a crash', async () => {
