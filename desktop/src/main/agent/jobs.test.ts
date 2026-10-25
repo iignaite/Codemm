@@ -103,8 +103,9 @@ describe('jobs (§3.2)', () => {
   });
 
   it("relaunches an author in its own session, told to change its approach, so the second attempt isn't the first again", async () => {
-    // Seen with Codex on Flask: three saves failed the same gate, and the fresh relaunch started from nothing.
-    const agent = fakeAgent([init, call('a', 'save_exercise'), result('a', true), call('b', 'save_exercise'), result('b', true), call('c', 'save_exercise'), result('c', true), success]);
+    // Seen with Codex on Flask: three saves failed the same gate, and the fresh relaunch started from nothing. One failed
+    // save is enough here: reaching the bound cancels the agent, which Windows can't confirm once the fake has exited.
+    const agent = fakeAgent([init, call('a', 'save_exercise'), result('a', true), success]);
     await runJob(job(agent.exe, { kind: 'author', brief: 'Write one exercise.', done: () => false }));
     const [first, second] = agent.argvs();
     expect(first).not.toContain('--resume');
@@ -113,7 +114,7 @@ describe('jobs (§3.2)', () => {
   });
 
   it('relaunches an author fresh when its agent refuses to continue the session', async () => {
-    const agent = fakeAgent([init, call('a', 'save_exercise'), result('a', true), call('b', 'save_exercise'), result('b', true), call('c', 'save_exercise'), result('c', true), success], { refuseResume: true });
+    const agent = fakeAgent([init, call('a', 'save_exercise'), result('a', true), success], { refuseResume: true });
     const outcome = await runJob(job(agent.exe, { kind: 'author', brief: 'Write one exercise.', done: () => false }));
     expect(agent.argvs().map((a) => a.includes('--resume'))).toEqual([false, true, false]);
     expect(outcome.problem).toBe('failed');
