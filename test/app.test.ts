@@ -196,6 +196,18 @@ describe("an author step's learner context", () => {
     expect(Object.keys((step as { last: object }).last).sort()).toEqual(["assisted", "passed", "total"]);
   });
 
+  it("puts the newest lesson first and keeps the text within 32 KB, never the learner's notes", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    await app.saveLesson(ws, { id: "basics-long", concept: "sh.basics", title: "Long", markdown: `# Long\n\n${"é".repeat(30_000)}\n` });
+    await app.saveLesson(ws, { id: "basics-again", concept: "sh.basics", title: "Again", markdown: "# Again\n\nThe re-teach.\n" });
+    await app.saveNotes(ws, "basics-again", "MY PRIVATE NOTE");
+    const step = app.nextStep(ws) as { lessonText: string };
+    expect(step.lessonText.startsWith("# Again")).toBe(true);
+    expect(Buffer.byteLength(step.lessonText)).toBeLessThanOrEqual(32_768);
+    expect(step.lessonText).not.toContain("MY PRIVATE NOTE");
+  });
+
   it("leaves both out when the concept has no lesson and no check yet", async () => {
     installFake();
     await app.saveRoadmap(ws, "shell", roadmap());

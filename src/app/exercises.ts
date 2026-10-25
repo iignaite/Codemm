@@ -5,7 +5,7 @@ import { type ExerciseGate, verifyExercise } from "../gates.js";
 import { type CaseFrames, expectedText, gradeIo, redact, type ShownResult, type Status, type TestResult, type TestSet } from "../grading.js";
 import { judgeSets } from "../judge.js";
 import { type ProgramOptions, type ProgramRun, runProgram } from "../program.js";
-import { nextStep as pickNext, type Step } from "../learner.js";
+import { lastCheck, nextStep as pickNext, type Step } from "../learner.js";
 import { type CourseRecord, type ExerciseRecord, type TrackRecord } from "../schemas.js";
 import * as store from "../store.js";
 import { activeCourse, ensureImage, installedTrack, learnerDir, noteAssistLocked, quietly, trackContract } from "./shared.js";
@@ -36,16 +36,20 @@ export type NextStep =
  */
 export type LearnerContext = { lessonText?: string; last?: { passed: number; total: number; assisted: boolean } };
 
-/** At most this much lesson text: a lesson is at most 64 KB. */
-const LESSON_TEXT_MAX = 65_536;
+/** At most this many bytes of lesson text, so next_step stays small enough for an agent to take in whole. */
+const LESSON_TEXT_BYTES = 32_768;
+
+/** The concept's lessons, newest first (a re-teach matters most), cut to LESSON_TEXT_BYTES at a character. */
+function lessonText(course: string, concept: string): string {
+  const text = store.listLessons(course).filter((l) => l.concept === concept).reverse().map((l) => store.readLessonText(course, l.id)).join("\n\n");
+  const bytes = Buffer.from(text);
+  return bytes.length <= LESSON_TEXT_BYTES ? text : bytes.subarray(0, LESSON_TEXT_BYTES).toString("utf8").replace(/\uFFFD+$/, "");
+}
 
 function learnerContext(course: string, concept: string): LearnerContext {
-  const text = store.listLessons(course).filter((l) => l.concept === concept).map((l) => store.readLesson(course, l.id).markdown).join("\n\n").slice(0, LESSON_TEXT_MAX);
-  const last = store.readEvents(course).filter((e) => e.kind === "check" && e.concepts.includes(concept)).at(-1);
-  return {
-    ...(text ? { lessonText: text } : {}),
-    ...(last?.kind === "check" ? { last: { passed: last.passed, total: last.total, assisted: last.assisted } } : {}),
-  };
+  const text = lessonText(course, concept);
+  const last = lastCheck(store.readEvents(course), concept);
+  return { ...(text ? { lessonText: text } : {}), ...(last ? { last } : {}) };
 }
 
 /** An exercise the course already has, as its statement shows it, so the next one can be a different task. */
