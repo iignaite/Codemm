@@ -81,4 +81,9 @@ describe('another topic ready', () => {
     const linear = { ...progress({ kind: 'stuck', concept: 'state' }), concepts: concepts.filter((c) => c.id !== 'forms') };
     expect(otherReady(linear, ['state'])).toBe(false);
   });
+
+  it("counts a topic left for later as met: the topics after it open (core §7)", () => {
+    const chain = { ...progress({ kind: 'author', concept: 'state', difficulty: 1 }), concepts: [...concepts.filter((c) => c.id !== 'forms'), { id: 'hooks', title: 'Hooks', requires: ['state'], mastery: 0.5, mastered: false, attempts: 0, stuck: false }] };
+    expect(otherReady(chain, ['state'])).toBe(true);
+  });
 });

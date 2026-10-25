@@ -47,7 +47,7 @@ export function TopicPage({ topicId }: { topicId: string }) {
         <SetupOffer course={course} onChange={reload} />
       </div>
       {/* A lesson that wasn't written says so on its own row. */}
-      {course.stalled && !(course.stalled === 'lesson' && topic?.lessons.some((l) => l.state === 'failed')) && <Stalled stalled={course.stalled} work={course.stalledWork} retry={reload} />}
+      {course.stalled && !(course.stalled === 'lesson' && topic?.lessons.some((l) => l.state === 'failed')) && <Stalled stalled={course.stalled} work={course.stalledWork} later={course.later} retry={reload} />}
       {stale !== undefined && <Stale error={stale} retry={reload} />}
     </main>
   );

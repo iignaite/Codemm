@@ -738,7 +738,11 @@ export function createLive(d: LiveDeps): Live {
       const failed = stalled === 'lesson' ? failedLessons.get(roadmap.course) : undefined;
       const view: CourseView = { title: nameOf(roadmap), ...courseView(progress, core.listLessons(ws, roadmap.course), state, jobs, undefined, failed) };
       const work = stalledWork.get(roadmap.course);
-      return stalled ? { ...view, stalled, ...(work ? { stalledWork: work } : {}) } : view;
+      if (!stalled) return view;
+      // An activity its agent couldn't write can be left for later when that opens another topic (core §7).
+      const current = currentConcept(progress);
+      const later = stalled === 'failed' && work === 'author' && current && otherReady(progress, [current]) ? { later: current } : {};
+      return { ...view, stalled, ...(work ? { stalledWork: work } : {}), ...later };
     },
 
     async courses() {
@@ -914,7 +918,8 @@ export function createLive(d: LiveDeps): Live {
     async skip(concept) {
       const course = approved();
       await core.skip(ws, concept, course);
-      schedule(course);
+      // Leaving a stalled activity for later ends the stall: the next topic's lesson and activity start (core §7).
+      resume(course);
     },
 
     async easier(concept) {

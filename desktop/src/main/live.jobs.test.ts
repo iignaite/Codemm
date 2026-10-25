@@ -470,6 +470,34 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     expect(t.jobs.ran.filter((j) => j.kind === 'author')).toHaveLength(1);
   });
 
+  it("offers Come back later on a topic whose activity couldn't be written, and moves on to the next topic's lesson and activity (§4.4)", async () => {
+    const t = live({ author: (job, usual) => (job.server([]).args.includes('--course') && !t.c.skipped.size ? { ok: false } : usual()) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(proposal!.digest);
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'failed', stalledWork: 'author', later: 'values' });
+    await t.api.skip('values');
+    const after = await until(t.api, (c) => c.stalled === undefined && t.jobs.ran.some((j) => j.kind === 'author' && j !== t.jobs.ran.find((k) => k.kind === 'author')));
+    expect(after).not.toHaveProperty('later');
+    // The next topic's lesson is written while Values' activity is left for later, then its activity.
+    expect(t.jobs.ran.filter((j) => j.kind === 'lesson').map((j) => /^Concept: (\S+)/m.exec(j.brief)?.[1])).toEqual(['values', 'state']);
+    expect(t.c.lessons.map((l) => l.concept)).toEqual(['values', 'state']);
+  });
+
+  it('offers no Come back later when no other topic would open', async () => {
+    const t = live({ author: () => ({ ok: false }) });
+    // Values is mastered, so the activity is State's, the last topic: leaving it for later opens nothing.
+    t.c.mastered.add('values');
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(proposal!.digest);
+    const stalled = await until(t.api, (c) => c.stalled !== undefined);
+    expect(stalled).toMatchObject({ stalled: 'failed', stalledWork: 'author' });
+    expect(stalled).not.toHaveProperty('later');
+  });
+
   it('an agent Codemm could not stop says so, in the foreground and as stalled background work', async () => {
     const t = live({ tutor: () => ({ ok: false, problem: 'unstoppable' }) });
     const activity = await practising(t);

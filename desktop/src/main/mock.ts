@@ -57,6 +57,8 @@ export interface MockOptions {
   /** Read on every call: background work stopped with this until the learner tries again or connects again. */
   stalled?: CourseView['stalled'];
   stalledWork?: CourseView['stalledWork'];
+  /** With a stall: the topic its banner offers to leave for later (CourseView.later). */
+  laterTopic?: string;
   /** 'io': activities read input and print, so they have Run. */
   style?: 'io';
   /** Run's time limit; 120 s by default. */
@@ -733,7 +735,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async course() {
       if (!course) return null;
       tick(course);
-      return { ...structuredClone(course), ...(options.stalled ? { stalled: options.stalled } : {}), ...(options.stalled && options.stalledWork ? { stalledWork: options.stalledWork } : {}) };
+      return { ...structuredClone(course), ...(options.stalled ? { stalled: options.stalled } : {}), ...(options.stalled && options.stalledWork ? { stalledWork: options.stalledWork } : {}), ...(options.stalled && options.laterTopic ? { later: options.laterTopic } : {}) };
     },
 
     async install(digest) {
@@ -756,6 +758,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       delete options.agentProblem;
       delete options.stalled;
       delete options.stalledWork;
+      delete options.laterTopic;
     },
 
     async lesson(id) {
@@ -866,6 +869,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async skip(concept) {
       topicOf(concept);
       deferred.add(concept);
+      // Leaving a stalled activity for later ends the stall, as live's skip does.
+      delete options.stalled;
+      delete options.stalledWork;
+      delete options.laterTopic;
       advance();
     },
 

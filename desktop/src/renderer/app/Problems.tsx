@@ -23,7 +23,7 @@ const WORK = { setup: 'setting up the course', lesson: 'writing a lesson', autho
 const unfinished = (work: CourseView['stalledWork']) => `Codemm couldn't finish ${work ? WORK[work] : "the course's next step"}.`;
 
 /** Background work stopped after its retry, and nothing was recorded (§5). A sign-out goes to connect instead. */
-export function Stalled({ stalled, work, retry }: { stalled: NonNullable<CourseView['stalled']>; work?: CourseView['stalledWork']; retry: () => void }) {
+export function Stalled({ stalled, work, later, retry }: { stalled: NonNullable<CourseView['stalled']>; work?: CourseView['stalledWork']; later?: string; retry: () => void }) {
   const api = useApi();
   const { route, go, fail } = useRouter();
   // Try again runs once: a double click starts the work once.
@@ -42,6 +42,16 @@ export function Stalled({ stalled, work, retry }: { stalled: NonNullable<CourseV
         fail(e);
       }
     });
+  // Leaves the topic whose activity couldn't be written for later: the topics after it open, unmastered (core §7).
+  const leave = (concept: string) =>
+    starting.guard(async () => {
+      try {
+        await api.skip(concept);
+        retry();
+      } catch (e) {
+        fail(e);
+      }
+    });
 
   return (
     <div className="failed" role="alert">
@@ -51,6 +61,7 @@ export function Stalled({ stalled, work, retry }: { stalled: NonNullable<CourseV
       {stalled === 'rebuild' && <Button variant="text" onClick={() => go({ to: 'tracks' })}>Go to Tracks</Button>}
       {/* An agent Codemm couldn't stop is still running: only quitting stops it (§3.1). */}
       {stalled !== 'unstoppable' && <Button variant="text" disabled={starting.busy} onClick={again}>Try again</Button>}
+      {later && <Button variant="text" disabled={starting.busy} onClick={() => leave(later)}>Come back later</Button>}
     </div>
   );
 }

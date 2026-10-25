@@ -247,6 +247,11 @@ export interface CourseView {
   stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'disk' | 'rebuild' | 'lesson' | 'failed' | 'unstoppable';
   /** The background work that stalled, so its banner can name it. */
   stalledWork?: 'setup' | 'lesson' | 'author';
+  /**
+   * The topic whose activity couldn't be written, when leaving it for later opens another topic: its banner offers
+   * "Come back later", which unlocks the topics after it without mastering it (core §7).
+   */
+  later?: string;
 }
 
 /** One of the learner's courses, to switch to (§4.13). The id is opaque and never shown. */
