@@ -101,7 +101,7 @@ describe("buildOutput", () => {
     expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(4096);
   });
 
-  it("shows the end of the log when no line of the failing step can be read", () => {
+  it("reads a log with CRLF line endings", () => {
     const crlf = "#5 [2/2] RUN false\r\n#5 0.1 the cause\r\n#5 ERROR: process \"false\" did not complete successfully: exit code: 1\r\n";
     expect(buildOutput(crlf)).toContain("the cause");
   });
