@@ -447,6 +447,16 @@ export function buildProblem(log: string): BuildProblem | undefined {
   if (credentials) {
     return buildIssue("credentials", `Docker couldn't run its credential helper (${credentials}), so nothing was installed. ${NOT_THE_TRACK} after restarting Docker Desktop.`);
   }
+  // Stopped at the 10-minute limit while a download (a base image layer, or a package) was still making progress:
+  // the network is slow, and the same files may build next time. A timeout in the track's own commands stays its own.
+  const lines = log.trimEnd().split("\n");
+  if (/^\(timed out after \d+ ms\)$/.test(lines.at(-1) ?? "")) {
+    const last = lines.at(-2)?.trim() ?? "";
+    if (/\b\d+(?:\.\d+)?\s?[kMG]i?B\s?\/\s?\d+(?:\.\d+)?\s?[kMG]i?B\b/.test(last)) {
+      return buildIssue("network-timeout", `The track build was still downloading after 10 minutes (${last.slice(0, 300)}), so nothing was installed. ` +
+        `Docker's connection may be slow, or a VPN, proxy or firewall may be slowing it. ${NOT_THE_TRACK} once the connection is faster.`);
+    }
+  }
   for (const { code, marker, lead, why, retry } of NETWORK) {
     const line = lineOf(log, marker);
     if (line) return buildIssue(code, `${lead} (${line}), so nothing was installed. ${why} ${NOT_THE_TRACK} ${retry}.`);
