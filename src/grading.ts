@@ -367,7 +367,7 @@ function parseReport(raw: RawReport, stops?: Stops): z.infer<typeof Report>["tes
     return `The test runner ${why ?? "stopped with an error"}.${raw.log ? `\n${raw.log}` : ""}`;
   }
   // The driver frames an empty body when $OUT is missing or over 1 MB: often a runner that printed its report instead.
-  if (!raw.body.trim()) return "The test command wrote no report to $OUT. Write the JSON report to the file $OUT names; what it prints isn't read as the report.";
+  if (!raw.body.trim()) return "The test command wrote no report to $OUT, or one over 1 MB. Write the JSON report to the file $OUT names; what it prints isn't read as the report.";
   let json: unknown;
   try {
     json = JSON.parse(raw.body);
