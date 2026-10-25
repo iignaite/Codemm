@@ -103,6 +103,14 @@ describe("author instructions (codemm-author subagent)", () => {
     expect(AUTHOR_AGENT).toMatch(/trailing whitespace/);
   });
 
+  it("lists exercise.yaml's only keys, so the track isn't written into it", () => {
+    // Codex added `track:` to exercise.yaml after reading "use the ... track exactly as you were given them".
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) {
+      expect(text).toMatch(/`exercise.yaml` holds only/);
+      expect(text).not.toMatch(/difficulty, style and track exactly as you were given/);
+    }
+  });
+
   it("starts track versions at 1", () => {
     expect(AUTHOR_AGENT).toMatch(/starting at 1/);
   });
