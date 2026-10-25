@@ -28,7 +28,25 @@ export type TrackContract = {
 export type NextStep =
   | Step
   | { kind: "setup"; track: string }
-  | (Extract<Step, { kind: "author" }> & { title: string; style: string; track: string; contract: TrackContract; earlier: Earlier[] });
+  | (Extract<Step, { kind: "author" }> & { title: string; style: string; track: string; contract: TrackContract; earlier: Earlier[] } & LearnerContext);
+
+/**
+ * What the author adapts the task to: the concept's lessons as the learner reads them, and their last check on the
+ * concept as counts only (the tutor calls next_step too, so nothing about a test but how many passed).
+ */
+export type LearnerContext = { lessonText?: string; last?: { passed: number; total: number; assisted: boolean } };
+
+/** At most this much lesson text: a lesson is at most 64 KB. */
+const LESSON_TEXT_MAX = 65_536;
+
+function learnerContext(course: string, concept: string): LearnerContext {
+  const text = store.listLessons(course).filter((l) => l.concept === concept).map((l) => store.readLesson(course, l.id).markdown).join("\n\n").slice(0, LESSON_TEXT_MAX);
+  const last = store.readEvents(course).filter((e) => e.kind === "check" && e.concepts.includes(concept)).at(-1);
+  return {
+    ...(text ? { lessonText: text } : {}),
+    ...(last?.kind === "check" ? { last: { passed: last.passed, total: last.total, assisted: last.assisted } } : {}),
+  };
+}
 
 /** An exercise the course already has, as its statement shows it, so the next one can be a different task. */
 export type Earlier = { title: string; summary: string };
@@ -56,7 +74,7 @@ export function nextStep(ws: string, bound?: string): NextStep {
   const step = pickFor(course);
   if (step.kind !== "author") return step;
   const title = course.concepts.find((c) => c.id === step.concept)?.title ?? step.concept;
-  return { ...step, title, style: course.style, track: course.track, contract: trackContract(track, course.style), earlier: earlierExercises(course.course) };
+  return { ...step, title, style: course.style, track: course.track, contract: trackContract(track, course.style), earlier: earlierExercises(course.course), ...learnerContext(course.course, step.concept) };
 }
 
 /** Writes each exercise gate as it starts to a job's progress file (`codemm mcp --progress`), by name only. */
