@@ -10,16 +10,20 @@ interface UsageFile {
   format_version: 1;
   courses: Record<string, Partial<Record<JobKind, UsageTotals>>>;
   /**
-   * The highest cost Claude reported per tutor or setup session. Only those resume (a setup after a gate failure), and
-   * a resumed session's report covers the whole session so far, so only the rise counts.
+   * The highest cost Claude reported per tutor, setup or author session. Only those resume (a setup after a gate
+   * failure, an author's relaunch), and a resumed session's report covers the whole session so far, so only the rise
+   * counts.
    */
   sessions: Record<string, number>;
 }
 
 /** The job kinds whose sessions resume. */
-const RESUMED: ReadonlySet<JobKind> = new Set(['tutor', 'setup']);
-/** Tutor sessions are one per course and agent, setup sessions a few per track; this only bounds a file that would otherwise only grow. */
-const MAX_SESSIONS = 100;
+const RESUMED: ReadonlySet<JobKind> = new Set(['tutor', 'setup', 'author']);
+/**
+ * Tutor sessions are one per course and agent, setup sessions a few per track, author sessions a few per concept; this
+ * only bounds a file that would otherwise only grow, with room for a course's authors between two tutor turns.
+ */
+const MAX_SESSIONS = 500;
 const zero = (): UsageTotals => ({ input: 0, output: 0, cachedInput: 0, costUsd: 0, runs: 0 });
 const add = (a: UsageTotals, b: UsageTotals): UsageTotals => ({
   input: a.input + b.input,
@@ -50,7 +54,7 @@ export function usageStore(dir: string) {
 
   return {
     dir,
-    /** Adds one run's report. `session` lets a resumed tutor or setup session's cost count only what's new. */
+    /** Adds one run's report. `session` lets a resumed session's cost count only what's new. */
     record(course: string, kind: JobKind, u: { input: number; output: number; cachedInput?: number; costUsd?: number }, session?: string) {
       const data = read();
       let cost = u.costUsd ?? 0;

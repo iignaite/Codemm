@@ -19,6 +19,13 @@ const DEPTH: Record<Depth, string> = {
   'in-depth': 'in depth, about 25 to 30 topics',
 };
 
+/**
+ * Added to an author's brief when it relaunches in its own session: its saves didn't pass, so the next attempt must
+ * differ, not repeat (adaptive-activities proposal, the authoring loop).
+ */
+export const CHANGE_APPROACH =
+  "Your last attempt didn't save an exercise that passed Codemm's checks. Change your approach rather than repeating it: write a smaller task, a different task of the kind the concept needs, or simpler, deterministic tests.";
+
 export function briefsFrom(base: Record<JobKind, string>, platform: NodeJS.Platform = process.platform) {
   const room = platform === 'win32' ? WINDOWS_ROOM : ROOM;
   const brief = (kind: JobKind, ...details: (string | false | undefined)[]) => [base[kind], ...details.filter(Boolean)].join('\n\n');

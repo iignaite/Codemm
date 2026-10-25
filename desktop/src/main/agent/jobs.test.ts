@@ -7,7 +7,7 @@ import { JOBS, runJob, type Job } from './jobs';
 import { tempDir } from '../testing/temp';
 
 /** A fake Claude Code: a Node script that replays stream-json lines, the way recorded fixtures do. */
-function fakeAgent(lines: object[], { exitCode = 0, hang = false, stderr = [] as string[] } = {}) {
+function fakeAgent(lines: object[], { exitCode = 0, hang = false, stderr = [] as string[], refuseResume = false } = {}) {
   const dir = tempDir('codemm-agent-');
   const script = join(dir, 'claude.js');
   writeFileSync(
@@ -16,6 +16,7 @@ function fakeAgent(lines: object[], { exitCode = 0, hang = false, stderr = [] as
 const fs = require('node:fs');
 fs.appendFileSync(${JSON.stringify(join(dir, 'runs'))}, JSON.stringify(process.argv.slice(2)) + '\\n');
 fs.appendFileSync(${JSON.stringify(join(dir, 'cwds'))}, process.cwd() + '\\n');
+${refuseResume ? "if (process.argv.includes('--resume')) process.exit(1);" : ''}
 for (const l of ${JSON.stringify(lines.map((l) => JSON.stringify(l)))}) console.log(l);
 for (const l of ${JSON.stringify(stderr)}) console.error(l);
 ${hang ? 'setInterval(() => {}, 1000);' : `process.exit(${exitCode});`}`,
@@ -29,7 +30,9 @@ ${hang ? 'setInterval(() => {}, 1000);' : `process.exit(${exitCode});`}`,
   };
   const argv = () => JSON.parse(require('node:fs').readFileSync(join(dir, 'runs'), 'utf8').trim().split('\n')[0]) as string[];
   const cwds = () => require('node:fs').readFileSync(join(dir, 'cwds'), 'utf8').trim().split('\n') as string[];
-  return { exe: { path: script, js: true }, runs, argv, cwds };
+  /** Every run's arguments, in order. */
+  const argvs = () => (require('node:fs').readFileSync(join(dir, 'runs'), 'utf8').trim().split('\n') as string[]).map((l) => JSON.parse(l) as string[]);
+  return { exe: { path: script, js: true }, runs, argv, argvs, cwds };
 }
 
 const init = { type: 'system', subtype: 'init', session_id: 's1' };
@@ -97,6 +100,30 @@ describe('jobs (§3.2)', () => {
     const heard: string[] = [];
     await runJob(job(agent.exe, { kind: 'lesson', done: () => false, onEvent: (e) => heard.push(e.type), onRelaunch: () => heard.push('relaunch') }));
     expect(heard).toEqual(['session', 'text', 'done', 'relaunch', 'session', 'text', 'done']);
+  });
+
+  it("relaunches an author in its own session, told to change its approach, so the second attempt isn't the first again", async () => {
+    // Seen with Codex on Flask: three saves failed the same gate, and the fresh relaunch started from nothing. One failed
+    // save is enough here: reaching the bound cancels the agent, which Windows can't confirm once the fake has exited.
+    const agent = fakeAgent([init, call('a', 'save_exercise'), result('a', true), success]);
+    await runJob(job(agent.exe, { kind: 'author', brief: 'Write one exercise.', done: () => false }));
+    const [first, second] = agent.argvs();
+    expect(first).not.toContain('--resume');
+    expect(second![second!.indexOf('--resume') + 1]).toBe('s1');
+    expect(second![second!.indexOf('-p') + 1]).toMatch(/^Write one exercise\.\n\n.*Change your approach/s);
+  });
+
+  it('relaunches an author fresh when its agent refuses to continue the session', async () => {
+    const agent = fakeAgent([init, call('a', 'save_exercise'), result('a', true), success], { refuseResume: true });
+    const outcome = await runJob(job(agent.exe, { kind: 'author', brief: 'Write one exercise.', done: () => false }));
+    expect(agent.argvs().map((a) => a.includes('--resume'))).toEqual([false, true, false]);
+    expect(outcome.problem).toBe('failed');
+  });
+
+  it('relaunches other jobs fresh, as before', async () => {
+    const agent = fakeAgent([init, success]);
+    await runJob(job(agent.exe, { kind: 'lesson', done: () => false }));
+    expect(agent.argvs().map((a) => a.includes('--resume'))).toEqual([false, false]);
   });
 
   it('is not relaunched when its save landed just before a crash', async () => {
