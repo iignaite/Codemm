@@ -35,6 +35,9 @@ describe("tutor instructions (AGENTS.md section)", () => {
       expect(text).toMatch(/`time_ms` is per io case, or for a unit track's whole `test` command, compiling included, and at most 120000/);
       expect(text).toMatch(/in a folder any user can read \(not `\/root` or `\$HOME`/);
       expect(text).toMatch(/run the track's own build and test commands once in the Dockerfile, on the pass probe/);
+      // Codex cached with Maven's dependency:go-offline, then built offline, and the build missed dependencies twice.
+      expect(text).toMatch(/with the network on/);
+      expect(text).toMatch(/misses plugins and transitive dependencies/);
       expect(text).toMatch(/must work on a copy in `\/tmp`/);
       expect(text).toMatch(/calling the compiler and test runner directly/);
     }
@@ -45,6 +48,14 @@ describe("tutor instructions (AGENTS.md section)", () => {
       expect(text).toMatch(/write `NN.gen` instead of `NN.in`, a POSIX `sh` script whose output is input NN/);
       expect(text).toMatch(/fixed seed/);
       expect(text).toMatch(/up to 32 MB/);
+    }
+  });
+
+  it("tells a track author that files is a list and each save sends the whole track", () => {
+    // Sonnet sent files as a map, then only the files it changed.
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).toMatch(/`files` \(a list of the paths the learner edits\)/);
+      expect(text).toMatch(/Each `save_track` call sends every file of the track, not only the ones you changed/);
     }
   });
 

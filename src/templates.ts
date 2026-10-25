@@ -39,12 +39,12 @@ const FILE_MAP = `You pass files as a file map: \`{ "relative/path": "file conte
 
 const TRACK_RULES = `## Tracks (\`save_track\`)
 
-A track is the environment for one language or framework. It needs:
+A track is the environment for one language or framework. Each \`save_track\` call sends every file of the track, not only the ones you changed. It needs:
 
 - \`track.yaml\`:
   - \`id\`, \`version\` (an integer starting at 1; bump it to change an installed track);
   - \`styles\` (\`[io]\`, \`[unit]\` or both);
-  - \`files\` (the files the learner edits);
+  - \`files\` (a list of the paths the learner edits);
   - \`build\` (optional, io only: runs once before the cases);
   - \`run\` (io: reads stdin, writes stdout);
   - \`test\` (unit);
@@ -55,7 +55,7 @@ A track is the environment for one language or framework. It needs:
 How checks run:
 
 - The learner's files are read-only in \`/work/src\` (the working directory), and the tests are read-only in \`/work/tests\`. Only \`/tmp\` is writable, and \`HOME=/tmp\`, so put build output and caches in \`/tmp\`. A build tool that writes next to the sources (a \`target/\` or \`build/\` folder) must work on a copy in \`/tmp\`. \`/tmp\` is memory, so what's written there counts toward \`memory_mb\`.
-- **Dependencies, offline:** checks run with no network, as a user other than root, with \`HOME=/tmp\`. So the image must already hold every dependency and plugin the build, run and test commands use, in a folder any user can read (not \`/root\` or \`$HOME\`; \`chmod -R a+rX\` it), and those commands must use it offline: for example Maven's \`-o\` with \`-Dmaven.repo.local=\` that folder, or an installed Gradle (not the wrapper's download) with \`--offline\` and \`GRADLE_RO_DEP_CACHE\`. The surest way to cache everything is to run the track's own build and test commands once in the Dockerfile, on the pass probe. A track that misses something fails its probes with the tool's own error. Start-up time counts: \`run\` starts once per io case, and starting a build tool can take 10 s or more every time the tests run, so calling the compiler and test runner directly (with the cached dependencies on the class or module path) is several times faster.
+- **Dependencies, offline:** checks run with no network, as a user other than root, with \`HOME=/tmp\`. So the image must already hold every dependency and plugin the build, run and test commands use, in a folder any user can read (not \`/root\` or \`$HOME\`; \`chmod -R a+rX\` it), and those commands must use it offline: for example Maven's \`-o\` with \`-Dmaven.repo.local=\` that folder, or an installed Gradle (not the wrapper's download) with \`--offline\` and \`GRADLE_RO_DEP_CACHE\`. The surest way to cache everything is to run the track's own build and test commands once in the Dockerfile, on the pass probe, with the network on; a dependency-prefetch step alone (like Maven's \`dependency:go-offline\`) misses plugins and transitive dependencies. A track that misses something fails its probes with the tool's own error. Start-up time counts: \`run\` starts once per io case, and starting a build tool can take 10 s or more every time the tests run, so calling the compiler and test runner directly (with the cached dependencies on the class or module path) is several times faster.
 - The image must have \`sh\`, \`timeout\`, \`sleep\`, \`head\`, \`wc\`, \`cat\` and \`basename\`, and must not declare a \`VOLUME\`.
 - **Unit tracks:** the \`test\` command runs the tests in \`$TESTS\` against \`/work/src\` and writes \`$OUT\`, for example \`{"tests":[{"name":"test_sum.test_basic","status":"pass"},{"name":"test_sum.test_empty","status":"fail","message":"expected 0, got 1"}]}\`. Each status is exactly \`pass\`, \`fail\` or \`error\`, and every name is unique and stable. It must exit 0 whenever it wrote the report, even if tests failed, and must find the test files in \`$TESTS\`, wherever Codemm puts them. Never hide the runner's own failure, such as finding no test files: a report that lists no tests fails. Usually that means a small script baked into the image that runs the framework and converts its report.`;
 
