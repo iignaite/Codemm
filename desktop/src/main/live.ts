@@ -12,6 +12,7 @@ import {
   SIGNED_OUT,
   UNSTOPPABLE,
   type Agent,
+  type AgentId,
   type CheckProgress,
   type JobProgress,
   type CodemmApi,
@@ -97,6 +98,9 @@ interface Running {
   stop: AbortController;
 }
 
+/** An agent's session, which only that agent can continue. */
+type AgentSession = { agent: AgentId; id: string };
+
 /** A course's setup: the proposal the learner approved, and how it went (§4.1). */
 interface SetupRun {
   installing?: Promise<void>;
@@ -104,8 +108,11 @@ interface SetupRun {
   problem?: SetupProblem;
   gateFailures: number;
   lastGateProblem?: string;
-  /** The last setup agent's session: a proposal after a gate failure continues it, so the agent fixes its own files. */
-  session?: string;
+  /**
+   * The last setup agent's session: a proposal after a gate failure continues it, so the agent fixes its own files.
+   * Only the same agent can continue it, and Cursor keeps chats per job folder, which the course's server names.
+   */
+  session?: AgentSession & { course: string };
   installs: number;
 }
 
@@ -270,8 +277,11 @@ export function createLive(d: LiveDeps): Live {
    */
   function start(
     key: string, lane: 'fg' | 'bg', kind: JobKind, brief: string, course: string | undefined, done: Job['done'],
-    { resume, onSource, concept, retry, settled, track }: {
-      resume?: string; onSource?: Job['onSource']; concept?: string; retry?: JobProgress['retry'];
+    { resume, onSource, concept, retry, settled, track, onSession }: {
+      /** A session to continue: a tutor's, or another job's, which only its own agent continues. */
+      resume?: string | AgentSession; onSource?: Job['onSource']; concept?: string; retry?: JobProgress['retry'];
+      /** Hears the session the job's agent left, failed or not. */
+      onSession?: (session: AgentSession) => void;
       /** A track's setup: every course on the track hears its progress. */
       track?: string;
       /** Runs as the job ends, before its queue moves on: background work records its stall here. */
@@ -328,7 +338,7 @@ export function createLive(d: LiveDeps): Live {
         agentDir: d.agentDir,
         // The learner's model choice, or the recommended one (O6), for every agent with choices.
         model,
-        resume,
+        resume: typeof resume === 'string' ? resume : resume?.agent === id ? resume.id : undefined,
         signal: stop.signal,
         done,
         blocked: () => unstoppable,
@@ -355,6 +365,7 @@ export function createLive(d: LiveDeps): Live {
         trackers.delete(key);
         tellJob({ ...tracker.snapshot(), ended: true }, audience);
       });
+      if (outcome.session) onSession?.({ agent: id, id: outcome.session });
       if (outcome.problem === 'unstoppable') unstoppable = true;
       log('job-end', { kind, ok: outcome.ok, problem: outcome.problem, cause: outcome.cause, cancelled: stop.signal.aborted || undefined, ms: Date.now() - began });
       return outcome;
@@ -388,9 +399,8 @@ export function createLive(d: LiveDeps): Live {
   function background(
     key: string, kind: JobKind, brief: string, course: string, done: Job['done'],
     { lane = 'bg', concept, retry, track, resume, onSession }: {
-      lane?: 'fg' | 'bg'; concept?: string; retry?: JobProgress['retry']; track?: string; resume?: string;
-      /** Hears the session the job's agent left, failed or not. */
-      onSession?: (session: string) => void;
+      lane?: 'fg' | 'bg'; concept?: string; retry?: JobProgress['retry']; track?: string; resume?: AgentSession;
+      onSession?: (session: AgentSession) => void;
     } = {},
   ) {
     if (stopping || stalls.has(course) || running.has(key)) return;
@@ -408,14 +418,13 @@ export function createLive(d: LiveDeps): Live {
         if (lesson && concept) failedLessons.set(c, concept);
       });
     const settled = (r: JobOutcome | Error) => {
-      if (!(r instanceof Error) && r.session) onSession?.(r.session);
       if (r instanceof Error) {
         log('job-error', { job: kind, ...errorFields(r) });
         stall(r.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed');
       } else if (!r.ok && !running.get(key)?.stop.signal.aborted) stall(r.problem ?? 'failed');
     };
     // A finished job can make its course's next one due: the lesson before the activity, a proposal after gates.
-    start(key, lane, kind, brief, course, done, { concept, retry, settled, track, resume }).then((o) => o.ok && courses().forEach((c) => schedule(c)), () => undefined);
+    start(key, lane, kind, brief, course, done, { concept, retry, settled, track, resume, onSession }).then((o) => o.ok && courses().forEach((c) => schedule(c)), () => undefined);
   }
 
   /** Ends a course's stall and starts the work it still needs. */
@@ -482,7 +491,8 @@ export function createLive(d: LiveDeps): Live {
         // The agent can't build or run anything itself, so after a gate failure it continues its own session: it sees the
         // files it proposed and fixes them, rather than writing a new track from the failure alone.
         background(`setup:${ref}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed, {
-          retry, track: ref, ...(retry ? { resume: setup.session } : {}), onSession: (session) => (setup.session = session),
+          retry, track: ref, ...(retry && setup.session?.course === progress.course ? { resume: setup.session } : {}),
+          onSession: (session) => (setup.session = { ...session, course: progress.course }),
         });
       }
       work(progress, state.state === 'ready');
