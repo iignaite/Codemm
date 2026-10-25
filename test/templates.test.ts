@@ -111,6 +111,11 @@ describe("author instructions (codemm-author subagent)", () => {
     }
   });
 
+  it("tells an exercise author that each save sends the whole exercise", () => {
+    // Codex re-sent only the file it changed after a gate failure (Angular): "exercise.yaml is missing".
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) expect(text).toMatch(/Each `save_exercise` call sends every file of the exercise, not only the ones you changed/);
+  });
+
   it("starts track versions at 1", () => {
     expect(AUTHOR_AGENT).toMatch(/starting at 1/);
   });

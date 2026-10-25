@@ -61,7 +61,7 @@ How checks run:
 
 const EXERCISE_RULES = `## Exercises (\`save_exercise\`)
 
-- \`exercise.yaml\` holds only \`slug\` (new, lowercase), \`concepts\` (ids from the roadmap), \`difficulty\` (1-3), and optionally \`style\` and \`hint\`.
+- Each \`save_exercise\` call sends every file of the exercise, not only the ones you changed. \`exercise.yaml\` holds only \`slug\` (new, lowercase), \`concepts\` (ids from the roadmap), \`difficulty\` (1-3), and optionally \`style\` and \`hint\`.
 - **A new task:** \`next_step\`'s \`earlier\` lists the exercises this course already has (each one's title and first line). Write a task unlike every one of them: a different problem, not one of them renamed or with new numbers. Its title must differ from the concept's title and from theirs. Codemm rejects an exercise that an earlier exercise's solution already passes.
 - \`README.md\`: the statement. Start it with a \`#\` title. Make it complete: input and output format, edge cases, and an example. A learner must be able to solve it from this alone. ${PLAIN}
 - \`starter/\`, \`solution/\` and \`mutants/<name>/\`: each holds exactly the track's learner files. The starter must not already pass.
