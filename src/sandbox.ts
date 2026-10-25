@@ -538,13 +538,14 @@ export async function buildImage(
     if (containerCli() === "docker") args.push("--progress", "plain");
     args.push(contextDir);
     const r = await cli(args, timeoutMs, onStep && stepReader(onStep));
-    const log = r.output.slice(-8000);
+    // The failing step's first lines can be far back (gates show them); what the build's problem is read from is the end.
+    const log = r.output.slice(-64_000);
     const imageId = existsSync(join(out, "iid")) ? readFileSync(join(out, "iid"), "utf8").trim() : "";
     if (r.exit === 0 && imageId) return { ok: true, log, imageId };
     // The build worked but the runtime didn't report its image: not the track's fault.
     if (r.exit === 0) return { ok: false, log, problem: buildIssue("image-id", `The container runtime built the track but didn't report the image ID. ${NOT_THE_TRACK} after updating Docker.`) };
     const down = await runtimeDown();
-    const problem: BuildProblem | undefined = down ? buildIssue(down.code, down.message) : buildProblem(log);
+    const problem: BuildProblem | undefined = down ? buildIssue(down.code, down.message) : buildProblem(log.slice(-8000));
     return { ok: false, log, ...(problem ? { problem } : {}) };
   } finally {
     rmSync(out, { recursive: true, force: true });
