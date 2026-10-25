@@ -247,7 +247,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
   | Author | 15 min | 3 failed `save_exercise` calls |
   | Tutor | 5 min | — |
 
-  The bridge counts failed saves from `tool_result` events and cancels the job at the bound. A failed job is relaunched once at most, and never when the failure is an infrastructure failure or a plan limit (§6.1). After that, the learner gets the failure screen (§5). When it is an activity its agent couldn't write and leaving that topic for later opens another, the banner offers "Come back later" beside Try again: the course moves on to the next topic, whose lesson and activity are written, and the topic comes back once nothing else is open.
+  The bridge counts failed saves from `tool_result` events and cancels the job at the bound. A failed job is relaunched once at most, and never when the failure is an infrastructure failure or a plan limit (§6.1). After that, the learner gets the failure screen (§5). When it is an activity its agent couldn't write (not a review, which comes first whatever was skipped) and leaving that topic for later opens another, the banner offers "Come back later" beside Try again. Choosing it during any other stall changes no stall and starts no agent. With it, the course moves on to the next topic, whose lesson and activity are written, and the topic comes back once nothing else is open.
 - **Practice protection.** Tutor turns have no edit tools in Claude Code or Codex. The learner edits; Codemm explains. This doesn't depend on the Claude hook, and it is not a security boundary (§3.1).
 - **Stuck.**
   - "Reread the lesson" opens the lesson.
@@ -353,7 +353,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 `skip` now means "Come back later". It doesn't mean "I already know this".
 
 - A `skip` event defers the concept without changing mastery.
-- Candidates are still the concepts that aren't mastered and whose prerequisites are all mastered. A deferred concept never counts as a mastered prerequisite.
+- Candidates are the concepts that aren't mastered and whose prerequisites are each mastered or deferred (core §7). A deferred concept unlocks the concepts after it but never counts as mastered, so the course isn't done until it is.
 - Non-deferred candidates come first. If every candidate is deferred, the earliest in topological and roadmap order is chosen.
 - The deferral ends at the concept's next check.
 - `done` still needs every concept mastered.
