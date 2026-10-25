@@ -525,9 +525,10 @@ test('the journey works with the keyboard alone', async ({ launch }) => {
   await typeInto(page, 'Counter.jsx', '// my answer');
   await press(page, 'Check');
   await expect(results.getByRole('heading', { name: '4 of 4 passed' })).toBeVisible();
-  // Straight on to the next topic: the roadmap edit above put Forms before Lists and keys.
+  // Straight on to the next topic. Leaving JavaScript basics for later opened JSX, the topic after it (core §7), so
+  // passing JSX opens Components, which builds on it.
   await press(page, 'Continue');
-  await expect(heading(page, 'Lists and keys')).toBeVisible();
+  await expect(heading(page, 'Components')).toBeVisible();
   });
   await app.close();
 });
