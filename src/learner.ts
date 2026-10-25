@@ -17,7 +17,7 @@ const addDays = (iso: string, days: number) => new Date(Date.parse(iso) + days *
 /** The event log's records, as the schema reads them (schemas.ts LearnerEventSchema). */
 export type LearnerEvent = LearnerEventRecord;
 export type CheckEvent = Extract<LearnerEvent, { kind: "check" }>;
-/** "Come back later": defers the concept until its next check. Never changes mastery. */
+/** "Come back later": defers the concept until a check of an exercise written for it. Never changes mastery. */
 export type SkipEvent = Extract<LearnerEvent, { kind: "skip" }>;
 /** Marks an exercise as assisted for good: every check of it counts as assisted. */
 export type AssistEvent = Extract<LearnerEvent, { kind: "assist" }>;
@@ -87,8 +87,10 @@ export function replay(log: LearnerEvent[]): Map<string, ConceptState> {
     const previousBest = best.get(a.exercise);
     const firstTry = previousBest === undefined;
     const perfect = isPerfect(a);
-    // Any check ends a deferral, even one that earns nothing.
-    for (const concept of a.concepts) get(concept).deferred = false;
+    // A check of an exercise written for a concept (its first, the one next_step asked for) ends that concept's
+    // deferral, even one that earns nothing. One written for a later concept that also lists it never re-locks anything.
+    const own = a.concepts[0];
+    if (own) get(own).deferred = false;
     // Re-checking an already solved exercise is feedback only, never new evidence.
     if (perfect && previousBest === 1) continue;
     // Mastery moves only on a first check or a better best score, so retrying the same partial answer adds nothing.

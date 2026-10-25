@@ -127,6 +127,10 @@ describe("author instructions (codemm-author subagent)", () => {
     for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) expect(text).toMatch(/Each `save_exercise` call sends every file of the exercise, not only the ones you changed/);
   });
 
+  it("asks for the concept it was given first in exercise.yaml: a skipped topic's lock follows each exercise's own topic", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) expect(text).toMatch(/`concepts` \(ids from the roadmap, the one you were given first\)/);
+  });
+
   it("starts track versions at 1", () => {
     expect(AUTHOR_AGENT).toMatch(/starting at 1/);
   });

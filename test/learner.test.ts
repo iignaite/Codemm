@@ -187,6 +187,13 @@ describe("nextStep", () => {
     expect(nextStep(line, [], log, [], NOW)).toMatchObject({ kind: "author", concept: "a" });
   });
 
+  it("keeps the unlock when a later topic's exercise that also lists the skipped one is checked (owner's decision)", () => {
+    const line = { concepts: [{ id: "a", requires: [] as string[] }, { id: "b", requires: ["a"] }] };
+    const exercises = [{ slug: "b1", concepts: ["b", "a"], difficulty: 1 }];
+    const log = [skip("a", 0), attempt({ exercise: "b1", concepts: ["b", "a"], passed: 0 }, 1)];
+    expect(nextStep(line, exercises, log, [], NOW)).toMatchObject({ kind: "practice", concept: "b", exercise: "b1" });
+  });
+
   it("ends the unlock at the skipped topic's next check", () => {
     const line = { concepts: [{ id: "a", requires: [] as string[] }, { id: "b", requires: ["a"] }] };
     expect(nextStep(line, [], [skip("a", 0), attempt({ exercise: "a1", concepts: ["a"], passed: 0 }, 1)], [], NOW)).toMatchObject({ concept: "a" });
