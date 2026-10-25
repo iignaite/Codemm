@@ -355,7 +355,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 - A `skip` event defers the concept without changing mastery.
 - Candidates are the concepts that aren't mastered and whose prerequisites are each mastered or deferred (core §7). A deferred concept unlocks the concepts after it but never counts as mastered, so the course isn't done until it is.
 - Non-deferred candidates come first. If every candidate is deferred, the earliest in topological and roadmap order is chosen.
-- The deferral ends at the concept's next check.
+- The deferral ends at a check of an exercise written for the concept (its first concept), never at a later topic's exercise that also lists it.
 - `done` still needs every concept mastered.
 - A `retry` event (§4.2) resets the concept's fail streak, so stuck ends without granting mastery.
 - The CLI help changes to "come back to a concept later". 1.0 isn't published, so the change needs no migration.
