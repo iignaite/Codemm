@@ -105,8 +105,13 @@ function probeOutput(runs: Runs): string {
   return [io.build?.output ?? "", ...io.cases.map((c) => c.stderr)].filter((t) => t.trim()).join("\n");
 }
 
-/** A reference, and a track's pass probe, must still pass within a third of the time limit (DESIGN §4.4, §4.5). */
+/** A reference must still pass within a third of the time limit (DESIGN §6). */
 const fastMs = (limits: { time_ms: number }) => Math.max(100, Math.floor(limits.time_ms / 3));
+/**
+ * A track's pass probe must pass within a sixth, so every reference has twice the probe's time. A probe that only fit a
+ * third left frameworks that start per io case flaky at every exercise's "reference fast" gate.
+ */
+const trackFastMs = (limits: { time_ms: number }) => Math.max(100, Math.floor(limits.time_ms / 6));
 
 const allPass = (tests: TestResult[]) => tests.length > 0 && tests.every((t) => t.status === "pass");
 
@@ -218,9 +223,9 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
       const tests = `\n${summarize(failed)}`;
       throw new GateError("probe fail", `the ${p.style} fail probe should fail at least one test without errors:`, tests + printed(probeOutput(failRuns), tests));
     }
-    // The second run gets a third of the time limit, as every exercise's reference will: a track whose own solution
-    // can't pass there would fail every exercise.
-    const fast = fastMs(spec.limits);
+    // The second run gets a sixth of the time limit, half what every exercise's reference gets: a track whose own
+    // solution only just fits would fail exercises whenever one is a little heavier or the machine is busy.
+    const fast = trackFastMs(spec.limits);
     const pass2 = gradeRuns(p.style, await runSets(track, p.style, p.pass, { visible: p.inputs }, { timeMs: fast }), exp);
     if (!allPass(pass2)) {
       // time_ms is clamped to its ceiling, so asking for more there changes nothing: the probe itself must get faster.
@@ -230,7 +235,7 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
         : "Raise limits.time_ms or limits.memory_mb in track.yaml:";
       throw new GateError(
         "probe fast",
-        `the ${p.style} pass probe must also pass with a third of the time limit (${fast} ms), as every exercise's reference must. ${fix}`,
+        `the ${p.style} pass probe must also pass with a sixth of the time limit (${fast} ms), so every exercise's reference has room within its third. ${fix}`,
         `\n${summarize(pass2)}`,
       );
     }

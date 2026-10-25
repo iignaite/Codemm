@@ -174,7 +174,7 @@ Other ceilings:
 | `memory_mb` | 64 to 2048 MB, default 256; `/tmp` (256 MB) counts toward it | the track |
 | io build, Run's build | 60 s | fixed |
 | Input generator | 30 s, outside `time_ms`; a third of it in the reference's fast run | fixed |
-| Reference speed (gates) | must pass in a third of `time_ms`; at the ceiling the gate says to make the probe faster | fixed |
+| Reference speed (gates) | must pass in a third of `time_ms`; a track's pass probe in a sixth, so every reference has twice the probe's time; at the ceiling the gate says to make the probe faster | fixed |
 | Output per io case | 32 MB; the first 64 KB is kept and shown | fixed |
 | Stream per container | 4 MB, plus 32 MB per io case | fixed |
 | Unit report | 1 MB; runner log shown 4 KB; each message 2000 characters | fixed |
@@ -291,7 +291,7 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
 2. The image builds and declares no volumes.
 3. For each style, the pass probe passes everything.
 4. For each style, the fail probe gets at least one `fail` and no `error`.
-5. The pass probe passes again with a third of the time limit, as every exercise's reference must (gate 3 below), and gives identical results. A track that fails here is told to raise `limits.time_ms` or `limits.memory_mb`, or, when `time_ms` is already at its ceiling, to make the command faster (cache everything at build time, and call the compiler and test runner directly rather than a build tool).
+5. The pass probe passes again with a sixth of the time limit, half of what every exercise's reference gets (gate 3 below), and gives identical results. A probe that only fit a third left tracks whose framework starts once per io case flaky at every exercise's speed gate. A track that fails here is told to raise `limits.time_ms` or `limits.memory_mb`, or, when `time_ms` is already at its ceiling, to make the command faster (cache everything at build time, and call the compiler and test runner directly rather than a build tool).
 
 **Roadmap gate:** the schema and §5 rules hold, there are no unknown prerequisites, and there are no cycles (Kahn's algorithm).
 
