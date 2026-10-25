@@ -1113,7 +1113,7 @@ test(`journey: ${label}`, async () => {
           await check();
           await wrongAnswer(5);
           expect(await check()).toBe('Try another way');
-          // Come back later shows only when another topic is ready (§4.4); otherwise keep trying.
+          // Come back later shows only when another topic would open (§4.4, core §7): one ready, or one after this; otherwise keep trying.
           if (await visible(button('Come back later'))) {
             await button('Come back later').click();
             await toMap();
