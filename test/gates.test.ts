@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readFileMap } from "../src/files.js";
-import { checkTrackFiles, comparedEarlier, unpinnedBases, verifyExercise } from "../src/gates.js";
+import { buildOutput, checkTrackFiles, comparedEarlier, unpinnedBases, verifyExercise } from "../src/gates.js";
 import { type CourseRecord, parseRoadmapYaml, type TrackRecord } from "../src/schemas.js";
 
 const PINNED = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc";
@@ -39,6 +39,76 @@ describe("unpinnedBases", () => {
 
   it("ignores scratch and earlier build stages", () => {
     expect(unpinnedBases(`FROM ${PINNED} AS build\nFROM scratch\nFROM build\nCOPY --from=build /a /a\n`)).toEqual([]);
+  });
+});
+
+describe("buildOutput", () => {
+  // BuildKit's plain progress, as \`npm ci\` failed in a real track build: the cause comes first, then npm's usage, then
+  // BuildKit's summary, which repeats the step's last lines and the Dockerfile.
+  const usage = Array.from({ length: 30 }, (_, i) => `#8 3.299 npm error [--option-${i}]`).join("\n");
+  const log = [
+    "#7 [3/6] COPY package.json package-lock.json ./",
+    "#7 DONE 0.0s",
+    "",
+    "#8 [4/6] RUN npm ci --omit=dev && chmod -R a+rX /opt/track",
+    "#8 3.120 npm error code EUSAGE",
+    "#8 3.121 npm error `npm ci` can only install packages when your package.json and package-lock.json are in sync.",
+    usage,
+    '#8 ERROR: process "/bin/sh -c npm ci --omit=dev && chmod -R a+rX /opt/track" did not complete successfully: exit code: 1',
+    "------",
+    " > [4/6] RUN npm ci --omit=dev && chmod -R a+rX /opt/track:",
+    ...Array.from({ length: 10 }, (_, i) => `3.299 npm error [--option-${20 + i}]`),
+    "------",
+    "Dockerfile:4",
+    "--------------------",
+    "   3 |     COPY package.json package-lock.json ./",
+    "   4 | >>> RUN npm ci --omit=dev && chmod -R a+rX /opt/track",
+    "--------------------",
+    'ERROR: failed to solve: process "/bin/sh -c npm ci --omit=dev" did not complete successfully: exit code: 1',
+    "",
+    "View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/abc",
+  ].join("\n");
+
+  it("shows the failing step's own first and last lines, not BuildKit's summary", () => {
+    const shown = buildOutput(log);
+    expect(shown).toContain("[4/6] RUN npm ci --omit=dev");
+    expect(shown).toContain("can only install packages when your package.json and package-lock.json are in sync");
+    expect(shown).toContain("npm error [--option-29]");
+    expect(shown).toContain("did not complete successfully: exit code: 1");
+    expect(shown).not.toContain("Dockerfile:4");
+    expect(shown).not.toContain("View build details");
+    expect(shown).not.toContain("COPY package.json");
+    expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(4096);
+  });
+
+  it("keeps a long step's start and end within 4 KB", () => {
+    const long = ["#5 [2/2] RUN make", "#5 0.1 first: the real cause", ...Array.from({ length: 500 }, (_, i) => `#5 1.0 ${"x".repeat(100)} ${i}`), "#5 ERROR: process \"make\" did not complete successfully: exit code: 2"].join("\n");
+    const shown = buildOutput(long);
+    expect(shown).toContain("first: the real cause");
+    expect(shown).toContain(" 499");
+    expect(shown).toContain("exit code: 2");
+    expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(4096);
+  });
+
+  it("keeps the cause when the step's command line is longer than the whole budget", () => {
+    // An agent's RUN line can install hundreds of packages, and BuildKit repeats the command in its ERROR line.
+    const command = `apt-get install -y ${Array.from({ length: 300 }, (_, i) => `package-${i}`).join(" ")}`;
+    const long = [`#6 [3/4] RUN ${command}`, "#6 0.5 E: Unable to locate package package-7", ...Array.from({ length: 60 }, (_, i) => `#6 0.6 noise ${i}`), `#6 ERROR: process "/bin/sh -c ${command}" did not complete successfully: exit code: 100`].join("\n");
+    const shown = buildOutput(long);
+    expect(shown).toContain("Unable to locate package package-7");
+    expect(shown).toContain("noise 59");
+    expect(shown).toContain("exit code: 100");
+    expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(4096);
+  });
+
+  it("reads a log with CRLF line endings", () => {
+    const crlf = "#5 [2/2] RUN false\r\n#5 0.1 the cause\r\n#5 ERROR: process \"false\" did not complete successfully: exit code: 1\r\n";
+    expect(buildOutput(crlf)).toContain("the cause");
+  });
+
+  it("shows the end of any other builder's log", () => {
+    const legacy = ["Step 1/2 : FROM alpine", "Step 2/2 : RUN false", "The command '/bin/sh -c false' returned a non-zero code: 1"].join("\n");
+    expect(buildOutput(legacy)).toBe(legacy);
   });
 });
 

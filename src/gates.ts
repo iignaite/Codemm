@@ -60,6 +60,43 @@ function printed(text: string, shown = ""): string {
   return end && !shown.includes(end) ? `\nIt printed:\n${end}` : "";
 }
 
+/** The first lines of text, at most `count` lines and `max` bytes, cut at a line. */
+function head(lines: string[], count: number, max: number): string[] {
+  const kept: string[] = [];
+  let bytes = 0;
+  for (const line of lines.slice(0, count)) {
+    bytes += Buffer.byteLength(line) + 1;
+    if (bytes > max) break;
+    kept.push(line);
+  }
+  return kept;
+}
+
+/**
+ * What a failed track build printed. BuildKit ends its log with a summary that repeats the failing step's last lines
+ * and quotes the Dockerfile, which would fill the last 40 lines and push out the tool's own error, often its first
+ * line. So for BuildKit this is the failing step's own output: its first 10 lines and its last 30, each at most 300
+ * characters, within 4 KB.
+ * Any other builder's log ends with the failing command's output, so it is the end of the log.
+ */
+export function buildOutput(log: string): string {
+  const failed = [...log.matchAll(/^#(\d+) ERROR: /gm)].at(-1)?.[1];
+  if (!failed) return tail(log);
+  // A step's lines are `#N <seconds> <text>`, or `#N <text>` for its header, DONE and ERROR lines. The header and the
+  // ERROR line quote the whole command, which can be longer than the budget, so a longer line keeps its first and last
+  // 150 characters (the ERROR line's exit code is at its end).
+  const step = new RegExp(`^#${failed} (?:\\d+\\.\\d+ )?(.*)$`);
+  const lines = log
+    .split(/\r?\n/)
+    .flatMap((line) => step.exec(line)?.slice(1, 2) ?? [])
+    .map((line) => (line.length > 300 ? `${line.slice(0, 150)}…${line.slice(-150)}` : line));
+  if (lines.length === 0) return tail(log);
+  if (lines.length <= 40 && Buffer.byteLength(lines.join("\n")) <= 4096) return lines.join("\n");
+  const first = head(lines, 10, 1024);
+  const last = head(lines.slice(first.length).reverse(), 30, 3000).reverse();
+  return [...first, ...(first.length + last.length < lines.length ? ["…"] : []), ...last].join("\n");
+}
+
 /** What a probe's run printed: a unit runner's own output, or io's build output and each case's errors. */
 function probeOutput(runs: Runs): string {
   const unit = runs.visible as UnitRun;
@@ -152,7 +189,10 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
     builtId = built.imageId ?? "";
     // Offline, out of disk or no runtime isn't the track's fault, so it's no gate failure.
     if (built.problem) throw infraError(built.problem.message, built.problem.code);
-    if (!built.ok) throw new GateError("build", "the image didn't build.", printed(built.log));
+    if (!built.ok) {
+      const end = buildOutput(built.log).trim();
+      throw new GateError("build", "the image didn't build.", end ? `\nIt printed:\n${end}` : "");
+    }
   } finally {
     rmSync(context, { recursive: true, force: true });
   }
