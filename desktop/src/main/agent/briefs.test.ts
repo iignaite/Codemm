@@ -44,6 +44,8 @@ describe('job briefs', () => {
     // The exact track: a proposal for another id or version doesn't set up this course.
     // Found in the macOS journey: a unit-only track for an io course left the course unable to go on.
     expect(briefs.setup('python@3', 'io')).toContain('Propose exactly the track `python@3`: id `python`, version 3, offering style `io`.');
+    // The track caches what the whole course will use, so the setup agent hears the course's concepts.
+    expect(briefs.setup('django@1', 'unit', undefined, ['Project structure', 'Models and migrations'])).toContain('The course covers: Project structure; Models and migrations.');
     expect(briefs.author()).toBe(JOB_BRIEFS.author);
   });
 

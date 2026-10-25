@@ -142,7 +142,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 **Running processes.**
 
 - **Spawning.** Argument arrays, no shell, closed stdin (both CLIs otherwise wait on stdin), and each agent leads a new process group.
-- **Windows' command-line limit.** The brief is one argument, and Windows takes at most 32,767 characters for a whole command line, which quoting can double. So on Windows a tutor brief carries at most 8 K characters of the learner's code (64 K elsewhere), and a setup brief at most 4 K of the failed proposal's problem (16 K elsewhere). A test builds each agent's worst-case tutor turn (every character a quote, a long `PATH`) and checks that it fits.
+- **Windows' command-line limit.** The brief is one argument, and Windows takes at most 32,767 characters for a whole command line, which quoting can double. So on Windows a tutor brief carries at most 8 K characters of the learner's code (64 K elsewhere), and a setup brief at most 4 K of the failed proposal's problem (16 K elsewhere) and of the course's concept titles, which it lists so the track caches every dependency the course will use. A test builds each agent's worst-case tutor turn (every character a quote, a long `PATH`) and checks that it fits.
 - **Cancelling.**
   - On POSIX: SIGTERM to the group, SIGKILL after 3 s, and the run resolves only when the group is gone.
   - On Windows: `taskkill /pid <pid> /t /f`, awaited.
