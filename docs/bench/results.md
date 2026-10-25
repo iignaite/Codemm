@@ -17,12 +17,12 @@ Tiers are about authoring. Tutoring is reported separately: "refused" is the ben
 
 ## Product rules (for the desktop app)
 
-**Recommended minimum model per agent** (provisional: 4 runs per model, easy first exercises, authoring-based).
+**Recommended minimum model per agent** (provisional: 4 runs per model, easy first exercises, authoring-based; Codex's also rests on the desktop's framework setup runs).
 
 | Agent | Minimum | Evidence |
 |---|---|---|
 | Claude Code | **Sonnet** (`--model sonnet`, Claude Sonnet 5) | 4 of 4 runs authored with at most 1 rejection per save tool; tutor refused in 4 of 4 and, with the new instructions, opened the exercise in 2 of 2. With the current instructions its tutor hint was good on the Python exercise and listed the steps on the three-line C one (Astra rubric, "Tutor hints" below); with the earlier instructions, none of 6 were judged useful. Haiku authors too, but is marginal for both authoring and tutoring. |
-| Codex | **gpt-6-luna** (raised from gpt-5.6-luna in 1.0.1) | gpt-5.6-luna authored C and Python here (4 of 4 runs, at most 1 rejection per save tool; tutor refused in 4 of 4), but in the desktop's per-job flow it couldn't set up heavy framework tracks: Spring Boot and Go (Gin) failed all 5 proposals, while gpt-6-luna and Claude Sonnet set both up in 1 or 2. It set up and authored the other 12 framework tracks tried. gpt-5.6-luna stays on the list for learners who choose it. |
+| Codex | **gpt-6-luna** (raised from gpt-5.6-luna after 1.0.0-beta.5) | gpt-5.6-luna authored C and Python here (4 of 4 runs, at most 1 rejection per save tool; tutor refused in 4 of 4), but in the desktop's per-job flow it couldn't set up heavy framework tracks: Spring Boot and Go (Gin) failed all 5 proposals, while gpt-6-luna and Claude Sonnet set them up in 1 or 2 ([framework matrix](../handoff/2026-10-25.md#framework-activity-failures-reproduction-matrix), desktop runs of 25 Oct 2026). It set up and authored the other 12 framework tracks tried. gpt-5.6-luna stays on the list for learners who choose it. |
 | Cursor | not verified | not signed in |
 
 **Agent CLI versions tested:** Claude Code `2.1.283 (Claude Code)` and `codex-cli 0.156.1`. Warn on other versions.
