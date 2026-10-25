@@ -105,6 +105,26 @@ function probeOutput(runs: Runs): string {
   return [io.build?.output ?? "", ...io.cases.map((c) => c.stderr)].filter((t) => t.trim()).join("\n");
 }
 
+/**
+ * Why a unit reference failed, by status only (its messages and output come from running hidden code). When the
+ * runner reported no test (one `report` result), the statuses alone don't say why, so it adds what Codemm itself knows:
+ * a time, memory or output limit stopped the runner, or else the tests or the reference didn't load. Never its output.
+ */
+export function unitReferenceFailure(tests: TestResult[], visible: UnitRun): string {
+  const lines = `the reference must pass every test:\n${statuses(tests)}`;
+  const shown = tests.filter((t) => t.set === "visible");
+  if (shown.length !== 1 || shown[0]!.name !== "visible/report" || shown[0]!.status !== "error") return lines;
+  if (visible.flooded || visible.outOfMemory || visible.memoryKill || visible.report.timedOut) {
+    return `${lines}\nThe test runner was stopped at a time, memory or output limit before it reported any test. Make the reference and the tests lighter, and check for a loop.`;
+  }
+  return (
+    `${lines}\nThe test runner stopped before reporting any test, so the tests or the reference didn't load. Check that ` +
+    "the tests import the learner files at the track's paths the way the example tests in contract.examples do, that " +
+    "the reference has no syntax or import errors, and that it holds every learner file. Codemm doesn't show the " +
+    "runner's output, because it can quote the reference."
+  );
+}
+
 /** A reference must still pass within a third of the time limit (DESIGN §6). */
 const fastMs = (limits: { time_ms: number }) => Math.max(100, Math.floor(limits.time_ms / 3));
 /**
@@ -381,7 +401,7 @@ export async function verifyExercise(
     exp.expected = Object.fromEntries(a.map((c) => [c.name, recordOutput(c)]));
   } else {
     const r1 = gradeRuns(style, first, {});
-    if (!allPass(r1)) throw new GateError("reference passes", `the reference must pass every test:\n${statuses(r1)}`);
+    if (!allPass(r1)) throw new GateError("reference passes", unitReferenceFailure(r1, first.visible as UnitRun));
     exp.inventory = {
       visible: r1.filter((t) => t.set === "visible").map((t) => t.name.slice("visible/".length)).sort(),
       hidden: r1.filter((t) => t.set === "hidden").map((t) => t.name.slice("hidden/".length)).sort(),
