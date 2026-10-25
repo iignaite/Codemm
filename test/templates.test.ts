@@ -107,7 +107,7 @@ describe("author instructions (codemm-author subagent)", () => {
     // Codex added `track:` to exercise.yaml after reading "use the ... track exactly as you were given them".
     for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) {
       expect(text).toMatch(/`exercise.yaml` holds only/);
-      expect(text).not.toMatch(/difficulty, style and track exactly as you were given/);
+      expect(text).not.toMatch(/track exactly as/);
     }
   });
 
