@@ -247,7 +247,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
   | Author | 15 min | 3 failed `save_exercise` calls |
   | Tutor | 5 min | — |
 
-  The bridge counts failed saves from `tool_result` events and cancels the job at the bound. A failed job is relaunched once at most, and never when the failure is an infrastructure failure or a plan limit (§6.1). An author relaunches in its own session (§3.2). After that, the learner gets the failure screen (§5).
+  The bridge counts failed saves from `tool_result` events and cancels the job at the bound. A failed job is relaunched once at most, and never when the failure is an infrastructure failure or a plan limit (§6.1). An author relaunches in its own session (§3.2); a resume the agent refuses (it exits before starting) doesn't count, and that relaunch runs fresh. After that, the learner gets the failure screen (§5).
 - **Practice protection.** Tutor turns have no edit tools in Claude Code or Codex. The learner edits; Codemm explains. This doesn't depend on the Claude hook, and it is not a security boundary (§3.1).
 - **Stuck.**
   - "Reread the lesson" opens the lesson.

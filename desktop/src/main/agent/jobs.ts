@@ -221,7 +221,7 @@ export async function runJob(job: Job): Promise<JobOutcome> {
     const again = attempt > 0 && JOBS[job.kind].resumes && last?.session ? { ...job, resume: last.session, brief: `${job.brief}\n\n${CHANGE_APPROACH}` } : job;
     last = await once(again);
     // An agent that won't continue the session (it exited before starting) gets the fresh relaunch instead.
-    if (again !== job && last.infra === 'unstarted' && !job.signal?.aborted) last = await once(job);
+    if (again !== job && last.infra === 'unstarted' && !job.signal?.aborted && !job.blocked?.() && job.usable?.() !== false) last = await once(job);
     // Said at once: the caller stops every other agent on this, and a cleanup waiting on Docker must not delay it.
     if (last.unstoppable) return { ok: false, problem: 'unstoppable', text: last.text };
     // Before a relaunch or the end, an attempt Codemm ended leaves no container behind. Why a cleanup failed is
