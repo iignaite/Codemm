@@ -136,6 +136,46 @@ describe("author instructions (codemm-author subagent)", () => {
   });
 });
 
+describe("activities that fit the concept", () => {
+  // In real runs, "Bootstrapping a Spring Boot app" became "Extracting Initials from a Name", and "Project and app
+  // structure" became "Triple Sum View": the author picked a toy program, and the track gave it one source file.
+  it("asks for the kind of task that fits the concept, and a setup task for setup and configuration", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) {
+      expect(text).toMatch(/kind of task that fits the concept: write code, set up or configure/);
+      expect(text).toMatch(/fix a bug the starter has, or extend code the starter gives/);
+      expect(text).toMatch(/project structure, setup or configuration gets a setup task/);
+    }
+  });
+
+  it("shows what a mutant of a setup task looks like", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) expect(text).toMatch(/for a setup task, a plausible wrong configuration/);
+  });
+
+  it("says what each difficulty means for the task's scope and the starter's scaffolding", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) {
+      expect(text).toMatch(/difficulty 1, one small change in one file/);
+      expect(text).toMatch(/2, one feature across the files the concept touches/);
+      expect(text).toMatch(/3, a small realistic task that combines this concept with earlier ones/);
+    }
+  });
+
+  it("asks a framework track for the project files a learner changes, unit tests through the framework's own client, and the course's dependencies", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).toMatch(/for a framework, the project files a learner changes/);
+      expect(text).toMatch(/framework's unit tests go through its own test client/);
+      expect(text).toMatch(/every dependency the course's concepts will use/);
+      // A Django track with 15 learner files made every save carry 80 to 97 files, and Codex dropped or added some.
+      expect(text).toMatch(/keep the list to the files activities change/);
+      // The style is the roadmap's: a unit-only track for an io course left the course unable to go on.
+      expect(text).not.toMatch(/For a framework, use `unit`/);
+    }
+  });
+
+  it("asks research to prefer unit style for a framework, unless an installed track it uses offers only io", () => {
+    expect(JOB_BRIEFS.research).toMatch(/For a framework, prefer `unit`.*unless an installed track you use offers only `io`/);
+  });
+});
+
 describe("the 1.0 learning flow in the tutor instructions", () => {
   it("handles setup, and teaches the lesson before the activity", () => {
     expect(AGENTS_SECTION).toMatch(/`setup`: the roadmap's track isn't installed yet/);

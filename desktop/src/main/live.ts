@@ -490,7 +490,7 @@ export function createLive(d: LiveDeps): Live {
         const retry = setup.gateFailures > 0 ? { attempt: setup.gateFailures + 1, of: PROPOSAL_BOUND } : undefined;
         // The agent can't build or run anything itself, so after a gate failure it continues its own session: it sees the
         // files it proposed and fixes them, rather than writing a new track from the failure alone.
-        background(`setup:${ref}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed, {
+        background(`setup:${ref}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem, roadmap.concepts.map((c) => c.title)), progress.course, proposed, {
           retry, track: ref, ...(retry && setup.session?.course === progress.course ? { resume: setup.session } : {}),
           onSession: (session) => (setup.session = { ...session, course: progress.course }),
         });

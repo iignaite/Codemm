@@ -66,7 +66,7 @@ describe('connect journey', () => {
   it('shows the recommended model, marks Cursor experimental, and warns about untested versions', async () => {
     renderApp({ to: 'connect' }, createMock(scenario('untested-version')));
     const codex = await screen.findByRole('listitem', { name: 'Codex' });
-    expect(within(codex).getByText('Recommended: gpt-5.6-luna')).toBeInTheDocument();
+    expect(within(codex).getByText('Recommended: gpt-6-luna')).toBeInTheDocument();
     expect(within(codex).getByText('Untested version. It may still work.')).toBeInTheDocument();
     expect(within(screen.getByRole('listitem', { name: 'Cursor' })).getByText('Experimental')).toBeInTheDocument();
   });
@@ -151,7 +151,7 @@ describe('changing the agent', () => {
     const codex = screen.getByRole('listitem', { name: 'Codex' });
     await user.click(within(codex).getByRole('button', { name: 'Connect' }));
     expect(await within(codex).findByText('Connected')).toBeInTheDocument();
-    expect(within(codex).getByRole('combobox', { name: 'Model' })).toHaveValue('gpt-5.6-luna');
+    expect(within(codex).getByRole('combobox', { name: 'Model' })).toHaveValue('gpt-6-luna');
     // One agent is connected at a time: the one before offers Connect again, at once.
     expect(within(claude).queryByText('Connected')).not.toBeInTheDocument();
     expect(within(claude).queryByRole('combobox')).not.toBeInTheDocument();

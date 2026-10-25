@@ -19,6 +19,13 @@ const DEPTH: Record<Depth, string> = {
   'in-depth': 'in depth, about 25 to 30 topics',
 };
 
+/**
+ * Added to an author's brief when it relaunches in its own session: its saves didn't pass, so the next attempt must
+ * differ, not repeat (adaptive-activities proposal, the authoring loop).
+ */
+export const CHANGE_APPROACH =
+  "Your last attempt didn't save an exercise that passed Codemm's checks. Change your approach rather than repeating it: write a smaller task, a different task of the kind the concept needs, or simpler, deterministic tests.";
+
 export function briefsFrom(base: Record<JobKind, string>, platform: NodeJS.Platform = process.platform) {
   const room = platform === 'win32' ? WINDOWS_ROOM : ROOM;
   const brief = (kind: JobKind, ...details: (string | false | undefined)[]) => [base[kind], ...details.filter(Boolean)].join('\n\n');
@@ -27,9 +34,15 @@ export function briefsFrom(base: Record<JobKind, string>, platform: NodeJS.Platf
       brief('research', `Course id: ${course}`, `The learner wants to learn: ${topic}`, known ? `They already know: ${known}` : 'They know nothing about it yet.', `Depth: ${DEPTH[depth]}. Each topic is one skill.`),
     roadmap: (request: string) => brief('roadmap', `The learner asks: ${request}`),
     easier: (concept: string, title: string) => brief('roadmap', `Make "${title}" (${concept}) easier: add one smaller topic that it requires.`),
-    setup: (track: string, style: string, problem?: string) => {
+    /** `concepts`: the course's concept titles, so the track caches every dependency the course will use. */
+    setup: (track: string, style: string, problem?: string, concepts: string[] = []) => {
       const [id, version] = track.split('@');
-      return brief('setup', `Propose exactly the track \`${track}\`: id \`${id}\`, version ${version}, offering style \`${style}\`.`, problem && `The last proposal failed its checks: ${problem.slice(0, room.problem)}`);
+      return brief(
+        'setup',
+        `Propose exactly the track \`${track}\`: id \`${id}\`, version ${version}, offering style \`${style}\`.`,
+        concepts.length > 0 && `The course covers: ${concepts.join('; ')}.`.slice(0, room.problem),
+        problem && `The last proposal failed its checks: ${problem.slice(0, room.problem)}`,
+      );
     },
     lesson: (concept: string, title: string) => brief('lesson', `Concept: ${concept} (${title})`),
     author: () => brief('author'),
