@@ -45,7 +45,14 @@ describe('usage store', () => {
     expect(usage.course('c').kinds.setup!.costUsd).toBeCloseTo(0.8, 6);
   });
 
-  it('keeps baselines only for tutor and setup sessions, the only ones resumed, so other jobs never push one out', () => {
+  it("counts a relaunched author's session cost once: the relaunch continues the failed attempt's session", () => {
+    const usage = usageStore(dir());
+    usage.record('c', 'author', { input: 10, output: 1, costUsd: 0.4 }, 'author-1');
+    usage.record('c', 'author', { input: 10, output: 1, costUsd: 0.9 }, 'author-1');
+    expect(usage.course('c').kinds.author!.costUsd).toBeCloseTo(0.9, 6);
+  });
+
+  it('keeps baselines only for the sessions that resume (tutor, setup, author), so other jobs never push one out', () => {
     const usage = usageStore(dir());
     usage.record('c', 'tutor', { input: 0, output: 0, costUsd: 2 }, 'tutor-1');
     for (let i = 0; i < 150; i++) usage.record('c', 'lesson', { input: 0, output: 0, costUsd: 0.01 }, `lesson-${i}`);

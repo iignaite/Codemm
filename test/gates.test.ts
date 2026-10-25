@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readFileMap } from "../src/files.js";
-import { buildOutput, checkTrackFiles, comparedEarlier, probeFastMs, unpinnedBases, verifyExercise } from "../src/gates.js";
+import { buildOutput, checkTrackFiles, comparedEarlier, probeFastMs, unitReferenceFailure, unpinnedBases, verifyExercise } from "../src/gates.js";
+import type { UnitRun } from "../src/grading.js";
 import { type CourseRecord, parseRoadmapYaml, type TrackRecord } from "../src/schemas.js";
 
 const PINNED = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc";
@@ -123,6 +124,46 @@ describe("probeFastMs", () => {
 
   it("keeps a third on a rebuild: an installed track's files can't change, and its course can't change track", () => {
     expect(probeFastMs({ time_ms: 2000 }, { rebuild: true })).toBe(666);
+  });
+});
+
+describe("unitReferenceFailure", () => {
+  const noReport = [
+    { set: "visible" as const, name: "visible/report", status: "error" as const, message: "Traceback: SECRET_REFERENCE_LINE" },
+    { set: "hidden" as const, name: "hidden/report", status: "error" as const, message: "SECRET_REFERENCE_LINE" },
+  ];
+  const run = (over: Partial<UnitRun> = {}, report: Partial<UnitRun["report"]> = {}): UnitRun => ({ report: { exit: 1, body: "", log: "SECRET", ...report }, flooded: false, ...over });
+
+  it("says the runner failed before any test when the reference's report is missing, and what to check, without its output", () => {
+    // Recorded with Codex on a Django track: three saves got only "visible/report: error" and repeated the same mistake.
+    const message = unitReferenceFailure(noReport, run());
+    expect(message).toMatch(/The test runner stopped before reporting any test/);
+    expect(message).toMatch(/contract\.examples/);
+    expect(message).not.toMatch(/SECRET_REFERENCE_LINE/);
+  });
+
+  it.each([
+    ["the time limit", run({}, { timedOut: true })],
+    ["the memory limit", run({ outOfMemory: true })],
+    ["the output limit", run({ flooded: true })],
+  ])("says the runner was stopped at %s, not that the tests didn't load", (_, stopped) => {
+    const message = unitReferenceFailure(noReport, stopped);
+    expect(message).toMatch(/stopped at a time, memory or output limit/);
+    expect(message).not.toMatch(/didn't load/);
+    expect(message).not.toMatch(/SECRET/);
+  });
+
+  it("gives no advice when the runner did report, even a test named report", () => {
+    const message = unitReferenceFailure([{ set: "visible", name: "visible/report", status: "error" }, { set: "visible", name: "visible/x", status: "pass" }], run({}, { exit: 0, body: "{}" }));
+    expect(message).not.toMatch(/stopped/);
+  });
+
+  it("lists statuses only when the runner reported tests", () => {
+    const message = unitReferenceFailure([
+      { set: "visible", name: "visible/test_a", status: "fail", message: "SECRET" },
+      { set: "hidden", name: "hidden/test_b", status: "pass" },
+    ], run({}, { exit: 0, body: "{}" }));
+    expect(message).toBe("the reference must pass every test:\n  visible/test_a: fail\n  hidden #1: pass");
   });
 });
 
