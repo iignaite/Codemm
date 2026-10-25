@@ -387,7 +387,9 @@ describe('Practice in the sidebar', () => {
     expect(activity).not.toHaveBeenCalled();
     written = true;
     tell(jobAt('author-1', 'author', { concept: topic, ended: true }));
-    expect(await screen.findByRole('heading', { name: 'Click Counter' })).toHaveFocus();
+    // Focus moves in an effect after the heading appears; a slow runner (Windows CI) sees it a moment later.
+    const heading = await screen.findByRole('heading', { name: 'Click Counter' });
+    await vi.waitFor(() => expect(heading).toHaveFocus());
   });
 });
 
