@@ -177,6 +177,14 @@ describe("gradeUnit", () => {
     expect(tests).toHaveLength(1);
     expect(tests[0]).toMatchObject({ name: "visible/a", status: "error" });
   });
+
+  it("says when the test command wrote no report to $OUT, rather than calling it invalid JSON", () => {
+    // A runner that prints its JSON to stdout leaves $OUT empty; the driver frames an empty body.
+    const [test] = gradeUnit("visible", { exit: 0, body: "", log: '{"tests":[{"name":"a","status":"pass"}]}' }, ["a"]);
+    expect(test!.status).toBe("error");
+    expect(test!.message).toMatch(/wrote no report to \$OUT/);
+    expect(test!.message).not.toMatch(/not valid JSON/);
+  });
 });
 
 describe("redact", () => {
