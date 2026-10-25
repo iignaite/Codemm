@@ -125,6 +125,22 @@ describe("buildProblem", () => {
     expect(problem!.message).toMatch(/not a problem with the track files/);
   });
 
+  it("blames a slow network when the 10-minute build limit hits while a download is still running", () => {
+    // Recorded with Codex on ASP.NET Core: the SDK base image was still downloading when the build was stopped, twice.
+    const pull = [
+      "#5 [1/4] FROM mcr.microsoft.com/dotnet/sdk:8.0",
+      "#5 sha256:8848b7273f0228cc6ce96632c2c100228b2b5a22ff7dfb62dd621c97db9675cf 131.07MB / 174.58MB 449.3s",
+      "#5 sha256:8848b7273f0228cc6ce96632c2c100228b2b5a22ff7dfb62dd621c97db9675cf 137.36MB / 174.58MB 464.5s",
+    ].map((line) => `${line}\n`).join("");
+    // As cli() returns a build it stopped: the output, each line ending in a newline, then its own note.
+    const stopped = `${pull}\n(timed out after 600000 ms)`;
+    expect(buildProblem(stopped)).toEqual({ kind: "offline", code: "network-timeout", message: expect.stringMatching(/^The track build was still downloading after 10 minutes \(.*137\.36MB \/ 174\.58MB.*\), so nothing was installed\..*not a problem with the track files/s) });
+  });
+
+  it("leaves a build that ran out of time in its own commands to the track", () => {
+    expect(buildProblem("#7 [3/4] RUN make\n#7 412.5 compiling module 812 of 3000\n\n(timed out after 600000 ms)")).toBeUndefined();
+  });
+
   it("leaves an unexpected EOF that isn't a download to the track: a compiler says it about a broken file", () => {
     expect(buildProblem("#7 1.204 ./main.go:9:1: syntax error: unexpected EOF, expected }\nERROR: process did not complete successfully: exit code: 1")).toBeUndefined();
   });
