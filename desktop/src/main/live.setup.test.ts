@@ -183,6 +183,22 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     expect(t.jobs.ran.filter((j) => j.kind === 'setup').at(-1)!.brief).toContain('no test runner');
   });
 
+  it("continues the last setup agent's session after the gates fail, so it fixes its own files (§3.2)", async () => {
+    let n = 0;
+    const t = live({ setup: (_job, usual) => ({ ...usual(), session: `setup-${++n}` }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    t.c.install = async () => {
+      throw new Error('Gate 3 failed: the image has no test runner');
+    };
+    await t.api.install(proposal!.digest);
+    const again = await until(t.api, (c) => c.setup === 'consent' && t.jobs.ran.filter((j) => j.kind === 'setup').length === 2);
+    await t.api.install(again.proposal!.digest);
+    await until(t.api, (c) => c.setup === 'consent' && t.jobs.ran.filter((j) => j.kind === 'setup').length === 3);
+    expect(t.jobs.ran.filter((j) => j.kind === 'setup').map((j) => j.resume)).toEqual([undefined, 'setup-1', 'setup-2']);
+  });
+
   it('asks for up to 5 proposals before it says setup failed', async () => {
     const t = live();
     t.c.install = async () => {

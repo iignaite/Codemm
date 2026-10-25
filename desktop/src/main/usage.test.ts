@@ -38,7 +38,14 @@ describe('usage store', () => {
     expect(usage.course('c').total.costUsd).toBeCloseTo(0.3, 6);
   });
 
-  it('keeps baselines only for tutor sessions, the only ones resumed, so other jobs never push one out', () => {
+  it("counts a resumed setup session's cost once: a proposal after a gate failure continues the last one", () => {
+    const usage = usageStore(dir());
+    usage.record('c', 'setup', { input: 10, output: 1, costUsd: 0.5 }, 'setup-1');
+    usage.record('c', 'setup', { input: 10, output: 1, costUsd: 0.8 }, 'setup-1');
+    expect(usage.course('c').kinds.setup!.costUsd).toBeCloseTo(0.8, 6);
+  });
+
+  it('keeps baselines only for tutor and setup sessions, the only ones resumed, so other jobs never push one out', () => {
     const usage = usageStore(dir());
     usage.record('c', 'tutor', { input: 0, output: 0, costUsd: 2 }, 'tutor-1');
     for (let i = 0; i < 150; i++) usage.record('c', 'lesson', { input: 0, output: 0, costUsd: 0.01 }, `lesson-${i}`);

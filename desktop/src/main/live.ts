@@ -104,6 +104,8 @@ interface SetupRun {
   problem?: SetupProblem;
   gateFailures: number;
   lastGateProblem?: string;
+  /** The last setup agent's session: a proposal after a gate failure continues it, so the agent fixes its own files. */
+  session?: string;
   installs: number;
 }
 
@@ -385,7 +387,11 @@ export function createLive(d: LiveDeps): Live {
   /** Background work: a failure stalls it until the learner retries, instead of relaunching on every look. */
   function background(
     key: string, kind: JobKind, brief: string, course: string, done: Job['done'],
-    { lane = 'bg', concept, retry, track }: { lane?: 'fg' | 'bg'; concept?: string; retry?: JobProgress['retry']; track?: string } = {},
+    { lane = 'bg', concept, retry, track, resume, onSession }: {
+      lane?: 'fg' | 'bg'; concept?: string; retry?: JobProgress['retry']; track?: string; resume?: string;
+      /** Hears the session the job's agent left, failed or not. */
+      onSession?: (session: string) => void;
+    } = {},
   ) {
     if (stopping || stalls.has(course) || running.has(key)) return;
     // A track's setup belongs to every course on the track when it ends: they stall and move on together.
@@ -402,13 +408,14 @@ export function createLive(d: LiveDeps): Live {
         if (lesson && concept) failedLessons.set(c, concept);
       });
     const settled = (r: JobOutcome | Error) => {
+      if (!(r instanceof Error) && r.session) onSession?.(r.session);
       if (r instanceof Error) {
         log('job-error', { job: kind, ...errorFields(r) });
         stall(r.message.includes(SIGNED_OUT) ? 'signed-out' : 'failed');
       } else if (!r.ok && !running.get(key)?.stop.signal.aborted) stall(r.problem ?? 'failed');
     };
     // A finished job can make its course's next one due: the lesson before the activity, a proposal after gates.
-    start(key, lane, kind, brief, course, done, { concept, retry, settled, track }).then((o) => o.ok && courses().forEach((c) => schedule(c)), () => undefined);
+    start(key, lane, kind, brief, course, done, { concept, retry, settled, track, resume }).then((o) => o.ok && courses().forEach((c) => schedule(c)), () => undefined);
   }
 
   /** Ends a course's stall and starts the work it still needs. */
@@ -472,7 +479,11 @@ export function createLive(d: LiveDeps): Live {
         const proposed = () => setup.installs > installs || core.listProposals().some((p) => p.track === ref && !before.has(p.digest));
         // Another proposal after one failed its gates is a retry, within the bound (§3.2).
         const retry = setup.gateFailures > 0 ? { attempt: setup.gateFailures + 1, of: PROPOSAL_BOUND } : undefined;
-        background(`setup:${ref}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed, { retry, track: ref });
+        // The agent can't build or run anything itself, so after a gate failure it continues its own session: it sees the
+        // files it proposed and fixes them, rather than writing a new track from the failure alone.
+        background(`setup:${ref}`, 'setup', briefs.setup(ref, roadmap.style, setup.lastGateProblem), progress.course, proposed, {
+          retry, track: ref, ...(retry ? { resume: setup.session } : {}), onSession: (session) => (setup.session = session),
+        });
       }
       work(progress, state.state === 'ready');
     } catch (e) {
