@@ -171,18 +171,37 @@ describe("nextStep", () => {
     expect(nextStep({ concepts: [{ id: "a", requires: [] }] }, [], done, [], NOW)).toEqual({ kind: "done" });
   });
 
-  it("never finishes or unlocks through skip", () => {
+  it("never finishes through skip", () => {
     expect(nextStep({ concepts: [{ id: "a", requires: [] }] }, [], [skip("a", 0)], [], NOW)).toMatchObject({ kind: "author", concept: "a" });
-    expect(nextStep(roadmap, [], [skip("a", 0), skip("c", 1)], [], NOW)).toMatchObject({ concept: "a" });
+  });
+
+  // "Come back later" on a topic whose activity can't be written must not strand the learner (owner's decision, 1.0.1).
+  it("unlocks the following topics through skip, without mastering the skipped one", () => {
+    expect(nextStep(roadmap, [], [skip("a", 0), skip("c", 1)], [], NOW)).toMatchObject({ kind: "author", concept: "b" });
+    expect(replay([skip("a", 0)]).get("a")!.mastery).toBe(0.5);
+  });
+
+  it("brings a skipped topic back once nothing else is open, and isn't done until it's mastered", () => {
+    const line = { concepts: [{ id: "a", requires: [] as string[] }, { id: "b", requires: ["a"] }] };
+    const log = [skip("a", 0), ...[1, 2, 3, 4].map((n) => attempt({ exercise: `b${n}`, concepts: ["b"] }, n))];
+    expect(nextStep(line, [], log, [], NOW)).toMatchObject({ kind: "author", concept: "a" });
+  });
+
+  it("ends the unlock at the skipped topic's next check", () => {
+    const line = { concepts: [{ id: "a", requires: [] as string[] }, { id: "b", requires: ["a"] }] };
+    expect(nextStep(line, [], [skip("a", 0), attempt({ exercise: "a1", concepts: ["a"], passed: 0 }, 1)], [], NOW)).toMatchObject({ concept: "a" });
   });
 
   it("puts deferred concepts after the others", () => {
-    expect(nextStep(roadmap, [], [skip("a", 0)], [], NOW)).toMatchObject({ concept: "c" });
+    // Skipping a opens b; a waits behind b and c.
+    expect(nextStep(roadmap, [], [skip("a", 0)], [], NOW)).toMatchObject({ concept: "b" });
+    expect(nextStep({ concepts: [{ id: "a", requires: [] }, { id: "c", requires: [] }] }, [], [skip("a", 0)], [], NOW)).toMatchObject({ concept: "c" });
   });
 
   it("chooses the earliest concept when every candidate is deferred", () => {
+    const pair = { concepts: [{ id: "a", requires: [] as string[] }, { id: "c", requires: [] as string[] }] };
     const log = [attempt({ exercise: "c1", concepts: ["c"], passed: 0 }, 0), skip("c", 1), skip("a", 2)];
-    expect(nextStep(roadmap, [], log, [], NOW)).toMatchObject({ concept: "a" });
+    expect(nextStep(pair, [], log, [], NOW)).toMatchObject({ concept: "a" });
   });
 
   it("isn't stuck after a retry", () => {

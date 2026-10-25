@@ -165,7 +165,10 @@ export function nextStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], lo
     return unused ? { kind: "review", concept, difficulty, exercise: unused.slug } : { kind: "author", concept, difficulty, review: true };
   }
 
-  const candidates = order.filter((id) => !mastered(id) && (requires.get(id) ?? []).every(mastered));
+  // A prerequisite is met for unlocking when it's mastered, or skipped since its last check ("Come back later"): the
+  // topics after it open, but a skip never counts as mastered, so the course isn't done until it is.
+  const met = (id: string) => mastered(id) || state(id).deferred;
+  const candidates = order.filter((id) => !mastered(id) && (requires.get(id) ?? []).every(met));
   if (candidates.length === 0) return { kind: "done" };
 
   // Deferred concepts wait while anything else is open; if all are deferred, the earliest comes back first.
