@@ -11,6 +11,13 @@ describe("parseTrackYaml", () => {
     expect(parseTrackYaml(`id: c\nversion: 1\nstyles: [io]\nfiles: [main.c]\nrun: x\n`).limits).toEqual({ time_ms: 2000, memory_mb: 256 });
   });
 
+  it("reads an empty build, run or test as left out", () => {
+    // Codex wrote `test:` with no value on an io track, and `build:` with none on a unit track.
+    expect(parseTrackYaml(`id: c\nversion: 1\nstyles: [io]\nfiles: [main.c]\nrun: x\ntest:\n`).test).toBeUndefined();
+    expect(parseTrackYaml(`id: c\nversion: 1\nstyles: [unit]\nfiles: [a]\nbuild: null\ntest: x\n`).build).toBeUndefined();
+    expect(() => parseTrackYaml(`id: c\nversion: 1\nstyles: [unit]\nfiles: [a]\ntest: null\n`)).toThrow(/test/);
+  });
+
   it.each([
     ["io without run", `id: c\nversion: 1\nstyles: [io]\nfiles: [main.c]\n`, /run/],
     ["unit without test", `id: c\nversion: 1\nstyles: [unit]\nfiles: [a]\n`, /test/],

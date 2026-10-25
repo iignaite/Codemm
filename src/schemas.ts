@@ -30,15 +30,18 @@ function parseWith<T>(schema: z.ZodType<T>, yaml: string, what: string): T {
   return parsed.data;
 }
 
+/** A command; an empty one (\`test:\` with no value, which YAML reads as null) counts as left out. */
+const Command = z.preprocess((v) => v ?? undefined, z.string().min(1).max(2000).optional());
+
 const TrackYaml = z
   .object({
     id: Id,
     version: z.number().int().positive("version must be a positive integer").max(999_999_999, "version must have at most 9 digits"),
     styles: z.array(Style).min(1),
     files: z.array(z.string()).min(1).max(20),
-    build: z.string().min(1).max(2000).optional(),
-    run: z.string().min(1).max(2000).optional(),
-    test: z.string().min(1).max(2000).optional(),
+    build: Command,
+    run: Command,
+    test: Command,
     limits: z.object({ time_ms: z.number().int().positive().optional(), memory_mb: z.number().int().positive().optional() }).strict().optional(),
   })
   .strict();
