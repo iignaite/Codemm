@@ -116,6 +116,7 @@ Your agent uses the MCP tools `list_tracks`, `save_track`, `save_roadmap`, `get_
 ## Documentation
 
 - [Docs index](docs/README.md)
+- [Architecture](docs/architecture.md): how the parts connect and how the data is stored, with diagrams
 - [Design](docs/DESIGN.md): the core spec, formats and gates
 - [Desktop design](docs/desktop/DESIGN.md): the app, the agent bridge and the acceptance criteria
 - [Security](docs/SECURITY.md): the sandbox, trust boundaries and known limits

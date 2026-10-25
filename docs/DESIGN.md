@@ -1,6 +1,6 @@
 # Codemm 1.0 design
 
-Status: revised after two Astra design reviews (§13). The longer illustrated design, with research sources and the competitor survey, is the "Codemm Harness" design doc (v0.4, 17 Oct 2026). This file is the authoritative spec for the core that 1.0 ships. The desktop app that bundles it, and the core features the app needs, are specified in [desktop/DESIGN.md](desktop/DESIGN.md).
+Status: revised after two Astra design reviews (§13). The longer illustrated design, with research sources and the competitor survey, is the "Codemm Harness" design doc (v0.4, 17 Oct 2026). This file is the authoritative spec for the core that 1.0 ships. The desktop app that bundles it, and the core features the app needs, are specified in [desktop/DESIGN.md](desktop/DESIGN.md). For diagrams of how the parts and the files fit together, see [architecture.md](architecture.md).
 
 ## 1. What Codemm is
 
