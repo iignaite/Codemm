@@ -10,13 +10,15 @@ interface UsageFile {
   format_version: 1;
   courses: Record<string, Partial<Record<JobKind, UsageTotals>>>;
   /**
-   * The highest cost Claude reported per tutor session. Only tutor sessions resume, and a resumed session's report
-   * covers the whole session so far, so only the rise counts.
+   * The highest cost Claude reported per tutor or setup session. Only those resume (a setup after a gate failure), and
+   * a resumed session's report covers the whole session so far, so only the rise counts.
    */
   sessions: Record<string, number>;
 }
 
-/** Tutor sessions are one per course and agent; this only bounds a file that would otherwise only grow. */
+/** The job kinds whose sessions resume. */
+const RESUMED: ReadonlySet<JobKind> = new Set(['tutor', 'setup']);
+/** Tutor sessions are one per course and agent, setup sessions a few per track; this only bounds a file that would otherwise only grow. */
 const MAX_SESSIONS = 100;
 const zero = (): UsageTotals => ({ input: 0, output: 0, cachedInput: 0, costUsd: 0, runs: 0 });
 const add = (a: UsageTotals, b: UsageTotals): UsageTotals => ({
@@ -48,11 +50,11 @@ export function usageStore(dir: string) {
 
   return {
     dir,
-    /** Adds one run's report. `session` lets a resumed tutor session's cost count only what's new. */
+    /** Adds one run's report. `session` lets a resumed tutor or setup session's cost count only what's new. */
     record(course: string, kind: JobKind, u: { input: number; output: number; cachedInput?: number; costUsd?: number }, session?: string) {
       const data = read();
       let cost = u.costUsd ?? 0;
-      if (u.costUsd !== undefined && session && kind === 'tutor') {
+      if (u.costUsd !== undefined && session && RESUMED.has(kind)) {
         // A crashed turn can report 0: the baseline never goes down.
         const before = data.sessions[session] ?? 0;
         cost = Math.max(0, u.costUsd - before);

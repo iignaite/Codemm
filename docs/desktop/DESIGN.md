@@ -235,7 +235,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 
 - **Bound to a course.** Every job's server gets `--course <course>`, so switching courses in the app can't redirect a job's save.
 - **Checking the result.** "Done when" is checked against core records created after the job started, never against the agent's text. Before relaunching a failed job, main checks again, because a save can commit just before a crash.
-- **Fresh sessions.** Author, setup and lesson jobs start without history, which is cheaper and keeps the author's work out of the tutor's chat. The tutor resumes one session per course, from the same workspace folder, because both CLIs keep sessions per working directory.
+- **Fresh sessions.** Author, setup and lesson jobs start without history, which is cheaper and keeps the author's work out of the tutor's chat. The tutor resumes one session per course, from the same workspace folder, because both CLIs keep sessions per working directory. A setup job after a gate failure is the one exception: it continues the last setup job's session, when the same agent runs it for the same course (another agent can't continue it, and Cursor keeps chats per job folder, which the course's server names). The agent can't build or run anything itself, so it needs the files it proposed to fix them; a fresh agent given only the failure rewrote the whole track and made new mistakes.
 - **Concurrency.** At most two agent processes run at once per course: one foreground job and one background queue (§4.13). After approval, the first lesson runs in the foreground while setup, then authoring, runs in the background.
 - **Bounds.**
 
@@ -287,7 +287,7 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
   - A setup failure shows above the topic's lessons, which stay readable.
 - **Retries.**
   - **Build failure from the learner's machine.** If a build fails because the machine is offline or out of disk space (§6.1), nothing is recorded and no agent runs. Try again re-installs the same proposal, which needs no new consent because the digest is unchanged.
-  - **Gate failure.** If the gates fail, a new setup job gets the gate diagnostics, which hold no learner secrets, and proposes again within the bound in §3.2. A new proposal has new contents, so it asks again: "Codemm has another way to set up React." with Not now or Set up. Its text starts with why the last try failed, in Codemm's words from the failed gate's name alone, never its output: "The last try didn't build.", "The last try built, but its tests didn't work.", "The last try's files weren't valid." or "The last try didn't pass Codemm's checks."
+  - **Gate failure.** If the gates fail, a new setup job gets the gate diagnostics, which hold no learner secrets, continues the last setup session (§3.2) and proposes again within the bound there. A new proposal has new contents, so it asks again: "Codemm has another way to set up React." with Not now or Set up. Its text starts with why the last try failed, in Codemm's words from the failed gate's name alone, never its output: "The last try didn't build.", "The last try built, but its tests didn't work.", "The last try's files weren't valid." or "The last try didn't pass Codemm's checks."
 - **Outside the app.** Without `--desktop`, `save_track` behaves as in core: approving the call in the agent is the consent.
 
 ### 4.2 Roadmap draft and edits
@@ -480,7 +480,7 @@ Every long step shows its live progress, so the learner always knows where it is
   - Cursor's `result` usage, when present: tokens, no cost.
 - **Parser:** the stream parsers (`agent/claude.ts`, `codex.ts`, `cursor.ts`) emit `{ type: 'usage', input, output, cachedInput?, costUsd? }`, where `input` counts every input token and `cachedInput` the ones read from cache. Jobs pass each report to `Job.onUsage` with its session.
 - **Store:** `usage.json` in userData keeps totals per course and job kind (tokens, cost, runs). It carries `format_version` and is written atomically; a file it can't read starts over, since usage only informs.
-  - Only tutor sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor session (a crashed turn can report 0) and adds only the rise.
+  - Only tutor and setup sessions resume, and Claude's cost on a resumed session covers the whole session so far. So the store keeps the highest cost reported per tutor or setup session (a crashed turn can report 0) and adds only the rise.
   - One app process owns userData (§2), as with `desktop.json`, so no second instance writes it at the same moment.
 - **Screen:** the course map's side column shows a small Usage card for the approved course once the agent reported a cost: "Estimated cost" and the amount ("under $0.01" below a cent). It's read again whenever the map reads the course. Token counts aren't shown: they're the agent's bookkeeping, not something the learner acts on. The agent isn't named, since agent names stay on the connect screen. Codemm can't tell from the CLI's output whether a run is billed to a plan or an API key, so the card says nothing about billing. Codex and Cursor report tokens only, so with them the card doesn't show; the totals are still kept.
 
