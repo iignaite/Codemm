@@ -24,7 +24,7 @@ const DEPTH: Record<Depth, string> = {
  * differ, not repeat (adaptive-activities proposal, the authoring loop).
  */
 export const CHANGE_APPROACH =
-  "Your last attempt didn't save an exercise that passed Codemm's checks. Change your approach rather than repeating it: write a smaller task, another kind of task, or simpler, deterministic tests.";
+  "Your last attempt didn't save an exercise that passed Codemm's checks. Change your approach rather than repeating it: write a smaller task, a different task of the kind the concept needs, or simpler, deterministic tests.";
 
 export function briefsFrom(base: Record<JobKind, string>, platform: NodeJS.Platform = process.platform) {
   const room = platform === 'win32' ? WINDOWS_ROOM : ROOM;

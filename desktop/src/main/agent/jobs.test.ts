@@ -7,7 +7,7 @@ import { JOBS, runJob, type Job } from './jobs';
 import { tempDir } from '../testing/temp';
 
 /** A fake Claude Code: a Node script that replays stream-json lines, the way recorded fixtures do. */
-function fakeAgent(lines: object[], { exitCode = 0, hang = false, stderr = [] as string[] } = {}) {
+function fakeAgent(lines: object[], { exitCode = 0, hang = false, stderr = [] as string[], refuseResume = false } = {}) {
   const dir = tempDir('codemm-agent-');
   const script = join(dir, 'claude.js');
   writeFileSync(
@@ -16,6 +16,7 @@ function fakeAgent(lines: object[], { exitCode = 0, hang = false, stderr = [] as
 const fs = require('node:fs');
 fs.appendFileSync(${JSON.stringify(join(dir, 'runs'))}, JSON.stringify(process.argv.slice(2)) + '\\n');
 fs.appendFileSync(${JSON.stringify(join(dir, 'cwds'))}, process.cwd() + '\\n');
+${refuseResume ? "if (process.argv.includes('--resume')) process.exit(1);" : ''}
 for (const l of ${JSON.stringify(lines.map((l) => JSON.stringify(l)))}) console.log(l);
 for (const l of ${JSON.stringify(stderr)}) console.error(l);
 ${hang ? 'setInterval(() => {}, 1000);' : `process.exit(${exitCode});`}`,
@@ -109,6 +110,13 @@ describe('jobs (§3.2)', () => {
     expect(first).not.toContain('--resume');
     expect(second![second!.indexOf('--resume') + 1]).toBe('s1');
     expect(second![second!.indexOf('-p') + 1]).toMatch(/^Write one exercise\.\n\n.*Change your approach/s);
+  });
+
+  it('relaunches an author fresh when its agent refuses to continue the session', async () => {
+    const agent = fakeAgent([init, call('a', 'save_exercise'), result('a', true), call('b', 'save_exercise'), result('b', true), call('c', 'save_exercise'), result('c', true), success], { refuseResume: true });
+    const outcome = await runJob(job(agent.exe, { kind: 'author', brief: 'Write one exercise.', done: () => false }));
+    expect(agent.argvs().map((a) => a.includes('--resume'))).toEqual([false, true, false]);
+    expect(outcome.problem).toBe('failed');
   });
 
   it('relaunches other jobs fresh, as before', async () => {
