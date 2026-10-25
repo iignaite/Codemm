@@ -247,12 +247,12 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
   | Author | 15 min | 3 failed `save_exercise` calls |
   | Tutor | 5 min | — |
 
-  The bridge counts failed saves from `tool_result` events and cancels the job at the bound. A failed job is relaunched once at most, and never when the failure is an infrastructure failure or a plan limit (§6.1). After that, the learner gets the failure screen (§5).
+  The bridge counts failed saves from `tool_result` events and cancels the job at the bound. A failed job is relaunched once at most, and never when the failure is an infrastructure failure or a plan limit (§6.1). After that, the learner gets the failure screen (§5). When it is an activity its agent couldn't write and leaving that topic for later opens another, the banner offers "Come back later" beside Try again: the course moves on to the next topic, whose lesson and activity are written, and the topic comes back once nothing else is open.
 - **Practice protection.** Tutor turns have no edit tools in Claude Code or Codex. The learner edits; Codemm explains. This doesn't depend on the Claude hook, and it is not a security boundary (§3.1).
 - **Stuck.**
   - "Reread the lesson" opens the lesson.
   - "Try an easier one" runs a roadmap-change job that adds a prerequisite topic. The stuck topic waits for it, then gets a fresh start (§4.2).
-  - "Come back later" is skip (§4.4). It shows only when another topic is ready, since otherwise the same topic would come straight back.
+  - "Come back later" is skip (§4.4). It shows only when another topic would open: one ready already, or one after this topic, which a skip unlocks without mastering it (core §7). Otherwise the same topic would come straight back.
   - The failed results stay under these ways forward.
 
 ### 3.3 Agent CLI versions and the minimum model

@@ -321,7 +321,7 @@ Gates 4 to 7 only ask whether everything passes, so their io runs stop a set at 
 `events.jsonl` is the only learner state. It holds `check`, `skip`, `assist`, `retry` and `read` events, and everything below is recomputed by replaying them in order.
 
 - **`check` event:** `{ kind: "check", at, exercise, concepts, difficulty, passed, total, assisted }`. It is recorded only when grading completed. Infrastructure failures record nothing: no container runtime, a missing image, or a host-side kill of the whole check. Learner-caused outcomes are graded, as `error`: build failures, timeouts and output floods. A check whose learner files are byte-identical to the starter is graded and shown but no `check` event is recorded (`recorded: false`): it isn't an attempt, so it can't count toward the fail streak, lower mastery or take the first try. Assistance and the current exercise are still updated as for any check.
-- **`skip` event:** `{ kind: "skip", at, concept }`. "Come back later": it defers the concept until its next `check` and never changes mastery, so it never satisfies a prerequisite or finishes a course.
+- **`skip` event:** `{ kind: "skip", at, concept }`. "Come back later": it defers the concept until its next `check` and never changes mastery. While deferred, the concept counts as met for unlocking the concepts that require it, so a learner whose activity can't be written still moves on; it never counts as mastered, so it never finishes a course, and it comes back once nothing else is open.
 - **`retry` event:** `{ kind: "retry", at, concept }`. It resets the concept's fail streak, so a stuck concept isn't stuck, and leaves mastery and difficulty unchanged (§5).
 - **`read` event:** `{ kind: "read", at, lesson, concept }`. The learner acknowledged a lesson. It never changes mastery.
 - **`assist` event:** `{ kind: "assist", at, exercise }`. It marks that exercise as assisted for good, in every workspace.
@@ -348,7 +348,7 @@ Checks before the due time are ordinary checks. A concept that drops below maste
 
 1. If the roadmap's track isn't installed, return `setup` with the track.
 2. If a mastered concept's review is due, the earliest due first: return `review` with the concept, its difficulty and an exercise of that concept at that difficulty the learner has never checked; if there is none, return `author` with `review: true`.
-3. Candidates are concepts that aren't mastered and whose prerequisites are all mastered, in topological order with ties broken by roadmap order.
+3. Candidates are concepts that aren't mastered and whose prerequisites are each mastered or deferred (skipped since their last check), in topological order with ties broken by roadmap order.
 4. Among candidates that aren't deferred, take the lowest mastery; the first in order wins ties. If every candidate is deferred, take the first in order.
 5. If that concept is stuck, return `stuck`.
 6. Otherwise, if an exercise exists for that concept at its current difficulty with no perfect check, return `practice`. The earliest-created such exercise wins.
