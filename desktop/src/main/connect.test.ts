@@ -58,7 +58,7 @@ describe('connect (§3.1, §3.3)', () => {
       ['codex', 'not-connected', true, false],
       ['cursor', 'missing', false, true],
     ]);
-    expect(agents.find((a) => a.id === 'codex')?.model).toBe('gpt-5.6-luna');
+    expect(agents.find((a) => a.id === 'codex')?.model).toBe('gpt-6-luna');
   });
 
   it('offers only bench-tested models per agent, the recommended one first and chosen by default', async () => {
@@ -71,8 +71,8 @@ describe('connect (§3.1, §3.3)', () => {
     ]);
     expect(claude.model).toBe('sonnet');
     expect(agents.find((a) => a.id === 'codex')!.models.map((m) => [m.id, m.recommended])).toEqual([
-      ['gpt-5.6-luna', true],
-      ['gpt-6-luna', false],
+      ['gpt-6-luna', true],
+      ['gpt-5.6-luna', false],
       ['gpt-6-astra', false],
     ]);
     // The free plan runs only Auto, so Auto is the one bench-tested Cursor model.
