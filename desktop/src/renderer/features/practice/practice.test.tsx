@@ -387,7 +387,9 @@ describe('Practice in the sidebar', () => {
     expect(activity).not.toHaveBeenCalled();
     written = true;
     tell(jobAt('author-1', 'author', { concept: topic, ended: true }));
-    expect(await screen.findByRole('heading', { name: 'Click Counter' })).toHaveFocus();
+    // Focus moves in an effect after the heading appears; a slow runner (Windows CI) sees it a moment later.
+    const heading = await screen.findByRole('heading', { name: 'Click Counter' });
+    await vi.waitFor(() => expect(heading).toHaveFocus());
   });
 });
 
@@ -446,7 +448,7 @@ describe('Continue after a pass', () => {
     expect(await screen.findByText('Practice opens here once your activity is written.')).toBeInTheDocument();
     expect(await screen.findByRole('progressbar', { name: 'Writing the activity' })).toBeInTheDocument();
     await opensNext(5000);
-    expect(screen.getByRole('heading', { name: 'Click Counter 2', level: 1 })).toHaveFocus();
+    await vi.waitFor(() => expect(screen.getByRole('heading', { name: 'Click Counter 2', level: 1 })).toHaveFocus());
   });
 });
 
@@ -502,7 +504,7 @@ describe('Continue to a review', () => {
     review.state = 'due';
     tell(jobAt('author-1', 'author', { concept: first.id, ended: true }));
     await opensReview();
-    expect(screen.getByRole('heading', { name: 'Click Counter', level: 1 })).toHaveFocus();
+    await vi.waitFor(() => expect(screen.getByRole('heading', { name: 'Click Counter', level: 1 })).toHaveFocus());
   });
 });
 
