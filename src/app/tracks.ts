@@ -124,7 +124,7 @@ export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exer
   return store.withLock(store.trackLockPath(old.id), async () => {
     // Build under a candidate tag; the installed tag and ID stay untouched unless every gate passes.
     const candidate = `${old.image}-candidate`;
-    const verified = await verifyTrack(store.readTrackFiles(ref), candidate);
+    const verified = await verifyTrack(store.readTrackFiles(ref), candidate, undefined, { rebuild: true });
     const track: TrackRecord = { ...old, imageId: verified.imageId };
     const changed: string[] = [];
     let count = 0;

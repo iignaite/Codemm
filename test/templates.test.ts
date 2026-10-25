@@ -26,8 +26,8 @@ describe("tutor instructions (AGENTS.md section)", () => {
     expect(AGENTS_SECTION).toMatch(/Only `save_track` and `save_exercise` go through the `codemm-author` subagent/);
   });
 
-  it("tells a track author its pass probe must pass within a third of time_ms", () => {
-    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) expect(text).toMatch(/pass probe must also pass within a third of `time_ms`/);
+  it("tells a track author its pass probe must pass within a sixth of time_ms", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) expect(text).toMatch(/pass probe must also pass within a sixth of `time_ms`/);
   });
 
   it("tells a track author how heavy toolchains run offline, as another user, within the time limit", () => {

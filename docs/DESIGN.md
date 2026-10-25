@@ -174,7 +174,7 @@ Other ceilings:
 | `memory_mb` | 64 to 2048 MB, default 256; `/tmp` (256 MB) counts toward it | the track |
 | io build, Run's build | 60 s | fixed |
 | Input generator | 30 s, outside `time_ms`; a third of it in the reference's fast run | fixed |
-| Reference speed (gates) | must pass in a third of `time_ms`; at the ceiling the gate says to make the probe faster | fixed |
+| Reference speed (gates) | must pass in a third of `time_ms`; a new track's pass probe in a sixth (a third at the ceiling), so every reference has twice the probe's time; at the ceiling the gate says to make the probe faster | fixed |
 | Output per io case | 32 MB; the first 64 KB is kept and shown | fixed |
 | Stream per container | 4 MB, plus 32 MB per io case | fixed |
 | Unit report | 1 MB; runner log shown 4 KB; each message 2000 characters | fixed |
@@ -231,7 +231,7 @@ Other ceilings:
 - **Infrastructure failures.** A build that fails because the runtime is down or not answering, Docker's credential helper can't run, the network fails or the disk is full is reported as that, not as a gate failure, and installs nothing. The agent retries the same files instead of rewriting a correct track. Network failures are read from the build output, each with what may be behind it: a name or route that fails, or a proxy that refuses (offline, or a VPN, proxy or firewall), Docker Hub's pull rate limit (`toomanyrequests`), an intercepted certificate (one no trusted authority signed: a VPN, proxy or security software; an expired certificate, or one for another name, stays the track's), or a connection that timed out or dropped (`i/o timeout`, `TLS handshake timeout`, `net/http: request canceled`, a download's `unexpected EOF`; a compiler's `unexpected EOF` stays the track's). A gate failure never carries an infrastructure kind or code, whatever its details or output say.
 - **The image** is tagged `codemm-track-<home>-<id>:<version>`, where `<home>` is the first 8 hex characters of the SHA-256 of the Codemm home's real path, so two homes on one Docker never share a tag. Its ID is stored in `track.json`, and checks use that ID. A track installed before this naming keeps its old tag, which only `track rebuild` uses. The ID is the one the build itself reports (`--iidfile`), never the tag looked up afterwards, so a concurrent build of the same tag can't swap the image being verified. Every check verifies that the ID still matches. If the image is missing or has changed, the check fails with "Run `codemm track rebuild <id>@<version>`".
 - **Base images.** Each `FROM` should pin its image by digest (`image@sha256:…`). An unpinned `FROM` (other than `scratch` or an earlier stage) installs with a warning rather than failing a gate: checks run by the recorded image ID, and a rebuild that pulls a different base must pass every gate below, so an unpinned base can make a rebuild fail but can't change results silently.
-- **Rebuild** re-runs the track gates, then re-runs exercise gates 2 to 6 for every stored exercise on the new image. io outputs must also equal the stored expected outputs, and unit inventories must match. Only then is the new image ID recorded. Otherwise rebuild fails and lists the exercises that changed. Nothing rebuilds silently.
+- **Rebuild** re-runs the track gates (the probe's speed as at install: a third), then re-runs exercise gates 2 to 6 for every stored exercise on the new image. io outputs must also equal the stored expected outputs, and unit inventories must match. Only then is the new image ID recorded. Otherwise rebuild fails and lists the exercises that changed. Nothing rebuilds silently.
 - **Locks.** Installs, rebuilds and exercise saves (from validation through commit) hold that track's lock, so an exercise can't be validated on an image that a rebuild is replacing.
 
 ## 5. Roadmaps (courses)
@@ -291,7 +291,7 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
 2. The image builds and declares no volumes.
 3. For each style, the pass probe passes everything.
 4. For each style, the fail probe gets at least one `fail` and no `error`.
-5. The pass probe passes again with a third of the time limit, as every exercise's reference must (gate 3 below), and gives identical results. A track that fails here is told to raise `limits.time_ms` or `limits.memory_mb`, or, when `time_ms` is already at its ceiling, to make the command faster (cache everything at build time, and call the compiler and test runner directly rather than a build tool).
+5. The pass probe passes again with a sixth of the time limit, half of what every exercise's reference gets (gate 3 below), and gives identical results. A probe that only fit a third left tracks whose framework starts once per io case flaky at every exercise's speed gate. At the `time_ms` ceiling, which can't be raised, and on a rebuild (an installed track's files can't change), it keeps a third. A track that fails here is told to raise `limits.time_ms` or `limits.memory_mb`, or, when `time_ms` is already at its ceiling, to make the command faster (cache everything at build time, and call the compiler and test runner directly rather than a build tool).
 
 **Roadmap gate:** the schema and §5 rules hold, there are no unknown prerequisites, and there are no cycles (Kahn's algorithm).
 
