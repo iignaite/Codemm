@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readFileMap } from "../src/files.js";
-import { buildOutput, checkTrackFiles, comparedEarlier, unpinnedBases, verifyExercise } from "../src/gates.js";
+import { buildOutput, checkTrackFiles, comparedEarlier, probeFastMs, unpinnedBases, verifyExercise } from "../src/gates.js";
 import { type CourseRecord, parseRoadmapYaml, type TrackRecord } from "../src/schemas.js";
 
 const PINNED = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc";
@@ -109,6 +109,20 @@ describe("buildOutput", () => {
   it("shows the end of any other builder's log", () => {
     const legacy = ["Step 1/2 : FROM alpine", "Step 2/2 : RUN false", "The command '/bin/sh -c false' returned a non-zero code: 1"].join("\n");
     expect(buildOutput(legacy)).toBe(legacy);
+  });
+});
+
+describe("probeFastMs", () => {
+  it("gives a new track's pass probe a sixth of time_ms, so every reference (a third) has twice its time", () => {
+    expect(probeFastMs({ time_ms: 2000 })).toBe(333);
+  });
+
+  it("keeps a third at the ceiling, where time_ms can't be raised, so heavy toolchains still install", () => {
+    expect(probeFastMs({ time_ms: 120_000 })).toBe(40_000);
+  });
+
+  it("keeps a third on a rebuild: an installed track's files can't change, and its course can't change track", () => {
+    expect(probeFastMs({ time_ms: 2000 }, { rebuild: true })).toBe(666);
   });
 });
 

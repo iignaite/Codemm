@@ -38,19 +38,13 @@ describe.runIf(dockerUp)("gates (Docker)", () => {
       ["a declared volume", (f: FileMap) => ({ ...f, Dockerfile: `${f.Dockerfile}VOLUME /data\n` }), /volume/i],
       ["a fail probe that passes", (f: FileMap) => ({ ...f, "probe/io/fail/main.sh": f["probe/io/pass/main.sh"]! }), /probe fail/],
       ["a pass probe that fails", (f: FileMap) => ({ ...f, "probe/io/pass/main.sh": "read a b\necho 0\n" }), /probe pass/],
-      // time_ms is 2000: the probe passes within it, but not within a sixth of it, which leaves every reference (it
-      // gets a third) twice the probe's time.
-      [
-        "a pass probe too slow for a sixth of the time limit",
-        (f: FileMap) => ({ ...f, "probe/io/pass/main.sh": `sleep 1\n${f["probe/io/pass/main.sh"]!}` }),
-        /probe fast[\s\S]*Raise limits\.time_ms or limits\.memory_mb[\s\S]*took longer than 333 ms/,
-      ],
-      // Real io framework tracks passed this way with 2 to 3 s per case, then failed their exercises' "reference fast"
-      // gate again and again: start-up alone was close to a third.
+      // time_ms is 2000: the probe fits a third of it (666 ms) but not a sixth (333 ms), which leaves every reference
+      // (it gets a third) twice the probe's time. Real io framework tracks passed with only a third, then failed their
+      // exercises' "reference fast" gate again and again: start-up alone was close to a third.
       [
         "a pass probe that fits a third of the time limit but leaves no room",
         (f: FileMap) => ({ ...f, "probe/io/pass/main.sh": `sleep 0.5\n${f["probe/io/pass/main.sh"]!}` }),
-        /probe fast[\s\S]*a sixth of the time limit \(333 ms\)/,
+        /probe fast[\s\S]*within 333 ms[\s\S]*Raise limits\.time_ms or limits\.memory_mb[\s\S]*took longer than 333 ms/,
       ],
       ["a missing probe", (f: FileMap) => Object.fromEntries(Object.entries(f).filter(([p]) => !p.startsWith("probe/io/fail"))), /probe/],
     ])("rejects %s", async (_label, mutate, error) => {
