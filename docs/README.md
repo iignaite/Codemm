@@ -2,6 +2,7 @@
 
 | Doc | What's in it |
 |---|---|
+| [architecture.md](architecture.md) | How Codemm is built, with diagrams: the parts, the data model, use cases, main types, two flows and the security model |
 | [DESIGN.md](DESIGN.md) | The 1.0 core spec: formats, gates, grading, mastery and the review log |
 | [desktop/DESIGN.md](desktop/DESIGN.md) | The desktop app: architecture, the agent bridge, failure states and acceptance criteria (D1 to D21) |
 | [desktop/beta-plan.md](desktop/beta-plan.md) | The private beta: who, consent, tasks and exit criteria |
