@@ -114,6 +114,19 @@ describe("author instructions (codemm-author subagent)", () => {
     expect(AUTHOR_AGENT).toMatch(/trailing whitespace/);
   });
 
+  it("lists exercise.yaml's only keys, so the track isn't written into it", () => {
+    // Codex added `track:` to exercise.yaml after reading "use the ... track exactly as you were given them".
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) {
+      expect(text).toMatch(/`exercise.yaml` holds only/);
+      expect(text).not.toMatch(/track exactly as/);
+    }
+  });
+
+  it("tells an exercise author that each save sends the whole exercise", () => {
+    // Codex re-sent only the file it changed after a gate failure (Angular): "exercise.yaml is missing".
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) expect(text).toMatch(/Each `save_exercise` call sends every file of the exercise, not only the ones you changed/);
+  });
+
   it("starts track versions at 1", () => {
     expect(AUTHOR_AGENT).toMatch(/starting at 1/);
   });
