@@ -75,15 +75,22 @@ function head(lines: string[], count: number, max: number): string[] {
 /**
  * What a failed track build printed. BuildKit ends its log with a summary that repeats the failing step's last lines
  * and quotes the Dockerfile, which would fill the last 40 lines and push out the tool's own error, often its first
- * line. So for BuildKit this is the failing step's own output: its first 10 lines and its last 30, within 4 KB.
+ * line. So for BuildKit this is the failing step's own output: its first 10 lines and its last 30, each at most 300
+ * characters, within 4 KB.
  * Any other builder's log ends with the failing command's output, so it is the end of the log.
  */
 export function buildOutput(log: string): string {
   const failed = [...log.matchAll(/^#(\d+) ERROR: /gm)].at(-1)?.[1];
   if (!failed) return tail(log);
-  // A step's lines are `#N <seconds> <text>`, or `#N <text>` for its header, DONE and ERROR lines.
+  // A step's lines are `#N <seconds> <text>`, or `#N <text>` for its header, DONE and ERROR lines. The header and the
+  // ERROR line quote the whole command, which can be longer than the budget, so a longer line keeps its first and last
+  // 150 characters (the ERROR line's exit code is at its end).
   const step = new RegExp(`^#${failed} (?:\\d+\\.\\d+ )?(.*)$`);
-  const lines = log.split("\n").flatMap((line) => step.exec(line)?.slice(1, 2) ?? []);
+  const lines = log
+    .split(/\r?\n/)
+    .flatMap((line) => step.exec(line)?.slice(1, 2) ?? [])
+    .map((line) => (line.length > 300 ? `${line.slice(0, 150)}…${line.slice(-150)}` : line));
+  if (lines.length === 0) return tail(log);
   if (lines.length <= 40 && Buffer.byteLength(lines.join("\n")) <= 4096) return lines.join("\n");
   const first = head(lines, 10, 1024);
   const last = head(lines.slice(first.length).reverse(), 30, 3000).reverse();

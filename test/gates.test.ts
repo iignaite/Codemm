@@ -90,6 +90,22 @@ describe("buildOutput", () => {
     expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(4096);
   });
 
+  it("keeps the cause when the step's command line is longer than the whole budget", () => {
+    // An agent's RUN line can install hundreds of packages, and BuildKit repeats the command in its ERROR line.
+    const command = `apt-get install -y ${Array.from({ length: 300 }, (_, i) => `package-${i}`).join(" ")}`;
+    const long = [`#6 [3/4] RUN ${command}`, "#6 0.5 E: Unable to locate package package-7", ...Array.from({ length: 60 }, (_, i) => `#6 0.6 noise ${i}`), `#6 ERROR: process "/bin/sh -c ${command}" did not complete successfully: exit code: 100`].join("\n");
+    const shown = buildOutput(long);
+    expect(shown).toContain("Unable to locate package package-7");
+    expect(shown).toContain("noise 59");
+    expect(shown).toContain("exit code: 100");
+    expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(4096);
+  });
+
+  it("shows the end of the log when no line of the failing step can be read", () => {
+    const crlf = "#5 [2/2] RUN false\r\n#5 0.1 the cause\r\n#5 ERROR: process \"false\" did not complete successfully: exit code: 1\r\n";
+    expect(buildOutput(crlf)).toContain("the cause");
+  });
+
   it("shows the end of any other builder's log", () => {
     const legacy = ["Step 1/2 : FROM alpine", "Step 2/2 : RUN false", "The command '/bin/sh -c false' returned a non-zero code: 1"].join("\n");
     expect(buildOutput(legacy)).toBe(legacy);
