@@ -72,7 +72,7 @@ describe("tutor instructions (AGENTS.md section)", () => {
       expect(text).toMatch(/a different problem, not one of them renamed/);
       expect(text).toMatch(/title must differ from the concept's title/);
     }
-    expect(AGENTS_SECTION).toMatch(/contract and earlier exercises from `next_step`/);
+    expect(AGENTS_SECTION).toMatch(/contract, earlier exercises, lesson text and last result from `next_step`/);
   });
 
   it("shows how a roadmap pins its track", () => {
@@ -172,6 +172,19 @@ describe("activities that fit the concept", () => {
   });
 });
 
+describe("activities built on the lesson and the learner's last result", () => {
+  it("asks the author to practise the lesson's own ideas, terms and code, and to adapt to the last result", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) {
+      expect(text).toMatch(/Practise what the concept's lesson teaches \(`lessonText`\): its ideas, terms and code/);
+      expect(text).toMatch(/`last`/);
+    }
+  });
+
+  it("has the terminal tutor pass the lesson text and last result to the author subagent", () => {
+    expect(AGENTS_SECTION).toMatch(/contract, earlier exercises, lesson text and last result from `next_step`/);
+  });
+});
+
 describe("the 1.0 learning flow in the tutor instructions", () => {
   it("handles setup, and teaches the lesson before the activity", () => {
     expect(AGENTS_SECTION).toMatch(/`setup`: the roadmap's track isn't installed yet/);
@@ -201,7 +214,7 @@ describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
   it("sends a fresh author to next_step for the exact target and the track's contract", () => {
     expect(JOB_BRIEFS.author).toMatch(/`contract\.files`/);
     expect(JOB_BRIEFS.author).toMatch(/`contract\.examples`/);
-    expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, difficulty, style, track, contract and earlier exercises from `next_step`/);
+    expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, difficulty, style, track, contract, earlier exercises, lesson text and last result from `next_step`/);
   });
 
   it("asks the research job for its sources, and a roadmap change to keep them and the title", () => {

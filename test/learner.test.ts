@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type CheckEvent, type LearnerEvent, MASTERED, nextStep, replay, REVIEW_DAYS, type RetryEvent, type SkipEvent } from "../src/learner.js";
+import { MASTERED, REVIEW_DAYS, lastCheck, nextStep, replay, type CheckEvent, type LearnerEvent, type RetryEvent, type SkipEvent } from "../src/learner.js";
 
 const at = (n: number) => new Date(Date.UTC(2026, 9, 17, 0, n)).toISOString();
 /** The same day as every `at`: no review is due yet. */
@@ -259,5 +259,19 @@ describe("review scheduling", () => {
     expect(nextStep({ concepts: [{ id: "a", requires: [] }] }, [], [...reads, ...failed], read, atDay(30))).toMatchObject({ kind: "author", concept: "a" });
     const again = [...failed, ...[5, 6, 7].map((n) => attempt({ exercise: `again${n}`, concepts: ["a"], at: day(2) }, n))];
     expect(replay(again).get("a")!.review).toEqual({ stage: 0, due: day(3) });
+  });
+});
+
+describe("lastCheck", () => {
+  const at = new Date().toISOString();
+  const check = (exercise: string, concepts: string[], passed: number, assisted = false) => ({ format_version: 1 as const, kind: "check" as const, at, exercise, concepts, difficulty: 1, passed, total: 4, assisted });
+
+  it("is the learner's last check on a concept, as counts only", () => {
+    const log = [check("a", ["x"], 1), check("b", ["y"], 4), check("c", ["x", "y"], 3, true), { format_version: 1 as const, kind: "skip" as const, at, concept: "x" }];
+    expect(lastCheck(log, "x")).toEqual({ passed: 3, total: 4, assisted: true });
+  });
+
+  it("is undefined before any check on the concept", () => {
+    expect(lastCheck([check("b", ["y"], 4)], "x")).toBeUndefined();
   });
 });

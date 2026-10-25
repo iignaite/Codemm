@@ -383,6 +383,9 @@ export function readLesson(course: string, id: string): { record: LessonRecord; 
   };
 }
 
+/** The lesson's own text only: not the learner's notes or its examples. */
+export const readLessonText = (course: string, id: string) => readFileSync(join(lessonDir(course, id), "lesson.md"), "utf8");
+
 /** The lesson's text, empty notes and its examples under examples/<n>/, in one atomic folder. */
 export function writeLesson(course: string, record: LessonRecord, markdown: string, examples: FileMap[] = []): void {
   const files: FileMap = { "lesson.md": markdown, "notes.md": "" };

@@ -130,6 +130,12 @@ export function replay(log: LearnerEvent[]): Map<string, ConceptState> {
   return states;
 }
 
+/** The learner's last check on a concept, as counts only, or undefined before any. */
+export function lastCheck(log: LearnerEvent[], concept: string): { passed: number; total: number; assisted: boolean } | undefined {
+  const last = log.filter((e): e is CheckEvent => e.kind === "check" && e.concepts.includes(concept)).at(-1);
+  return last && { passed: last.passed, total: last.total, assisted: last.assisted };
+}
+
 /** Concept ids in topological order (prerequisites first, ties by roadmap order). Assumes no cycles. */
 export function topoOrder(roadmap: RoadmapGraph): string[] {
   const order: string[] = [];

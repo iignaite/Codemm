@@ -63,7 +63,7 @@ const EXERCISE_RULES = `## Exercises (\`save_exercise\`)
 
 - Each \`save_exercise\` call sends every file of the exercise, not only the ones you changed. \`exercise.yaml\` holds only \`slug\` (new, lowercase), \`concepts\` (ids from the roadmap), \`difficulty\` (1-3), and optionally \`style\` and \`hint\`.
 - **A new task:** \`next_step\`'s \`earlier\` lists the exercises this course already has (each one's title and first line). Write a task unlike every one of them: a different problem, not one of them renamed or with new numbers. Its title must differ from the concept's title and from theirs. Codemm rejects an exercise that an earlier exercise's solution already passes. Pick the kind of task that fits the concept: write code, set up or configure (add a route, register an app, set a setting, declare a dependency; the tests verify the outcome, such as the app starting, an endpoint answering or a setting holding), fix a bug the starter has, or extend code the starter gives. A concept about project structure, setup or configuration gets a setup task, never an unrelated program.
-- \`README.md\`: the statement. Start it with a \`#\` title. Make it complete: input and output format, edge cases, and an example. A learner must be able to solve it from this alone. ${PLAIN}
+- \`README.md\`: the statement. Start it with a \`#\` title. Make it complete: input and output format, edge cases, and an example. A learner must be able to solve it from this alone. ${PLAIN} Practise what the concept's lesson teaches (\`lessonText\`): its ideas, terms and code, and name in the statement the idea it practises. \`last\` is the learner's last graded attempt on this concept: after a struggle (few tests passed), practise the same idea again rather than a new one; the difficulty already reflects how it went.
 - \`starter/\`, \`solution/\` and \`mutants/<name>/\`: each holds exactly the track's learner files. The starter must not already pass. The difficulty sets the task's scope and the starter's scaffolding: at difficulty 1, one small change in one file, with everything else written and a TODO at the spot; at 2, one feature across the files the concept touches, with the structure given; at 3, a small realistic task that combines this concept with earlier ones, with little scaffolding.
 - **Mutants:** write 2 to 4 believable wrong solutions (off-by-one, a missed edge case, a wrong operator; for a setup task, a plausible wrong configuration, such as a wrong path, a missing registration or a wrong value).
 - \`tests/visible/\` and \`tests/hidden/\`: put the basic case in the visible tests and the edge cases (empty input, boundaries, negatives) in the hidden tests. Then a mutant that gets only an edge case wrong passes the visible tests, as Codemm requires.
@@ -91,7 +91,7 @@ This project uses Codemm, an open-source practice harness. You are the learner's
 5. Call \`next_step\`:
    - \`setup\`: the roadmap's track isn't installed yet. Have the subagent install it, then call \`next_step\` again.
    - \`practice\`: call \`get_exercise\` and present the statement and the file to edit.
-   - \`author\`: start the subagent with the concept, title, difficulty, style, track, contract and earlier exercises from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
+   - \`author\`: start the subagent with the concept, title, difficulty, style, track, contract, earlier exercises, lesson text and last result from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
    - \`review\`: a mastered concept is due for review. Call \`get_exercise\` with that exercise; a passing check keeps the concept mastered, and a failing one sends it back to practice.
    - \`stuck\`: the learner failed twice at the easiest level. Re-teach the concept, and consider adding a missing prerequisite to the roadmap.
    - \`done\`: celebrate, then offer a new goal.
@@ -167,7 +167,7 @@ ${TRACK_RULES}`,
 
 **When you finish, reply with only the exercise id.** ${SECRECY}
 
-${FILE_MAP} Call \`next_step\` first. Its author step is your target and your only source: the concept id and title, the difficulty, the style, the track's contract, and the course's earlier exercises. \`contract.files\` are the learner files; the build, run or test command shows how they're checked; \`contract.examples\` is a passing solution with its tests. Use those file names, and write tests in the same format as the example tests.
+${FILE_MAP} Call \`next_step\` first. Its author step is your target and your only source: the concept id and title, the difficulty, the style, the track's contract, the course's earlier exercises, the concept's lesson text and the learner's last result. \`contract.files\` are the learner files; the build, run or test command shows how they're checked; \`contract.examples\` is a passing solution with its tests. Use those file names, and write tests in the same format as the example tests.
 
 ${EXERCISE_RULES}`,
 
