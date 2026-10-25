@@ -215,6 +215,14 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     expect(t.jobs.ran.filter((j) => j.kind === 'setup').map((j) => [j.agent, j.resume])).toEqual([['claude', undefined], ['codex', undefined]]);
   });
 
+  it("tells the setup agent the course's concepts, so the track caches what they will use", async () => {
+    const t = live();
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    await until(t.api, (c) => c.setup === 'consent');
+    expect(t.jobs.ran.find((j) => j.kind === 'setup')!.brief).toContain('The course covers: Values; State.');
+  });
+
   it('asks for up to 5 proposals before it says setup failed', async () => {
     const t = live();
     t.c.install = async () => {

@@ -80,10 +80,11 @@ describe('job briefs', () => {
     }
   });
 
-  it("keeps a setup brief within Windows' limit, whatever the failed proposal's problem says", () => {
+  it("keeps a setup brief within Windows' limit, whatever the failed proposal's problem and the course's concepts say", () => {
     const problem = '"'.repeat(100_000);
-    expect(briefsFrom(JOB_BRIEFS, 'win32').setup('c@1', 'io', problem).length).toBeLessThan(JOB_BRIEFS.setup.length + 5000);
-    expect(briefsFrom(JOB_BRIEFS, 'darwin').setup('c@1', 'io', problem).length).toBeLessThan(JOB_BRIEFS.setup.length + 17_000);
+    const concepts = Array.from({ length: 200 }, () => '"'.repeat(60));
+    expect(briefsFrom(JOB_BRIEFS, 'win32').setup('c@1', 'io', problem, concepts).length).toBeLessThan(JOB_BRIEFS.setup.length + 9000);
+    expect(briefsFrom(JOB_BRIEFS, 'darwin').setup('c@1', 'io', problem, concepts).length).toBeLessThan(JOB_BRIEFS.setup.length + 33_000);
   });
 
   it('gives the tutor more code where the command line allows it', () => {
