@@ -485,6 +485,32 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     expect(t.c.lessons.map((l) => l.concept)).toEqual(['values', 'state']);
   });
 
+  it('offers no Come back later on a review it could not write: a review ignores skip (core §7)', async () => {
+    const t = live({ author: () => ({ ok: false }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    await t.api.install(proposal!.digest);
+    await until(t.api, (c) => c.stalled !== undefined);
+    await t.api.retryJobs();
+    t.c.mastered.add('values');
+    t.c.reviewWithout = 'values';
+    const stalled = await until(t.api, (c) => c.stalled !== undefined);
+    expect(stalled).not.toHaveProperty('later');
+  });
+
+  it('starts no agent when Come back later is chosen during a stall it was not offered for (§5)', async () => {
+    const t = live({ lesson: () => ({ ok: false, problem: 'docker' }) });
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    expect(await until(t.api, (c) => c.stalled !== undefined)).toMatchObject({ stalled: 'docker' });
+    const before = t.jobs.ran.length;
+    await t.api.skip('values');
+    await new Promise((res) => setTimeout(res, 30));
+    expect(t.jobs.ran.length).toBe(before);
+    expect(await t.api.course()).toMatchObject({ stalled: 'docker' });
+  });
+
   it('offers no Come back later when no other topic would open', async () => {
     const t = live({ author: () => ({ ok: false }) });
     // Values is mastered, so the activity is State's, the last topic: leaving it for later opens nothing.
