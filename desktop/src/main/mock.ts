@@ -57,6 +57,8 @@ export interface MockOptions {
   /** Read on every call: background work stopped with this until the learner tries again or connects again. */
   stalled?: CourseView['stalled'];
   stalledWork?: CourseView['stalledWork'];
+  /** With a stall: the topic its banner offers to leave for later (CourseView.later). */
+  laterTopic?: string;
   /** 'io': activities read input and print, so they have Run. */
   style?: 'io';
   /** Run's time limit; 120 s by default. */
@@ -349,11 +351,14 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     topic.activity = topic.lessons.every((l) => l.state === 'read') ? 'open' : 'locked';
   }
 
-  /** The next topic: not mastered, every prerequisite mastered, and a deferred one only if nothing else is ready (§4.4). */
+  /**
+   * The next topic: not mastered, every prerequisite mastered or left for later (core §7), and a deferred one only if
+   * nothing else is ready (§4.4).
+   */
   function advance() {
     const c = course!;
     const requires = (id: string) => approved!.concepts.find((x) => x.id === id)?.requires ?? [];
-    const ready = c.topics.filter((t) => t.state !== 'mastered' && requires(t.id).every((r) => topicOf(r).state === 'mastered'));
+    const ready = c.topics.filter((t) => t.state !== 'mastered' && requires(t.id).every((r) => topicOf(r).state === 'mastered' || deferred.has(r)));
     c.topics.filter((t) => t.state === 'now').forEach((t) => (t.state = 'later'));
     c.done = c.topics.every((t) => t.state === 'mastered');
     const next = ready.find((t) => !deferred.has(t.id)) ?? ready[0];
@@ -733,7 +738,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async course() {
       if (!course) return null;
       tick(course);
-      return { ...structuredClone(course), ...(options.stalled ? { stalled: options.stalled } : {}), ...(options.stalled && options.stalledWork ? { stalledWork: options.stalledWork } : {}) };
+      return { ...structuredClone(course), ...(options.stalled ? { stalled: options.stalled } : {}), ...(options.stalled && options.stalledWork ? { stalledWork: options.stalledWork } : {}), ...(options.stalled && options.laterTopic ? { later: options.laterTopic } : {}) };
     },
 
     async install(digest) {
@@ -756,6 +761,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       delete options.agentProblem;
       delete options.stalled;
       delete options.stalledWork;
+      delete options.laterTopic;
     },
 
     async lesson(id) {
@@ -847,7 +853,9 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         { hidden: true, index: 2, status: done ? 'pass' : 'fail' },
       ];
       const requires = (id: string) => approved!.concepts.find((x) => x.id === id)?.requires ?? [];
-      const later = course!.topics.some((t) => t !== topic && t.state !== 'mastered' && requires(t.id).every((r) => topicOf(r).state === 'mastered'));
+      // Leaving this topic for later opens another: one ready already, or one after it (core §7).
+      const met = (r: string) => topicOf(r).state === 'mastered' || r === topic.id || deferred.has(r);
+      const later = course!.topics.some((t) => t !== topic && t.state !== 'mastered' && requires(t.id).every(met));
       return { kind: 'graded', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests, recorded: !unedited, stuck: topic.stuck, mastered: topic.state === 'mastered', later };
     },
 
@@ -866,6 +874,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async skip(concept) {
       topicOf(concept);
       deferred.add(concept);
+      // Leaving a stalled activity for later ends the stall, as live's skip does.
+      delete options.stalled;
+      delete options.stalledWork;
+      delete options.laterTopic;
       advance();
     },
 

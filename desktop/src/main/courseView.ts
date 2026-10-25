@@ -18,7 +18,8 @@ export function currentConcept(progress: CoreProgress): string | undefined {
 /** Whether a topic besides these is ready: not mastered, with every prerequisite mastered. Only then does deferring move on (§4.4). */
 export function otherReady(progress: CoreProgress, concepts: string[]): boolean {
   const mastered = new Set(progress.concepts.filter((c) => c.mastered).map((c) => c.id));
-  return progress.concepts.some((c) => !concepts.includes(c.id) && !c.mastered && c.requires.every((r) => mastered.has(r)));
+  // A topic left for later counts as met for unlocking (core §7), so the topics after these open too.
+  return progress.concepts.some((c) => !concepts.includes(c.id) && !c.mastered && c.requires.every((r) => mastered.has(r) || concepts.includes(r)));
 }
 
 export function courseView(

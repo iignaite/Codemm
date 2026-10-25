@@ -290,7 +290,8 @@ describe('practice', () => {
     await user.click(within(results()).getByRole('button', { name: 'Come back later' }));
     const items = within(await screen.findByRole('list', { name: 'Topics' })).getAllByRole('listitem');
     expect(within(items[0]).getByRole('img', { name: 'Later' })).toBeInTheDocument();
-    expect(within(items.find((i) => i.textContent?.includes('Lists and keys'))!).getByRole('img', { name: 'Now' })).toBeInTheDocument();
+    // JSX builds on the topic left for later, which unlocks it without mastery (core §7).
+    expect(within(items.find((i) => i.textContent?.includes('JSX'))!).getByRole('img', { name: 'Now' })).toBeInTheDocument();
   });
 
   it('keeps the work when Docker stops mid-session, and counts nothing', async () => {

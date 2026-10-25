@@ -87,13 +87,16 @@ describe('live CodemmApi: the activity: files, Try it, Check, Run and lesson exa
     expect(await t.api.runProgram(id, 'run-1')).toEqual({ kind: 'not-run', reason: expect.stringMatching(/Docker/) });
   });
 
-  it('says whether Come back later can move on: not when the stuck topic is the only one ready', async () => {
+  it('says whether Come back later can move on: not when leaving the stuck topic opens nothing else', async () => {
     const t = live();
     const { id } = await practising(t);
     t.c.stuck = 'values';
-    expect(await t.api.check(id, 'run-1')).toMatchObject({ stuck: true, later: false });
+    // State requires Values: leaving Values for later opens State (core §7).
+    expect(await t.api.check(id, 'run-1')).toMatchObject({ stuck: true, later: true });
+    t.c.roadmap!.concepts = t.c.roadmap!.concepts.filter((c) => c.id === 'values');
+    expect(await t.api.check(id, 'run-2')).toMatchObject({ stuck: true, later: false });
     t.c.roadmap!.concepts.push({ id: 'forms', title: 'Forms', requires: [] });
-    expect(await t.api.check(id, 'run-2')).toMatchObject({ stuck: true, later: true });
+    expect(await t.api.check(id, 'run-3')).toMatchObject({ stuck: true, later: true });
   });
 
   it('saves by digest, and maps a file changed outside Codemm to CHANGED', async () => {

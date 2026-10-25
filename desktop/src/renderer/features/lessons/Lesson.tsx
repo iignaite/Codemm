@@ -72,7 +72,7 @@ export function Lesson({ lessonId }: { lessonId: string }) {
       <>
         <Sidebar slim />
         <Reader {...view} onSaved={refresh} onNoted={noted} />
-        {view.course.stalled && <Stalled stalled={view.course.stalled} work={view.course.stalledWork} retry={refresh} />}
+        {view.course.stalled && <Stalled stalled={view.course.stalled} work={view.course.stalledWork} later={view.course.later} retry={refresh} />}
         {stale !== undefined && <Stale error={stale} retry={reload} />}
       </>
     );

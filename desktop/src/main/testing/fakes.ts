@@ -68,6 +68,8 @@ export function fakeCore() {
     bound: [] as (string | undefined)[],
     cleanups: 0,
     mastered: new Set<string>(),
+    /** Concepts the learner left for later since their last check: they unlock the topics after them (core §7). */
+    skipped: new Set<string>(),
     /** The concept core says the learner is stuck on. */
     stuck: undefined as string | undefined,
     current: undefined as string | undefined,
@@ -95,7 +97,7 @@ export function fakeCore() {
     if (!c.tracks.includes(r.track)) return { kind: 'setup', track: r.track };
     if (c.review) return { kind: 'review', concept: c.review.concept, difficulty: c.wanted, exercise: c.review.exercise };
     if (c.reviewWithout) return { kind: 'author', concept: c.reviewWithout, difficulty: c.wanted, review: true };
-    const concept = r.concepts.find((x) => !c.mastered.has(x.id) && x.requires.every((q) => c.mastered.has(q)));
+    const concept = openConcept(c, r.concepts);
     if (!concept) return { kind: 'done' };
     if (c.stuck === concept.id) return { kind: 'stuck', concept: concept.id };
     const own = c.lessons.filter((l) => l.concept === concept.id);
@@ -157,10 +159,15 @@ export function fakeCore() {
       onProgress?.({ phase: 'hidden', done: 1, total: 2, test: { name: 'hidden/01', status: 'fail', actual: 'CANARY-HIDDEN-OUTPUT' } });
       c.checks.push(slug!);
       const done = c.exercises.get(slug!)!.file.includes('count + 1');
+      // Any check ends its concept's deferral (core §7).
+      c.skipped.delete(c.exercises.get(slug!)!.concept);
       if (done) c.mastered.add(c.exercises.get(slug!)!.concept);
       return view(slug!, done ? 2 : 1, true);
     },
-    skip: async (_ws, _concept, bound) => void c.bound.push(bound),
+    skip: async (_ws, concept, bound) => {
+      c.bound.push(bound);
+      c.skipped.add(concept);
+    },
     assertRuntime: async () => undefined,
     getRoadmap: (_ws, bound) => roadmapOf(bound),
     listProposals: () => c.proposals,
@@ -218,6 +225,15 @@ export const boundOf = (job: Job) => {
   return args[args.indexOf('--course') + 1];
 };
 
+/**
+ * The concept core offers next (core §7): not mastered, every prerequisite mastered or left for later, and one left for
+ * later only when nothing else is open.
+ */
+function openConcept(c: { mastered: Set<string>; skipped: Set<string> }, concepts: { id: string; requires: string[] }[]) {
+  const open = concepts.filter((x) => !c.mastered.has(x.id) && x.requires.every((q) => c.mastered.has(q) || c.skipped.has(q)));
+  return open.find((x) => !c.skipped.has(x.id)) ?? open[0];
+}
+
 /** Fake agent jobs: each does what its job's agent would do through Codemm's tools. An override can fall back to `usual`. */
 type Act = (job: Job, usual: () => Partial<JobOutcome> | Promise<Partial<JobOutcome>>) => Partial<JobOutcome> | Promise<Partial<JobOutcome>>;
 
@@ -244,12 +260,14 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
     },
     lesson: (job) => {
       const r = c.courses.get(boundOf(job))!;
-      const concept = (r.concepts.find((x) => !c.mastered.has(x.id)) ?? r.concepts[0]).id;
+      // The concept the brief names (live's briefs.lesson), else the first not mastered.
+      const concept = /^Concept: (\S+)/m.exec(job.brief)?.[1] ?? (r.concepts.find((x) => !c.mastered.has(x.id)) ?? r.concepts[0]).id;
       c.lessons.push({ id: `${concept}-1`, concept, title: `About ${concept}`, markdown: '# About\n\nText.', notes: '' });
       return {};
     },
     author: (job) => {
-      const concept = c.courses.get(boundOf(job))!.concepts.find((x) => !c.mastered.has(x.id))!.id;
+      // The concept next_step names.
+      const concept = openConcept(c, c.courses.get(boundOf(job))!.concepts)!.id;
       c.exercises.set(`${concept}-${c.writes === 1 ? 'easy' : `d${c.writes}`}-1`, { concept, file: 'int main() { /* yours */ }', digest: '0'.repeat(64), created: new Date().toISOString(), difficulty: c.writes });
       return {};
     },

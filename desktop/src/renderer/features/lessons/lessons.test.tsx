@@ -464,6 +464,30 @@ describe('stalled work beside a lesson', () => {
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
   });
 
+  it("offers Come back later beside Try again when the activity couldn't be written and another topic would open", async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse({ stalled: 'failed', stalledWork: 'author', laterTopic: TOPIC });
+    const skipped: string[] = [];
+    const skip = api.skip;
+    api.skip = async (concept) => {
+      skipped.push(concept);
+      await skip(concept);
+    };
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    await user.click(within(alert).getByRole('button', { name: 'Come back later' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(skipped).toEqual([TOPIC]);
+  });
+
+  it('offers no Come back later when nothing else would open', async () => {
+    const { api } = await mockWithCourse({ stalled: 'failed', stalledWork: 'author' });
+    renderApp({ to: 'lesson', lessonId: `${TOPIC}-2` }, api);
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).queryByRole('button', { name: 'Come back later' })).not.toBeInTheDocument();
+  });
+
   it('keeps looking while the activity is being written, so a stall shows up while reading', async () => {
     const options: MockOptions = {};
     const { api } = await mockWithCourse(options);

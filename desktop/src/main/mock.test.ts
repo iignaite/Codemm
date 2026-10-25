@@ -170,15 +170,16 @@ describe('mock: practice', () => {
     await api.skip(roadmap.concepts[0].id);
     const course = (await api.course())!;
     expect(course.topics[0]).toMatchObject({ state: 'later', mastery: 0 });
-    expect(course.topics.find((t) => t.state === 'now')!.id).toBe('lists-and-keys');
+    // JSX requires it, and a topic left for later unlocks the ones after it (core §7).
+    expect(course.topics.find((t) => t.state === 'now')!.id).toBe('jsx');
   });
 
   it('keeps every deferral until that topic is checked again', async () => {
     const { api, roadmap } = await roadmapped();
     await api.approve(roadmap.concepts);
     await api.skip('javascript-basics');
-    await api.skip('lists-and-keys');
-    expect((await api.course())!.topics.find((t) => t.state === 'now')!.id).toBe('forms');
+    await api.skip('jsx');
+    expect((await api.course())!.topics.find((t) => t.state === 'now')!.id).toBe('components');
   });
 
   it('declines to write code in practice mode', async () => {

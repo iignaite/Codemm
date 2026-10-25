@@ -738,7 +738,13 @@ export function createLive(d: LiveDeps): Live {
       const failed = stalled === 'lesson' ? failedLessons.get(roadmap.course) : undefined;
       const view: CourseView = { title: nameOf(roadmap), ...courseView(progress, core.listLessons(ws, roadmap.course), state, jobs, undefined, failed) };
       const work = stalledWork.get(roadmap.course);
-      return stalled ? { ...view, stalled, ...(work ? { stalledWork: work } : {}) } : view;
+      if (!stalled) return view;
+      // An activity its agent couldn't write can be left for later when that opens another topic (core §7). A review
+      // can't: reviews come first whatever was skipped.
+      const current = currentConcept(progress);
+      const review = progress.next.kind === 'author' && progress.next.review;
+      const later = stalled === 'failed' && work === 'author' && !review && current && otherReady(progress, [current]) ? { later: current } : {};
+      return { ...view, stalled, ...(work ? { stalledWork: work } : {}), ...later };
     },
 
     async courses() {
@@ -914,7 +920,10 @@ export function createLive(d: LiveDeps): Live {
     async skip(concept) {
       const course = approved();
       await core.skip(ws, concept, course);
-      schedule(course);
+      // Leaving an activity its agent couldn't write for later ends that stall: the next topic's lesson and activity
+      // start (core §7). Any other stall (Docker, the network, a plan limit) still waits for Try again.
+      if (course && stalls.get(course) === 'failed' && stalledWork.get(course) === 'author') resume(course);
+      else schedule(course);
     },
 
     async easier(concept) {

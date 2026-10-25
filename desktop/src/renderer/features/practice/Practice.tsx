@@ -65,7 +65,7 @@ function Waiting({ topic, course, stale, retry }: { topic: TopicView; course: Co
           <Button onClick={() => go({ to: 'topic', topicId: topic.id })}>Go to the lessons</Button>
         </div>
       </div>
-      {course.stalled && <Stalled stalled={course.stalled} work={course.stalledWork} retry={retry} />}
+      {course.stalled && <Stalled stalled={course.stalled} work={course.stalledWork} later={course.later} retry={retry} />}
       {stale !== undefined && <Stale error={stale} retry={retry} />}
     </main>
   );
