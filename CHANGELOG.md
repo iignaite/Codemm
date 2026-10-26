@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-beta.6
+
+- **You're never stuck behind an activity.** When an activity can't be written yet, Come back later moves you on: the topics after it unlock once you've read its lesson. The skipped topic still waits for you, and its own activity is the only one a skip lets you pass.
+- **Activities fit the lesson.** Your agent now gets the lesson's text and your last result, and writes an activity for that concept at a stated difficulty. A Spring Boot topic gets a Spring Boot activity, not a plain Java one, and setup or configuration topics can get setup activities.
+- **Frameworks set up more reliably.** A setup that fails its checks continues the agent's own session, so it fixes what it proposed instead of starting over. A failing build shows that step's own output, a slow download is no longer blamed on the track, and tracks are told how to cache their dependencies.
+- **Activity writing tries a different way.** When three tries fail, the agent goes on in the same session, told to change its approach instead of repeating it. Reference solutions get twice the track's own time, and a test runner that reports nothing says what to check.
+- **Codex recommends gpt-6-luna**, which sets up the larger frameworks the smaller model couldn't.
+- **Technical docs.** [docs/architecture.md](docs/architecture.md) explains Codemm's architecture and data model with diagrams: an ERD, use cases, classes, sequences and the components.
+
 ## 1.0.0-beta.5
 
 - **Codemm finds your agent the moment it's installed.** It reads Windows' current PATH every time it looks, so an agent or Docker installed while Codemm is open shows up without a restart, wherever its installer put it (npm, WinGet, Volta, nvm-windows, pnpm, Chocolatey or the vendor's own folder). The Connect, Welcome and Setup screens check again every few seconds.
