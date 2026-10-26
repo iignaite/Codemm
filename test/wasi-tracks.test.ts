@@ -169,6 +169,7 @@ describe("installing a WASI track", () => {
   it("proposes one without asking a registry, and installs it on consent", async () => {
     expect(await app.proposeTrack(track())).toMatchObject({ proposed: "echo-wasi@1" });
     expect(sandbox.missingBaseImages).not.toHaveBeenCalled();
+    expect(app.listProposals()).toMatchObject([{ track: "echo-wasi@1", engine: "wasi" }]);
     expect(downloads).toBe(0);
     const { digest } = app.listProposals()[0]!;
     const progress: unknown[] = [];

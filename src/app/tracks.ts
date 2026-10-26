@@ -3,15 +3,18 @@ import { assertPortablePaths, type FileMap, validateFileMap } from "../files.js"
 import { checkTrackFiles, type TrackProgress, verifyExercise, verifyTrack } from "../gates.js";
 import { type Expected, expectedDigest } from "../grading.js";
 import { containerCli, missingBaseImages, runtimeCode, runtimeDown, cli as sandboxCli } from "../sandbox.js";
-import { type TrackRecord, type TrackSpec } from "../schemas.js";
+import { parseTrackYaml, type TrackRecord, type TrackSpec } from "../schemas.js";
 import * as store from "../store.js";
 import { wasmtimePath } from "../wasi.js";
 import { installedTrack, quietly } from "./shared.js";
 
 // ---------- tracks ----------
 
+/** Which engine runs a track (DESIGN §4.5): a wasi block means the WASI engine, anything else Docker. */
+const engineOf = (track: { wasi?: unknown }): "docker" | "wasi" => (track.wasi ? "wasi" : "docker");
+
 export function listTracks() {
-  return store.listTracks().map((t) => ({ track: `${t.id}@${t.version}`, styles: t.styles, files: t.files, engine: t.wasi ? ("wasi" as const) : ("docker" as const) }));
+  return store.listTracks().map((t) => ({ track: `${t.id}@${t.version}`, styles: t.styles, files: t.files, engine: engineOf(t) }));
 }
 
 /** Track gate 1, part one: the files are valid, with one engine and complete probes, and name an id@version. */
@@ -116,7 +119,9 @@ export async function proposeTrack(files: FileMap): Promise<{ installed: string;
 }
 
 export function listProposals() {
-  return store.listProposals().map(({ record, files }) => ({ track: record.track, digest: record.digest, created: record.created, files }));
+  return store.listProposals().map(({ record, files }) => ({
+    track: record.track, digest: record.digest, created: record.created, files, engine: engineOf(parseTrackYaml(files["track.yaml"] ?? "")),
+  }));
 }
 
 /**

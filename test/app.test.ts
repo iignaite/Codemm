@@ -427,7 +427,7 @@ describe("setup proposals", () => {
     await app.saveRoadmap(ws, "shell", roadmap());
     expect(app.listTracks()).toEqual([]);
     const [p] = app.listProposals();
-    expect(p).toMatchObject({ track: "shell-io@1", digest: expect.stringMatching(/^[0-9a-f]{64}$/), files: track() });
+    expect(p).toMatchObject({ track: "shell-io@1", engine: "docker", digest: expect.stringMatching(/^[0-9a-f]{64}$/), files: track() });
   });
 
   it("replaces an older proposal for the same track", async () => {
