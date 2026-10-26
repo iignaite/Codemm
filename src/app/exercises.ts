@@ -247,8 +247,8 @@ async function judge(ws: string, slug: string | undefined, includeHidden: boolea
   const ctx = loadExercise(ws, slug, bound);
   const { record, files, rel } = ctx;
   await ensureImage(ctx.track);
-  const track = { ...ctx.track, image: ctx.track.imageId };
-  store.materialize(ws, rel, learnerFiles(record, files, track));
+  const track = store.judgeTrack(ctx.track);
+  store.materialize(ws, rel, learnerFiles(record, files, ctx.track));
   const src = store.readLearnerFiles(ws, rel, track.files);
   const visible = subMap(files, "tests/visible");
   const sets = includeHidden ? { visible, hidden: subMap(files, "tests/hidden") } : { visible };
@@ -289,7 +289,7 @@ export async function runInteractive(ws: string, slug: string | undefined, bound
   await ensureImage(ctx.track);
   store.materialize(ws, ctx.rel, learnerFiles(ctx.record, ctx.files, ctx.track));
   const src = store.readLearnerFiles(ws, ctx.rel, ctx.track.files);
-  return runProgram({ ...ctx.track, image: ctx.track.imageId }, src, output, limits);
+  return runProgram(store.judgeTrack(ctx.track), src, output, limits);
 }
 
 /** Runs the visible tests only. Never recorded. */

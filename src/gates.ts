@@ -1,4 +1,4 @@
-import { trackImageTag } from "./store.js";
+import { judgeTrack, trackImageTag } from "./store.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,10 @@ import { GENERATOR_SECONDS, generatorFailed, type JudgeTrack, runSets } from "./
 import { buildImage, type BuildStep, inspectImage } from "./sandbox.js";
 import {
   type CourseRecord, type ExerciseRecord, type ExerciseSpec, LIMITS, parseExerciseYaml, parseTrackYaml, type Style, type TrackRecord, type TrackSpec,
+  type WasiRecord,
 } from "./schemas.js";
+import { ensureToolchain } from "./toolchain.js";
+import { wasmtimePath } from "./wasi.js";
 
 /**
  * A gate failed: the track's or the exercise's to fix. The message names the gate and never contains hidden inputs or
@@ -186,11 +189,15 @@ export function unpinnedBases(dockerfile: string): string[] {
 /** Builds a track image and runs its probes (DESIGN §6, track gates 2-5). */
 const MAX_EXAMPLE_BYTES = 65_536;
 
-/** Track gate 1's file checks: track.yaml, a Dockerfile and complete probes, before anything is built. */
+/** Track gate 1's file checks: track.yaml, one engine (a Dockerfile or a wasi block) and complete probes, before anything is built. */
 export function checkTrackFiles(files: FileMap) {
   validateFileMap(files);
-  if (!files["track.yaml"] || !files.Dockerfile) throw new GateError("valid", "A track needs track.yaml and a Dockerfile.");
+  if (!files["track.yaml"]) throw new GateError("valid", "A track needs track.yaml.");
   const spec = parseTrackYaml(files["track.yaml"]);
+  if (spec.wasi && files.Dockerfile) {
+    throw new GateError("valid", "A track runs on Docker (a Dockerfile) or on the WASI engine (a wasi block in track.yaml), not both. Remove one.");
+  }
+  if (!spec.wasi && !files.Dockerfile) throw new GateError("valid", "A track needs a Dockerfile, or a wasi block in track.yaml to run on the WASI engine.");
   for (const style of spec.styles) {
     // Every author receives the pass probe and its tests as the track's worked example (next_step), so keep them small.
     const bytes = Object.entries(files)
@@ -203,11 +210,20 @@ export function checkTrackFiles(files: FileMap) {
   return { spec, probes: spec.styles.map((style) => ({ style, ...probe(files, spec, style) })) };
 }
 
-/** A track install's progress: each build step as counts, then the probes (DESIGN §4.4). Never the build's output. */
-export type TrackProgress = ({ phase: "building" } & BuildStep) | { phase: "checking" };
+/**
+ * A track install's progress: each build step as counts, or a WASI toolchain's download, then the probes (DESIGN §4.4,
+ * §4.5). Never the build's output.
+ */
+export type TrackProgress = ({ phase: "building" } & BuildStep) | { phase: "downloading" } | { phase: "checking" };
 
-export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p: TrackProgress) => void, { rebuild = false } = {}): Promise<{ spec: TrackSpec; image: string; imageId: string; warning?: string }> {
+type Probes = ReturnType<typeof checkTrackFiles>["probes"];
+
+/** Verifies a track (DESIGN §6, track gates 2-5): builds its image, or downloads its WASI toolchain, then runs its probes. */
+export async function verifyTrack(
+  files: FileMap, tag?: string, onProgress?: (p: TrackProgress) => void, { rebuild = false } = {},
+): Promise<{ spec: TrackSpec; image: string; imageId: string; warning?: string } | { spec: TrackSpec; wasi: WasiRecord }> {
   const { spec, probes } = checkTrackFiles(files);
+  if (spec.wasi) return verifyWasiTrack(spec, spec.wasi, probes, onProgress, rebuild);
 
   const image = tag ?? trackImageTag(spec.id, spec.version);
   const context = mkdtempSync(join(tmpdir(), "codemm-build-"));
@@ -231,8 +247,40 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
   if (info.hasVolumes) throw new GateError("build", "the image declares a VOLUME. Remove it; checks may only write to /tmp.");
 
   // Run by immutable ID so a retagged image can't change what was verified.
-  const track: JudgeTrack = { ...spec, image: info.id };
   onProgress?.({ phase: "checking" });
+  await runProbes({ ...spec, wasi: undefined, image: info.id }, spec, probes, rebuild);
+  const unpinned = unpinnedBases(files.Dockerfile!);
+  const warning = unpinned.length > 0
+    ? `Base image not pinned by digest: ${unpinned.join(", ")}. A later rebuild may pull a different image and fail its gates. Pin it as image@sha256:<digest> in the next version.`
+    : undefined;
+  return { spec, image, imageId: info.id, ...(warning ? { warning } : {}) };
+}
+
+/** A WASI track's gates 2-5: its toolchain downloads, matches its SHA-256 and unpacks, then the same probes (DESIGN §4.5). No Docker. */
+async function verifyWasiTrack(
+  spec: TrackSpec, block: NonNullable<TrackSpec["wasi"]>, probes: Probes, onProgress: ((p: TrackProgress) => void) | undefined, rebuild: boolean,
+): Promise<{ spec: TrackSpec; wasi: WasiRecord }> {
+  // Before downloading: without wasmtime, nothing could run the probes.
+  if (!wasmtimePath()) {
+    throw infraError("wasmtime isn't installed, so this WASI track can't be checked. Install wasmtime (https://wasmtime.dev), or use the Codemm desktop app, which brings its own, then retry with the same files.", "no-wasmtime");
+  }
+  onProgress?.({ phase: "downloading" });
+  let root: string;
+  try {
+    root = await ensureToolchain(block);
+  } catch (e) {
+    // The track's link, digest or archive is wrong (no infrastructure code): that's gate 1's to report.
+    if (e instanceof CodemmError && !e.code) throw new GateError("valid", e.message);
+    throw e;
+  }
+  const { sha256, module, dirs, env } = block;
+  onProgress?.({ phase: "checking" });
+  await runProbes({ ...spec, image: "", wasi: { root, module, dirs, env } }, spec, probes, rebuild);
+  return { spec, wasi: { sha256, module, dirs, env } };
+}
+
+/** Track gates 3-5: each style's pass probe passes, its fail probe fails, and its pass probe is fast and deterministic. */
+async function runProbes(track: JudgeTrack, spec: TrackSpec, probes: Probes, rebuild: boolean): Promise<void> {
   for (const p of probes) {
     const exp = { expected: p.expected };
     const passRuns = await runSets(track, p.style, p.pass, { visible: p.inputs });
@@ -263,11 +311,6 @@ export async function verifyTrack(files: FileMap, tag?: string, onProgress?: (p:
     }
     if (JSON.stringify(pass1) !== JSON.stringify(pass2)) throw new GateError("deterministic", `the ${p.style} pass probe gave different results on a second run.`);
   }
-  const unpinned = unpinnedBases(files.Dockerfile);
-  const warning = unpinned.length > 0
-    ? `Base image not pinned by digest: ${unpinned.join(", ")}. A later rebuild may pull a different image and fail its gates. Pin it as image@sha256:<digest> in the next version.`
-    : undefined;
-  return { spec, image, imageId: info.id, ...(warning ? { warning } : {}) };
 }
 
 // ---------- exercises ----------
@@ -318,6 +361,10 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
       }
       const both = Object.keys(tests).filter((p) => p.endsWith(".gen") && `${p.slice(0, -4)}.in` in tests);
       if (both.length > 0) throw new GateError("valid", `tests/${set}/ has both NN.in and NN.gen for ${set === "hidden" ? `${both.length} test(s)` : both.map((p) => p.slice(0, -4)).join(", ")}. Keep one of each pair.`);
+      // A generator is a POSIX sh script, and the WASI engine has no sh (DESIGN §4.5).
+      if (track.wasi && Object.keys(tests).some((p) => p.endsWith(".gen"))) {
+        throw new GateError("valid", `this track runs on the WASI engine, which has no input generators (NN.gen needs sh). Write each input in tests/${set}/ as an NN.in file.`);
+      }
     }
   }
   const counts = { visible: Object.keys(sets.visible).length, hidden: Object.keys(sets.hidden).length };
@@ -350,7 +397,7 @@ export async function verifyExercise(
 ): Promise<ExerciseRecord> {
   const { spec, style, starter, solution, mutants, sets } = validate(trackRecord, course, files, taken);
   onGate?.("reference");
-  const track = { ...trackRecord, image: trackRecord.imageId };
+  const track = judgeTrack(trackRecord);
   const fast = fastMs(track.limits);
 
   // Gate 2 + 3: the reference passes, twice, the second time with a third of the time limit.

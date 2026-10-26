@@ -12,13 +12,17 @@ const course = (name: string): CourseRecord => ({
   ...parseRoadmapYaml(readFileSync(join(FIXTURES, "roadmaps", `${name}.yaml`), "utf8")),
 });
 const exercise = (name: string): FileMap => readFileMap(join(FIXTURES, "exercises", name));
-const record = (verified: Awaited<ReturnType<typeof verifyTrack>>): TrackRecord => ({
-  format_version: 1, ...verified.spec, image: verified.image, imageId: verified.imageId, installedAt: "now",
-});
+/** A Docker track's record, which the judge can run by its image. */
+type DockerTrack = Extract<TrackRecord, { imageId: string }>;
+function record(verified: Awaited<ReturnType<typeof verifyTrack>>): DockerTrack {
+  if (!("imageId" in verified)) throw new Error("expected a Docker track");
+  const { wasi: _none, ...spec } = verified.spec;
+  return { format_version: 1, ...spec, image: verified.image, imageId: verified.imageId, installedAt: "now" };
+}
 
 describe.runIf(dockerUp)("gates (Docker)", () => {
-  let ioTrack: TrackRecord;
-  let unitTrack: TrackRecord;
+  let ioTrack: DockerTrack;
+  let unitTrack: DockerTrack;
 
   describe("track gates", () => {
     it("install-ready tracks pass in both styles", async () => {
