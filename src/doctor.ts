@@ -1,11 +1,12 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { accessSync, constants, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { CodemmError } from "./errors.js";
 import { writeFileMap } from "./files.js";
 import { type RunFolder, runsDir, stageRunFolder } from "./runs.js";
 import { assertRuntime, cli, containerCli, infraKind, inspectRecord, ownedContainers, OWNER_LABEL, ownerGone, removeAbandoned, runSandboxed, runtimeKind } from "./sandbox.js";
 import { codemmHome } from "./store.js";
-import { NO_WASMTIME, startWasi, wasmtimePath, wasmtimeVersion } from "./wasi.js";
+import { prepareWasi, removeSealed, sealReadOnly, startWasi, wasmtime } from "./wasi.js";
 
 /** A small, pinned utility image used only for the network self-test. */
 const PROBE_IMAGE = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc";
@@ -16,8 +17,6 @@ const PROBE_SERVER = "while true; do printf 'HTTP/1.0 200 OK\\r\\n\\r\\npong' | 
 export type Check = { name: string; ok: boolean; detail: string; kind?: "offline" | "disk" | "docker" };
 
 const firstLine = (text: string) => text.trim().split("\n")[0] ?? "";
-/** Where wasmtime says why, after "Caused by:". */
-const lastLine = (text: string) => text.trim().split("\n").at(-1)?.trim() ?? "";
 
 /**
  * What a failed pull of the test image says about the network: DNS, a blocked or slow connection, a proxy, TLS
@@ -152,16 +151,17 @@ export async function networkIsolation(): Promise<Check> {
 }
 
 /**
- * The WASI engine's self-test module (WebAssembly text, which wasmtime runs as it is): it prints the file probe.txt
- * from its first folder (/work/src), then tries to change that file and prints "changed" if it could.
+ * The WASI engine's canary (WebAssembly text, which wasmtime compiles as it is): it prints the file probe.txt from its
+ * first folder (/work/src), then tries to create new.txt there and prints "created" if it could.
  */
-const WASI_PROBE = `(module
+const WASI_CANARY = `(module
   (import "wasi_snapshot_preview1" "path_open" (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_read" (func $read (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 256) "probe.txt")
-  (data (i32.const 272) "changed")
+  (data (i32.const 272) "new.txt")
+  (data (i32.const 288) "created")
   (func (export "_start")
     (if (i32.eqz (call $open (i32.const 3) (i32.const 0) (i32.const 256) (i32.const 9) (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 32)))
       (then
@@ -169,49 +169,56 @@ const WASI_PROBE = `(module
         (i32.store (i32.const 4) (i32.const 1024))
         (drop (call $read (i32.load (i32.const 32)) (i32.const 0) (i32.const 1) (i32.const 4)))
         (drop (call $write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 40)))))
-    (if (i32.eqz (call $open (i32.const 3) (i32.const 0) (i32.const 256) (i32.const 9) (i32.const 8) (i64.const 64) (i64.const 0) (i32.const 0) (i32.const 32)))
+    (if (i32.eqz (call $open (i32.const 3) (i32.const 0) (i32.const 272) (i32.const 7) (i32.const 1) (i64.const 64) (i64.const 0) (i32.const 0) (i32.const 32)))
       (then
-        (i32.store (i32.const 0) (i32.const 272))
+        (i32.store (i32.const 0) (i32.const 288))
         (i32.store (i32.const 4) (i32.const 7))
         (drop (call $write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 40)))))))`;
 
 /**
- * The WASI engine (DESIGN §4.5): wasmtime is here, and a module run as a check runs it (every flag, a staged run folder
- * mapped read-only at /work/src) reads a file there and can't change it.
+ * The WASI engine (DESIGN §4.5): wasmtime 50 is here, and the canary, compiled and run as a check runs a program (every
+ * flag, a staged run folder sealed and mapped at /work/src), reads a file there and can't create one.
  */
 export async function wasiEngine(): Promise<Check> {
   const name = "WASI engine";
-  const bin = wasmtimePath();
-  if (!bin) return { name, ok: false, detail: NO_WASMTIME };
   let folder: RunFolder;
   try {
+    wasmtime();
     folder = stageRunFolder();
   } catch (e) {
-    return { name, ok: false, detail: `Codemm couldn't make a folder for the test in ${codemmHome()} (${(e as Error).message.slice(0, 200)}).` };
+    return { name, ok: false, detail: (e as Error).message };
   }
   try {
     const token = randomBytes(8).toString("hex");
     writeFileMap(join(folder.dir, "src"), { "probe.txt": token });
-    writeFileSync(join(folder.dir, "probe.wat"), WASI_PROBE);
-    const r = await startWasi({
-      toolchain: { root: folder.dir, module: "probe.wat", dirs: {}, env: {} }, src: join(folder.dir, "src"), run: "", memoryMb: 64, timeMs: 30_000,
-      input: Buffer.alloc(0), outputCap: 65_536,
-    }).done;
+    writeFileSync(join(folder.dir, "canary.wat"), WASI_CANARY);
+    // Named by its own digest, so a changed canary is compiled again; it holds no token, so the compiled file is reused.
+    const toolchain = { root: folder.dir, sha256: `canary-${createHash("sha256").update(WASI_CANARY).digest("hex").slice(0, 16)}`, module: "canary.wat", dirs: {}, env: {} };
+    const engine = await prepareWasi(toolchain);
+    sealReadOnly(folder.dir);
+    const r = await startWasi({ engine, toolchain, src: join(folder.dir, "src"), run: "", memoryMb: 64, timeMs: 30_000, input: Buffer.alloc(0), outputCap: 65_536 }).done;
     const out = r.stdout.toString();
-    if (r.exit === 0 && out === token) return { name, ok: true, detail: `${wasmtimeVersion(bin)} (${bin})` };
-    if (out.endsWith("changed")) return { name, ok: false, detail: "the test module could change a file in its read-only folder" };
-    return { name, ok: false, detail: `wasmtime couldn't run the test module (${r.timedOut ? "it didn't finish in 30 seconds" : lastLine(r.stderr).slice(0, 300) || `exit ${r.exit}`})` };
+    if (r.exit === 0 && out === token) {
+      const w = wasmtime();
+      return { name, ok: true, detail: `wasmtime ${w.version} (${w.bin})` };
+    }
+    if (out.endsWith("created")) return { name, ok: false, detail: "the test program could create a file in its read-only folder, so WASI tracks can't run safely here" };
+    return { name, ok: false, detail: `wasmtime couldn't run the test program (${r.timedOut ? "it didn't finish in 30 seconds" : `exit ${r.exit}`})` };
   } catch (e) {
-    return { name, ok: false, detail: (e as Error).message };
+    return { name, ok: false, ...((e as CodemmError).kind === "disk" ? { kind: "disk" as const } : {}), detail: (e as Error).message };
   } finally {
-    folder.remove();
+    removeSealed(folder);
   }
 }
 
-/** Either engine runs checks, so one that's missing fails only when the other doesn't work either (DESIGN §4.5). */
-export function bothEngines(runtime: Check, wasi: Check): [Check, Check] {
+/**
+ * Either engine runs checks, so one that's missing fails only when the other doesn't work either (DESIGN §4.5). A
+ * computer with a container CLI has Docker, running or not, and a stopped one is fixed by starting it: only `noCli`
+ * lets wasmtime stand in for it.
+ */
+export function bothEngines(runtime: Check, wasi: Check, noCli: boolean): [Check, Check] {
   if (runtime.ok && !wasi.ok) return [runtime, { ...wasi, ok: true, detail: `${wasi.detail} Only needed on a computer without a container runtime.` }];
-  if (!runtime.ok && wasi.ok) return [{ ...runtime, ok: true, detail: `${runtime.detail} WASI tracks run on wasmtime here; Docker tracks need a container runtime.` }, wasi];
+  if (noCli && wasi.ok) return [{ ...runtime, ok: true, detail: `${runtime.detail} WASI tracks run on wasmtime here; Docker tracks need a container runtime.` }, wasi];
   return [runtime, wasi];
 }
 
@@ -236,15 +243,18 @@ async function leftovers(fix: boolean): Promise<Check> {
 export async function doctor(fix: boolean): Promise<Check[]> {
   const checks: Check[] = [];
   let runtime: Check;
+  let noCli = false;
   try {
     checks.push({ name: "container CLI", ok: true, detail: containerCli() });
     await assertRuntime();
     runtime = { name: "container runtime", ok: true, detail: "running" };
   } catch (e) {
+    // No CLI, or a configured one that isn't there; any other failure is a Docker that is installed.
+    noCli = (e as CodemmError).code === "no-runtime";
     runtime = { name: "container runtime", ok: false, detail: (e as Error).message };
   }
   const running = runtime.ok;
-  checks.push(...bothEngines(runtime, await wasiEngine()));
+  checks.push(...bothEngines(runtime, await wasiEngine(), noCli));
   try {
     mkdirSync(codemmHome(), { recursive: true });
     accessSync(codemmHome(), constants.W_OK);

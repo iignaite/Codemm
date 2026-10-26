@@ -27,20 +27,24 @@ describe("bothEngines", () => {
   const wasi = (ok: boolean) => ({ name: "WASI engine", ok, detail: ok ? "wasmtime 50.0.0" : "wasmtime isn't installed." });
 
   it("keeps both rows as they are when both work", () => {
-    expect(bothEngines(runtime(true), wasi(true))).toEqual([runtime(true), wasi(true)]);
+    expect(bothEngines(runtime(true), wasi(true), false)).toEqual([runtime(true), wasi(true)]);
   });
 
   it("fails both when neither works", () => {
-    expect(bothEngines(runtime(false), wasi(false))).toEqual([runtime(false), wasi(false)]);
+    expect(bothEngines(runtime(false), wasi(false), true)).toEqual([runtime(false), wasi(false)]);
+  });
+
+  it("still fails a stopped Docker when wasmtime works: that computer has Docker, and starting it is the fix", () => {
+    expect(bothEngines(runtime(false), wasi(true), false)).toEqual([runtime(false), wasi(true)]);
   });
 
   it("doesn't fail wasmtime when a container runtime runs checks", () => {
-    const [, w] = bothEngines(runtime(true), wasi(false));
+    const [, w] = bothEngines(runtime(true), wasi(false), false);
     expect(w).toEqual({ name: "WASI engine", ok: true, detail: "wasmtime isn't installed. Only needed on a computer without a container runtime." });
   });
 
   it("doesn't fail a missing container runtime when wasmtime runs checks", () => {
-    const [r] = bothEngines(runtime(false), wasi(true));
+    const [r] = bothEngines(runtime(false), wasi(true), true);
     expect(r).toEqual({ name: "container runtime", ok: true, detail: "No container runtime found. WASI tracks run on wasmtime here; Docker tracks need a container runtime." });
   });
 });
