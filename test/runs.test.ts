@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, symlinkSync
 import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { removeAbandonedRuns, runsDir, stageRunFolder } from "../src/runs.js";
-import { readOnly } from "../src/wasi.js";
+import { sealReadOnly } from "../src/wasi.js";
 import { tempDir } from "./temp.js";
 
 /** Run folders (DESIGN §4.3): where the files a container mounts are staged. */
@@ -55,11 +55,11 @@ describe("stageRunFolder", () => {
     expect(() => run.remove()).not.toThrow();
   });
 
-  it("removes a folder the WASI engine made read-only (files 0444, folders 0555)", () => {
+  it("removes a folder whose contents the WASI engine sealed read-only", () => {
     const run = stageRunFolder();
     mkdirSync(join(run.dir, "src", "pkg"), { recursive: true });
     writeFileSync(join(run.dir, "src", "pkg", "main.py"), "x");
-    readOnly(join(run.dir, "src"));
+    sealReadOnly(run.dir);
     run.remove();
     expect(existsSync(run.dir)).toBe(false);
   });
@@ -73,9 +73,9 @@ describe("leftover run folders", () => {
     return dir;
   };
 
-  it("are removed when a crashed WASI run left them read-only", () => {
+  it("are removed when a crashed WASI run left them sealed", () => {
     const crashed = leftover(`${deadPid()}-rdonly`);
-    readOnly(crashed);
+    sealReadOnly(crashed);
     expect(removeAbandonedRuns()).toBe(1);
     expect(existsSync(crashed)).toBe(false);
   });

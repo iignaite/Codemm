@@ -1,7 +1,8 @@
 // Run folders (DESIGN §4.3): where a check, Run and the self-test stage the files they mount into a container.
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { codemmHome, processAlive } from "./store.js";
+import { unseal } from "./wasi.js";
 
 /**
  * `<real Codemm home>/runs`. It's under Codemm's home, not the OS temp folder: an engine that runs in a VM (Colima,
@@ -31,30 +32,18 @@ export function stageRunFolder(): RunFolder {
 }
 
 function removeFolder(dir: string): boolean {
-  try {
-    writable(dir);
-  } catch {
-    // Gone already, or not Codemm's to change: removing says which.
+  // A WASI run seals its folder's contents (wasi.ts), and neither POSIX (a 0555 folder) nor Windows (a deny entry) lets
+  // them be removed then; a run normally unseals first, so only a crash's leftovers need it here.
+  for (const unsealFirst of [false, true]) {
+    try {
+      if (unsealFirst) unseal(dir);
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      return true;
+    } catch {
+      // Unseal and retry once, then leave it.
+    }
   }
-  try {
-    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Gives a run folder write permission back: the WASI engine makes it read-only (wasi.ts), and neither POSIX (a 0555
- * folder) nor Windows (a read-only file) lets it be removed then. Links and special files are left as they are.
- */
-function writable(dir: string): void {
-  chmodSync(dir, 0o700);
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) writable(path);
-    else if (entry.isFile()) chmodSync(path, 0o600);
-  }
+  return false;
 }
 
 /** What `mkdtemp` makes of `<pid>-`: the PID, then six letters or digits. Nothing else in `runs/` is Codemm's to remove. */
