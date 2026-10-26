@@ -36,7 +36,12 @@ describe('check this computer', () => {
     it('says practice runs here without Docker and offers Continue, with installing Docker still an option', async () => {
       const user = open({ docker: 'missing', platform: 'mac', wasi: true });
       expect(await screen.findByText(LINE)).toBeInTheDocument();
-      expect(within(screen.getByRole('listitem', { name: 'Docker is installed' })).getByRole('button', { name: 'Install Docker' })).toBeInTheDocument();
+      // Docker reads as optional, not as a step to take: Continue is the one primary action.
+      const installed = screen.getByRole('listitem', { name: 'Docker is installed' });
+      expect(within(installed).getByText('Optional')).toBeInTheDocument();
+      expect(within(installed).queryByText('Needs a step')).not.toBeInTheDocument();
+      expect(within(installed).getByRole('button', { name: 'Install Docker' })).toHaveClass('ghost');
+      expect(screen.getByRole('button', { name: 'Continue' })).toHaveClass('primary');
       expect(screen.queryByRole('button', { name: 'Later' })).not.toBeInTheDocument();
       await user.click(screen.getByRole('button', { name: 'Continue' }));
       expect(await screen.findByRole('heading', { name: 'Learn anything.' })).toBeInTheDocument();
@@ -46,6 +51,7 @@ describe('check this computer', () => {
       open({ docker: 'stopped', platform: 'windows', wasi: true });
       expect(await screen.findByText(LINE)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Open Docker Desktop' })).toHaveClass('ghost');
     });
 
     it('stays on the screen from Connect, so the learner reads it once before going on', async () => {
