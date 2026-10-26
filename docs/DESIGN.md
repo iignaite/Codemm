@@ -268,7 +268,7 @@ wasi:
 **Installing the toolchain.** This replaces the image build (§4.4); the probes and gates are the same.
 - **Download:** over https only (redirects too), at most 256 MB. The file is hashed as it arrives and refused unless its SHA-256 matches, before anything is unpacked. A network failure is an `offline` infrastructure error. A hash that doesn't match fails gate "valid", naming both digests.
 - **Unpacking:** a `.wasm` is stored as it is. An archive is unpacked with the system `tar`, run with an argument array (bsdtar on macOS and Windows reads zip). It goes into a temp folder under `$CODEMM_HOME/toolchains/`, at most 1 GB unpacked, and a link or special file anywhere fails the install. `module` and every `dirs` folder must exist.
-- **Storing:** every file is made read-only (files 0444, folders 0555). The folder is then renamed to `$CODEMM_HOME/toolchains/<sha256>/`, where it is shared by every track that names that file and never changed. A folder already there for that digest is used as it is.
+- **Storing:** the folder is sealed read-only (below, under Running a check). The folder is then renamed to `$CODEMM_HOME/toolchains/<sha256>/`, where it is shared by every track that names that file and never changed. A folder already there for that digest is used as it is.
 - **Progress:** `{ phase: "downloading" }` first, then `{ phase: "checking" }` before the probes.
 - **In the desktop app,** `save_track` runs gate 1 only, with no registry check. Nothing is downloaded until the learner consents.
 - **track.json:** a WASI track has no `image` or `imageId`. It stores `wasi: { sha256, module, dirs, env }`. Every check first verifies that the toolchain folder exists; when it doesn't, the check fails with "Run `codemm track rebuild <id>@<version>`". Rebuild downloads the toolchain again (the same SHA-256) and re-runs every gate, as in §4.4.
@@ -276,7 +276,7 @@ wasi:
 **Running a check.** There is one wasmtime process per io case. Visible and hidden sets each get their own run folder (§4.3), as with Docker.
 - **The program sees two kinds of folder,** with each `--dir` at its sandbox path: each toolchain folder in `dirs`, and the run folder's `src` at `/work/src`.
 - **Tests are never mapped.** The host reads each case's input and writes it to the program's stdin.
-- **Nothing is writable.** Before the start, the run folder is made read-only as the toolchain is. WASI has no call that changes permissions, so the program can't write anywhere.
+- **Nothing is writable.** wasmtime's CLI maps every folder read-write (wasmtime 50 has no read-only option), so the operating system enforces it. One helper in `src/wasi.ts` seals a folder: files 0444 and folders 0555, and on Windows, where a folder's mode doesn't stop new files, also an inherited deny ACE (`icacls <dir> /deny *S-1-1-0:(OI)(CI)(WD,AD,DC,WA,WEA)`, no admin needed as the folder's owner). The toolchain is sealed at install, and each run folder before its start; a run folder is unsealed only to remove it. A seal that fails is an infrastructure failure. WASI has no call that changes permissions, so the program can't write, create, delete or fill anything.
 - **Limits:**
   - `-W max-memory-size=<memory_mb × 2^20>`;
   - `-W timeout=<time_ms>ms`, backed by a host kill one second later. Either way the case is a `timeout`.
