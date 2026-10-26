@@ -6,6 +6,9 @@ import { containerCli, missingBaseImages, runtimeCode, runtimeDown, cli as sandb
 import { parseTrackYaml, type TrackRecord, type TrackSpec } from "../schemas.js";
 import * as store from "../store.js";
 import { toolchainMissing } from "../toolchain.js";
+
+/** The desktop sets Electron's net.fetch here, for the system's proxy and certificates (DESIGN §4.5). */
+export { setToolchainFetch } from "../toolchain.js";
 import { wasmtimePath } from "../wasi.js";
 import { engineOf, installedTrack, quietly } from "./shared.js";
 
