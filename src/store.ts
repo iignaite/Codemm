@@ -243,6 +243,8 @@ export function toolchainDir(sha256: string): string {
   if (!/^[0-9a-f]{64}$/.test(sha256)) throw new CodemmError(`Invalid toolchain digest "${sha256}".`);
   return join(toolchainsDir(), sha256);
 }
+/** Held while a digest's folder is stored or replaced. */
+export const toolchainLockPath = (sha256: string) => `${toolchainDir(sha256)}.lock`;
 
 /** What the judge runs an installed track with: its verified image ID, or its toolchain folder. */
 export function judgeTrack(track: TrackRecord): Omit<TrackRecord, "image" | "imageId" | "wasi"> & JudgeTrack {

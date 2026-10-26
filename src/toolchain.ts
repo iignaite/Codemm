@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, renameSync, rmSync, type Stats, statfsSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, renameSync, rmSync, type Stats } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { CodemmError, infraError, type InfraCode } from "./errors.js";
@@ -8,207 +8,232 @@ import type { WasiSpec } from "./schemas.js";
 import * as store from "./store.js";
 
 /**
- * A WASI track's toolchain (DESIGN §4.5): downloaded over https, checked against its SHA-256 before anything is
- * unpacked, unpacked with the system tar, made read-only and stored once per digest under $CODEMM_HOME/toolchains/.
- * A plain CodemmError is the track's problem (gates report it as gate "valid"); this computer's network or disk
- * throws with its infrastructure code.
+ * A WASI track's toolchain (DESIGN §4.5): downloaded over https, hashed as it arrives, unpacked with the system tar,
+ * sealed read-only and stored once per digest under $CODEMM_HOME/toolchains/. A plain CodemmError is the track's
+ * problem (gates report it as gate "toolchain"); this computer's network or disk throws with its infrastructure code.
  */
 
-/** `fetch`, or a stand-in for tests. Redirects come back to be checked (`redirect: "manual"`). */
+/** `fetch`, or the desktop's (Electron's net.fetch, for the system's proxy and certificates). Redirects come back to be checked. */
 export type Fetcher = (url: string, init: { redirect: "manual"; signal: AbortSignal }) => Promise<Response>;
 
+let custom: Fetcher | undefined;
+/** Sets the fetch toolchains download with; none restores Node's. The desktop calls this in-process. */
+export function setToolchainFetch(fetcher?: Fetcher): void {
+  custom = fetcher;
+}
+const fetcher = (): Fetcher => custom ?? ((url, init) => fetch(url, init));
+
 export const MAX_DOWNLOAD_BYTES = 256 * 1024 ** 2;
-export const MAX_UNPACKED_BYTES = 1024 ** 3;
-const DOWNLOAD_TIMEOUT_MS = 600_000;
+/** A download that receives nothing for this long has stalled. */
+const STALL_MS = 60_000;
+/** The headers-only check while proposing. */
+const ANSWER_MS = 15_000;
 const UNPACK_TIMEOUT_MS = 600_000;
 const MAX_REDIRECTS = 5;
-/** Room for the download and everything it unpacks to. */
-const MIN_FREE_BYTES = 2 * 1024 ** 3;
+/** Room for the download and what it unpacks to (DESIGN §4.5). */
+const MIN_FREE_BYTES = 1.5 * 1024 ** 3;
 const MB = 1024 ** 2;
 
-type Options = { fetcher?: Fetcher; timeoutMs?: number; maxDownload?: number; maxUnpacked?: number };
+type Source = Pick<WasiSpec, "url" | "sha256" | "module" | "dirs">;
+/** `replace`: download again and replace the digest's folder, as a rebuild does, so a damaged one is repaired. */
+type Options = { replace?: boolean; stallMs?: number; maxDownload?: number };
 
-/** The toolchain's folder, downloading and storing it first unless a folder for its digest is already there. */
-export async function ensureToolchain(wasi: Pick<WasiSpec, "url" | "sha256" | "module" | "dirs">, options: Options = {}): Promise<string> {
-  const dir = store.toolchainDir(wasi.sha256);
-  if (!existsSync(dir)) await install(wasi, dir, options);
-  assertLayout(dir, wasi);
-  return dir;
-}
-
-async function install(wasi: Pick<WasiSpec, "url" | "sha256" | "module" | "dirs">, dir: string, options: Options): Promise<void> {
+/**
+ * The toolchain's folder and the digest of its file. A folder already stored for a given sha256 is used as it is; a
+ * toolchain without one is always downloaded, since its digest is only known then.
+ */
+export async function ensureToolchain(wasi: Source, { replace = false, ...limits }: Options = {}): Promise<{ root: string; sha256: string }> {
+  if (wasi.sha256 && !replace && existsSync(store.toolchainDir(wasi.sha256))) {
+    const root = store.toolchainDir(wasi.sha256);
+    assertLayout(root, wasi);
+    return { root, sha256: wasi.sha256 };
+  }
   const parent = store.toolchainsDir();
   store.assertFreeSpace(parent, MIN_FREE_BYTES);
   const staging = mkdtempSync(join(parent, ".staging-"));
   const file = `${staging}.download`;
   try {
-    await download(wasi.url, file, wasi.sha256, options);
-    if (wasi.url.endsWith(".wasm")) renameSync(file, join(staging, wasi.module));
-    else await unpack(file, staging, options.maxUnpacked ?? MAX_UNPACKED_BYTES);
+    const sha256 = await download(wasi.url, file, wasi.sha256, limits);
+    if (new URL(wasi.url).pathname.endsWith(".wasm")) renameSync(file, join(staging, wasi.module));
+    else await unpack(file, staging);
     assertLayout(staging, wasi);
+    // Its root stays writable, so it can be renamed (macOS) and replaced; no dirs value maps it.
     try {
-      renameSync(staging, dir);
+      seal(staging);
     } catch (e) {
-      // Another install stored the same digest first; that folder is used as it is.
-      if (!existsSync(dir)) throw e;
-      return;
-    }
-    // A read-only folder can't be renamed (macOS), so it is sealed once in place. A folder that can't be sealed is
-    // never used: a program could change it for every later check.
-    try {
-      seal(dir);
-    } catch (e) {
-      removeTree(dir);
       throw infraError(`The toolchain couldn't be made read-only, so nothing was installed: ${(e as Error).message}`, "host-disk");
     }
+    const root = store.toolchainDir(sha256);
+    await store.withLock(store.toolchainLockPath(sha256), async () => {
+      const aside = replace && existsSync(root) ? join(parent, `.discard-${randomBytes(4).toString("hex")}`) : undefined;
+      if (aside) renameSync(root, aside);
+      try {
+        renameSync(staging, root);
+      } catch (e) {
+        // Another track stored the same file first: that folder is used as it is.
+        if (!existsSync(root)) throw e;
+      }
+      if (aside) removeTree(aside);
+    });
+    assertLayout(root, wasi);
+    return { root, sha256 };
   } finally {
     rmSync(file, { force: true });
-    if (existsSync(staging)) removeTree(staging);
+    removeTree(staging);
+  }
+}
+
+/** Whether the server says the url's file isn't there (404 or 410), from its headers only. Any answer it can't get is false. */
+export async function toolchainMissing(url: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ANSWER_MS);
+  try {
+    const response = await answer(url, controller.signal);
+    await response.body?.cancel().catch(() => undefined);
+    return response.status === 404 || response.status === 410;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 // ---------- download ----------
 
-async function download(url: string, file: string, sha256: string, { fetcher = fetch, timeoutMs = DOWNLOAD_TIMEOUT_MS, maxDownload = MAX_DOWNLOAD_BYTES }: Options): Promise<void> {
+/** Downloads `url` into `file`, hashing it as it arrives. Returns its SHA-256, which must be `expected` when one is given. */
+async function download(url: string, file: string, expected: string | undefined, { stallMs = STALL_MS, maxDownload = MAX_DOWNLOAD_BYTES }: Options): Promise<string> {
   const controller = new AbortController();
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
-  const tooBig = () => new CodemmError(`The file at wasi.url is larger than ${maxDownload / MB} MB, the most Codemm downloads for a toolchain.`);
+  let stalled = false;
+  let timer: NodeJS.Timeout | undefined;
+  const alive = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      stalled = true;
+      controller.abort();
+    }, stallMs);
+  };
+  const tooBig = () => new CodemmError(`The file at ${url} is larger than ${maxDownload / MB} MB, the most Codemm downloads for a toolchain.`);
+  alive();
   try {
-    const response = await follow(url, fetcher, controller.signal);
-    if (Number(response.headers.get("content-length") ?? 0) > maxDownload) {
+    const response = await answer(url, controller.signal);
+    const refuse = async (e: CodemmError) => {
       await response.body?.cancel().catch(() => undefined);
-      throw tooBig();
+      return e;
+    };
+    const retry = "This is not a problem with the track files, so retry with the same files later.";
+    if (response.status === 404 || response.status === 410) {
+      throw await refuse(new CodemmError(`Downloading wasi.url failed: HTTP ${response.status}, so ${url} isn't there. Check the link.`));
     }
+    if (response.status === 429) throw await refuse(infraError(`The download server is limiting requests (HTTP 429), so nothing was installed. ${retry}`, "rate-limit"));
+    if (response.status >= 500) throw await refuse(infraError(`The download server failed (HTTP ${response.status}), so nothing was installed. ${retry}`, "offline"));
+    if (!response.ok) throw await refuse(new CodemmError(`Downloading wasi.url failed: ${url} answered HTTP ${response.status}. Check the link.`));
+    // A toolchain is never a web page: a school filter or a captive portal answered instead of the server.
+    if (/^text\/html\b/i.test(response.headers.get("content-type") ?? "")) {
+      throw await refuse(infraError(`A web page came back instead of the toolchain: a network filter or a sign-in page may have answered. Sign in to the network, or ask for ${new URL(url).host} to be allowed. ${retry}`, "offline"));
+    }
+    if (Number(response.headers.get("content-length") ?? 0) > maxDownload) throw await refuse(tooBig());
     const hash = createHash("sha256");
     let bytes = 0;
-    const out = await open(file, "wx", 0o600);
+    const out = await open(file, "wx", 0o600).catch(diskError);
     try {
       for await (const chunk of response.body ?? []) {
+        alive();
         bytes += chunk.byteLength;
         if (bytes > maxDownload) {
           controller.abort();
           throw tooBig();
         }
         hash.update(chunk);
-        await out.write(chunk);
+        await out.write(chunk).catch(diskError);
       }
     } finally {
       await out.close();
     }
     const actual = hash.digest("hex");
-    if (actual !== sha256) {
-      throw new CodemmError(`wasi.sha256 is ${sha256}, but the file at wasi.url has SHA-256 ${actual}. Check the link, and put the SHA-256 of the file it serves in wasi.sha256.`);
+    if (expected && actual !== expected) {
+      throw new CodemmError(`wasi.sha256 is ${expected}, but the file at ${url} has SHA-256 ${actual}. Check the link, and put the SHA-256 of the file it serves in wasi.sha256.`);
     }
+    return actual;
   } catch (e) {
-    if (e instanceof CodemmError) throw e;
-    throw networkError(e, timedOut);
+    // The disk's errors (diskError) and the track's are already what they are.
+    if (e instanceof CodemmError || e instanceof DiskError) throw e;
+    throw networkError(e, stalled);
   } finally {
     clearTimeout(timer);
   }
 }
 
-/** The response for `url`, following at most 5 redirects, each to https. */
-async function follow(url: string, fetcher: Fetcher, signal: AbortSignal): Promise<Response> {
+/** The answer for `url` after at most 5 redirects, each to https with no credentials. */
+async function answer(url: string, signal: AbortSignal): Promise<Response> {
   let current = url;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const response = await fetcher(current, { redirect: "manual", signal });
+    const response = await fetcher()(current, { redirect: "manual", signal });
     const location = response.headers.get("location");
-    if (response.status >= 300 && response.status < 400 && location) {
-      await response.body?.cancel().catch(() => undefined);
-      const next = new URL(location, current);
-      if (next.protocol !== "https:" || next.username || next.password) {
-        throw new CodemmError(`wasi.url redirects to a link that isn't https with no credentials (${next.protocol}//${next.host}). Use a link that stays on https.`);
-      }
-      current = next.href;
-      continue;
-    }
-    if (response.ok) return response;
+    if (response.status < 300 || response.status >= 400 || !location) return response;
     await response.body?.cancel().catch(() => undefined);
-    const retry = "This is not a problem with the track files, so retry with the same files later.";
-    if (response.status === 429) throw infraError(`The download server is limiting requests (HTTP 429), so nothing was installed. ${retry}`, "rate-limit");
-    if (response.status >= 500) throw infraError(`The download server failed (HTTP ${response.status}), so nothing was installed. ${retry}`, "offline");
-    throw new CodemmError(`Downloading wasi.url failed: the server answered HTTP ${response.status}. Check that the link names a file that exists.`);
+    const next = new URL(location, current);
+    if (next.protocol !== "https:" || next.username || next.password) {
+      throw new CodemmError(`wasi.url redirects to a link that isn't https with no credentials (${next.protocol}//${next.host}). Use a link that stays on https.`);
+    }
+    current = next.href;
   }
   throw new CodemmError(`wasi.url redirects more than ${MAX_REDIRECTS} times. Use the file's final link.`);
 }
 
-/** TLS errors that mean something on this computer intercepts the connection (§4.4); other certificate errors are the link's. */
-const INTERCEPTED = /^(SELF_SIGNED_CERT_IN_CHAIN|DEPTH_ZERO_SELF_SIGNED_CERT|UNABLE_TO_GET_ISSUER_CERT(_LOCALLY)?|UNABLE_TO_VERIFY_LEAF_SIGNATURE)$/;
-const DROPPED = /^(ETIMEDOUT|ECONNRESET|EPIPE|UND_ERR_(CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT|SOCKET))$/;
-const BAD_CERT = /^(CERT_HAS_EXPIRED|ERR_TLS_CERT_ALTNAME_INVALID|HOSTNAME_MISMATCH)$/;
+/** Writing the download failed: this computer's disk, never its network. */
+class DiskError extends Error {}
+function diskError(e: NodeJS.ErrnoException): never {
+  if (e.code === "ENOSPC") throw infraError("The disk filled up while downloading the toolchain. Free some space, then retry.", "host-disk");
+  throw new DiskError(`Couldn't save the toolchain's download: ${e.message}`);
+}
 
-function networkError(e: unknown, timedOut: boolean): CodemmError {
+/** Node's fetch names its errors by code, and Electron's net.fetch by message (`net::ERR_…`). */
+const CERTIFICATE = /CERT|SSL|TLS|SELF_SIGNED|UNABLE_TO_(GET_ISSUER|VERIFY)/i;
+const DROPPED = /ETIMEDOUT|ECONNRESET|EPIPE|UND_ERR_(CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT|SOCKET)|ERR_TIMED_OUT|ERR_CONNECTION_(RESET|TIMED_OUT|CLOSED)/;
+
+function networkError(e: unknown, stalled: boolean): CodemmError {
   const cause = (e as { cause?: { code?: string; message?: string } }).cause;
-  const code = cause?.code ?? (e as { code?: string }).code ?? "";
+  const said = [cause?.code, cause?.message, (e as { code?: string }).code, (e as Error).message].filter(Boolean).join(" ");
   const retry = "This is not a problem with the track files, so retry with the same files.";
-  if (BAD_CERT.test(code)) return new CodemmError(`The server at wasi.url has an invalid certificate (${code}). Use a link with a valid https certificate.`);
-  const [message, infra]: [string, InfraCode] = timedOut
-    ? ["The toolchain's download didn't finish in time: the connection may be slow.", "network-timeout"]
-    : INTERCEPTED.test(code)
-      ? ["The toolchain's download was refused: a certificate no trusted authority signed. A VPN, proxy or security software may be intercepting the connection.", "tls"]
-      : DROPPED.test(code) || (e as Error).name === "AbortError"
-        ? ["The toolchain's download timed out or dropped.", "network-timeout"]
-        : [`The toolchain couldn't be downloaded (${code || (e as Error).message}): this computer may be offline, or a VPN, proxy or firewall may be blocking it.`, "offline"];
-  return infraError(`${message} ${retry}`, infra);
+  const [message, code]: [string, InfraCode] = stalled || DROPPED.test(said)
+    ? ["The toolchain's download stalled or dropped: the connection may be slow.", "network-timeout"]
+    : CERTIFICATE.test(said)
+      ? ["The toolchain's download was refused over its certificate. A VPN, proxy or security software may be intercepting the connection, or this computer's clock may be wrong.", "tls"]
+      : [`The toolchain couldn't be downloaded (${said.slice(0, 200)}): this computer may be offline, or a VPN, proxy or firewall may be blocking it.`, "offline"];
+  return infraError(`${message} ${retry}`, code);
 }
 
 // ---------- unpacking ----------
 
-/** The system tar: bsdtar on macOS and Windows, which reads zip too. On Windows, its own, not one another tool put on PATH. */
+/** The system's own tar, by absolute path: bsdtar on macOS and Windows, which reads zip too. */
 export function systemTar(): string {
-  return process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+  return process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "/usr/bin/tar";
 }
 
-const freeBytes = (dir: string) => {
-  const { bavail, bsize } = statfsSync(dir);
-  return bavail * bsize;
-};
-
-/**
- * Unpacks `file` into `dir`, then refuses any link or special file and more than `max` bytes. While tar runs, the
- * free space it uses is watched, so an archive that expands without bound is stopped before it fills the disk.
- */
-async function unpack(file: string, dir: string, max: number): Promise<void> {
-  const before = freeBytes(dir);
-  const tooBig = () => new CodemmError(`The archive at wasi.url unpacks to more than ${Math.round(max / MB)} MB, the most a toolchain may hold.`);
+/** Unpacks `file` into `dir`, then refuses any link, special file or file with more than one hard link. */
+async function unpack(file: string, dir: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(systemTar(), ["-xf", file, "-C", dir], { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
-    let stopped: CodemmError | undefined;
-    const stop = (why: CodemmError) => {
-      stopped ??= why;
-      child.kill("SIGKILL");
-    };
     child.stderr.on("data", (d: Buffer) => (stderr = (stderr + d.toString()).slice(-4000)));
-    // Blocks are allocated a little past the bytes, so allow some slack before stopping.
-    const watch = setInterval(() => before - freeBytes(dir) > max + 64 * MB && stop(tooBig()), 200);
-    const timer = setTimeout(() => stop(new CodemmError("The archive at wasi.url took more than 10 minutes to unpack.")), UNPACK_TIMEOUT_MS);
-    const done = (e?: Error) => {
-      clearInterval(watch);
+    const timer = setTimeout(() => child.kill("SIGKILL"), UNPACK_TIMEOUT_MS);
+    child.on("error", (e) => {
       clearTimeout(timer);
-      if (e) reject(e);
-      else resolve();
-    };
-    child.on("error", (e) => done(new Error(`Couldn't run the system tar to unpack the toolchain: ${e.message}`)));
-    child.on("close", (code) => {
-      if (stopped) return done(stopped);
-      if (code === 0) return done();
+      reject(new Error(`Couldn't run the system tar (${systemTar()}) to unpack the toolchain: ${e.message}`));
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) return resolve();
       const said = stderr.trim().split("\n").slice(-3).join("\n");
-      if (/no space left/i.test(said)) return done(infraError("The disk filled up while unpacking the toolchain. Free some space, then retry.", "host-disk"));
-      done(new CodemmError(`The archive at wasi.url didn't unpack with this computer's tar${said ? `:\n${said}` : "."}`));
+      if (/no space left/i.test(said)) return reject(infraError("The disk filled up while unpacking the toolchain. Free some space, then retry.", "host-disk"));
+      if (signal) return reject(new CodemmError("The archive at wasi.url took more than 10 minutes to unpack."));
+      reject(new CodemmError(`The archive at wasi.url didn't unpack with this computer's tar${said ? `:\n${said}` : "."}`));
     });
   });
-  let total = 0;
   walk(dir, (_path, rel, stat) => {
     if (stat.isSymbolicLink() || !(stat.isFile() || stat.isDirectory()) || (stat.isFile() && stat.nlink > 1)) {
       throw new CodemmError(`The archive at wasi.url holds a link or special file (${rel}). A toolchain may hold only files and folders.`);
     }
-    total += stat.isFile() ? stat.size : 0;
-    if (total > max) throw tooBig();
   });
 }
 
@@ -235,14 +260,16 @@ function assertLayout(root: string, wasi: Pick<WasiSpec, "module" | "dirs">): vo
   }
 }
 
-/** Files 0444 and folders 0555, deepest first, so nothing in a stored toolchain can be changed. */
+// ---------- sealing (moves to the engine's sealReadOnly and unseal in src/wasi.ts) ----------
+
+/** Everything under `root` read-only: files 0444, folders 0555, deepest first. `root` itself stays as it is. */
 function seal(root: string): void {
   const dirs: string[] = [];
   walk(root, (path, _rel, stat) => (stat.isDirectory() ? dirs.push(path) : chmodSync(path, 0o444)));
-  for (const d of [...dirs.reverse(), root]) chmodSync(d, 0o555);
+  for (const d of dirs.reverse()) chmodSync(d, 0o555);
 }
 
-/** Removes a folder that may be read-only, as a stored toolchain is. */
+/** Removes a folder that may be sealed, as a stored toolchain is. */
 export function removeTree(dir: string): void {
   const writable = (d: string) => {
     try {
@@ -260,4 +287,3 @@ export function removeTree(dir: string): void {
   writable(dir);
   rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
 }
-
