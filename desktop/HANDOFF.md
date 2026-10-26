@@ -22,6 +22,7 @@ Each state has a mock scenario, a test, and a specific next step on screen. Infr
 | State | What the learner sees | Scenario |
 |---|---|---|
 | No Docker | Check this computer: per-OS install steps (Windows includes WSL 2), a link to Docker's install page, and a re-check | `no-docker` |
+| No Docker, but wasmtime runs (core §4.5) | Check this computer says practice runs here without Docker, for programs that read input and print output, with Continue. Docker's rows and Install Docker stay, as an option. Welcome and Install what's missing don't count Docker as missing | `no-docker-wasi` |
 | Docker not running | "Open Docker Desktop." (Linux: `systemctl` and the docker group), then a re-check | `docker-stopped` |
 | Docker still starting | "Docker is starting. This can take a few minutes." | `docker-starting` |
 | Docker on Windows containers | "Switch Docker Desktop to Linux containers" | `windows-containers` |
@@ -97,6 +98,8 @@ src/main/state.ts         desktop.json: chosen agent and tutor sessions, atomic,
 src/main/agent/           agents (launch, parse, status), bridge (spawn, cancel, caps), find, jobs, briefs
 src/main/core/            the core functions used, their shapes, and core's infrastructure failures
 scripts/bundle-core.mjs   esbuild bundles the repo's core into out/core: cli.mjs (the MCP server) and app.cjs (in-process)
+scripts/fetch-wasmtime.mjs  wasmtime 50 per chip, pinned by SHA-256, into vendor/wasmtime/<os>-<arch>; `npm run dist` runs it
+src/main/wasmtime.ts      the bundled wasmtime: wire.ts sets CODEMM_WASMTIME to it, and server.ts passes it to the agent's server
 e2e/packaged.spec.ts      D1, in CI on macOS and Windows: no Node on PATH, the bundled MCP server, a JavaScript agent
 ```
 
