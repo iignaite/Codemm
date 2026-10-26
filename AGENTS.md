@@ -25,11 +25,11 @@ Codemm is a harness: the learner's coding agent writes tracks, roadmaps and exer
   | Module | Job |
   |---|---|
   | `files` | input validation |
-| `toolchain` | a WASI track's toolchain: download, verify, store |
+  | `toolchain` | a WASI track's toolchain: download, verify, store |
   | `schemas` | formats |
   | `grading` | pure grading |
   | `sandbox` | containers |
-| `wasi` | the WASI engine (wasmtime) |
+  | `wasi` | the WASI engine (wasmtime) |
   | `judge` | running test sets |
   | `program` | Run: the learner's program, interactively |
   | `gates` | verification |

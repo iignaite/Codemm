@@ -55,7 +55,7 @@ The desktop app, the private beta and the minimum model per agent are in scope f
 - Practice hooks for Codex and Cursor in the terminal; protection is advisory there.
 - Multi-container tracks, course sharing, watch mode.
 - For heavy tests: per-exercise time limits (the track's `time_ms` applies to every exercise), running a check's test sets in parallel, a runner that stays warm across io cases (each case starts `run` afresh), and a unit `build` step timed apart from `test`.
-- For the WASI engine (§4.5): unit style, a build step (compiled languages), input generators, and a wasmtime the terminal CLI downloads itself.
+- For the WASI engine (§4.5): unit style, a build step (compiled languages), input generators, `.tar.xz` toolchains, a cap on unpacked size, and a wasmtime the terminal CLI downloads itself.
 - Publishing to npm. GitHub releases are built as drafts, and only the owner publishes them.
 
 ## 3. Files and ids
@@ -238,11 +238,15 @@ Other ceilings:
 
 ### 4.5 The WASI engine (no Docker)
 
-Some learners can't install Docker: a school computer without admin rights, for one. For them a track can run its code in a WebAssembly sandbox instead: [wasmtime](https://wasmtime.dev), run as the learner's own user, with no VM, no admin rights and no network. The track names a WASI build of its language's interpreter, as a Docker track names a base image, so Codemm still ships no languages.
+Some learners can't install Docker: a school computer without admin rights, for one. For them a track can run its code in a WebAssembly sandbox instead: [wasmtime](https://wasmtime.dev), run as the learner's own user, with no VM, no admin rights and no network. The track names a WASI build of its language's interpreter, as a Docker track names a base image. wasmtime is the sandbox, not a toolchain, so Codemm still ships no languages.
 
 - **Scope:** io style and interpreted languages. A WASI track has no `build` and no `test`, and its exercises have no input generators (`NN.gen` needs `sh`). The rest is deferred (§2).
-- **Where wasmtime comes from:** the path in `CODEMM_WASMTIME`, which the desktop app sets to the copy it bundles (pinned by SHA-256), else `wasmtime` on `PATH`. With neither, a WASI track's check fails with the infrastructure error `no-wasmtime` and records nothing. Tested with wasmtime 50.
-- **Engine choice is per track.** A track with a `wasi` block runs on wasmtime; any other runs on Docker. Codemm never converts one into the other. `listTracks()` and `listProposals()` say each track's engine (`engine: "docker" | "wasi"`), so the desktop never works it out from the files. Codemm tells the agent which engines this computer has, and the agent writes a WASI track only when there's no container runtime.
+- **Where wasmtime comes from:** the path in `CODEMM_WASMTIME`, else `wasmtime` on `PATH`. The desktop app bundles wasmtime 50 (pinned by SHA-256) and passes `CODEMM_WASMTIME` to every core it runs, in its own process and in each MCP server it starts. Codemm asks `wasmtime --version` with a 10 s bound and needs major version 50. With no wasmtime, or another version, a WASI track's check fails with the infrastructure error `no-wasmtime` and records nothing.
+- **Engine choice is per track.** A track with a `wasi` block runs on wasmtime; any other runs on Docker. Codemm never converts one into the other.
+  - `listTracks()` and `listProposals()` say each track's engine (`engine: "docker" | "wasi"`), so the desktop never works it out from the files.
+  - This computer has Docker when a container CLI is installed (`containerCli()` finds `docker` or `podman`), running or not. Then the agent writes Docker tracks, and a stopped Docker is fixed by starting it.
+  - Without one, Codemm says so in its MCP server instructions, and the agent writes a WASI track. `save_track` refuses a Docker track on a computer with no container CLI but a working wasmtime, saying to write a WASI track.
+  - `next_step`'s author contract includes the track's `engine`, so authors know `NN.gen` isn't available.
 
 **Track contract.** `track.yaml` with a `wasi` block, and no Dockerfile:
 
@@ -252,53 +256,89 @@ version: 1
 styles: [io]
 files: [main.py]
 run: "/work/src/main.py"     # the module's arguments, split on spaces (no shell)
-limits: { time_ms: 2000, memory_mb: 256 }
+limits: { time_ms: 3000, memory_mb: 256 }
 wasi:
   url: https://github.com/brettcannon/cpython-wasi-build/releases/download/v3.15.1/python-3.15.1-wasi_sdk-33.zip
-  sha256: 252e2e17fab9f51a51fbfc73d51e18805cb633e9f9200c9753b4b801c70ad32c   # of the downloaded file
+  sha256: 252e2e17fab9f51a51fbfc73d51e18805cb633e9f9200c9753b4b801c70ad32c   # optional: of the downloaded file
   module: python.wasm        # the module's path in the archive (or the file's name when url is a .wasm)
   dirs: { /lib: lib }        # archive folders the module sees, read-only, by their path inside the sandbox
   env: { PYTHONHOME: /, PYTHONDONTWRITEBYTECODE: "1" }
 ```
 
 - `wasi` and a Dockerfile can't both be there. `styles` must be `[io]`; `build` and `test` are refused.
-- `url` is https with no credentials, ending in `.wasm`, `.zip`, `.tar.gz` or `.tar.xz`. `module` and each `dirs` value are relative paths in the archive (§3's file-map rules). Each `dirs` key is an absolute path that isn't `/`, `/work` or under `/work`. `env` holds at most 32 names matching `^[A-Z_][A-Z0-9_]*$`, each value at most 1 KB.
+- **`url`:** https, with no credentials. Its path ends in `.wasm`, `.zip` or `.tar.gz`.
+- **`sha256`:** optional, 64 lowercase hex digits. When it's given, the download must match it. When it isn't, Codemm records the digest it downloaded and installs with a warning, as for a base image not pinned by digest (§4.4). From then on, rebuilds must match the recorded digest. An agent in the desktop can't hash a file, so it may leave `sha256` out.
+- **`module` and each `dirs` value:** relative paths in the archive, following §3's file-map rules, and never `.`.
+- **Each `dirs` key:** matches `^(/[A-Za-z0-9._-]+)+$`, with no `.` or `..` part. A key can't be `/work` or under it, and no key can be under another.
+- **`env`:** at most 32 names matching `^[A-Z_][A-Z0-9_]*$`, each value at most 1 KB. Each one is always passed as `--env NAME=VALUE`.
 - **WASI has no working directory:** the program starts in `/`. So `run` names the learner's files by their full path under `/work/src`, and learner-facing messages shorten them as for Docker (§4.2).
 
 **Installing the toolchain.** This replaces the image build (§4.4); the probes and gates are the same.
-- **Download:** over https only (redirects too), at most 256 MB. The file is hashed as it arrives and refused unless its SHA-256 matches, before anything is unpacked. A network failure is an `offline` infrastructure error. A hash that doesn't match fails gate "valid", naming both digests.
-- **Unpacking:** a `.wasm` is stored as it is. An archive is unpacked with the system `tar`, run with an argument array (bsdtar on macOS and Windows reads zip). It goes into a temp folder under `$CODEMM_HOME/toolchains/`, at most 1 GB unpacked, and a link or special file anywhere fails the install. `module` and every `dirs` folder must exist.
-- **Storing:** the folder is sealed read-only (below, under Running a check). The folder is then renamed to `$CODEMM_HOME/toolchains/<sha256>/`, where it is shared by every track that names that file and never changed. A folder already there for that digest is used as it is.
-- **Progress:** `{ phase: "downloading" }` first, then `{ phase: "checking" }` before the probes.
-- **In the desktop app,** `save_track` runs gate 1 only, with no registry check. Nothing is downloaded until the learner consents.
-- **track.json:** a WASI track has no `image` or `imageId`. It stores `wasi: { sha256, module, dirs, env }`. Every check first verifies that the toolchain folder exists; when it doesn't, the check fails with "Run `codemm track rebuild <id>@<version>`". Rebuild downloads the toolchain again (the same SHA-256) and re-runs every gate, as in §4.4.
+- **Download:**
+  - The fetch function is injectable. The desktop passes Electron's `net.fetch`, which uses the system's proxy settings and certificate store (school networks often need both); the CLI uses Node's `fetch`.
+  - Redirects are followed by hand, at most 5, and every hop must be https.
+  - At most 256 MB. The file is hashed as it arrives.
+  - Failures:
+
+    | What happened | Result |
+    |---|---|
+    | 404 or 410 | Gate "toolchain" fails, naming the url |
+    | A `text/html` body, as from a school filter or captive portal | `offline`, saying a network filter may have answered |
+    | 429 | `rate-limit` |
+    | 5xx, or the name doesn't resolve | `offline` |
+    | A certificate problem | `tls` |
+    | A stalled download | `network-timeout` |
+    | A digest that doesn't match | Gate "toolchain" fails, naming both digests |
+
+- **Unpacking:**
+  - A `.wasm` is stored as it is. An archive is unpacked with the system's own `tar`, by absolute path (`/usr/bin/tar`, or `%SystemRoot%\System32\tar.exe`, bsdtar, which reads zip), through an argument array.
+  - Then a link, a special file, or a file with more than one hard link anywhere fails the install, and `module` and every `dirs` folder must exist.
+  - Unpacked size isn't capped, a known limitation as for Docker builds (§4.4): the learner's consent is the trust point. WASI installs check that 1.5 GB is free first.
+- **Precompiling:** wasmtime compiles the module once, at install: `wasmtime compile -W epoch-interruption=y <module> -o $CODEMM_HOME/toolchains/compiled/<sha256>-<wasmtime version>.cwasm`.
+  - That file is outside the toolchain folder and never mapped into the sandbox.
+  - Checks run it with `--allow-precompiled -C cache=n`, so no case pays for compiling (3 to 7 s cold for CPython), and a cached module isn't hashed on every run.
+  - When the file for this wasmtime version is missing (a new wasmtime), it is compiled again under the track lock, before the check and outside its limits.
+- **Storing:**
+  - The temp folder's root stays writable and is never mapped, since a `dirs` value is never `.`. Everything under it is sealed read-only (below).
+  - The temp folder is then renamed to `$CODEMM_HOME/toolchains/<sha256>/`, which every track naming that file shares. A rename that finds the folder already there (another track installed it) counts as done.
+  - Rebuild downloads again into a temp folder and replaces the digest's folder under a lock for that digest, so a damaged folder can be repaired.
+- **Progress:** `{ phase: "downloading" }`, then `{ phase: "checking" }` before the probes.
+- **In the desktop app,** `save_track` runs gate 1 and asks whether the url answers. It reads the headers only, as the base-image check does for Docker. A url the server says isn't there is refused at once; an answer it can't get refuses nothing. Nothing is downloaded until the learner consents.
+- **track.json:** a WASI track has no `image` or `imageId`. It stores `wasi: { sha256, module, dirs, env }`, where `sha256` is the digest actually downloaded. A Codemm older than this reports such a track.json as damaged (§11).
 
 **Running a check.** There is one wasmtime process per io case. Visible and hidden sets each get their own run folder (§4.3), as with Docker.
+- **Before each set,** Codemm checks that wasmtime is version 50, and that the toolchain folder, every `dirs` folder and the compiled module exist. A missing toolchain is kind `image-missing` ("Run `codemm track rebuild <id>@<version>`"). Once these pass, every exit is the program's.
 - **The program sees two kinds of folder,** with each `--dir` at its sandbox path: each toolchain folder in `dirs`, and the run folder's `src` at `/work/src`.
 - **Tests are never mapped.** The host reads each case's input and writes it to the program's stdin.
-- **Nothing is writable.** wasmtime's CLI maps every folder read-write (wasmtime 50 has no read-only option), so the operating system enforces it. One helper in `src/wasi.ts` seals a folder: files 0444 and folders 0555, and on Windows, where a folder's mode doesn't stop new files, also an inherited deny ACE (`icacls <dir> /deny *S-1-1-0:(OI)(CI)(WD,AD,DC,WA,WEA)`, no admin needed as the folder's owner). The toolchain is sealed at install, and each run folder before its start; a run folder is unsealed only to remove it. A seal that fails is an infrastructure failure. WASI has no call that changes permissions, so the program can't write, create, delete or fill anything.
+- **Nothing is writable:**
+  - wasmtime's CLI maps every folder read-write (wasmtime 50 has no read-only option), so the operating system enforces it.
+  - One helper in `src/wasi.ts` seals a folder's contents: files 0444 and folders 0555. On Windows, where a folder's mode doesn't stop new files, it also adds an inherited deny entry with `%SystemRoot%\System32\icacls.exe <dir> /deny *S-1-1-0:(OI)(CI)(W,D,DC)`. The folder's owner needs no admin rights for this.
+  - The toolchain is sealed at install. A run folder's `src` is sealed before the start, and unsealed only to be removed, including by the leftover sweep.
+  - A seal that fails is an infrastructure failure, so a folder on a disk without permissions (FAT, exFAT) fails closed. `doctor` runs a canary module that must fail to create a file in a sealed, mapped folder.
 - **Limits:**
   - `-W max-memory-size=<memory_mb × 2^20>`;
-  - `-W timeout=<time_ms>ms`, backed by a host kill one second later. Either way the case is a `timeout`.
+  - `-W timeout=<time_ms>ms`, backed by a host kill one second later.
+  - A case timed out when the host killed it, or when it exited non-zero after at least `time_ms` of wall time. It's framed as Docker's time-outs are (§4.3), with exit 137 and a `timeout` frame.
 - **Isolation:**
   - no network (`-S inherit-network=n,tcp=n,udp=n,allow-ip-name-lookup=n`);
-  - no inherited environment, only `wasi.env`;
-  - `-C cache=y`, wasmtime's compiled-module cache, so only a toolchain's first run compiles it.
+  - only `wasi.env` inside the sandbox;
+  - wasmtime itself starts with an empty environment (on Windows, only `SystemRoot`), so no `WASMTIME_*` or `RUST_*` setting reaches it.
 - **Output:**
-  - stdout is capped at the per-case limit (§4.2): over it, the process is killed and the case is a flood, graded as for Docker;
-  - stderr keeps its first 4 KB.
+  - stdout and stderr together are capped at the per-case limit (§4.2), as `sandbox.ts` counts them. Over it, the process is killed and the case is `big`.
+  - stderr keeps its first 4 KB and the rest is drained, so a program that prints a lot of errors isn't stopped by a full pipe.
+  - stdout is held until the case ends, at most the per-case limit, since a frame's header needs its size.
 - **Frames:** the host writes the same frames the Docker driver writes (§4.2) into the same frame reader. So grading, progress, digests and disclosure are unchanged, and since the host writes every frame, the program can't forge one.
 - **Exit codes:**
   - the program's own exit code is graded as for Docker;
-  - a wasm trap (wasmtime exits non-zero) is `error`;
-  - a program that hits the memory limit fails its own allocation (a `MemoryError`, or a trap), which is `error` with its message, shown for visible tests only.
-- **Infrastructure:** wasmtime missing, or failing to start, records nothing.
+  - a wasm trap (wasmtime exits non-zero) is `error`, and wasmtime's backtrace is left out of what the learner sees, which uses §4.2's words;
+  - a program that hits the memory limit fails its own allocation (a `MemoryError`, or a trap), which is `error`, with its message shown for visible tests only.
 
-**Run** (the learner's program, interactively) uses the same flags: stdin is piped, the time limit is 120 s, and no tests are involved.
+**Run** (the learner's program, interactively) uses the same flags and checks: stdin is piped, the time limit is 120 s, and no tests are involved.
 
 **Security.**
 - **What wasmtime gives:** it is the sandbox, with memory-safe isolation and access only to the folders it is given. Compared with the Docker sandbox (§4.3), the program has no network, no processes and no writable path.
-- **Not limited:** CPU count. A WASI module runs on one thread.
+- **Not limited:** CPU count, since a WASI module runs on one thread. Also file timestamps: on macOS and Linux the owner can set a read-only file's times, a tiny channel between runs that is accepted.
+- **On a signed macOS build,** the bundled wasmtime needs the hardened runtime's JIT entitlement to map compiled code.
 - **What `doctor` shows:** both engines. With no container runtime but wasmtime present, the missing runtime isn't a failure.
 
 ## 5. Roadmaps (courses)
@@ -495,6 +535,7 @@ The MCP tools and CLI commands are thin calls into one application module.
 - **No migration.** v1 progress is not imported: v1 concepts were free-text tags, and 1.0 concepts are roadmap ids.
 - **Coexistence.** 1.0 writes `codemm.json` and `exercises/` in a workspace and `~/.codemm/{tracks,courses}`. None of these collide with v1's files.
 - **Rollback.** `docs/MIGRATION.md` gives tested steps to run v1 from commit `5e3f3a7` in a separate checkout (`git worktree add`, `npm ci`, `npm run dev`). The repo-level rollback is reverting the 1.0 merge commit.
+- **WASI tracks (§4.5)** add optional fields to `track.json` and keep `format_version: 1`: every Docker track.json loads unchanged. Going back to an older Codemm, a WASI track's track.json reads as damaged and its course stops until the newer Codemm returns; Docker tracks are unaffected.
 - **Future format changes** must migrate forward and keep a backup of the original files.
 
 ## 12. Tests
