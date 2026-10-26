@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { ensureImage } from "../src/app/shared.js";
@@ -11,7 +12,7 @@ import type { JudgeTrack } from "../src/judge.js";
 import * as sandbox from "../src/sandbox.js";
 import { type CourseRecord, parseRoadmapYaml, type TrackRecord } from "../src/schemas.js";
 import * as store from "../src/store.js";
-import { removeTree } from "../src/toolchain.js";
+import { removeTree, setToolchainFetch } from "../src/toolchain.js";
 import * as wasi from "../src/wasi.js";
 import { tempDir } from "./temp.js";
 
@@ -73,7 +74,7 @@ beforeEach(() => {
   home = tempDir("codemm-home-");
   vi.stubEnv("CODEMM_HOME", home);
   downloads = 0;
-  vi.stubGlobal("fetch", async (url: string) => {
+  setToolchainFetch(async (url) => {
     downloads += 1;
     return url === URL ? new Response(MODULE) : new Response("", { status: 404 });
   });
@@ -84,7 +85,7 @@ beforeEach(() => {
 afterEach(() => {
   removeTree(home);
   vi.unstubAllEnvs();
-  vi.unstubAllGlobals();
+  setToolchainFetch();
   vi.mocked(wasi.wasmtimePath).mockImplementation(() => "wasmtime");
   vi.mocked(sandbox.containerCli).mockImplementation(() => "docker");
 });
@@ -113,14 +114,19 @@ describe("verifyTrack on a WASI track", () => {
     expect(sandbox.cli).not.toHaveBeenCalled();
   });
 
-  it("fails gate valid on a toolchain whose digest doesn't match, naming both", async () => {
+  it("fails gate toolchain on a toolchain whose digest doesn't match, naming both", async () => {
     const wrong = "ab".repeat(32);
-    await expect(verifyTrack(track(`{ url: ${URL}, sha256: ${wrong}, module: echo.wasm }`))).rejects.toThrow(new RegExp(`Gate "valid" failed: wasi.sha256 is ${wrong}, but [\\s\\S]*${SHA}`));
+    await expect(verifyTrack(track(`{ url: ${URL}, sha256: ${wrong}, module: echo.wasm }`))).rejects.toThrow(new RegExp(`Gate "toolchain" failed: wasi.sha256 is ${wrong}, but [\\s\\S]*${SHA}`));
     expect(judge.runSets).not.toHaveBeenCalled();
   });
 
+  it("records the digest it downloaded when the track gives none, with a warning", async () => {
+    const verified = await verifyTrack(track(`{ url: ${URL}, module: echo.wasm }`));
+    expect(verified).toMatchObject({ wasi: { sha256: SHA }, warning: expect.stringContaining(`wasi.sha256: ${SHA}`) });
+  });
+
   it("passes a network failure on as this computer's, not a gate", async () => {
-    vi.stubGlobal("fetch", async () => new Response("", { status: 503 }));
+    setToolchainFetch(async () => new Response("", { status: 503 }));
     await expect(verifyTrack(track())).rejects.toMatchObject({ code: "offline", message: expect.not.stringMatching(/Gate/) });
   });
 
@@ -170,11 +176,36 @@ describe("installing a WASI track", () => {
     expect(await app.proposeTrack(track())).toMatchObject({ proposed: "echo-wasi@1" });
     expect(sandbox.missingBaseImages).not.toHaveBeenCalled();
     expect(app.listProposals()).toMatchObject([{ track: "echo-wasi@1", engine: "wasi" }]);
-    expect(downloads).toBe(0);
+    expect(downloads).toBe(1);
     const { digest } = app.listProposals()[0]!;
     const progress: unknown[] = [];
     expect(await app.installProposal("echo-wasi@1", digest, (p) => progress.push(p))).toEqual({ installed: "echo-wasi@1" });
     expect(progress).toEqual([{ phase: "downloading" }, { phase: "checking" }]);
+  });
+
+  it("refuses to propose a track whose toolchain the server says isn't there", async () => {
+    const gone = track(`{ url: https://example.org/tools/gone.wasm, module: gone.wasm }`);
+    await expect(app.proposeTrack(gone)).rejects.toThrow(/https:\/\/example.org\/tools\/gone.wasm[\s\S]*isn't there/);
+    expect(app.listProposals()).toEqual([]);
+    // An answer it can't get refuses nothing.
+    setToolchainFetch(async () => {
+      throw new TypeError("fetch failed");
+    });
+    await expect(app.proposeTrack(gone)).resolves.toMatchObject({ proposed: "echo-wasi@1" });
+  });
+
+  it("still lists a proposal whose track.yaml was damaged on disk", async () => {
+    await app.proposeTrack(track());
+    const { digest } = app.listProposals()[0]!;
+    writeFileSync(join(home, "proposals", "echo-wasi@1", digest, "files", "track.yaml"), "id: [");
+    expect(app.listProposals()).toMatchObject([{ track: "echo-wasi@1", engine: "wasi" }]);
+  });
+
+  it("tells authors the track's engine", async () => {
+    await app.saveTrack(track());
+    const ws = tempDir("codemm-ws-");
+    await app.saveRoadmap(ws, "echo", ROADMAP);
+    expect(app.nextStep(ws)).toMatchObject({ kind: "author", contract: { engine: "wasi", run: "/work/src/answer.txt" } });
   });
 
   it("refuses a Docker track on a computer with wasmtime and no container runtime", async () => {
@@ -190,7 +221,21 @@ describe("installing a WASI track", () => {
     await expect(app.proposeTrack(docker)).resolves.toMatchObject({ proposed: "echo-wasi@1" });
   });
 
-  it("rebuilds by downloading a missing toolchain again and re-checking every exercise, with no docker tag", async () => {
+  it("rebuilds by downloading the toolchain again, repairing a damaged folder, with no docker tag", async () => {
+    await app.saveTrack(track(`{ url: ${URL}, module: echo.wasm }`));
+    removeTree(join(store.toolchainDir(SHA), "echo.wasm"));
+    expect(await app.rebuildTrack("echo-wasi@1")).toEqual({ rebuilt: "echo-wasi@1", exercises: 0 });
+    expect(existsSync(join(store.toolchainDir(SHA), "echo.wasm"))).toBe(true);
+    expect(sandbox.cli).not.toHaveBeenCalled();
+  });
+
+  it("rebuilds only to the digest it recorded", async () => {
+    await app.saveTrack(track(`{ url: ${URL}, module: echo.wasm }`));
+    setToolchainFetch(async () => new Response("another file"));
+    await expect(app.rebuildTrack("echo-wasi@1")).rejects.toThrow(new RegExp(`Gate "toolchain"[\\s\\S]*${SHA}`));
+  });
+
+  it("rebuilds a missing toolchain and re-checks every exercise", async () => {
     await app.saveTrack(track());
     const ws = tempDir("codemm-ws-");
     await app.saveRoadmap(ws, "echo", ROADMAP);

@@ -51,10 +51,14 @@ export function quietly<T>(listener?: (p: T) => void): ((p: T) => void) | undefi
   });
 }
 
+/** Which engine runs a track (DESIGN §4.5): a wasi block means the WASI engine, anything else Docker. */
+export const engineOf = (track: { wasi?: unknown }): "docker" | "wasi" => (track.wasi ? "wasi" : "docker");
+
 export function trackContract(track: TrackRecord, style: string): TrackContract {
   const files = store.readTrackFiles(`${track.id}@${track.version}`);
   const commands = style === "io" ? { ...(track.build ? { build: track.build } : {}), run: track.run } : { test: track.test };
   return {
+    engine: engineOf(track),
     files: track.files,
     ...commands,
     limits: track.limits,

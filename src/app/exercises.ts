@@ -17,6 +17,8 @@ import { activeCourse, ensureImage, installedTrack, learnerDir, noteAssistLocked
  * build, run or test them for this style, the limits, and the track's own probe as a worked example.
  */
 export type TrackContract = {
+  /** "wasi": the WASI engine, where exercises have no input generators (DESIGN §4.5). */
+  engine: "docker" | "wasi";
   files: string[];
   build?: string;
   run?: string;

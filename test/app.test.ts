@@ -155,6 +155,7 @@ describe("the author step", () => {
     expect(app.nextStep(ws)).toEqual({
       kind: "author", concept: "calc.add", title: "Adding numbers", difficulty: 1, lesson: null, style: "unit", track: "custom-unit@1",
       contract: {
+        engine: "docker",
         files: ["src/calc.funcs"],
         test: "sh /opt/judge/run-checks",
         limits: { time_ms: 5000, memory_mb: 128 },

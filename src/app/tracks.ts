@@ -5,13 +5,11 @@ import { type Expected, expectedDigest } from "../grading.js";
 import { containerCli, missingBaseImages, runtimeCode, runtimeDown, cli as sandboxCli } from "../sandbox.js";
 import { parseTrackYaml, type TrackRecord, type TrackSpec } from "../schemas.js";
 import * as store from "../store.js";
+import { toolchainMissing } from "../toolchain.js";
 import { wasmtimePath } from "../wasi.js";
-import { installedTrack, quietly } from "./shared.js";
+import { engineOf, installedTrack, quietly } from "./shared.js";
 
 // ---------- tracks ----------
-
-/** Which engine runs a track (DESIGN §4.5): a wasi block means the WASI engine, anything else Docker. */
-const engineOf = (track: { wasi?: unknown }): "docker" | "wasi" => (track.wasi ? "wasi" : "docker");
 
 export function listTracks() {
   return store.listTracks().map((t) => ({ track: `${t.id}@${t.version}`, styles: t.styles, files: t.files, engine: engineOf(t) }));
@@ -43,8 +41,7 @@ async function install(ref: string, files: FileMap, onProgress?: (p: TrackProgre
   const engine = "wasi" in verified ? { wasi: verified.wasi } : { image: verified.image, imageId: verified.imageId };
   const record: TrackRecord = { format_version: 1, ...spec, ...engine, installedAt: new Date().toISOString() };
   store.commitFolder(store.trackDir(ref), files, { "track.json": record });
-  const warning = "warning" in verified ? verified.warning : undefined;
-  return { installed: ref, ...(warning ? { warning } : {}) };
+  return { installed: ref, ...(verified.warning ? { warning: verified.warning } : {}) };
 }
 
 /**
@@ -107,9 +104,16 @@ export async function proposeTrack(files: FileMap): Promise<{ installed: string;
   assertCoursesFit(ref, spec.styles);
   // A base image that doesn't exist would fail the build after the learner consents, so the agent hears it now. A
   // WASI track has none: its toolchain is checked by digest when it downloads.
-  const missing = spec.wasi ? [] : await missingBaseImages(files.Dockerfile ?? "");
-  if (missing.length) {
-    throw new CodemmError(`The Dockerfile builds from ${missing.join(" and ")}, which the registry doesn't have. Use an image and tag that exist (check its page on the registry), then call save_track again.`);
+  // A WASI track's toolchain is asked for its headers only: one the server says isn't there is refused at once.
+  if (spec.wasi) {
+    if (await toolchainMissing(spec.wasi.url)) {
+      throw new CodemmError(`wasi.url (${spec.wasi.url}) isn't there: the server answered that it has no such file. Use a link to a file that exists (check its release page), then call save_track again.`);
+    }
+  } else {
+    const missing = await missingBaseImages(files.Dockerfile ?? "");
+    if (missing.length) {
+      throw new CodemmError(`The Dockerfile builds from ${missing.join(" and ")}, which the registry doesn't have. Use an image and tag that exist (check its page on the registry), then call save_track again.`);
+    }
   }
   return store.withLock(store.trackLockPath(spec.id), async () => {
     if (alreadyInstalled(ref, spec.version, files)) return { installed: ref, unchanged: true as const };
@@ -119,9 +123,16 @@ export async function proposeTrack(files: FileMap): Promise<{ installed: string;
 }
 
 export function listProposals() {
-  return store.listProposals().map(({ record, files }) => ({
-    track: record.track, digest: record.digest, created: record.created, files, engine: engineOf(parseTrackYaml(files["track.yaml"] ?? "")),
-  }));
+  return store.listProposals().map(({ record, files }) => ({ track: record.track, digest: record.digest, created: record.created, files, engine: proposalEngine(files) }));
+}
+
+/** A proposal's engine, from its track.yaml. One changed on disk since (installing it refuses) still lists: without a Dockerfile, it's WASI. */
+function proposalEngine(files: FileMap): "docker" | "wasi" {
+  try {
+    return engineOf(parseTrackYaml(files["track.yaml"] ?? ""));
+  } catch {
+    return files.Dockerfile ? "docker" : "wasi";
+  }
 }
 
 /**
@@ -161,7 +172,7 @@ export async function rebuildTrack(ref: string): Promise<{ rebuilt: string; exer
   return store.withLock(store.trackLockPath(old.id), async () => {
     if (old.wasi) {
       // The toolchain is named by its digest, so there is nothing to promote: the gates only have to pass on it again.
-      await verifyTrack(store.readTrackFiles(ref), undefined, undefined, { rebuild: true });
+      await verifyTrack(store.readTrackFiles(ref), undefined, undefined, { rebuild: true, recorded: old.wasi.sha256 });
       return { rebuilt: ref, exercises: await recheckExercises(ref, old, "toolchain") };
     }
     // Build under a candidate tag; the installed tag and ID stay untouched unless every gate passes.
@@ -214,6 +225,10 @@ async function recheckExercises(ref: string, track: TrackRecord, what: "image" |
       }
     }
   }
-  if (changed.length > 0) throw new CodemmError(`The rebuilt ${what} behaves differently, so it wasn't accepted:\n${changed.join("\n")}`);
+  if (changed.length > 0) {
+    // A toolchain is its digest, so only this computer's wasmtime can have changed: there is nothing else to fall back to.
+    const outcome = what === "image" ? "so it wasn't accepted" : "on this computer's wasmtime";
+    throw new CodemmError(`The rebuilt ${what} behaves differently, ${outcome}:\n${changed.join("\n")}`);
+  }
   return count;
 }

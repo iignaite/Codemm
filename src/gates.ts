@@ -219,11 +219,15 @@ export type TrackProgress = ({ phase: "building" } & BuildStep) | { phase: "down
 type Probes = ReturnType<typeof checkTrackFiles>["probes"];
 
 /** Verifies a track (DESIGN §6, track gates 2-5): builds its image, or downloads its WASI toolchain, then runs its probes. */
+/**
+ * `rebuild`: the track is installed, so its probes keep the speed they were installed under, and a WASI toolchain is
+ * downloaded again to `recorded`, the digest its install recorded.
+ */
 export async function verifyTrack(
-  files: FileMap, tag?: string, onProgress?: (p: TrackProgress) => void, { rebuild = false } = {},
-): Promise<{ spec: TrackSpec; image: string; imageId: string; warning?: string } | { spec: TrackSpec; wasi: WasiRecord }> {
+  files: FileMap, tag?: string, onProgress?: (p: TrackProgress) => void, { rebuild = false, recorded }: { rebuild?: boolean; recorded?: string } = {},
+): Promise<{ spec: TrackSpec; image: string; imageId: string; warning?: string } | { spec: TrackSpec; wasi: WasiRecord; warning?: string }> {
   const { spec, probes } = checkTrackFiles(files);
-  if (spec.wasi) return verifyWasiTrack(spec, spec.wasi, probes, onProgress, rebuild);
+  if (spec.wasi) return verifyWasiTrack(spec, { ...spec.wasi, sha256: spec.wasi.sha256 ?? recorded }, probes, onProgress, rebuild);
 
   const image = tag ?? trackImageTag(spec.id, spec.version);
   const context = mkdtempSync(join(tmpdir(), "codemm-build-"));
@@ -256,27 +260,35 @@ export async function verifyTrack(
   return { spec, image, imageId: info.id, ...(warning ? { warning } : {}) };
 }
 
-/** A WASI track's gates 2-5: its toolchain downloads, matches its SHA-256 and unpacks, then the same probes (DESIGN §4.5). No Docker. */
+/**
+ * A WASI track's gates 2-5: its toolchain downloads, matches its SHA-256 and unpacks, then the same probes (DESIGN
+ * §4.5). No Docker. A rebuild downloads it again and replaces the stored folder, so a damaged one is repaired.
+ */
 async function verifyWasiTrack(
   spec: TrackSpec, block: NonNullable<TrackSpec["wasi"]>, probes: Probes, onProgress: ((p: TrackProgress) => void) | undefined, rebuild: boolean,
-): Promise<{ spec: TrackSpec; wasi: WasiRecord }> {
+): Promise<{ spec: TrackSpec; wasi: WasiRecord; warning?: string }> {
   // Before downloading: without wasmtime, nothing could run the probes.
   if (!wasmtimePath()) {
     throw infraError("wasmtime isn't installed, so this WASI track can't be checked. Install wasmtime (https://wasmtime.dev), or use the Codemm desktop app, which brings its own, then retry with the same files.", "no-wasmtime");
   }
   onProgress?.({ phase: "downloading" });
-  let root: string;
+  let stored: { root: string; sha256: string };
   try {
-    root = await ensureToolchain(block);
+    stored = await ensureToolchain(block, { replace: rebuild });
   } catch (e) {
-    // The track's link, digest or archive is wrong (no infrastructure code): that's gate 1's to report.
-    if (e instanceof CodemmError && !e.code) throw new GateError("valid", e.message);
+    // The track's link, digest or archive is wrong (no infrastructure code).
+    if (e instanceof CodemmError && !e.code) throw new GateError("toolchain", e.message);
     throw e;
   }
-  const { sha256, module, dirs, env } = block;
+  const { root, sha256 } = stored;
+  const { module, dirs, env } = block;
   onProgress?.({ phase: "checking" });
   await runProbes({ ...spec, image: "", wasi: { root, module, dirs, env } }, spec, probes, rebuild);
-  return { spec, wasi: { sha256, module, dirs, env } };
+  // As for a base image not pinned by digest (§4.4): rebuilds must match what was recorded.
+  const warning = block.sha256
+    ? undefined
+    : `The toolchain isn't pinned by digest, so Codemm recorded the one it downloaded. Rebuilds must match it. Pin it in the next version: wasi.sha256: ${sha256}`;
+  return { spec, wasi: { sha256, module, dirs, env }, ...(warning ? { warning } : {}) };
 }
 
 /** Track gates 3-5: each style's pass probe passes, its fail probe fails, and its pass probe is fast and deterministic. */
