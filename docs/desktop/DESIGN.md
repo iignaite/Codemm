@@ -573,6 +573,7 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 
 - **Moving on.** On the way in from Connect, when every row passes at the first check, the screen moves on by itself, so a first run goes from Connect straight to the goal: three clicks from the welcome screen. An explicit Check this computer (after a setup or a check failed) says "This computer is ready." and waits for Continue, as it does after a step. On the connect screen, the only supported agent installed is checked for sign-in at once, so it shows connected without a click. That happens once, on the first look that finds a supported agent (one installed in a terminal while the screen is open counts), and never while another agent is connected.
 - **Re-checking.** Only the first failing row shows its message. Only one check runs at a time: the next starts 5 seconds after the last finishes, or at once when the window regains focus and no check is running. Re-checking stops once every row passes, and Continue unlocks.
+- **Without Docker** (core §4.5). Some learners can't install Docker, such as on a school computer without admin rights. When Docker isn't installed and the bundled wasmtime runs, the Docker is installed row offers **Continue without Docker** beside Install Docker. Practice then runs on the WASI engine: io activities in interpreted languages, with no Docker, VM or admin rights. Codemm's MCP server instructions tell the agent that no container runtime is installed, so it plans io practice and writes a WASI track. Anything else (unit style, compiled languages, input generators) still needs Docker: the learner asks whoever manages the computer to install Docker Desktop once, or uses a computer that has it.
 - **Docker stopping mid-session.** A check or setup that loses Docker fails as an infrastructure failure, records nothing, and opens this screen.
 - **Docker's slow first start.** Setup and checks started while Docker is starting (in those 3 minutes) wait for the daemon before failing, and record nothing. With a stopped Docker they fail at once as not counted.
 - **Launch.** While Codemm looks for the agents, Welcome shows "Codemm is starting" beside Emm asleep, so the first seconds are never a blank window.
@@ -640,6 +641,7 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 
 - **Installers.** electron-builder produces a dmg on macOS for both Apple Silicon and Intel, and an NSIS installer on Windows (x64).
 - **Bundled core.** The core is bundled under resources, unpacked from asar. The MCP server runs as `ELECTRON_RUN_AS_NODE=1 <app executable> <resources>/core/cli.js mcp …` (§2), so the learner needs no Node, npm or terminal.
+- **Bundled wasmtime.** The app bundles wasmtime 50 for its platform (macOS Apple Silicon and Intel, Windows x64), pinned by SHA-256, and passes `CODEMM_WASMTIME` to every core it runs: its own process and each job's MCP server (core §4.5). A signed macOS build gives it the hardened runtime's JIT entitlement.
 - **Release workflow.** On a version tag, CI builds both installers and attaches them to a draft GitHub Release. Only the owner publishes it. No pull request publishes anything.
 - **Unsigned for the beta.**
   - On macOS 15 and later: open the app once, then choose System Settings, Privacy & Security, Open Anyway. Right-click and Open no longer works for unnotarized apps.
@@ -683,7 +685,7 @@ The first run, and every Docker or setup failure in §5, opens "Check this compu
 The flow must work from weak to strong models.
 
 - **Gates are the net.** Tracks, roadmaps and exercises reach the learner only after their gates pass. A weak model costs retries, not inconsistent activities. As core §1 says, gates prove internal consistency, not that a statement teaches the right thing.
-- **Short, single-purpose briefs.** Each job brief is at most about 25 lines, and the job's server exposes only its own tools. Briefs live in core `templates.ts` and name no language.
+- **Short, single-purpose briefs.** Each job brief is at most about 25 lines (setup, which carries both engines' track contracts, about 32), and the job's server exposes only its own tools. Briefs live in core `templates.ts` and name no language except in examples.
 - **No subagents needed.** The app runs authoring as its own process.
 - **Specific errors and bounded retries.** Tool inputs are validated with specific messages that the agent can act on. Retries are bounded (§3.2), and each job's done check reads core records.
 - **Bench.** The cross-model bench (`bench/`, `docs/bench`) supplies the minimum model per agent (§3.3).
