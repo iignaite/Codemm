@@ -15,6 +15,7 @@ jobs:
   # virtualization for Docker Desktop on macOS, Windows containers only on
   # Windows), so the Docker integration tests run on Linux only. On macOS and
   # Windows, the sandbox and judge are covered by unit tests and by reasoning.
+  # The WASI engine needs no containers, so its tests run on all three.
   unit:
     strategy:
       fail-fast: false
@@ -28,10 +29,30 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # The WASI engine's tests (DESIGN §4.5) run real wasmtime on every OS: the official release, pinned by SHA-256.
+      - name: Install wasmtime 50.0.0
+        shell: bash
+        run: |
+          case "${{ runner.os }}-${{ runner.arch }}" in
+            Linux-X64) target=x86_64-linux; ext=tar.xz; sum=77c19ee0437991f9ac7837b9c269d9c7076744f85dad263fea5214cc2723c7ff ;;
+            macOS-ARM64) target=aarch64-macos; ext=tar.xz; sum=323dc098dc0455d60f396c404627e967b7033ffcfa29abfffb243126cf82c9d6 ;;
+            macOS-X64) target=x86_64-macos; ext=tar.xz; sum=ad14d9fb6a51d1633318426d6df21734127faddc81fe18a3afd70c5964eabeb5 ;;
+            Windows-X64) target=x86_64-windows; ext=zip; sum=cea9ccc700aaccb2b5507e96ac990ba60104bd7ab39284fb2e67cb64d58efcc4 ;;
+            *) echo "No pinned wasmtime for ${{ runner.os }}-${{ runner.arch }}"; exit 1 ;;
+          esac
+          name="wasmtime-v50.0.0-$target"
+          file="$RUNNER_TEMP/$name.$ext"
+          curl -fsSL --retry 3 -o "$file" "https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.0/$name.$ext"
+          node -e 'const h = require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex"); if (h !== process.argv[2]) { console.error(`wasmtime SHA-256 ${h}, expected ${process.argv[2]}`); process.exit(1); }' "$file" "$sum"
+          if [ "$ext" = zip ]; then 7z x -bd -o"$RUNNER_TEMP" "$file" > /dev/null; else tar -xJf "$file" -C "$RUNNER_TEMP"; fi
+          echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
+      - run: wasmtime --version
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
       - run: npm run test:unit
+        env:
+          CODEMM_REQUIRE_WASMTIME: "1"
 
   docker:
     runs-on: ubuntu-latest
