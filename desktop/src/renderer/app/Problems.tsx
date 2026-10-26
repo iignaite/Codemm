@@ -15,6 +15,7 @@ const STALL = {
   'docker-disk': 'Docker ran out of disk space. Remove unused images in Docker Desktop, then try again.',
   disk: 'Not enough disk space. Free some space on this computer, then try again.',
   wasi: "Codemm couldn't start the part that runs your code. Reinstall Codemm, then try again.",
+  'wasi-seal': "Codemm couldn't make its files read-only on this drive. Keep Codemm's folder on this computer's own drive, then try again.",
   rebuild: REBUILD,
   lesson: "Codemm couldn't write this lesson.",
 };

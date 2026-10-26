@@ -31,11 +31,20 @@ describe('check this computer (§6.1, D13)', () => {
   });
 
   describe('without Docker, the WASI engine (core §4.5)', () => {
-    it('says practice can run here when Docker is missing or stopped but the bundled wasmtime runs', async () => {
+    it('says practice can run here when no Docker is installed but wasmtime runs', async () => {
       const missing = await computerCheck(probe({ find: () => null, wasi: async () => true }), 'win32')();
       expect(missing).toMatchObject({ ready: false, wasi: true });
       expect(missing.checks.map((c) => c.state)).toEqual(['problem', 'waiting', 'waiting']);
-      expect(await computerCheck(probe({ state: async () => 'down', wasi: async () => true }), 'darwin')()).toMatchObject({ ready: false, wasi: true });
+    });
+
+    it("doesn't when Docker is installed, running or not: then the agent writes Docker tracks, and the fix is to start it", async () => {
+      let asked = false;
+      const wasi = async () => ((asked = true), true);
+      expect(await computerCheck(probe({ state: async () => 'down', wasi }), 'darwin')()).not.toHaveProperty('wasi');
+      // A docker command without Docker Desktop's app, its engine down: installed, though the row offers Install Docker.
+      expect(await computerCheck(probe({ state: async () => 'down', canInstall: true, desktopInstalled: () => false, wasi }), 'darwin')()).not.toHaveProperty('wasi');
+      expect(await computerCheck(probe({ sandbox: async () => FAIL, wasi }), 'darwin')()).not.toHaveProperty('wasi');
+      expect(asked).toBe(false);
     });
 
     it("doesn't ask when Docker is ready: its flows are unchanged", async () => {

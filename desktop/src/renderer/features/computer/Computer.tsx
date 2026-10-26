@@ -97,7 +97,7 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
             ? 'This computer is ready.'
             : installing(data)
               ? ''
-              : `${problem ? `${problem.reason ? REASON.notYet[problem.reason.kind] : problem.detail ? DETAILS[problem.detail].notYet : NOT_YET[problem.id]} ` : ''}Checking again every few seconds.`}
+              : `${problem && !withoutDocker ? `${problem.reason ? REASON.notYet[problem.reason.kind] : problem.detail ? DETAILS[problem.detail].notYet : NOT_YET[problem.id]} ` : ''}Checking again every few seconds.`}
         </p>
         <div className="actions">
           {data.ready ? (

@@ -18,6 +18,7 @@ describe('not counted (§5)', () => {
     expect(notCounted(coreError('x', 'docker', 'docker-cpus'))).toMatch(/^Docker has fewer than the 2 CPUs a check uses\. Give it more/);
     // A WASI track's wasmtime that won't start says nothing of Docker (core §4.5).
     expect(notCounted(coreError('x', 'docker', 'no-wasmtime'))).toBe("Codemm couldn't start the part that runs your code.");
+    expect(notCounted(coreError('x', 'docker', 'wasi-seal'))).toBe("Codemm couldn't make its files read-only on this drive.");
     expect(notCounted(coreError('x', 'image-missing'))).toBe(REBUILD);
     expect(notCounted(Object.assign(new Error('full'), { code: 'ENOSPC' }))).toBe('This computer is out of disk space.');
     expect(notCounted(coreError('x', 'damaged'))).toBeNull();

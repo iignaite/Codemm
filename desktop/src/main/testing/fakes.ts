@@ -59,7 +59,7 @@ export function fakeCore() {
     tracks: [] as string[],
     /** Tracks on the WASI engine (core §4.5): their setup proposes a track.yaml with a wasi block and no Dockerfile. */
     wasi: new Set<string>(),
-    proposals: [] as { track: string; digest: string; created: string; files: Record<string, string> }[],
+    proposals: [] as { track: string; digest: string; created: string; files: Record<string, string>; engine?: 'docker' | 'wasi' }[],
     lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string; examples?: Record<string, string>[]; style?: 'io' | 'unit' }[],
     reads: new Set<string>(),
     exercises: new Map<string, { concept: string; file: string; digest: string; created: string; difficulty?: number }>(),
@@ -258,8 +258,10 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
       // Proposes the track the brief names.
       const track = /Propose exactly the track `([^`]+)`/.exec(job.brief)?.[1] ?? 'react@1';
       const id = `id: ${track.split('@')[0]}`;
-      const files: Record<string, string> = c.wasi.has(track) ? { 'track.yaml': `${id}\nwasi:\n  module: python.wasm` } : { Dockerfile: 'FROM node:22', 'track.yaml': id };
-      c.proposals.push({ track, digest: (track === 'react@1' ? 'a' : 'b').repeat(64), created: new Date().toISOString(), files });
+      const wasi = c.wasi.has(track);
+      // Core names the engine; a WASI proposal here even carries a Dockerfile, so the desktop can't guess from the files.
+      const files = { Dockerfile: 'FROM node:22', 'track.yaml': wasi ? `${id}\nwasi:\n  module: python.wasm` : id };
+      c.proposals.push({ track, digest: (track === 'react@1' ? 'a' : 'b').repeat(64), created: new Date().toISOString(), files, engine: wasi ? 'wasi' : 'docker' });
       return {};
     },
     lesson: (job) => {

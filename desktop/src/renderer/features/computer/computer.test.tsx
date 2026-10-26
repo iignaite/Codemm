@@ -43,15 +43,18 @@ describe('check this computer', () => {
       expect(within(installed).getByRole('button', { name: 'Install Docker' })).toHaveClass('ghost');
       expect(screen.getByRole('button', { name: 'Continue' })).toHaveClass('primary');
       expect(screen.queryByRole('button', { name: 'Later' })).not.toBeInTheDocument();
+      // Nothing says Docker is expected ("not installed yet").
+      expect(screen.getByRole('status')).toHaveTextContent(/^Checking again every few seconds\.$/);
       await user.click(screen.getByRole('button', { name: 'Continue' }));
       expect(await screen.findByRole('heading', { name: 'Learn anything.' })).toBeInTheDocument();
     });
 
-    it('says it too when Docker is installed but stopped', async () => {
+    it('keeps the start-Docker step when Docker is installed but stopped', async () => {
+      // Main never reports wasi then (core §4.5): a computer with Docker gets Docker tracks.
       open({ docker: 'stopped', platform: 'windows', wasi: true });
-      expect(await screen.findByText(LINE)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Continue' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Open Docker Desktop' })).toHaveClass('ghost');
+      expect(await screen.findByRole('button', { name: 'Open Docker Desktop' })).toHaveClass('primary');
+      expect(screen.queryByText(LINE)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Later' })).toBeInTheDocument();
     });
 
     it('stays on the screen from Connect, so the learner reads it once before going on', async () => {
@@ -61,8 +64,8 @@ describe('check this computer', () => {
       expect(screen.getByRole('heading', { name: 'Check this computer' })).toBeInTheDocument();
     });
 
-    it('is the usual Docker screen once Docker is ready', async () => {
-      const options: MockOptions = { docker: 'stopped', platform: 'mac', wasi: true };
+    it('is the usual Docker screen once Docker is installed and ready', async () => {
+      const options: MockOptions = { docker: 'missing', platform: 'mac', wasi: true };
       open(options);
       await screen.findByText(LINE);
       options.docker = 'ready';

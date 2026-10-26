@@ -437,6 +437,14 @@ describe('background work that stopped', () => {
     expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
   });
 
+  it("says when Codemm couldn't make its files read-only on this drive, and where to keep its folder", async () => {
+    const { api } = await mockWithCourse({ stalled: 'wasi-seal' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Codemm couldn't make its files read-only on this drive. Keep Codemm's folder on this computer's own drive, then try again.");
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
+  });
+
   it('says the disk is full, with Try again and no Check your agent', async () => {
     const { api } = await mockWithCourse({ stalled: 'disk' });
     renderApp({ to: 'topic', topicId: TOPIC }, api);

@@ -119,6 +119,34 @@ export function electronGet(request: typeof net.request): Get {
     });
 }
 
+/**
+ * Core's toolchain download (core §4.5) over Electron's network stack, shaped as the `fetch` core takes: a redirect
+ * comes back unfollowed, as a 3xx with its location, for core to check each hop. Electron's own net.fetch can't do
+ * that: with redirect "manual" it fails ("Redirect was cancelled").
+ */
+export function electronFetch(request: typeof net.request) {
+  return (url: string, { signal }: { redirect: 'manual'; signal: AbortSignal }): Promise<Response> =>
+    new Promise((resolve, reject) => {
+      const req = request({ url, redirect: 'manual' });
+      req.setHeader('User-Agent', USER_AGENT);
+      let body: Readable | undefined;
+      req.on('redirect', (status, _method, next) => {
+        resolve(new Response(null, { status, headers: { location: next } }));
+        req.abort();
+      });
+      req.on('response', (res) => {
+        body = res as unknown as Readable;
+        const headers = new Headers();
+        for (const [name, value] of Object.entries(res.headers)) for (const v of [value].flat()) headers.append(name, v);
+        resolve(new Response(Readable.toWeb(body) as ReadableStream, { status: res.statusCode, headers }));
+      });
+      req.on('error', reject);
+      // Electron's abort ends a started body without an error: fail it with the reason, so a short file never reads as whole.
+      signal.addEventListener('abort', () => (reject(signal.reason), body?.destroy(signal.reason), req.abort()), { once: true });
+      req.end();
+    });
+}
+
 /** Node's own fetch, which ignores the system's proxy and certificate store: only the opt-in real tests use it. */
 export const fetchGet: Get = async (start, allowed, signal) => {
   let url = start;

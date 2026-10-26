@@ -79,15 +79,15 @@ export interface Live extends CodemmApi {
 /** Setup proposals per setup before the learner gets Stop or Try again (§3.2). */
 const PROPOSAL_BOUND = 5;
 const problemError = (problem: JobProblem) =>
-  new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, rebuild: AGENT_FAILED, docker: AGENT_FAILED, 'docker-busy': AGENT_FAILED, 'docker-failed': AGENT_FAILED, 'docker-disk': AGENT_FAILED, disk: AGENT_FAILED, wasi: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
+  new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, rebuild: AGENT_FAILED, docker: AGENT_FAILED, 'docker-busy': AGENT_FAILED, 'docker-failed': AGENT_FAILED, 'docker-disk': AGENT_FAILED, disk: AGENT_FAILED, wasi: AGENT_FAILED, 'wasi-seal': AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
 type Stall = NonNullable<CourseView['stalled']>;
 /** Stalls Docker caused, which end once Check this computer passes (§4.13). */
 const DOCKER_STALLS: Stall[] = ['docker', 'docker-busy', 'docker-failed'];
 /**
  * Stalls that end once a step running the course's code works: Docker's, its disk's, this computer's disk, the
- * track's image, and a WASI track's wasmtime.
+ * track's image, and a WASI track's wasmtime or read-only files.
  */
-const CONTAINER_STALLS: Stall[] = [...DOCKER_STALLS, 'docker-disk', 'disk', 'rebuild', 'wasi'];
+const CONTAINER_STALLS: Stall[] = [...DOCKER_STALLS, 'docker-disk', 'disk', 'rebuild', 'wasi', 'wasi-seal'];
 /** Why background work stalled: Docker and the disk say so; another infrastructure failure is a plain one the learner retries. */
 const stallOf = (problem: JobProblem = 'failed'): Stall => (problem === 'infra' ? 'failed' : problem);
 /** core store.ts's damaged-record errors: the learner repairs them; a retry can't (§5). */
@@ -203,17 +203,13 @@ export function createLive(d: LiveDeps): Live {
     }
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
-  /**
-   * Whether a track runs on the WASI engine (core §4.5): an installed track says so; a track being set up, by its
-   * proposal, which has a Dockerfile only for Docker (core's gate 1 allows one or the other).
-   */
+  /** Whether a track runs on the WASI engine (core §4.5), as core names it: the installed track, else its proposal. */
   const onWasi = (ref: string | undefined): boolean => {
     if (!ref) return false;
     try {
       const track = core.listTracks().find((t) => t.track === ref);
       if (track) return track.engine === 'wasi';
-      const proposal = core.listProposals().find((p) => p.track === ref);
-      return proposal !== undefined && !Object.hasOwn(proposal.files, 'Dockerfile');
+      return core.listProposals().find((p) => p.track === ref)?.engine === 'wasi';
     } catch {
       return false;
     }

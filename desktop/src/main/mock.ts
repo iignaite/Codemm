@@ -46,7 +46,7 @@ export interface MockOptions {
   imageMissing?: boolean;
   /** Read on every call: agent jobs fail with this until it's cleared. */
   agentProblem?: 'signed-out' | 'plan-limit' | 'offline' | 'failed';
-  /** wasmtime runs here, so io practice runs without Docker (core §4.5). */
+  /** wasmtime runs here, so io practice runs without Docker when Docker isn't installed (core §4.5). */
   wasi?: boolean;
   /** Docker installs but doesn't start: its start window ends with Docker stopped. */
   dockerWontStart?: boolean;
@@ -658,7 +658,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       }));
       const canInstall = platform !== 'linux';
       const ready = checks.every((c) => c.state === 'ok');
-      return { platform, checks, ready, ...(canInstall ? { canInstall } : {}), ...(reported ? { install: reported } : {}), ...(!ready && options.wasi ? { wasi: true as const } : {}) };
+      return { platform, checks, ready, ...(canInstall ? { canInstall } : {}), ...(reported ? { install: reported } : {}), ...(d === 'missing' && options.wasi ? { wasi: true as const } : {}) };
     },
 
     async tracks() {

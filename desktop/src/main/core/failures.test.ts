@@ -7,7 +7,8 @@ const told: Record<InfraCode, string> = {
   'no-runtime': 'docker',
   // A WASI track without a wasmtime that runs (core §4.5): nothing about Docker, which the learner may not have.
   'no-wasmtime': 'wasi',
-  'wasi-seal': 'docker-failed',
+  // Codemm couldn't make its files read-only on this disk (FAT, exFAT, or icacls failing): its own words.
+  'wasi-seal': 'wasi-seal',
   'runtime-down': 'docker',
   'runtime-paused': 'docker',
   'socket-permission': 'docker',

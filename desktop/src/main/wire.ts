@@ -16,7 +16,7 @@ import { connector } from './connect';
 import { dockerDesktop, nativeArch, nodeDesktopDeps } from './dockerDesktop';
 import { restartWindows } from './windows';
 import { wsl } from './wsl';
-import { electronGet } from './download';
+import { electronFetch, electronGet } from './download';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
 import type { Log } from './log';
@@ -41,6 +41,9 @@ export function liveApi({ coreDir, wasmtimeDir, userData, log }: Places): Live {
   if (wasmtime) process.env.CODEMM_WASMTIME = wasmtime;
   // The bundled core (scripts/bundle-core.mjs), loaded in-process.
   const core = require(join(coreDir, 'dist', 'app.cjs')) as CoreApp;
+  // A WASI track's toolchain downloads through Chromium's network stack too: school networks need the system's proxy
+  // and certificates (core §4.5).
+  core.setToolchainFetch?.(electronFetch(net.request));
   const state = desktopState(userData);
   const ws = workspaceOf(state.read(), homedir());
   mkdirSync(ws, { recursive: true });
@@ -91,10 +94,12 @@ export function liveApi({ coreDir, wasmtimeDir, userData, log }: Places): Live {
       return state === 'busy' ? 'down' : state;
     },
     sandbox: () => core.networkIsolation(),
-    // The wasmtime core's WASI engine runs (core wasi.ts wasmtimePath): the bundled one, else one on PATH.
+    // No container CLI, as core's containerCli() looks (docker or podman), and the wasmtime core's WASI engine runs
+    // (core wasi.ts): the bundled one, else one on PATH, at the major version core needs.
     wasi: async () => {
+      if (find('podman')) return false;
       const bin = process.env.CODEMM_WASMTIME ? { path: process.env.CODEMM_WASMTIME, js: false } : find('wasmtime');
-      return Boolean(bin && (await ask(bin, ['--version'], ({ code }) => code === 0)));
+      return Boolean(bin && (await ask(bin, ['--version'], ({ code, output }) => code === 0 && /^wasmtime 50\./.test(output))));
     },
     now: () => Date.now(),
   }, process.platform, log);
