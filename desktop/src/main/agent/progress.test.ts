@@ -125,6 +125,15 @@ describe('job progress (§4.11)', () => {
     expect(t.snapshot()).toMatchObject({ stage: 1, thinking: false });
   });
 
+  it("says what Codemm itself does at a stage until it moves on: a WASI track's language downloading (core §4.5)", () => {
+    const t = jobTracker('setup', { id: 'job-1' });
+    t.event({ type: 'progress', step: { kind: 'step', label: 'Proposing the setup' } });
+    t.reach(1, undefined, 'Downloading the language');
+    expect(t.snapshot()).toMatchObject({ stage: 1, steps: [{ kind: 'step', label: 'Downloading the language' }, { kind: 'step', label: 'Proposing the setup' }], count: 1 });
+    t.reach(2);
+    expect(t.snapshot()).toMatchObject({ stage: 2, steps: [{ kind: 'step', label: 'Proposing the setup' }] });
+  });
+
   it("carries a real fraction for Codemm's own work: a build's steps", () => {
     const t = jobTracker('setup', { id: 'job-1' });
     t.reach(1, { done: 3, total: 7 });

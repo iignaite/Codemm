@@ -27,6 +27,8 @@ export interface Probe {
   install?(): DockerInstall | undefined;
   /** On Windows, what WSL needs for Docker Desktop's engine, when that can be read (wsl.ts). */
   wsl?(): Promise<WslState | undefined>;
+  /** Whether wasmtime runs here, so io practice can run without Docker (core §4.5). */
+  wasi?(): Promise<boolean>;
 }
 
 /** What WSL needs, as the running row says it: nothing when it's ready. */
@@ -50,6 +52,8 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
   /** When this check first saw Docker Desktop's app running with its engine down. */
   let openAt: number | undefined;
   let lastReason: string | undefined;
+  /** Set once wasmtime ran: it stays while Codemm runs. */
+  let wasi = false;
   const recent = (at: number | undefined) => at !== undefined && probe.now() - at <= STARTING_MS;
 
   async function failing(): Promise<{ at: number; detail?: ComputerCheck['detail']; reason?: ComputerCheck['reason'] } | null> {
@@ -95,7 +99,12 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
       return { id, state: 'problem', ...(problem.detail ? { detail: problem.detail } : {}), ...(problem.reason ? { reason: problem.reason } : {}) };
     });
     const install = probe.install?.();
-    return { platform: platformOf(platform), checks, ready: !problem, ...(probe.canInstall ? { canInstall: true } : {}), ...(install ? { install } : {}) };
+    // Asked only while Docker can't run practice: with Docker ready, nothing changes.
+    if (problem && !wasi) wasi = (await probe.wasi?.()) ?? false;
+    return {
+      platform: platformOf(platform), checks, ready: !problem, ...(probe.canInstall ? { canInstall: true } : {}), ...(install ? { install } : {}),
+      ...(problem && wasi ? { wasi: true as const } : {}),
+    };
   };
 }
 

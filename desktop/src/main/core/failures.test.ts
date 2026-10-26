@@ -5,7 +5,8 @@ import { infra, infraOf, needsRebuild } from './failures';
 
 const told: Record<InfraCode, string> = {
   'no-runtime': 'docker',
-  'no-wasmtime': 'docker-failed',
+  // A WASI track without a wasmtime that runs (core §4.5): nothing about Docker, which the learner may not have.
+  'no-wasmtime': 'wasi',
   'wasi-seal': 'docker-failed',
   'runtime-down': 'docker',
   'runtime-paused': 'docker',

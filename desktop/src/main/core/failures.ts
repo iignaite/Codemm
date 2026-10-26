@@ -3,14 +3,14 @@
 
 /**
  * What the learner is told: Docker isn't there or isn't running, is busy and not answering, or answers but failed;
- * Docker's disk is full, or this computer's; or the network failed.
+ * Docker's disk is full, or this computer's; the network failed; or a WASI track's wasmtime didn't start (core §4.5).
  */
-export type Infra = 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'disk' | 'offline';
+export type Infra = 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'disk' | 'offline' | 'wasi';
 
 /** core src/errors.ts INFRA: each of core's codes, and what the learner is told about it. */
 const CODES = {
   'no-runtime': 'docker',
-  'no-wasmtime': 'docker-failed',
+  'no-wasmtime': 'wasi',
   'wasi-seal': 'docker-failed',
   'runtime-down': 'docker',
   'runtime-paused': 'docker',

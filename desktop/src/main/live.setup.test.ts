@@ -142,6 +142,29 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     await Promise.all([rebuilding, stopping]);
   });
 
+  it("shows a WASI track's language downloading before its checks (core §4.5)", async () => {
+    const t = live();
+    t.c.wasi.add('react@1');
+    const r = await researched(t);
+    await t.api.approve(r.roadmap!.concepts);
+    const { proposal } = await until(t.api, (c) => c.setup === 'consent');
+    const heard: JobProgress[] = [];
+    t.api.onJobProgress((p) => heard.push(p));
+    t.app.installProposal = async (ref, digest, onProgress) => {
+      onProgress?.({ phase: 'downloading' });
+      onProgress?.({ phase: 'checking' });
+      return t.c.install(ref, digest);
+    };
+    await t.api.install(proposal!.digest);
+    await until(t.api, (c) => c.setup === 'ready');
+    const install = heard.filter((p) => p.kind === 'setup' && p.thinking === false && !p.ended);
+    expect(install.map((p) => [p.stage, p.steps[0]?.kind === 'step' ? p.steps[0].label : undefined, p.part])).toEqual([
+      [1, undefined, undefined],
+      [1, 'Downloading the language', undefined],
+      [2, undefined, undefined],
+    ]);
+  });
+
   it("shows a track rebuild as a job of its own, named for the track, that ends with it, failed or not (§4.11)", async () => {
     const t = live();
     await practising(t);

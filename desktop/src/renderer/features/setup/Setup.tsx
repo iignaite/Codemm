@@ -19,9 +19,12 @@ const TERMS: Partial<Record<AgentId, { vendor: string; url: string }>> = {
   cursor: { vendor: 'Cursor', url: 'https://cursor.com/terms-of-service' },
 };
 
-/** What Codemm can install here: Docker when it isn't installed, and an agent when none is. */
+/**
+ * What Codemm can install here: Docker when it isn't installed and practice can't run without it (core §4.5), and an
+ * agent when none is.
+ */
 export function missing(computer: Computer, agents: Agent[]) {
-  const docker = Boolean(computer.canInstall && computer.checks.find((c) => c.id === 'docker-installed')?.state === 'problem');
+  const docker = Boolean(computer.canInstall && !computer.wasi && computer.checks.find((c) => c.id === 'docker-installed')?.state === 'problem');
   const agent = agents.every((a) => a.state === 'missing') && agents.some((a) => a.canInstall);
   return { docker, agent };
 }

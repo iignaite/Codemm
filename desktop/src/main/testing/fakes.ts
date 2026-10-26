@@ -57,6 +57,8 @@ export function fakeCore() {
       this.active = r?.course;
     },
     tracks: [] as string[],
+    /** Tracks on the WASI engine (core §4.5): their setup proposes a track.yaml with a wasi block and no Dockerfile. */
+    wasi: new Set<string>(),
     proposals: [] as { track: string; digest: string; created: string; files: Record<string, string> }[],
     lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string; examples?: Record<string, string>[]; style?: 'io' | 'unit' }[],
     reads: new Set<string>(),
@@ -120,7 +122,7 @@ export function fakeCore() {
     runtimeState: async () => 'ready',
     readWorkspace: () => ({ course: c.roadmap?.course, current: c.current }),
     hiddenMaterial: () => [CANARY, 'printf("CANARY-MUTANT-LINE %d", count + 2);', 'CANARY-HIDDEN-INPUT-LINE with enough length', 'CANARY-EXPECTED-OUTPUT-LINE 42'],
-    listTracks: () => c.tracks.map((track) => ({ track, styles: ['io'], files: ['main.c'] })),
+    listTracks: () => c.tracks.map((track) => ({ track, styles: ['io'], files: ['main.c'], engine: c.wasi.has(track) ? 'wasi' : 'docker' })),
     cleanupLeftovers: async () => void c.cleanups++,
     rebuildTrack: async () => ({}),
     saveRoadmap: async (_ws, course, yaml) => {
@@ -255,7 +257,9 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
     setup: (job) => {
       // Proposes the track the brief names.
       const track = /Propose exactly the track `([^`]+)`/.exec(job.brief)?.[1] ?? 'react@1';
-      c.proposals.push({ track, digest: (track === 'react@1' ? 'a' : 'b').repeat(64), created: new Date().toISOString(), files: { Dockerfile: 'FROM node:22', 'track.yaml': `id: ${track.split('@')[0]}` } });
+      const id = `id: ${track.split('@')[0]}`;
+      const files: Record<string, string> = c.wasi.has(track) ? { 'track.yaml': `${id}\nwasi:\n  module: python.wasm` } : { Dockerfile: 'FROM node:22', 'track.yaml': id };
+      c.proposals.push({ track, digest: (track === 'react@1' ? 'a' : 'b').repeat(64), created: new Date().toISOString(), files });
       return {};
     },
     lesson: (job) => {

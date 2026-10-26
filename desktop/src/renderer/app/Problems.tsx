@@ -14,6 +14,7 @@ const STALL = {
   'docker-failed': "Docker couldn't run that. Try again, and restart Docker if it happens again.",
   'docker-disk': 'Docker ran out of disk space. Remove unused images in Docker Desktop, then try again.',
   disk: 'Not enough disk space. Free some space on this computer, then try again.',
+  wasi: "Codemm couldn't start the part that runs your code. Reinstall Codemm, then try again.",
   rebuild: REBUILD,
   lesson: "Codemm couldn't write this lesson.",
 };

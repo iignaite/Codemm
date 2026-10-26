@@ -79,12 +79,15 @@ export interface Live extends CodemmApi {
 /** Setup proposals per setup before the learner gets Stop or Try again (§3.2). */
 const PROPOSAL_BOUND = 5;
 const problemError = (problem: JobProblem) =>
-  new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, rebuild: AGENT_FAILED, docker: AGENT_FAILED, 'docker-busy': AGENT_FAILED, 'docker-failed': AGENT_FAILED, 'docker-disk': AGENT_FAILED, disk: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
+  new Error({ 'plan-limit': PLAN_LIMIT, 'signed-out': SIGNED_OUT, offline: OFFLINE, failed: AGENT_FAILED, infra: AGENT_FAILED, rebuild: AGENT_FAILED, docker: AGENT_FAILED, 'docker-busy': AGENT_FAILED, 'docker-failed': AGENT_FAILED, 'docker-disk': AGENT_FAILED, disk: AGENT_FAILED, wasi: AGENT_FAILED, unstoppable: UNSTOPPABLE }[problem]);
 type Stall = NonNullable<CourseView['stalled']>;
 /** Stalls Docker caused, which end once Check this computer passes (§4.13). */
 const DOCKER_STALLS: Stall[] = ['docker', 'docker-busy', 'docker-failed'];
-/** Stalls that end once a Docker step of the course works: Docker's, its disk's, this computer's disk and the track's image. */
-const CONTAINER_STALLS: Stall[] = [...DOCKER_STALLS, 'docker-disk', 'disk', 'rebuild'];
+/**
+ * Stalls that end once a step running the course's code works: Docker's, its disk's, this computer's disk, the
+ * track's image, and a WASI track's wasmtime.
+ */
+const CONTAINER_STALLS: Stall[] = [...DOCKER_STALLS, 'docker-disk', 'disk', 'rebuild', 'wasi'];
 /** Why background work stalled: Docker and the disk say so; another infrastructure failure is a plain one the learner retries. */
 const stallOf = (problem: JobProblem = 'failed'): Stall => (problem === 'infra' ? 'failed' : problem);
 /** core store.ts's damaged-record errors: the learner repairs them; a retry can't (§5). */
@@ -165,12 +168,12 @@ export function createLive(d: LiveDeps): Live {
     return run.finally(() => runs.delete(run));
   };
   /**
-   * Runs a container operation once Docker isn't starting, tracked for quitting from the start:
-   * quitting waits for it, and an operation still waiting when quitting starts never runs.
+   * Runs a track's operation once Docker isn't starting, tracked for quitting from the start: quitting waits for
+   * it, and an operation still waiting when quitting starts never runs. A WASI track's never waits for Docker.
    */
-  const whenDockerReady = <T>(operation: () => Promise<T>): Promise<T> =>
+  const whenReady = <T>(track: string | undefined, operation: () => Promise<T>): Promise<T> =>
     tracked(
-      dockerReady().then(() => {
+      (onWasi(track) ? Promise.resolve() : dockerReady()).then(() => {
         if (stopping) throw new SafeError('Codemm is quitting.');
         return operation();
       }),
@@ -200,8 +203,23 @@ export function createLive(d: LiveDeps): Live {
     }
   };
   const installed = (ref: string) => core.listTracks().some((t) => t.track === ref);
-  /** A course's track; none for a course whose roadmap can't be read. */
-  const trackOf = (course: string) => {
+  /**
+   * Whether a track runs on the WASI engine (core §4.5): an installed track says so; a track being set up, by its
+   * proposal, which has a Dockerfile only for Docker (core's gate 1 allows one or the other).
+   */
+  const onWasi = (ref: string | undefined): boolean => {
+    if (!ref) return false;
+    try {
+      const track = core.listTracks().find((t) => t.track === ref);
+      if (track) return track.engine === 'wasi';
+      const proposal = core.listProposals().find((p) => p.track === ref);
+      return proposal !== undefined && !Object.hasOwn(proposal.files, 'Dockerfile');
+    } catch {
+      return false;
+    }
+  };
+  /** A course's track (the active one's by default, as core's calls); none for a course whose roadmap can't be read. */
+  const trackOf = (course?: string) => {
     try {
       return roadmapOrNull(course)?.track;
     } catch {
@@ -571,8 +589,8 @@ export function createLive(d: LiveDeps): Live {
     }
   }
 
-  // Run's programs, by run id (§4.10): programs.ts.
-  const programRuns = programs({ whenDockerReady, log });
+  // Run's programs, by run id (§4.10): programs.ts. They run on the approved course's track, so wait for Docker only on a Docker track.
+  const programRuns = programs({ whenDockerReady: (operation) => whenReady(trackOf(approved()), operation), log });
 
   /** Research jobs that ended but whose sources aren't saved yet. */
   const finishing = new Set<string>();
@@ -780,10 +798,11 @@ export function createLive(d: LiveDeps): Live {
         trackers.set(`install:${ref}`, { tracker: t, audience: { track: ref } });
         t.reach(1);
         tellJob(t.snapshot(), { track: ref });
-        return whenDockerReady(() =>
+        return whenReady(ref, () =>
           core.installProposal(ref, digest, (p) => {
-            // Counts only: the build's steps, then its checks.
+            // Counts only: the build's steps or a WASI track's language downloading, then its checks.
             if (p.phase === 'building') t.reach(1, { done: p.done, total: p.total });
+            else if (p.phase === 'downloading') t.reach(1, undefined, 'Downloading the language');
             else t.reach(2);
             tellJob(t.snapshot(), { track: ref });
           }),
@@ -835,7 +854,8 @@ export function createLive(d: LiveDeps): Live {
 
     async runExample(lessonId, index) {
       try {
-        return exampleRunView(await whenDockerReady(() => core.runExample(ws, lessonId, index, approved())));
+        const course = approved();
+        return exampleRunView(await whenReady(trackOf(course), () => core.runExample(ws, lessonId, index, course)));
       } catch (e) {
         return asNotCounted(e, log, 'example', 'not-run');
       }
@@ -868,7 +888,7 @@ export function createLive(d: LiveDeps): Live {
     async tryIt(activityId, run) {
       try {
         const course = approved();
-        const view = tryView(await whenDockerReady(() => core.testExercise(ws, activityId, course, progressOf(run))));
+        const view = tryView(await whenReady(trackOf(course), () => core.testExercise(ws, activityId, course, progressOf(run))));
         dockerWorked(course);
         return view;
       } catch (e) {
@@ -885,7 +905,7 @@ export function createLive(d: LiveDeps): Live {
     async check(activityId, run) {
       try {
         const course = approved();
-        const view = await whenDockerReady(() => core.checkExercise(ws, activityId, course, progressOf(run)));
+        const view = await whenReady(trackOf(course), () => core.checkExercise(ws, activityId, course, progressOf(run)));
         const concepts = core.listExercises(ws, course).find((e) => e.exercise === activityId)?.concepts ?? [];
         const progress = core.progress(ws, course);
         const state = progress.concepts.find((c) => concepts.includes(c.id));
@@ -944,7 +964,7 @@ export function createLive(d: LiveDeps): Live {
           t.reach(0);
           trackers.set(`rebuild:${ref}`, { tracker: t, audience: {} });
           tellJob(t.snapshot(), {});
-          return whenDockerReady(() => core.rebuildTrack(ref));
+          return whenReady(ref, () => core.rebuildTrack(ref));
         }),
       )
         .catch((e: unknown) => Promise.reject(rebuildFailure(e)))

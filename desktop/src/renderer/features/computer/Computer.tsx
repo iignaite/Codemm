@@ -7,7 +7,7 @@ import { timing, useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
-import { CHECK_NAMES, DETAILS, FIXES, INSTALL, NOT_YET, REASON, WSL_STEP } from './fixes';
+import { CHECK_NAMES, DETAILS, FIXES, INSTALL, NOT_YET, REASON, WITHOUT_DOCKER, WSL_STEP } from './fixes';
 import { DockerProgress } from './DockerProgress';
 import { ExternalLink } from '../../ui/ExternalLink';
 
@@ -76,11 +76,13 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
   if (error) return <Failed error={error} retry={reload} />;
   if (!data || (data.ready && !hadStep.current)) return null;
   const problem = data.checks.find((c) => c.state === 'problem');
+  // Docker isn't ready, but practice runs without it: the learner can go on, and installing Docker stays an option.
+  const withoutDocker = !data.ready && data.wasi;
   return (
     <main className="center">
       <div className="stack" style={{ width: 620, gap: 22 }}>
         <h1 className="h1 a-up">Check this computer</h1>
-        <p className="sub a-up" style={stagger(1)}>Codemm runs your code in Docker, on this computer.</p>
+        <p className="sub a-up" style={stagger(1)}>{withoutDocker ? WITHOUT_DOCKER : 'Codemm runs your code in Docker, on this computer.'}</p>
         <ul className="stack plain" ref={list} onFocus={() => (focusInList.current = true)}>
           {data.checks.map((c, i) => (
             <CheckItem
@@ -100,6 +102,11 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
         <div className="actions">
           {data.ready ? (
             <Button ref={action} size="lg" onClick={() => go(then)}>Continue</Button>
+          ) : withoutDocker ? (
+            <>
+              <Button ref={action} size="lg" onClick={() => go(then)}>Continue</Button>
+              <Button variant="ghost" size="lg" onClick={recheck}>Check now</Button>
+            </>
           ) : (
             <>
               <Button ref={action} variant="ghost" size="lg" onClick={recheck}>Check now</Button>

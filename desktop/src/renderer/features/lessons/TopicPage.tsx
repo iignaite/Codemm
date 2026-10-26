@@ -122,6 +122,7 @@ function SetupFailed({ course, topicId, onRetry }: { course: CourseView; topicId
     'docker-busy': { title: 'Docker is busy or not answering.', text: 'Wait a moment, then try again.' },
     'docker-failed': { title: "Docker couldn't run that.", text: 'Try again, and restart Docker if it happens again.' },
     'docker-disk': { title: 'Docker ran out of disk space.', text: 'Remove unused images in Docker Desktop, then try again.' },
+    wasi: { title: "Codemm couldn't start the part that runs your code.", text: 'Reinstall Codemm, then try again.' },
     gates: { title: `Couldn't set up ${course.track}.`, text: 'Try again, or stop and pick something else.' },
   }[problem];
 
@@ -140,7 +141,7 @@ function SetupFailed({ course, topicId, onRetry }: { course: CourseView; topicId
 
   return (
     <Panel art={<Emm mood="think" width={150} name={course.track} perch />} title={say.title} level={2} text={say.text}>
-      {(problem === 'gates' || problem.startsWith('docker')) && <Button variant="ghost" size="lg" onClick={() => go({ to: 'goal' })}>Stop</Button>}
+      {(problem === 'gates' || problem === 'wasi' || problem.startsWith('docker')) && <Button variant="ghost" size="lg" onClick={() => go({ to: 'goal' })}>Stop</Button>}
       {(problem === 'docker' || problem === 'docker-failed') && <Button variant="ghost" size="lg" onClick={() => go({ to: 'computer', then: { to: 'topic', topicId } })}>Check this computer</Button>}
       <Button size="lg" disabled={retrying.busy} onClick={retry}>Try again</Button>
     </Panel>

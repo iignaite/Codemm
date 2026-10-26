@@ -95,8 +95,8 @@ export interface CoreApp {
   readWorkspace(ws: string): { course?: string; current?: string };
   /** An exercise's solution, mutants, hidden tests and hidden expected outputs, for the reply filter only. */
   hiddenMaterial(course: string, slug: string): string[];
-  /** `track` is `id@version`. */
-  listTracks(): { track: string; styles: string[]; files: string[] }[];
+  /** `track` is `id@version`; `engine` is what runs its code: Docker, or wasmtime for a WASI track (core §4.5). */
+  listTracks(): { track: string; styles: string[]; files: string[]; engine?: 'docker' | 'wasi' }[];
   rebuildTrack(ref: string): Promise<unknown>;
   saveRoadmap(ws: string, course: string, yaml: string, bound?: string): Promise<{ course: string }>;
   progress(ws: string, bound?: string): CoreProgress;
@@ -109,8 +109,11 @@ export interface CoreApp {
   assertRuntime(): Promise<void>;
   getRoadmap(ws: string, bound?: string): CoreRoadmap;
   listProposals(): { track: string; digest: string; created: string; files: Record<string, string> }[];
-  /** `onProgress` hears each build step as counts, then the probes: never the build's output (core §4.4). */
-  installProposal(ref: string, digest: string, onProgress?: (p: { phase: 'building'; done: number; total: number } | { phase: 'checking' }) => void): Promise<unknown>;
+  /**
+   * `onProgress` hears each build step as counts, or a WASI track's toolchain downloading, then the probes: never the
+   * build's output (core §4.4, §4.5).
+   */
+  installProposal(ref: string, digest: string, onProgress?: (p: { phase: 'building'; done: number; total: number } | { phase: 'downloading' } | { phase: 'checking' }) => void): Promise<unknown>;
   dropProposal(ref: string): Promise<void>;
   getLesson(ws: string, id: string, bound?: string): CoreLesson;
   /**
