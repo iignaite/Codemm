@@ -5,9 +5,10 @@ import { StringDecoder } from "node:string_decoder";
 import { CodemmError, infraError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
 import { learnerPaths } from "./grading.js";
-import { BUILD_SECONDS, type JudgeTrack, seconds } from "./judge.js";
+import { BUILD_SECONDS, type JudgeTrack, seconds, type WasiToolchain } from "./judge.js";
 import { stageRunFolder } from "./runs.js";
-import { lostRun, runtimeDown, startRefusal, startSandboxed } from "./sandbox.js";
+import { lostRun, OUTPUT_CAP, runtimeDown, startRefusal, startSandboxed } from "./sandbox.js";
+import { type StartedWasi, startWasi } from "./wasi.js";
 
 /** How long Run lets a program wait for typing and run: a person types, so longer than a test case gets. */
 export const RUN_LIMIT_MS = 120_000;
@@ -56,6 +57,7 @@ export type ProgramOptions = { limitMs?: number; buildLimitMs?: number; onStart?
 export function runProgram(track: JudgeTrack, src: FileMap, output: (text: string, stream: "stdout" | "stderr") => void, limits: ProgramOptions = {}): ProgramRun {
   if (!track.run) throw new CodemmError("This track has no run command, so Run isn't available.");
   const limitMs = limits.limitMs ?? RUN_LIMIT_MS;
+  if (track.wasi) return runWasiProgram(track, track.wasi, src, output, limitMs, limits.onStart);
   const buildLimitMs = limits.buildLimitMs ?? BUILD_SECONDS * 1000;
   const folder = stageRunFolder();
   const dir = folder.dir;
@@ -134,6 +136,53 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
       const down = await runtimeDown();
       if (down) throw lostRun(down);
       throw infraError("The container runtime failed during the run. Try again, and restart Docker if it happens again.", "runtime-failed");
+    })
+    .finally(folder.remove);
+  return {
+    write: started.write,
+    end: started.end,
+    kill: () => {
+      stopped = true;
+      started.kill();
+    },
+    done,
+  };
+}
+
+/**
+ * Run on the WASI engine (DESIGN §4.5): the run command alone (a WASI track has no build), with typed stdin and the
+ * same flags as a check. Here Codemm's own kill is the time limit and the engine's timer backs it up a second later,
+ * so a stop at the limit never puts wasmtime's report of it on the learner's screen.
+ */
+function runWasiProgram(
+  track: JudgeTrack, wasi: WasiToolchain, src: FileMap, output: (text: string, stream: "stdout" | "stderr") => void, limitMs: number,
+  onStart: ProgramOptions["onStart"],
+): ProgramRun {
+  const folder = stageRunFolder();
+  const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
+  const say = (stream: "stdout" | "stderr", text: string) => text && output(text, stream);
+  const errors = learnerPathStream((text) => say("stderr", text));
+  let stopped = false;
+  let started: StartedWasi;
+  try {
+    const dir = join(folder.dir, "src");
+    writeFileMap(dir, src);
+    started = startWasi(
+      { toolchain: wasi, src: dir, run: track.run!, memoryMb: track.limits.memory_mb, timeMs: limitMs + 1000, killMs: limitMs, outputCap: OUTPUT_CAP },
+      { stdout: (b) => say("stdout", decoders.stdout.write(b)), stderr: (b) => errors.write(decoders.stderr.write(b)) },
+    );
+  } catch (e) {
+    folder.remove();
+    throw e;
+  }
+  onStart?.("run", limitMs);
+  const done = started.done
+    .then((r): ProgramResult => {
+      say("stdout", decoders.stdout.end());
+      errors.write(decoders.stderr.end());
+      errors.end();
+      if (stopped || r.flooded) return { exit: r.exit, timedOut: false, flooded: r.flooded, ...(stopped ? { stopped } : {}) };
+      return { exit: r.exit, stage: "run", timedOut: r.timedOut, flooded: false };
     })
     .finally(folder.remove);
   return {
