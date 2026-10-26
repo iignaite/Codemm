@@ -49,7 +49,10 @@ const timeEnv = (ms: number) => ({ CODEMM_TIME_S: seconds(ms), CODEMM_BACKSTOP_S
 // exit 137 on one, as a memory kill does. At the limit a watchdog writes /tmp/t, then \`kill -9 -1\` stops everything
 // but the driver (PID 1). \`timeout\` only backs it up, a second later. The watchdog starts before the program, so the
 // program's own forks can't stop it; \`kill -9 -1\` after each case stops it if the case ends first.
+// A 137 without that mark may be a memory kill, which the runtime records from the container's cgroup a moment later
+// and loses if the container has already exited. So the driver sets k and, on exit, waits a second first.
 const EMIT = `OOM='{ echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || :; '
+k=; trap '[ -z "$k" ] || sleep 1' EXIT
 emit() { size=$(($(wc -c < "$4"))); printf '\\n@@codemm %s %s %s %s\\n' "$1" "$2" "$3" "$size"; cat "$4"; }
 watch() { : > /tmp/t; ( sleep "$CODEMM_TIME_S" 2>/dev/null && { echo t > /tmp/t; kill -9 -1 2>/dev/null; } ) & }
 for u in ${DRIVER_TOOLS.join(" ")}; do command -v "$u" >/dev/null 2>&1 || { echo "the image has no '$u'" > /tmp/m; emit fatal tools 1 /tmp/m; exit 0; }; done`;
@@ -77,6 +80,7 @@ for f in /work/tests/*; do
   if [ $(($(wc -c < /tmp/o))) -gt ${CASE_OUTPUT_BYTES} ]; then : > /tmp/oc; emit big "$n" "$c" /tmp/oc; s=big; else emit case "$n" "$c" /tmp/o; s=$c; fi
   emit stderr "$n" "$c" /tmp/ec
   [ -s /tmp/t ] && emit timeout "$n" "$c" /dev/null
+  [ "$c" = 137 ] && [ ! -s /tmp/t ] && k=1
   rm -f /tmp/in
   [ -n "\${CODEMM_STOP:-}" ] && [ "$s" != 0 ] && exit 0
 done
@@ -89,6 +93,7 @@ kill -9 -1 2>/dev/null
 if [ -f /tmp/report.json ] && [ $(($(wc -c < /tmp/report.json))) -le 1048576 ]; then emit report report "$c" /tmp/report.json; else : > /tmp/r; emit report report "$c" /tmp/r; fi
 head -c 4096 /tmp/o > /tmp/oc; emit log log "$c" /tmp/oc
 [ -s /tmp/t ] && emit timeout report "$c" /dev/null
+[ "$c" = 137 ] && [ ! -s /tmp/t ] && k=1
 exit 0`;
 
 /**
