@@ -46,7 +46,6 @@ async function install(wasi: Pick<WasiSpec, "url" | "sha256" | "module" | "dirs"
     if (wasi.url.endsWith(".wasm")) renameSync(file, join(staging, wasi.module));
     else await unpack(file, staging, options.maxUnpacked ?? MAX_UNPACKED_BYTES);
     assertLayout(staging, wasi);
-    makeReadOnly(staging);
     try {
       renameSync(staging, dir);
     } catch (e) {
@@ -54,8 +53,14 @@ async function install(wasi: Pick<WasiSpec, "url" | "sha256" | "module" | "dirs"
       if (!existsSync(dir)) throw e;
       return;
     }
-    // A folder must stay writable to be renamed (macOS), so the top one is made read-only once in place.
-    chmodSync(dir, 0o555);
+    // A read-only folder can't be renamed (macOS), so it is sealed once in place. A folder that can't be sealed is
+    // never used: a program could change it for every later check.
+    try {
+      seal(dir);
+    } catch (e) {
+      removeTree(dir);
+      throw infraError(`The toolchain couldn't be made read-only, so nothing was installed: ${(e as Error).message}`, "host-disk");
+    }
   } finally {
     rmSync(file, { force: true });
     if (existsSync(staging)) removeTree(staging);
@@ -230,11 +235,11 @@ function assertLayout(root: string, wasi: Pick<WasiSpec, "module" | "dirs">): vo
   }
 }
 
-/** Files 0444 and folders 0555, deepest first, so nothing in a stored toolchain can be changed. The top folder is the caller's. */
-function makeReadOnly(root: string): void {
+/** Files 0444 and folders 0555, deepest first, so nothing in a stored toolchain can be changed. */
+function seal(root: string): void {
   const dirs: string[] = [];
   walk(root, (path, _rel, stat) => (stat.isDirectory() ? dirs.push(path) : chmodSync(path, 0o444)));
-  for (const d of dirs.reverse()) chmodSync(d, 0o555);
+  for (const d of [...dirs.reverse(), root]) chmodSync(d, 0o555);
 }
 
 /** Removes a folder that may be read-only, as a stored toolchain is. */
