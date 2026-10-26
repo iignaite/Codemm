@@ -13,6 +13,7 @@ export type ErrorKind = "no-course" | "image-missing" | "damaged" | "changed" | 
  */
 export const INFRA = {
   "no-runtime": "docker",
+  "no-wasmtime": "docker",
   "runtime-down": "docker",
   "runtime-paused": "docker",
   "socket-permission": "docker",
