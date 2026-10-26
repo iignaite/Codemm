@@ -242,7 +242,7 @@ Some learners can't install Docker: a school computer without admin rights, for 
 
 - **Scope:** io style and interpreted languages. A WASI track has no `build` and no `test`, and its exercises have no input generators (`NN.gen` needs `sh`). The rest is deferred (§2).
 - **Where wasmtime comes from:** the path in `CODEMM_WASMTIME`, which the desktop app sets to the copy it bundles (pinned by SHA-256), else `wasmtime` on `PATH`. With neither, a WASI track's check fails with the infrastructure error `no-wasmtime` and records nothing. Tested with wasmtime 50.
-- **Engine choice is per track.** A track with a `wasi` block runs on wasmtime; any other runs on Docker. Codemm never converts one into the other. Codemm tells the agent which engines this computer has, and the agent writes a WASI track only when there's no container runtime.
+- **Engine choice is per track.** A track with a `wasi` block runs on wasmtime; any other runs on Docker. Codemm never converts one into the other. `listTracks()` and `listProposals()` say each track's engine (`engine: "docker" | "wasi"`), so the desktop never works it out from the files. Codemm tells the agent which engines this computer has, and the agent writes a WASI track only when there's no container runtime.
 
 **Track contract.** `track.yaml` with a `wasi` block, and no Dockerfile:
 
