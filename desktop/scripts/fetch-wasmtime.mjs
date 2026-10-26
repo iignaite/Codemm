@@ -4,7 +4,7 @@
 // `node scripts/fetch-wasmtime.mjs` fetches what this computer builds.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -49,13 +49,20 @@ export function systemTar(/** @type {string} */ platform) {
 
 const MAX_BYTES = 64 * 2 ** 20;
 
-/** Downloads over https only, redirects included, at most 64 MB. */
+/** Downloads over https only, redirects included, at most 64 MB, counted as it arrives. */
 async function httpsGet(/** @type {string} */ url) {
   const res = await fetch(url, { redirect: 'follow' });
-  if (!res.ok || !res.url.startsWith('https://')) throw new Error(`Couldn't download ${url}: ${res.status} from ${res.url}`);
-  const bytes = Buffer.from(await res.arrayBuffer());
-  if (bytes.length > MAX_BYTES) throw new Error(`${url} is over ${MAX_BYTES} bytes.`);
-  return bytes;
+  if (!res.ok || !res.url.startsWith('https://') || !res.body) throw new Error(`Couldn't download ${url}: ${res.status} from ${res.url}`);
+  const tooBig = new Error(`${url} is over ${MAX_BYTES} bytes.`);
+  if (Number(res.headers.get('content-length')) > MAX_BYTES) throw tooBig;
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.length;
+    if (size > MAX_BYTES) throw tooBig;
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 /**
@@ -88,7 +95,8 @@ export async function fetchWasmtime(key, { out, asset = ASSETS[/** @type {keyof 
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Run as a script, also from a checkout reached through a symlink (import.meta.url is the real path).
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const out = join(dirname(fileURLToPath(import.meta.url)), '..', 'vendor', 'wasmtime');
   for (const key of process.argv.length > 2 ? process.argv.slice(2) : targets(process.platform)) await fetchWasmtime(key, { out });
 }

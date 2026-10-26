@@ -47,6 +47,9 @@ test('the packaged app carries a wasmtime that runs', () => {
     writeFileSync(join(dir, 'hello.wat'), HELLO);
     // Compiling and running the module needs executable memory, which a hardened runtime without the entitlement refuses.
     expect(execFileSync(wasmtime, ['run', '-C', 'cache=n', join(dir, 'hello.wat')], { encoding: 'utf8' })).toBe('hi\n');
+    // As core runs a toolchain (core §4.5): compiled once at install, then run precompiled, under a time limit.
+    execFileSync(wasmtime, ['compile', '-W', 'epoch-interruption=y', join(dir, 'hello.wat'), '-o', join(dir, 'hello.cwasm')]);
+    expect(execFileSync(wasmtime, ['run', '--allow-precompiled', '-C', 'cache=n', '-W', 'timeout=2s', join(dir, 'hello.cwasm')], { encoding: 'utf8' })).toBe('hi\n');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

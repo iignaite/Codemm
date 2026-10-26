@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { packaging, releaseTag } from './packaging.cjs';
 
@@ -60,10 +62,14 @@ describe('packaging', () => {
     expect(packaging({}).extraResources).toContainEqual({ from: 'vendor/wasmtime/${os}-${arch}', to: 'wasmtime' });
   });
 
-  it('keeps electron-builder\'s own entitlements for the binaries it signs beside the app, which wasmtime needs', () => {
-    // Under the hardened runtime, wasmtime compiles code into memory it then runs: without the template's
-    // allow-unsigned-executable-memory, macOS kills it (exit 137). Checked with wasmtime 50 on macOS 15.
+  it('signs the binaries beside the app, wasmtime among them, with the entitlement wasmtime needs to run compiled code', () => {
+    // Under the hardened runtime, wasmtime maps the code it compiled, or precompiled, as executable: without
+    // allow-unsigned-executable-memory, macOS kills it (exit 137) or refuses the mapping. allow-jit alone isn't enough,
+    // since wasmtime doesn't use MAP_JIT. Checked with wasmtime 50 on macOS 15. electron-builder reads this file from
+    // build/ for every binary but the app itself, so nothing may override it.
     expect(packaging({ CSC_LINK: 'base64-p12' }, 'darwin').mac).not.toHaveProperty('entitlementsInherit');
+    const inherit = readFileSync(join(__dirname, 'build', 'entitlements.mac.inherit.plist'), 'utf8');
+    expect(inherit).toMatch(/<key>com\.apple\.security\.cs\.allow-unsigned-executable-memory<\/key>\s*<true\/>/);
   });
 
   it('builds only macOS and Windows installers', () => {
