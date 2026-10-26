@@ -275,7 +275,7 @@ wasi:
 
 **Installing the toolchain.** This replaces the image build (§4.4); the probes and gates are the same.
 - **Download:**
-  - The fetch function is injectable. The desktop passes Electron's `net.fetch`, which uses the system's proxy settings and certificate store (school networks often need both); the CLI uses Node's `fetch`.
+  - The fetch function is injectable. The desktop passes a fetch built on Electron's network stack (`net.request`), which uses the system's proxy settings and certificate store (school networks often need both); the CLI uses Node's `fetch`. Electron's own `net.fetch` can't be used: with `redirect: "manual"` it rejects ("Redirect was cancelled") in Electron 44.
   - Redirects are followed by hand, at most 5, and every hop must be https.
   - At most 256 MB. The file is hashed as it arrives.
   - Failures:
@@ -338,7 +338,7 @@ wasi:
 **Security.**
 - **What wasmtime gives:** it is the sandbox, with memory-safe isolation and access only to the folders it is given. Compared with the Docker sandbox (§4.3), the program has no network, no processes and no writable path.
 - **Not limited:** CPU count, since a WASI module runs on one thread. Also file timestamps: on macOS and Linux the owner can set a read-only file's times, a tiny channel between runs that is accepted.
-- **On a signed macOS build,** the bundled wasmtime needs the hardened runtime's JIT entitlement to map compiled code.
+- **On a signed macOS build,** the bundled wasmtime needs the hardened runtime's `com.apple.security.cs.allow-unsigned-executable-memory` entitlement to map compiled code; `allow-jit` alone fails ("unable to make memory executable").
 - **What `doctor` shows:** both engines. With no container runtime but wasmtime present, the missing runtime isn't a failure.
 
 ## 5. Roadmaps (courses)
