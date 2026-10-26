@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { CodemmError, infraError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
@@ -6,7 +7,7 @@ import {
 } from "./grading.js";
 import { stageRunFolder } from "./runs.js";
 import { BUSY_HELP, OUTPUT_CAP, lostRun, runtimeDown, startRefusal, startSandboxed } from "./sandbox.js";
-import { startWasi } from "./wasi.js";
+import { prepareWasi, removeSealed, sealReadOnly, startWasi } from "./wasi.js";
 
 /**
  * A WASI track's toolchain as the judge runs it (DESIGN §4.5): `root` is its folder under
@@ -177,23 +178,28 @@ async function runDriver(
 }
 
 /**
- * IO_DRIVER on the WASI engine (DESIGN §4.5): one wasmtime process per case, with its input piped to stdin (tests are
- * never mapped), framed as IO_DRIVER frames it into the same reader, so grading, progress, digests and disclosure are
- * unchanged. The host writes every frame, so a program can't forge one. A case Codemm stopped (its time limit, or
- * more than CASE_OUTPUT_BYTES of output) is framed with 137, as the watchdog's kill is.
+ * IO_DRIVER on the WASI engine (DESIGN §4.5): after the checks before the set, the learner's files are sealed
+ * read-only, then each case is its own wasmtime process, with its input piped to stdin (tests are never mapped),
+ * framed as IO_DRIVER frames it into the same reader, so grading, progress, digests and disclosure are unchanged.
+ * The host writes every frame, so a program can't forge one. A case that timed out or printed more than
+ * CASE_OUTPUT_BYTES is framed with 137, as the watchdog's kill is.
  */
 async function runWasiCases(
   track: JudgeTrack, wasi: WasiToolchain, src: FileMap, inputs: FileMap, timeMs: number, stopAtError: boolean | undefined, onFrame?: (f: Frame) => void,
 ): Promise<{ frames: Frame[]; flooded: boolean; outOfMemory?: boolean; memoryKill?: boolean }> {
+  const engine = await prepareWasi(wasi);
   const files = Object.keys(inputs).filter((p) => p.endsWith(".in") && !p.includes("/")).sort();
   const reader = new FrameReader(onFrame, 3 * files.length + 8);
   const folder = stageRunFolder();
   try {
     const dir = join(folder.dir, "src");
+    mkdirSync(dir, { recursive: true });
     writeFileMap(dir, src);
+    sealReadOnly(folder.dir);
     for (const file of files) {
       const name = file.slice(0, -".in".length);
-      const r = await startWasi({ toolchain: wasi, src: dir, run: track.run!, memoryMb: track.limits.memory_mb, timeMs, input: Buffer.from(inputs[file]!), outputCap: CASE_OUTPUT_BYTES }).done;
+      const run = { engine, toolchain: wasi, src: dir, run: track.run!, memoryMb: track.limits.memory_mb, timeMs };
+      const r = await startWasi({ ...run, input: Buffer.from(inputs[file]!), outputCap: CASE_OUTPUT_BYTES }).done;
       const exit = r.timedOut || r.flooded ? 137 : r.exit;
       const emit = (kind: string, body: Buffer) => reader.push(Buffer.concat([Buffer.from(`\n@@codemm ${kind} ${name} ${exit} ${body.length}\n`), body]));
       emit(r.flooded ? "big" : "case", r.flooded ? Buffer.alloc(0) : r.stdout);
@@ -203,7 +209,7 @@ async function runWasiCases(
     }
     return { frames: reader.frames, flooded: false };
   } finally {
-    folder.remove();
+    removeSealed(folder);
   }
 }
 

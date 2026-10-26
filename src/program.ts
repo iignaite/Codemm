@@ -1,5 +1,6 @@
 // Run (DESIGN §4.3): the learner's program, interactively, in the sandbox, with typed stdin and its output as it
 // comes. Never graded or recorded. The checks' test sets run in judge.ts.
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { CodemmError, infraError } from "./errors.js";
@@ -8,7 +9,7 @@ import { learnerPaths } from "./grading.js";
 import { BUILD_SECONDS, type JudgeTrack, seconds, type WasiToolchain } from "./judge.js";
 import { stageRunFolder } from "./runs.js";
 import { lostRun, OUTPUT_CAP, runtimeDown, startRefusal, startSandboxed } from "./sandbox.js";
-import { type StartedWasi, startWasi } from "./wasi.js";
+import { checkWasi, compileModule, removeSealed, sealReadOnly, type StartedWasi, startWasi } from "./wasi.js";
 
 /** How long Run lets a program wait for typing and run: a person types, so longer than a test case gets. */
 export const RUN_LIMIT_MS = 120_000;
@@ -150,49 +151,70 @@ export function runProgram(track: JudgeTrack, src: FileMap, output: (text: strin
 }
 
 /**
- * Run on the WASI engine (DESIGN §4.5): the run command alone (a WASI track has no build), with typed stdin and the
- * same flags as a check. Here Codemm's own kill is the time limit and the engine's timer backs it up a second later,
- * so a stop at the limit never puts wasmtime's report of it on the learner's screen.
+ * Run on the WASI engine (DESIGN §4.5): the checks a set gets, then the run command alone (a WASI track has no build),
+ * with typed stdin, the same flags as a check and the learner's files sealed read-only. Here Codemm's own kill is the
+ * time limit and the engine's timer backs it up a second later, so a stop at the limit never puts wasmtime's report
+ * of it on the learner's screen. When this wasmtime has no compiled module yet, it is compiled first, and typing
+ * before the program starts waits for it (at most 1 MB, as unread input does).
  */
 function runWasiProgram(
   track: JudgeTrack, wasi: WasiToolchain, src: FileMap, output: (text: string, stream: "stdout" | "stderr") => void, limitMs: number,
   onStart: ProgramOptions["onStart"],
 ): ProgramRun {
+  const { ready, ...engine } = checkWasi(wasi);
   const folder = stageRunFolder();
+  const dir = join(folder.dir, "src");
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileMap(dir, src);
+    sealReadOnly(folder.dir);
+  } catch (e) {
+    removeSealed(folder);
+    throw e;
+  }
   const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
   const say = (stream: "stdout" | "stderr", text: string) => text && output(text, stream);
   const errors = learnerPathStream((text) => say("stderr", text));
   let stopped = false;
-  let started: StartedWasi;
-  try {
-    const dir = join(folder.dir, "src");
-    writeFileMap(dir, src);
+  let ended = false;
+  let started: StartedWasi | undefined;
+  const early: string[] = [];
+  let earlyBytes = 0;
+  const begin = async (): Promise<ProgramResult> => {
+    if (!ready) await compileModule(wasi);
+    if (stopped) return { exit: 137, timedOut: false, flooded: false, stopped };
     started = startWasi(
-      { toolchain: wasi, src: dir, run: track.run!, memoryMb: track.limits.memory_mb, timeMs: limitMs + 1000, killMs: limitMs, outputCap: OUTPUT_CAP },
+      { engine, toolchain: wasi, src: dir, run: track.run!, memoryMb: track.limits.memory_mb, timeMs: limitMs + 1000, killMs: limitMs, outputCap: OUTPUT_CAP },
       { stdout: (b) => say("stdout", decoders.stdout.write(b)), stderr: (b) => errors.write(decoders.stderr.write(b)) },
     );
-  } catch (e) {
-    folder.remove();
-    throw e;
-  }
-  onStart?.("run", limitMs);
-  const done = started.done
-    .then((r): ProgramResult => {
-      say("stdout", decoders.stdout.end());
-      errors.write(decoders.stderr.end());
-      errors.end();
-      if (stopped || r.flooded) return { exit: r.exit, timedOut: false, flooded: r.flooded, ...(stopped ? { stopped } : {}) };
-      return { exit: r.exit, stage: "run", timedOut: r.timedOut, flooded: false };
-    })
-    .finally(folder.remove);
+    for (const text of early.splice(0)) started.write(text);
+    if (ended) started.end();
+    onStart?.("run", limitMs);
+    const r = await started.done;
+    say("stdout", decoders.stdout.end());
+    errors.write(decoders.stderr.end());
+    errors.end();
+    if (stopped || r.flooded) return { exit: r.exit, timedOut: false, flooded: r.flooded, ...(stopped ? { stopped } : {}) };
+    return { exit: r.exit, stage: "run", timedOut: r.timedOut, flooded: false };
+  };
   return {
-    write: started.write,
-    end: started.end,
+    write: (text) => {
+      if (started) return started.write(text);
+      const size = Buffer.byteLength(text);
+      if (ended || stopped || size > 64 * 1024 || earlyBytes + size > 1024 * 1024) return false;
+      early.push(text);
+      earlyBytes += size;
+      return true;
+    },
+    end: () => {
+      ended = true;
+      started?.end();
+    },
     kill: () => {
       stopped = true;
-      started.kill();
+      started?.kill();
     },
-    done,
+    done: begin().finally(() => removeSealed(folder)),
   };
 }
 
