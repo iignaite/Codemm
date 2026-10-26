@@ -55,6 +55,17 @@ describe('packaging', () => {
     expect(from).toContain('out/renderer/licenses.md');
   });
 
+  it('ships each installer only its own chip\'s wasmtime, with its license, outside the archive', () => {
+    // scripts/fetch-wasmtime.mjs fills vendor/wasmtime/<os>-<arch>; electron-builder expands the macros per build.
+    expect(packaging({}).extraResources).toContainEqual({ from: 'vendor/wasmtime/${os}-${arch}', to: 'wasmtime' });
+  });
+
+  it('keeps electron-builder\'s own entitlements for the binaries it signs beside the app, which wasmtime needs', () => {
+    // Under the hardened runtime, wasmtime compiles code into memory it then runs: without the template's
+    // allow-unsigned-executable-memory, macOS kills it (exit 137). Checked with wasmtime 50 on macOS 15.
+    expect(packaging({ CSC_LINK: 'base64-p12' }, 'darwin').mac).not.toHaveProperty('entitlementsInherit');
+  });
+
   it('builds only macOS and Windows installers', () => {
     const config = packaging({}) as Record<string, unknown>;
     expect(config.linux).toBeUndefined();
