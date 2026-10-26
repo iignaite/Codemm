@@ -321,6 +321,7 @@ describe("WASI tracks (DESIGN §4.5)", () => {
       expect(text).toMatch(/a WASI build of the interpreter, published by the language's project, as a `\.wasm` file or an archive with the module and its library folder/);
       // The desktop's setup job has no web or shell, so it can't hash anything itself.
       expect(text).toMatch(/`sha256` is optional: give it only when you computed it from the downloaded file or read it from a checksum the release publishes; never make one up/);
+      expect(text).toMatch(/a wrong one fails the gate named toolchain/);
     }
   });
 
