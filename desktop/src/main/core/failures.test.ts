@@ -5,6 +5,7 @@ import { infra, infraOf, needsRebuild } from './failures';
 
 const told: Record<InfraCode, string> = {
   'no-runtime': 'docker',
+  'no-wasmtime': 'docker-failed',
   'runtime-down': 'docker',
   'runtime-paused': 'docker',
   'socket-permission': 'docker',
