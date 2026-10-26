@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, symlinkSync
 import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { removeAbandonedRuns, runsDir, stageRunFolder } from "../src/runs.js";
+import { readOnly } from "../src/wasi.js";
 import { tempDir } from "./temp.js";
 
 /** Run folders (DESIGN §4.3): where the files a container mounts are staged. */
@@ -53,6 +54,15 @@ describe("stageRunFolder", () => {
     expect(existsSync(run.dir)).toBe(false);
     expect(() => run.remove()).not.toThrow();
   });
+
+  it("removes a folder the WASI engine made read-only (files 0444, folders 0555)", () => {
+    const run = stageRunFolder();
+    mkdirSync(join(run.dir, "src", "pkg"), { recursive: true });
+    writeFileSync(join(run.dir, "src", "pkg", "main.py"), "x");
+    readOnly(join(run.dir, "src"));
+    run.remove();
+    expect(existsSync(run.dir)).toBe(false);
+  });
 });
 
 describe("leftover run folders", () => {
@@ -62,6 +72,13 @@ describe("leftover run folders", () => {
     writeFileSync(join(dir, "tests", "01.in"), "hidden");
     return dir;
   };
+
+  it("are removed when a crashed WASI run left them read-only", () => {
+    const crashed = leftover(`${deadPid()}-rdonly`);
+    readOnly(crashed);
+    expect(removeAbandonedRuns()).toBe(1);
+    expect(existsSync(crashed)).toBe(false);
+  });
 
   it("are removed when their Codemm process is gone, and a live process's folders are left alone", () => {
     const crashed = leftover(`${deadPid()}-abc123`);

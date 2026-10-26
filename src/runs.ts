@@ -1,5 +1,5 @@
 // Run folders (DESIGN §4.3): where a check, Run and the self-test stage the files they mount into a container.
-import { lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { codemmHome, processAlive } from "./store.js";
 
@@ -32,10 +32,28 @@ export function stageRunFolder(): RunFolder {
 
 function removeFolder(dir: string): boolean {
   try {
+    writable(dir);
+  } catch {
+    // Gone already, or not Codemm's to change: removing says which.
+  }
+  try {
     rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Gives a run folder write permission back: the WASI engine makes it read-only (wasi.ts), and neither POSIX (a 0555
+ * folder) nor Windows (a read-only file) lets it be removed then. Links and special files are left as they are.
+ */
+function writable(dir: string): void {
+  chmodSync(dir, 0o700);
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) writable(path);
+    else if (entry.isFile()) chmodSync(path, 0o600);
   }
 }
 
