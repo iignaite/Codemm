@@ -40,15 +40,9 @@ const ArchivePath = z.string().max(512).superRefine((p, ctx) => {
   }
 });
 
-/** A folder's path inside the sandbox: absolute, and not /, /work or under /work, where the learner's files are. */
-const sandboxDir = (p: string) => {
-  try {
-    assertRelativePath(p.slice(1));
-  } catch {
-    return false;
-  }
-  return p.startsWith("/") && !p.includes(":") && p !== "/work" && !p.startsWith("/work/");
-};
+/** A folder's path inside the sandbox: absolute, with no "." or ".." part, and not /work or under it, where the learner's files are. */
+const sandboxDir = (p: string) =>
+  /^(\/[A-Za-z0-9._-]+)+$/.test(p) && p.split("/").every((part) => part !== "." && part !== "..") && p !== "/work" && !p.startsWith("/work/");
 const MAX_ENV_VALUE = 1024;
 
 /** A WASI build of the language's interpreter, as a Docker track names a base image (DESIGN §4.5). */
@@ -57,16 +51,18 @@ const WasiYaml = z
     url: z.string().max(2000).refine((u) => {
       try {
         const url = new URL(u);
-        return url.protocol === "https:" && url.username === "" && url.password === "" && url.search === "" && url.hash === "" && /\.(wasm|zip|tar\.gz|tar\.xz)$/.test(u);
+        return url.protocol === "https:" && url.username === "" && url.password === "" && /\.(wasm|zip|tar\.gz)$/.test(url.pathname);
       } catch {
         return false;
       }
-    }, "must be an https link with no credentials, ending in .wasm, .zip, .tar.gz or .tar.xz"),
-    sha256: z.string().regex(/^[0-9a-f]{64}$/, "must be the downloaded file's SHA-256, as 64 lowercase hex digits"),
+    }, "must be an https link with no credentials, whose path ends in .wasm, .zip or .tar.gz"),
+    /** Optional: without it, Codemm records the digest it downloads and installs with a warning (DESIGN §4.5). */
+    sha256: z.string().regex(/^[0-9a-f]{64}$/, "must be the downloaded file's SHA-256, as 64 lowercase hex digits").optional(),
     module: ArchivePath,
     dirs: z
       .record(z.string().refine(sandboxDir, "dirs keys must be absolute folders in the sandbox, other than /, /work and folders under /work"), ArchivePath)
       .refine((d) => Object.keys(d).length <= 16, "dirs lists at most 16 folders")
+      .refine((d) => !Object.keys(d).some((a) => Object.keys(d).some((b) => a.startsWith(`${b}/`))), "a dirs key can't be under another")
       .default({}),
     env: z
       .record(
@@ -118,8 +114,18 @@ export function parseTrackYaml(yaml: string): TrackSpec {
     // The WASI engine runs io programs of interpreted languages only (DESIGN §4.5).
     if (t.styles.length !== 1 || t.styles[0] !== "io") throw new CodemmError("Invalid track.yaml: a WASI track's styles must be [io].");
     if (t.build || t.test) throw new CodemmError(`Invalid track.yaml: a WASI track has no ${t.build ? "build" : "test"} command. It runs an interpreter's WASI build, so remove it.`);
-    const name = t.wasi.url.endsWith(".wasm") ? decodeURIComponent(new URL(t.wasi.url).pathname.split("/").at(-1)!) : undefined;
-    if (name !== undefined && t.wasi.module !== name) throw new CodemmError(`Invalid track.yaml: wasi.module must be the downloaded file's name, "${name}", when wasi.url is a .wasm.`);
+    const path = new URL(t.wasi.url).pathname;
+    if (path.endsWith(".wasm")) {
+      let name = "";
+      try {
+        name = decodeURIComponent(path.split("/").at(-1)!);
+      } catch {
+        // Not a name: refused below.
+      }
+      if (!name || name.includes("/") || t.wasi.module !== name) {
+        throw new CodemmError(`Invalid track.yaml: when wasi.url is a .wasm, wasi.module must be the downloaded file's name${name && !name.includes("/") ? `, "${name}"` : ", and the url must end in a plain file name"}.`);
+      }
+    }
   }
   return { ...t, limits: { time_ms: clamp(t.limits?.time_ms, LIMITS.time_ms), memory_mb: clamp(t.limits?.memory_mb, LIMITS.memory_mb) } };
 }
@@ -213,7 +219,10 @@ const TrackBase = z.object({
   installedAt: z.string(),
 });
 /** Where a WASI track's toolchain is ($CODEMM_HOME/toolchains/<sha256>/) and how it runs; the url stays in track.yaml. */
-export const WasiRecord = z.object({ sha256: z.string().regex(/^[0-9a-f]{64}$/), module: z.string(), dirs: z.record(z.string(), z.string()), env: z.record(z.string(), z.string()) });
+// Its paths are held to track.yaml's rules again, so a track.json changed outside Codemm can't map another folder.
+export const WasiRecord = z.object({
+  sha256: z.string().regex(/^[0-9a-f]{64}$/), module: ArchivePath, dirs: z.record(z.string().refine(sandboxDir), ArchivePath), env: z.record(z.string(), z.string()),
+});
 export type WasiRecord = z.infer<typeof WasiRecord>;
 /** Exactly one engine: a Docker track's image (and the ID checks run by), or a WASI track's toolchain (DESIGN §4.5). */
 export const TrackRecord = z.union([
