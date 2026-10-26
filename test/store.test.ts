@@ -195,7 +195,7 @@ describe("toolchain folders", () => {
     expect(store.judgeTrack({ ...base, image: "tag", imageId: "sha256:x" }).wasi).toBeUndefined();
     const wasi = { sha256: "b".repeat(64), module: "python.wasm", dirs: { "/lib": "lib" }, env: { A: "1" } };
     expect(store.judgeTrack({ ...base, wasi })).toMatchObject({
-      image: "", run: "/work/src/main.py", wasi: { root: store.toolchainDir("b".repeat(64)), module: "python.wasm", dirs: { "/lib": "lib" }, env: { A: "1" } },
+      image: "", run: "/work/src/main.py", wasi: { root: store.toolchainDir("b".repeat(64)), sha256: "b".repeat(64), module: "python.wasm", dirs: { "/lib": "lib" }, env: { A: "1" } },
     });
   });
 });

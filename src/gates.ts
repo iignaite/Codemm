@@ -283,7 +283,7 @@ async function verifyWasiTrack(
   const { root, sha256 } = stored;
   const { module, dirs, env } = block;
   onProgress?.({ phase: "checking" });
-  await runProbes({ ...spec, image: "", wasi: { root, module, dirs, env } }, spec, probes, rebuild);
+  await runProbes({ ...spec, image: "", wasi: { root, sha256, module, dirs, env } }, spec, probes, rebuild);
   // As for a base image not pinned by digest (§4.4): rebuilds must match what was recorded.
   const warning = block.sha256
     ? undefined

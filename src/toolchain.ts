@@ -61,7 +61,7 @@ export async function ensureToolchain(wasi: Source, { replace = false, ...limits
     try {
       seal(staging);
     } catch (e) {
-      throw infraError(`The toolchain couldn't be made read-only, so nothing was installed: ${(e as Error).message}`, "host-disk");
+      throw infraError(`The toolchain couldn't be made read-only, so nothing was installed: ${(e as Error).message}`, "wasi-seal");
     }
     const root = store.toolchainDir(sha256);
     await store.withLock(store.toolchainLockPath(sha256), async () => {

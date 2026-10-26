@@ -249,8 +249,7 @@ export const toolchainLockPath = (sha256: string) => `${toolchainDir(sha256)}.lo
 /** What the judge runs an installed track with: its verified image ID, or its toolchain folder. */
 export function judgeTrack(track: TrackRecord): Omit<TrackRecord, "image" | "imageId" | "wasi"> & JudgeTrack {
   if (!track.wasi) return { ...track, image: track.imageId };
-  const { sha256, ...wasi } = track.wasi;
-  return { ...track, image: "", wasi: { root: toolchainDir(sha256), ...wasi } };
+  return { ...track, image: "", wasi: { root: toolchainDir(track.wasi.sha256), ...track.wasi } };
 }
 
 // ---------- proposals ----------

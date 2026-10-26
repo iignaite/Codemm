@@ -110,7 +110,7 @@ describe("verifyTrack on a WASI track", () => {
     expect(verified).toMatchObject({ wasi: { sha256: SHA, module: "echo.wasm", dirs: {}, env: { MODE: "plain" } } });
     expect(verified).not.toHaveProperty("imageId");
     const ran = vi.mocked(judge.runSets).mock.calls[0]![0];
-    expect(ran).toMatchObject({ image: "", run: "/work/src/answer.txt", wasi: { root: store.toolchainDir(SHA), module: "echo.wasm", dirs: {}, env: { MODE: "plain" } } });
+    expect(ran).toMatchObject({ image: "", run: "/work/src/answer.txt", wasi: { root: store.toolchainDir(SHA), sha256: SHA, module: "echo.wasm", dirs: {}, env: { MODE: "plain" } } });
     expect(sandbox.cli).not.toHaveBeenCalled();
   });
 
