@@ -24,15 +24,21 @@ import { codemmServer } from './server';
 import { agentSignIn, nodeSignInDeps } from './signIn';
 import { desktopState, workspaceOf } from './state';
 import { usageStore } from './usage';
+import { wasmtimeIn } from './wasmtime';
 
 export interface Places {
   /** out/core in development, <resources>/core when packaged. */
   coreDir: string;
+  /** Where the bundled wasmtime is: <resources>/wasmtime when packaged, vendor/wasmtime/<os>-<arch> in development. */
+  wasmtimeDir: string;
   userData: string;
   log: Log;
 }
 
-export function liveApi({ coreDir, userData, log }: Places): Live {
+export function liveApi({ coreDir, wasmtimeDir, userData, log }: Places): Live {
+  // Core's WASI engine, in-process and in the agent's server (server.ts), runs WASI tracks on the bundled wasmtime.
+  const wasmtime = wasmtimeIn(wasmtimeDir, process.platform);
+  if (wasmtime) process.env.CODEMM_WASMTIME = wasmtime;
   // The bundled core (scripts/bundle-core.mjs), loaded in-process.
   const core = require(join(coreDir, 'dist', 'app.cjs')) as CoreApp;
   const state = desktopState(userData);
@@ -85,6 +91,11 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
       return state === 'busy' ? 'down' : state;
     },
     sandbox: () => core.networkIsolation(),
+    // The wasmtime core's WASI engine runs (core wasi.ts wasmtimePath): the bundled one, else one on PATH.
+    wasi: async () => {
+      const bin = process.env.CODEMM_WASMTIME ? { path: process.env.CODEMM_WASMTIME, js: false } : find('wasmtime');
+      return Boolean(bin && (await ask(bin, ['--version'], ({ code }) => code === 0)));
+    },
     now: () => Date.now(),
   }, process.platform, log);
 
