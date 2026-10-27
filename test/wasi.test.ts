@@ -212,6 +212,22 @@ describe.skipIf(!wasmtimeUp)("startWasi", () => {
     expect(readdirSync(join(s.src, "sub"))).toEqual(["inner.txt"]);
   });
 
+  it("lets the program neither rename a subfolder nor delete one that isn't empty", async () => {
+    const s = await start("rename");
+    const run = dirname(s.src);
+    unseal(run);
+    mkdirSync(join(s.src, "sub"));
+    writeFileSync(join(s.src, "sub", "inner.txt"), "inner\n");
+    mkdirSync(join(s.src, "other"));
+    sealReadOnly(run);
+    const r = await startWasi(s).done;
+    expect(r.stderr).toBe("");
+    // Rename sub within /work/src, move it into other/, delete it.
+    expect(r.stdout.toString()).toBe("denied\ndenied\ndenied\n");
+    expect(readdirSync(s.src).sort()).toEqual(["main.txt", "other", "sub"]);
+    expect(readdirSync(join(s.src, "other"))).toEqual([]);
+  });
+
   it.runIf(posix)("starts wasmtime with an empty environment", async () => {
     const fake = join(tempDir(), "wasmtime");
     writeFileSync(fake, "#!/bin/sh\nenv\n", { mode: 0o755 });
