@@ -9,9 +9,10 @@ import { BUSY_HELP, OUTPUT_CAP, lostRun, runtimeDown, startRefusal, startSandbox
 
 /**
  * A WASI track's toolchain as the judge runs it (DESIGN §4.5): `root` is its folder under
- * `$CODEMM_HOME/toolchains/`, `module` and each `dirs` value are paths in it, and `dirs` keys are sandbox paths.
+ * `$CODEMM_HOME/toolchains/`, `sha256` names its compiled module, `module` and each `dirs` value are paths in it, and `dirs`
+ * keys are sandbox paths.
  */
-export type WasiToolchain = { root: string; module: string; dirs: Record<string, string>; env: Record<string, string> };
+export type WasiToolchain = { root: string; sha256: string; module: string; dirs: Record<string, string>; env: Record<string, string> };
 
 /** What the judge needs from an installed track. A track with `wasi` runs on the WASI engine, and `image` is unused. */
 export type JudgeTrack = {
