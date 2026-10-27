@@ -204,6 +204,21 @@ describe("ensureToolchain", () => {
     await expect(ensureToolchain(spec(body))).rejects.toMatchObject({ code: "tls" });
   });
 
+  it.each(["ERR_CONTENT_LENGTH_MISMATCH", "ERR_INCOMPLETE_CHUNKED_ENCODING", "ERR_HTTP2_PROTOCOL_ERROR", "ERR_NETWORK_CHANGED", "ERR_CONNECTION_ABORTED"])(
+    "calls Electron's net::%s mid-download a dropped connection",
+    async (code) => {
+      const body = archive(TOOLCHAIN);
+      const cut = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(body.subarray(0, 10));
+          controller.error(new Error(`net::${code}`));
+        },
+      });
+      setToolchainFetch(async () => new Response(cut));
+      await expect(ensureToolchain(spec(body))).rejects.toMatchObject({ code: "network-timeout" });
+    },
+  );
+
   it("stops a stalled download, as this computer's network", async () => {
     const body = archive(TOOLCHAIN);
     setToolchainFetch((_url, { signal }) =>

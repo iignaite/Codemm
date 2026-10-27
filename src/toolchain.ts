@@ -189,7 +189,9 @@ function diskError(e: NodeJS.ErrnoException): never {
 
 /** Node's fetch names its errors by code, and Electron's net.fetch by message (`net::ERR_…`). */
 const CERTIFICATE = /CERT|SSL|TLS|SELF_SIGNED|UNABLE_TO_(GET_ISSUER|VERIFY)/i;
-const DROPPED = /ETIMEDOUT|ECONNRESET|EPIPE|UND_ERR_(CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT|SOCKET)|ERR_TIMED_OUT|ERR_CONNECTION_(RESET|TIMED_OUT|CLOSED)/;
+/** A connection that timed out or dropped mid-download, including Chromium's truncated-body errors (net.fetch). */
+const DROPPED =
+  /ETIMEDOUT|ECONNRESET|EPIPE|UND_ERR_(CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT|SOCKET)|ERR_TIMED_OUT|ERR_CONNECTION_(RESET|TIMED_OUT|CLOSED|ABORTED)|ERR_CONTENT_LENGTH_MISMATCH|ERR_INCOMPLETE_CHUNKED_ENCODING|ERR_HTTP2_PROTOCOL_ERROR|ERR_NETWORK_CHANGED/;
 
 function networkError(e: unknown, stalled: boolean): CodemmError {
   const cause = (e as { cause?: { code?: string; message?: string } }).cause;
