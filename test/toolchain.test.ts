@@ -115,16 +115,30 @@ describe("ensureToolchain", () => {
     expect(calls).toHaveLength(2);
   });
 
-  it("replaces a damaged folder when asked to, as a rebuild does", async () => {
+  it("repairs a stored folder damaged outside Codemm by downloading it again", async () => {
     const body = archive(TOOLCHAIN);
     const calls = serve({ [URL_TGZ]: () => new Response(body) });
     const { root } = await ensureToolchain(spec(body));
     unseal(root);
     rmSync(join(root, "lib"), { recursive: true });
-    await expect(ensureToolchain(spec(body))).rejects.toThrow(/wasi.dirs "\/lib"/);
-    await ensureToolchain(spec(body), { replace: true });
+    await ensureToolchain(spec(body));
     expect(readFileSync(join(root, "lib", "python3", "os.py"), "utf8")).toBe("# os\n");
     expect(calls).toHaveLength(2);
+    expect(stored().filter((n) => n.startsWith(".") && !n.endsWith(".lock"))).toEqual([]);
+  });
+
+  it("on a rebuild, replaces a folder whose files changed, and keeps an intact one, which a check may be using", async () => {
+    const body = archive(TOOLCHAIN);
+    const calls = serve({ [URL_TGZ]: () => new Response(body) });
+    const { root } = await ensureToolchain(spec(body));
+    const before = statSync(root).ino;
+    await ensureToolchain(spec(body), { replace: true });
+    expect(statSync(root).ino).toBe(before);
+    unseal(root);
+    writeFileSync(join(root, "lib", "python3", "os.py"), "# changed\n");
+    await ensureToolchain(spec(body), { replace: true });
+    expect(readFileSync(join(root, "lib", "python3", "os.py"), "utf8")).toBe("# os\n");
+    expect(calls).toHaveLength(3);
     expect(stored().filter((n) => n.startsWith(".") && !n.endsWith(".lock"))).toEqual([]);
   });
 
@@ -190,7 +204,7 @@ describe("ensureToolchain", () => {
   it("calls a filter's page, a busy server, an unknown name or a certificate problem this computer's", async () => {
     const body = archive(TOOLCHAIN);
     serve({ [URL_TGZ]: () => new Response("<html>Blocked</html>", { headers: { "content-type": "text/html; charset=utf-8" } }) });
-    await expect(ensureToolchain(spec(body))).rejects.toMatchObject({ code: "offline", message: expect.stringMatching(/network filter/) });
+    await expect(ensureToolchain(spec(body))).rejects.toMatchObject({ code: "offline", message: expect.stringMatching(/network filter[\s\S]*web page/) });
     serve({ [URL_TGZ]: () => new Response("", { status: 503 }) });
     await expect(ensureToolchain(spec(body))).rejects.toMatchObject({ code: "offline", kind: "offline" });
     serve({ [URL_TGZ]: () => new Response("", { status: 429 }) });

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdtempSync, readdirSync, renameSync, rmSync, type Stats } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, type Stats } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { CodemmError, infraError, type InfraCode } from "./errors.js";
@@ -36,18 +36,18 @@ const MIN_FREE_BYTES = 1.5 * 1024 ** 3;
 const MB = 1024 ** 2;
 
 type Source = Pick<WasiSpec, "url" | "sha256" | "module" | "dirs">;
-/** `replace`: download again and replace the digest's folder, as a rebuild does, so a damaged one is repaired. */
+/** `replace`: download again even when the digest's folder is there, as a rebuild does, and repair it if it changed. */
 type Options = { replace?: boolean; stallMs?: number; maxDownload?: number };
 
 /**
  * The toolchain's folder and the digest of its file. A folder already stored for a given sha256 is used as it is; a
- * toolchain without one is always downloaded, since its digest is only known then.
+ * toolchain without one is always downloaded, since its digest is only known then. A stored folder is replaced only
+ * when its files differ from the download's, so an intact one that a check may be running from is never touched.
  */
 export async function ensureToolchain(wasi: Source, { replace = false, ...limits }: Options = {}): Promise<{ root: string; sha256: string }> {
-  if (wasi.sha256 && !replace && existsSync(store.toolchainDir(wasi.sha256))) {
-    const root = store.toolchainDir(wasi.sha256);
-    assertLayout(root, wasi);
-    return { root, sha256: wasi.sha256 };
+  // A folder damaged outside Codemm (its module or a dirs folder gone) is downloaded again, and so repaired.
+  if (wasi.sha256 && !replace && existsSync(store.toolchainDir(wasi.sha256)) && laidOut(store.toolchainDir(wasi.sha256), wasi)) {
+    return { root: store.toolchainDir(wasi.sha256), sha256: wasi.sha256 };
   }
   const parent = store.toolchainsDir();
   store.assertFreeSpace(parent, MIN_FREE_BYTES);
@@ -63,13 +63,16 @@ export async function ensureToolchain(wasi: Source, { replace = false, ...limits
     sealReadOnly(staging);
     const root = store.toolchainDir(sha256);
     await store.withLock(store.toolchainLockPath(sha256), async () => {
-      const aside = replace && existsSync(root) ? join(parent, `.discard-${randomBytes(4).toString("hex")}`) : undefined;
+      if (existsSync(root) && sameFiles(root, staging)) return;
+      const aside = existsSync(root) ? join(parent, `.discard-${randomBytes(4).toString("hex")}`) : undefined;
       if (aside) renameSync(root, aside);
       try {
         renameSync(staging, root);
       } catch (e) {
-        // Another track stored the same file first: that folder is used as it is.
-        if (!existsSync(root)) throw e;
+        // The old folder goes back rather than being lost. With none, a folder stored meanwhile is used as it is.
+        if (aside) renameSync(aside, root);
+        else if (existsSync(root)) return;
+        throw e;
       }
       if (aside) removeTree(aside);
     });
@@ -127,7 +130,12 @@ async function download(url: string, file: string, expected: string | undefined,
     if (!response.ok) throw await refuse(new CodemmError(`Downloading wasi.url failed: ${url} answered HTTP ${response.status}. Check the link.`));
     // A toolchain is never a web page: a school filter or a captive portal answered instead of the server.
     if (/^text\/html\b/i.test(response.headers.get("content-type") ?? "")) {
-      throw await refuse(infraError(`A web page came back instead of the toolchain: a network filter or a sign-in page may have answered. Sign in to the network, or ask for ${new URL(url).host} to be allowed. ${retry}`, "offline"));
+      throw await refuse(infraError(
+        `A web page came back instead of the toolchain: a network filter or a sign-in page may have answered, or wasi.url (${url}) links to a web page ` +
+          "rather than the file itself (a release's download link, not its page). Open the link in a browser: if it downloads the file, sign in to " +
+          `the network or ask for ${new URL(url).host} to be allowed, then retry with the same files.`,
+        "offline",
+      ));
     }
     if (Number(response.headers.get("content-length") ?? 0) > maxDownload) throw await refuse(tooBig());
     const hash = createHash("sha256");
@@ -160,6 +168,8 @@ async function download(url: string, file: string, expected: string | undefined,
     throw networkError(e, stalled);
   } finally {
     clearTimeout(timer);
+    // Whatever stopped the download, its connection goes too.
+    controller.abort();
   }
 }
 
@@ -183,7 +193,8 @@ async function answer(url: string, signal: AbortSignal): Promise<Response> {
 /** Writing the download failed: this computer's disk, never its network. */
 class DiskError extends Error {}
 function diskError(e: NodeJS.ErrnoException): never {
-  if (e.code === "ENOSPC") throw infraError("The disk filled up while downloading the toolchain. Free some space, then retry.", "host-disk");
+  // A disk quota, as school computers often have, is a full disk for the learner.
+  if (e.code === "ENOSPC" || e.code === "EDQUOT") throw infraError("The disk filled up while downloading the toolchain. Free some space, then retry.", "host-disk");
   throw new DiskError(`Couldn't save the toolchain's download: ${e.message}`);
 }
 
@@ -215,7 +226,7 @@ export function systemTar(): string {
 /** Unpacks `file` into `dir`, then refuses any link, special file or file with more than one hard link. */
 async function unpack(file: string, dir: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(systemTar(), ["-xf", file, "-C", dir], { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(systemTar(), ["-xf", file, "-C", dir], { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
     let stderr = "";
     child.stderr.on("data", (d: Buffer) => (stderr = (stderr + d.toString()).slice(-4000)));
     const timer = setTimeout(() => child.kill("SIGKILL"), UNPACK_TIMEOUT_MS);
@@ -227,8 +238,9 @@ async function unpack(file: string, dir: string): Promise<void> {
       clearTimeout(timer);
       if (code === 0) return resolve();
       const said = stderr.trim().split("\n").slice(-3).join("\n");
-      if (/no space left/i.test(said)) return reject(infraError("The disk filled up while unpacking the toolchain. Free some space, then retry.", "host-disk"));
-      if (signal) return reject(new CodemmError("The archive at wasi.url took more than 10 minutes to unpack."));
+      if (/no space left|quota exceeded/i.test(said)) return reject(infraError("The disk filled up while unpacking the toolchain. Free some space, then retry.", "host-disk"));
+      // Only the timer kills tar: a slow computer, not the track.
+      if (signal) return reject(infraError("Unpacking the toolchain took more than 10 minutes. Close other programs, then retry with the same files.", "check-timeout"));
       reject(new CodemmError(`The archive at wasi.url didn't unpack with this computer's tar${said ? `:\n${said}` : "."}`));
     });
   });
@@ -248,6 +260,30 @@ function walk(dir: string, visit: (path: string, rel: string, stat: Stats) => vo
     visit(path, relPath, stat);
     if (stat.isDirectory()) walk(path, visit, relPath);
   }
+}
+
+const laidOut = (root: string, wasi: Pick<WasiSpec, "module" | "dirs">) => {
+  try {
+    assertLayout(root, wasi);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Whether two folders hold the same files with the same contents. */
+function sameFiles(a: string, b: string): boolean {
+  const list = (dir: string) => {
+    const entries: [string, Stats][] = [];
+    walk(dir, (_path, rel, stat) => entries.push([rel, stat]));
+    return entries;
+  };
+  const [x, y] = [list(a), list(b)];
+  return x.length === y.length && x.every(([rel, stat], i) => {
+    const [otherRel, other] = y[i]!;
+    if (rel !== otherRel || stat.isDirectory() !== other.isDirectory()) return false;
+    return stat.isDirectory() || (stat.size === other.size && readFileSync(join(a, rel)).equals(readFileSync(join(b, rel))));
+  });
 }
 
 /** `module` must be a file in the toolchain and every `dirs` value a folder. */
