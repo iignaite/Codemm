@@ -50,47 +50,54 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
-      # TEMPORARY: why a sealed run folder can't be mapped on Windows. Removed once found.
+      # TEMPORARY: why a sealed run folder can't be mapped from the tests on Windows. Removed once found.
       - name: Diagnose the seal on Windows
         if: runner.os == 'Windows'
         continue-on-error: true
         shell: bash
         run: |
           cat > diag.mjs <<'JS'
-          import { spawnSync } from "node:child_process";
+          import { spawn, spawnSync } from "node:child_process";
           import { mkdirSync, writeFileSync } from "node:fs";
           import { tmpdir } from "node:os";
           import { join, resolve } from "node:path";
-          const homes = { C_tmpdir: join(tmpdir(), "diag-home"), D_runner_temp: join(process.env.RUNNER_TEMP, "diag-home") };
-          for (const [label, home] of Object.entries(homes)) {
-            process.env.CODEMM_HOME = home;
-            const { prepareWasi, sealReadOnly, unseal, wasiArgs } = await import(`./dist/wasi.js?${label}`);
-            const { stageRunFolder } = await import(`./dist/runs.js?${label}`);
-            const toolchain = { root: resolve("test/fixtures/wasi"), sha256: "diag-cat", module: "cat.wat", dirs: {}, env: {} };
-            const engine = await prepareWasi(toolchain);
+          process.env.CODEMM_HOME = join(tmpdir(), "diag-home-2");
+          const { prepareWasi, sealReadOnly, startWasi, wasiArgs } = await import("./dist/wasi.js");
+          const { stageRunFolder } = await import("./dist/runs.js");
+          const toolchain = { root: resolve("test/fixtures/wasi"), sha256: "diag-cat", module: "cat.wat", dirs: {}, env: {} };
+          const engine = await prepareWasi(toolchain);
+          const S = process.env.SystemRoot;
+          const envs = {
+            sys: { SystemRoot: S },
+            inherited: process.env,
+            temp: { SystemRoot: S, TEMP: process.env.TEMP, TMP: process.env.TMP },
+            profile: { SystemRoot: S, USERPROFILE: process.env.USERPROFILE, LOCALAPPDATA: process.env.LOCALAPPDATA, APPDATA: process.env.APPDATA },
+            path: { SystemRoot: S, windir: process.env.windir, PATH: process.env.PATH, PATHEXT: process.env.PATHEXT, ComSpec: process.env.ComSpec },
+          };
+          const asyncRun = (args, opts) => new Promise((done) => {
+            const c = spawn(engine.bin, args, { stdio: ["pipe", "pipe", "pipe"], ...opts });
+            let out = "", err = "";
+            c.stdout.on("data", (b) => (out += b));
+            c.stderr.on("data", (b) => (err += b));
+            c.on("error", (e) => done({ status: -1, stdout: out, stderr: e.message }));
+            c.on("close", (status) => done({ status, stdout: out, stderr: err }));
+            c.stdin.end("hi\n");
+          });
+          const show = (label, r) => console.log(`${label}: exit ${r.status} stdout ${JSON.stringify(r.stdout)} stderr ${JSON.stringify((r.stderr || "").slice(0, 200))}`);
+          for (const sealed of [false, true]) {
             const folder = stageRunFolder();
             const src = join(folder.dir, "src");
             mkdirSync(src, { recursive: true });
             writeFileSync(join(src, "main.txt"), "x");
-            const real = wasiArgs({ engine, toolchain, src, run: "/work/src/main.txt", memoryMb: 256, timeMs: 5000 });
-            const minimal = ["run", "--allow-precompiled", "-C", "cache=n", "-W", "timeout=5s", "--dir", `${src}::/work/src`, engine.compiled];
-            const go = (what, args) => {
-              const r = spawnSync(engine.bin, args, { input: "hi\n", env: { SystemRoot: process.env.SystemRoot }, encoding: "utf8" });
-              console.log(`${label} ${what}: exit ${r.status} stdout ${JSON.stringify(r.stdout)} stderr ${JSON.stringify((r.stderr || "").slice(0, 300))}`);
-            };
-            console.log(`${label} src = ${src}`);
-            go("unsealed, real args", real);
-            go("unsealed, minimal args", minimal);
-            sealReadOnly(folder.dir);
-            console.log(spawnSync(join(process.env.SystemRoot, "System32", "icacls.exe"), [src], { encoding: "utf8" }).stdout);
-            go("sealed, real args", real);
-            go("sealed, minimal args", minimal);
-            for (const drop of ["-S", "-W max-memories"]) {
-              const i = real.findIndex((a, k) => (drop === "-S" ? a === "-S" : a === "-W" && real[k + 1].startsWith("max-memories")));
-              go(`sealed, real args without ${drop}`, [...real.slice(0, i), ...real.slice(i + 2)]);
-            }
-            unseal(folder.dir);
-            folder.remove();
+            if (sealed) sealReadOnly(folder.dir);
+            const args = wasiArgs({ engine, toolchain, src, run: "/work/src/main.txt", memoryMb: 256, timeMs: 5000 });
+            const tag = sealed ? "sealed" : "unsealed";
+            show(`${tag} spawnSync sys`, spawnSync(engine.bin, args, { input: "hi\n", env: envs.sys, encoding: "utf8" }));
+            show(`${tag} spawnSync sys windowsHide`, spawnSync(engine.bin, args, { input: "hi\n", env: envs.sys, encoding: "utf8", windowsHide: true }));
+            for (const [name, env] of Object.entries(envs)) show(`${tag} spawn ${name}`, await asyncRun(args, { env }));
+            show(`${tag} spawn sys windowsHide`, await asyncRun(args, { env: envs.sys, windowsHide: true }));
+            const r = await startWasi({ engine, toolchain, src, run: "/work/src/main.txt", memoryMb: 256, timeMs: 5000, input: Buffer.from("hi\n"), outputCap: 1 << 20 }).done;
+            show(`${tag} startWasi`, { status: r.exit, stdout: r.stdout.toString(), stderr: r.stderr });
           }
           JS
           node diag.mjs
