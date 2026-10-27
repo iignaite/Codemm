@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0-beta.8
+
+- **Practice without Docker now sets itself up.** Your agent looks up the WebAssembly build of the language on its release page, instead of guessing a link, so the setup for a computer without Docker works. Tested with Claude Code and Codex: each set up Python with Docker hidden and wrote activities that grade correctly.
+- **Claude Code can search the web while it researches your course.** Its web tools were offered but never approved before.
+- **Language builds packed as .zip unpack on Linux too.**
+- **A crash during setup leaves nothing behind.** A half-installed language build is cleaned up the next time.
+
 ## 1.0.0-beta.7
 
 - **Practice without Docker.** On a computer where Docker can't be installed, such as a school computer without admin rights, Codemm can still run your code: programs that read input and print output, in languages that need no compile step, like Python. The app includes [wasmtime](https://wasmtime.dev), which runs a WebAssembly build of the language as your own user, with no admin rights and no network. Your agent picks the language build, and Codemm downloads and checks it once you agree.
