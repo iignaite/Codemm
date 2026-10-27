@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { CodemmError, infraError } from "./errors.js";
 import { type FileMap, writeFileMap } from "./files.js";
@@ -6,6 +7,7 @@ import {
 } from "./grading.js";
 import { stageRunFolder } from "./runs.js";
 import { BUSY_HELP, OUTPUT_CAP, lostRun, runtimeDown, startRefusal, startSandboxed } from "./sandbox.js";
+import { prepareWasi, removeSealed, sealReadOnly, startWasi } from "./wasi.js";
 
 /**
  * A WASI track's toolchain as the judge runs it (DESIGN §4.5): `root` is its folder under
@@ -175,9 +177,47 @@ async function runDriver(
   }
 }
 
+/**
+ * IO_DRIVER on the WASI engine (DESIGN §4.5): after the checks before the set, the learner's files are sealed
+ * read-only, then each case is its own wasmtime process, with its input piped to stdin (tests are never mapped),
+ * framed as IO_DRIVER frames it into the same reader, so grading, progress, digests and disclosure are unchanged.
+ * The host writes every frame, so a program can't forge one. A case that timed out or printed more than
+ * CASE_OUTPUT_BYTES is framed with 137, as the watchdog's kill is.
+ */
+async function runWasiCases(
+  track: JudgeTrack, wasi: WasiToolchain, src: FileMap, inputs: FileMap, timeMs: number, stopAtError: boolean | undefined, onFrame?: (f: Frame) => void,
+): Promise<{ frames: Frame[]; flooded: boolean; outOfMemory?: boolean; memoryKill?: boolean }> {
+  const engine = await prepareWasi(wasi);
+  const files = Object.keys(inputs).filter((p) => p.endsWith(".in") && !p.includes("/")).sort();
+  const reader = new FrameReader(onFrame, 3 * files.length + 8);
+  const folder = stageRunFolder();
+  try {
+    const dir = join(folder.dir, "src");
+    mkdirSync(dir, { recursive: true });
+    writeFileMap(dir, src);
+    sealReadOnly(folder.dir);
+    for (const file of files) {
+      const name = file.slice(0, -".in".length);
+      const run = { engine, toolchain: wasi, src: dir, run: track.run!, memoryMb: track.limits.memory_mb, timeMs };
+      const r = await startWasi({ ...run, input: Buffer.from(inputs[file]!), outputCap: CASE_OUTPUT_BYTES }).done;
+      const exit = r.timedOut || r.flooded ? 137 : r.exit;
+      const emit = (kind: string, body: Buffer) => reader.push(Buffer.concat([Buffer.from(`\n@@codemm ${kind} ${name} ${exit} ${body.length}\n`), body]));
+      emit(r.flooded ? "big" : "case", r.flooded ? Buffer.alloc(0) : r.stdout);
+      emit("stderr", Buffer.from(r.stderr));
+      if (r.timedOut) emit("timeout", Buffer.alloc(0));
+      if (stopAtError && exit !== 0) break;
+    }
+    return { frames: reader.frames, flooded: false };
+  } finally {
+    removeSealed(folder);
+  }
+}
+
 /** Runs one io test set. `inputs` holds `NN.in` files. Case names come back as `<set>/NN`. */
 export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, inputs: FileMap, opts: RunOptions = {}): Promise<IoRun> {
   if (!track.run) throw new CodemmError("This track has no run command, so it can't run io exercises.");
+  if (track.wasi && track.build) throw new CodemmError("A WASI track has no build: it runs interpreted languages only (DESIGN §4.5).");
+  if (track.wasi && Object.keys(inputs).some((p) => p.endsWith(".gen"))) throw new CodemmError("A WASI track's tests can't have input generators (NN.gen needs sh); write NN.in inputs instead.");
   const timeMs = opts.timeMs ?? track.limits.time_ms;
   const generated = Object.keys(inputs).filter((p) => p.endsWith(".gen")).length;
   const caseCount = Object.keys(inputs).filter((p) => p.endsWith(".in")).length + generated;
@@ -190,7 +230,9 @@ export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, input
   const outputCap = OUTPUT_CAP + caseCount * (CASE_OUTPUT_BYTES + 8192);
   const progress = (opts.onProgress || opts.onCase) ? frameProgress(opts.onProgress ?? (() => undefined), opts.onCase) : undefined;
   // The driver frames at most a build, a fatal and three per case (output, stderr, timeout).
-  const { frames, flooded, outOfMemory, memoryKill } = await runDriver(track, IO_DRIVER, env, src, inputs, deadline, outputCap, 3 * caseCount + 8, progress);
+  const { frames, flooded, outOfMemory, memoryKill } = track.wasi
+    ? await runWasiCases(track, track.wasi, src, inputs, timeMs, opts.stopAtError, progress)
+    : await runDriver(track, IO_DRIVER, env, src, inputs, deadline, outputCap, 3 * caseCount + 8, progress);
 
   const buildFrame = frames.find((f) => f.kind === "build");
   const stderrOf = new Map(frames.filter((f) => f.kind === "stderr").map((f) => [f.name, f.body]));
@@ -207,6 +249,7 @@ export async function runIo(track: JudgeTrack, set: TestSet, src: FileMap, input
 
 /** Runs one unit test set: the track's `test` command against `tests`. */
 export async function runUnit(track: JudgeTrack, src: FileMap, tests: FileMap, opts: RunOptions = {}): Promise<UnitRun> {
+  if (track.wasi) throw new CodemmError("A WASI track runs io exercises only, not unit tests (DESIGN §4.5).");
   if (!track.test) throw new CodemmError("This track has no test command, so it can't run unit exercises.");
   const timeMs = opts.timeMs ?? track.limits.time_ms;
   const deadline = opts.deadlineMs ?? timeMs + SLACK_MS;
