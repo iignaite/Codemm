@@ -88,6 +88,11 @@ describe('jobs (§3.2)', () => {
     expect(server).toEqual(JOBS.lesson.tools);
   });
 
+  it('lets research and setup use the web, and no other job: a WASI track names a release file only a page can show', () => {
+    const web = Object.entries(JOBS).filter(([, spec]) => spec.web).map(([kind]) => kind);
+    expect(web.sort()).toEqual(['research', 'setup']);
+  });
+
   it('is done only when its check against core records passes, never on the agent\'s word', async () => {
     const agent = fakeAgent([init, say('Saved!'), success]);
     const outcome = await runJob(job(agent.exe, { kind: 'lesson', done: () => false }));
