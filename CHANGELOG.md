@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0-beta.7
+
+- **Practice without Docker.** On a computer where Docker can't be installed, such as a school computer without admin rights, Codemm can still run your code: programs that read input and print output, in languages that need no compile step, like Python. The app includes [wasmtime](https://wasmtime.dev), which runs a WebAssembly build of the language as your own user, with no admin rights and no network. Your agent picks the language build, and Codemm downloads and checks it once you agree.
+- **The same sandbox rules without Docker.** Your code reads only its own files and the language's files, and can't write anywhere, reach the network or start other programs. Time and memory limits work as they do in Docker, and the hidden tests stay hidden.
+- **Docker works as before.** With Docker installed, nothing changes. Unit tests, compiled languages and frameworks still need Docker.
+- **Memory limits are reported more reliably.** When a program runs out of memory, Codemm now waits a moment for Docker to record it, so it's called a memory error rather than a crash.
+
 ## 1.0.0-beta.6
 
 - **You're never stuck behind an activity.** When an activity can't be written yet, Come back later moves you on: the topics after it unlock once you've read its lesson. The skipped topic still waits for you, and its own activity is the only one a skip lets you pass.
