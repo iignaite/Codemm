@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodemmError } from "../src/errors.js";
 import * as store from "../src/store.js";
-import { ensureToolchain, type Fetcher, removeTree, setToolchainFetch, systemTar, toolchainMissing } from "../src/toolchain.js";
+import { ensureToolchain, type Fetcher, setToolchainFetch, systemTar, toolchainMissing } from "../src/toolchain.js";
 import { unseal } from "../src/wasi.js";
 import { posix } from "./fake-docker.js";
 import { tempDir } from "./temp.js";
-import { removeHome } from "./toolchains.js";
+import { removeHome, removeToolchains } from "./toolchains.js";
 
 let home: string;
 beforeEach(() => {
@@ -172,7 +172,7 @@ describe("ensureToolchain", () => {
     const calls = serve({ [URL_TGZ]: moved("/cdn/python.tar.gz"), "https://example.org/cdn/python.tar.gz": () => new Response(body) });
     await ensureToolchain(spec(body));
     expect(calls).toEqual([URL_TGZ, "https://example.org/cdn/python.tar.gz"]);
-    removeTree(store.toolchainsDir());
+    removeToolchains();
     serve({ [URL_TGZ]: moved("http://example.org/python.tar.gz") });
     await expect(ensureToolchain(spec(body))).rejects.toThrow(/redirects to a link that isn't https/);
   });

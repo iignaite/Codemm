@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
@@ -12,10 +12,10 @@ import type { JudgeTrack } from "../src/judge.js";
 import * as sandbox from "../src/sandbox.js";
 import { type CourseRecord, parseRoadmapYaml, type TrackRecord } from "../src/schemas.js";
 import * as store from "../src/store.js";
-import { removeTree, setToolchainFetch } from "../src/toolchain.js";
+import { setToolchainFetch } from "../src/toolchain.js";
 import * as wasi from "../src/wasi.js";
 import { tempDir } from "./temp.js";
-import { removeHome } from "./toolchains.js";
+import { removeHome, removeToolchains } from "./toolchains.js";
 
 /**
  * WASI tracks (DESIGN §4.5) without wasmtime: the judge is stood in for by a tiny interpreter of the learner file
@@ -244,7 +244,7 @@ describe("installing a WASI track", () => {
 
   it("rebuilds by downloading the toolchain again, repairing a damaged folder, with no docker tag", async () => {
     await app.saveTrack(track(`{ url: ${URL}, module: echo.wasm }`));
-    removeTree(join(store.toolchainDir(SHA), "echo.wasm"));
+    rmSync(join(store.toolchainDir(SHA), "echo.wasm"), { force: true });
     expect(await app.rebuildTrack("echo-wasi@1")).toEqual({ rebuilt: "echo-wasi@1", exercises: 0 });
     expect(existsSync(join(store.toolchainDir(SHA), "echo.wasm"))).toBe(true);
     expect(sandbox.cli).not.toHaveBeenCalled();
@@ -261,7 +261,7 @@ describe("installing a WASI track", () => {
     const ws = tempDir("codemm-ws-");
     await app.saveRoadmap(ws, "echo", ROADMAP);
     await app.saveExercise(ws, exercise());
-    removeTree(store.toolchainsDir());
+    removeToolchains();
     await expect(app.checkExercise(ws, "echo")).rejects.toMatchObject({ kind: "image-missing" });
     const before = downloads;
     expect(await app.rebuildTrack("echo-wasi@1")).toEqual({ rebuilt: "echo-wasi@1", exercises: 1 });
