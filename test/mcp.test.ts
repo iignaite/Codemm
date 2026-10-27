@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as app from "../src/app.js";
 import { readFileMap } from "../src/files.js";
 import { parseTrackYaml } from "../src/schemas.js";
-import { createServer, parseToolList, type ServerOptions, TOOL_NAMES } from "../src/mcp.js";
+import { createServer, findEngines, needsEngines, parseToolList, type ServerOptions, TOOL_NAMES } from "../src/mcp.js";
 import * as store from "../src/store.js";
 import { fakeDocker, posix } from "./fake-docker.js";
 import { tempDir } from "./temp.js";
@@ -316,5 +316,40 @@ describe("file maps through the real MCP SDK", () => {
       expect(text).toMatch(/must be text/);
       expect(text).not.toContain("CANARY");
     }
+  });
+});
+
+describe("the engines this computer has (DESIGN §4.5)", () => {
+  const instructions = async (options: ServerOptions) => (await connect(options)).client.getInstructions();
+
+  it("tells the agent in the server instructions to write WASI tracks when no container runtime is installed", async () => {
+    expect(await instructions({ engines: { docker: false, wasi: true } })).toMatch(/This computer has no container runtime \(Docker or Podman\) installed, so write WASI tracks/);
+  });
+
+  it("says when wasmtime is missing too, and says nothing when a container runtime is installed", async () => {
+    expect(await instructions({ engines: { docker: false, wasi: false } })).toMatch(/installed and no wasmtime, so no track can run here/);
+    await client?.close();
+    expect(await instructions({ engines: { docker: true, wasi: false } })).toBeUndefined();
+    await client?.close();
+    expect(await instructions({})).toBeUndefined();
+  });
+
+  it.runIf(posix)("finds a container CLI, installed whether or not it runs, and wasmtime, without asking a daemon", () => {
+    const wasmtime = join(tempDir("codemm-fake-wasmtime-"), "wasmtime");
+    writeFileSync(wasmtime, "#!/bin/sh\necho 'wasmtime 50.0.0'\n");
+    chmodSync(wasmtime, 0o755);
+    fakeDocker("missing");
+    vi.stubEnv("CODEMM_WASMTIME", wasmtime);
+    expect(findEngines()).toEqual({ docker: false, wasi: true });
+    fakeDocker("down");
+    vi.stubEnv("CODEMM_WASMTIME", join(tempDir("codemm-no-wasmtime-"), "wasmtime"));
+    expect(findEngines()).toEqual({ docker: true, wasi: false });
+  });
+
+  it("checks engines only for a server that chooses or writes a track", () => {
+    expect(needsEngines(undefined)).toBe(true);
+    expect(needsEngines(["list_tracks", "save_track"])).toBe(true);
+    expect(needsEngines(["list_tracks", "save_roadmap"])).toBe(true);
+    expect(needsEngines(["next_step", "save_exercise"])).toBe(false);
   });
 });

@@ -46,14 +46,20 @@ A private beta is planned once the packaged app passes its macOS and Windows jou
 
 You also need:
 
-- **Docker Desktop**, running. On Windows, use the WSL 2 backend with Linux containers.
+- **Docker Desktop**, running. On Windows, use the WSL 2 backend with Linux containers. No Docker? See below.
 - **Claude Code or Codex**, installed and signed in. Cursor is experimental.
 
 The app bundles Codemm, so you don't need Node.js, npm or a terminal. The public 1.0 will be signed.
 
+### No Docker? (school or work computers)
+
+Installing Docker Desktop needs admin rights, which school and work computers often don't give. Without Docker, the desktop app can still run io practice (programs that read input and print output) in interpreted languages that have a WebAssembly (WASI) build, such as Python. It bundles [wasmtime](https://wasmtime.dev), a sandbox that runs as your own user, with no admin rights. In Check this computer, choose **Continue without Docker**.
+
+For everything else, such as unit tests, frameworks and compiled languages, ask whoever manages the computer to install Docker Desktop once ([Docker's terms](https://docs.docker.com/subscription/desktop-license/) list education among free uses), or use a computer that has Docker.
+
 ## Use from a terminal
 
-Codemm also works directly from your agent in a terminal. This needs Node.js 22 or newer and Docker, and installs from source (Codemm isn't on npm):
+Codemm also works directly from your agent in a terminal. This needs Node.js 22 or newer and Docker (or [wasmtime](https://wasmtime.dev) 50 on `PATH`, for the practice above), and installs from source (Codemm isn't on npm):
 
 ```bash
 git clone https://github.com/iignaite/Codemm.git
