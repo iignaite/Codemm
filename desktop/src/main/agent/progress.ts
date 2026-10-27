@@ -41,6 +41,8 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, track, n
   let gate: Gate | undefined;
   /** Codemm itself is working (a setup's build), not the agent. */
   let codemm = false;
+  /** What Codemm itself is doing at its stage, shown as the latest step until it moves on. */
+  let doing: JobStep | undefined;
   let failedSaves = 0;
   const open = new Set<string>();
   const saves = new Set<string>();
@@ -88,12 +90,16 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, track, n
         }
       }
     },
-    /** Codemm's own work reached a stage: a setup's build (with its steps), then its checks. */
-    reach(n: number, fraction?: JobProgress['part']) {
+    /**
+     * Codemm's own work reached a stage: a setup's build (with its steps) or a WASI track's download (`doing`), then
+     * its checks.
+     */
+    reach(n: number, fraction?: JobProgress['part'], label?: string) {
       lastEvent = now();
       codemm = true;
       stage = Math.min(n, last);
       part = fraction;
+      doing = label ? { kind: 'step', label } : undefined;
     },
     /** True while one of the job's saves runs: only then can an exercise gate be running. */
     saving: () => [...saves].some((s) => open.has(s)),
@@ -125,7 +131,7 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, track, n
         ...(concept ? { concept } : {}),
         ...(track ? { track } : {}),
         stage,
-        steps,
+        steps: doing ? [doing, ...steps].slice(0, KEPT) : steps,
         count,
         ...(retry ? { retry } : {}),
         ...(part ? { part } : {}),

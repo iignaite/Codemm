@@ -200,7 +200,7 @@ test('failure and environment screens pass WCAG AA checks', async ({ launch }) =
     await audit(page, 'connect, signed out');
     await app.close();
   }
-  for (const scenario of ['no-docker', 'docker-stopped', 'docker-starting', 'windows-containers']) {
+  for (const scenario of ['no-docker', 'no-docker-wasi', 'docker-stopped', 'docker-starting', 'windows-containers']) {
     const { app, page } = await launch(scenario);
     await connect(page);
     await expect(heading(page, 'Check this computer')).toBeVisible();

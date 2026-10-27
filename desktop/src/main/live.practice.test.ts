@@ -231,6 +231,22 @@ describe('live CodemmApi: the activity: files, Try it, Check, Run and lesson exa
     expect(t.c.runs).toEqual(['ex#1']);
   });
 
+  it("never waits for Docker on a WASI track: its setup, Try it, Check, Run, examples and rebuild run on wasmtime (core §4.5)", async () => {
+    const t = live({}, { dockerReady: () => new Promise(() => {}) });
+    t.c.wasi.add('react@1');
+    const activity = await practising(t);
+    expect((await t.api.tryIt(activity.id)).kind).not.toBe('not-counted');
+    await t.api.check(activity.id);
+    expect(t.c.checks).toEqual([activity.id]);
+    t.c.lessons.push({ id: 'ex', concept: 'values', title: 'Run it', markdown: '', notes: '', examples: [{ 'main.py': 'print(1)' }], style: 'io' });
+    expect((await t.api.runExample('ex', 1)).kind).not.toBe('not-run');
+    const run = t.api.runExampleLive('ex', 1, 'run-1');
+    await vi.waitFor(() => expect(t.c.runs).toEqual(['ex#1']));
+    await t.api.stopRun('run-1');
+    await run;
+    await t.api.rebuild('react@1');
+  });
+
   it('quitting waits for a Check that is waiting for Docker, and that Check then never runs', async () => {
     let open: () => void = () => {};
     const started = new Promise<void>((r) => (open = r));

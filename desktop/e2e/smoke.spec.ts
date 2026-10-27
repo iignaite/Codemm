@@ -88,6 +88,20 @@ test('no Docker: Install Docker, a link to do it by hand, and a re-check', async
   await app.close();
 });
 
+test('no Docker, but wasmtime runs: practice goes on without it, and installing Docker stays an option (core §4.5)', async ({ launch }) => {
+  const { app, page } = await launch('no-docker-wasi');
+  // Docker isn't something missing here: Welcome's way in is connecting an agent.
+  await expect(page.getByRole('button', { name: "Install what's missing", exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Connect an agent', exact: true }).click();
+  await page.getByRole('listitem', { name: 'Claude Code' }).getByRole('button', { name: 'Connect' }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByText('Codemm can run practice on this computer without Docker, for programs that read input and print output. For everything else, install Docker.')).toBeVisible();
+  await expect(page.getByRole('listitem', { name: 'Docker is installed' }).getByRole('button', { name: 'Install Docker', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'What do you want to learn?' })).toBeVisible();
+  await app.close();
+});
+
 // D2: the window is the app's own origin under the spec's CSP, with no Node, no remote requests,
 // no frames, no navigation and no new windows.
 test('renderer security', async ({ launch }) => {

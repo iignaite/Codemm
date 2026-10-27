@@ -101,6 +101,18 @@ describe('install what is missing', () => {
     expect(screen.queryByRole('listitem', { name: 'Agent' })).not.toBeInTheDocument();
   });
 
+  it("doesn't count Docker as missing when practice can run without it (core §4.5)", async () => {
+    renderApp({ to: 'welcome' }, createMock({ docker: 'missing', wasi: true, platform: 'mac' }));
+    expect(await screen.findByRole('button', { name: 'Connect an agent' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: "Install what's missing" })).not.toBeInTheDocument();
+  });
+
+  it('installs only the agent when practice can run without Docker', async () => {
+    renderApp({ to: 'setup' }, createMock({ ...scenario('nothing-installed'), wasi: true, platform: 'mac' }));
+    expect(await screen.findByRole('listitem', { name: 'Agent' })).toBeInTheDocument();
+    expect(screen.queryByRole('listitem', { name: 'Docker Desktop' })).not.toBeInTheDocument();
+  });
+
   it('keeps the usual way in when nothing is missing', async () => {
     renderApp({ to: 'welcome' }, mac(''));
     expect(await screen.findByRole('button', { name: 'Connect an agent' })).toBeInTheDocument();

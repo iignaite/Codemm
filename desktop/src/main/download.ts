@@ -25,6 +25,8 @@ const MAX_BYTES = 2 * 1024 ** 3;
 /** No bytes for this long means the network is gone, however big the download. */
 const IDLE_MS = 60_000;
 const LEFT = 'The download left the vendor’s site.';
+/** Statuses whose response has no body, which fetch's Response refuses one for. */
+const NULL_BODY = new Set([204, 205, 304]);
 /** Not Electron's browser user agent: cursor.com answers a browser with a web page, not its install script. */
 const USER_AGENT = 'Codemm';
 /** Node's and Chromium's names for a host that can't be reached. */
@@ -115,6 +117,50 @@ export function electronGet(request: typeof net.request): Get {
       req.on('error', reject);
       // Electron's abort emits no error, so the answer is the reason it was aborted.
       signal.addEventListener('abort', () => (reject(signal.reason), req.abort()), { once: true });
+      req.end();
+    });
+}
+
+/**
+ * Core's toolchain download (core §4.5) over Electron's network stack, shaped as the `fetch` core takes: a redirect
+ * comes back unfollowed, as a 3xx with its location, for core to check each hop. Electron's own net.fetch can't do
+ * that: with redirect "manual" it fails ("Redirect was cancelled").
+ */
+export function electronFetch(request: typeof net.request) {
+  return (url: string, { signal }: { redirect: 'manual'; signal: AbortSignal }): Promise<Response> =>
+    new Promise((resolve, reject) => {
+      if (signal.aborted) return reject(signal.reason);
+      const req = request({ url, redirect: 'manual' });
+      req.setHeader('User-Agent', USER_AGENT);
+      let body: Readable | undefined;
+      req.on('redirect', (status, _method, next) => {
+        resolve(new Response(null, { status, headers: { location: next } }));
+        req.abort();
+      });
+      req.on('response', (res) => {
+        // Never a throw from Electron's callback in the main process: what fetch can't build fails this request.
+        try {
+          body = res as unknown as Readable;
+          if (res.statusCode < 200 || res.statusCode > 599) throw new Error(`The server answered with status ${res.statusCode}.`);
+          // Header bytes arrive as UTF-8 text; fetch's headers hold bytes, as Electron's own net.fetch passes them.
+          const headers = new Headers();
+          for (const [name, value] of Object.entries(res.headers)) for (const v of [value].flat()) headers.append(name, Buffer.from(v, 'utf8').toString('latin1'));
+          if (NULL_BODY.has(res.statusCode)) {
+            resolve(new Response(null, { status: res.statusCode, headers }));
+            req.abort();
+            return;
+          }
+          // A body core stops reading (a headers-only check, a refused answer) stops the request too.
+          body.once('close', () => body?.readableEnded || req.abort());
+          resolve(new Response(Readable.toWeb(body) as ReadableStream, { status: res.statusCode, headers }));
+        } catch (e) {
+          reject(e);
+          req.abort();
+        }
+      });
+      req.on('error', reject);
+      // Electron's abort ends a started body without an error: fail it with the reason, so a short file never reads as whole.
+      signal.addEventListener('abort', () => (reject(signal.reason), body?.destroy(signal.reason), req.abort()), { once: true });
       req.end();
     });
 }

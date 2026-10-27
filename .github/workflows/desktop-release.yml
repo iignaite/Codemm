@@ -124,6 +124,16 @@ jobs:
             export CODEMM_PACKAGED="$PWD/release/win-unpacked/Codemm.exe" CODEMM_RESOURCES="$PWD/release/win-unpacked/resources"
           fi
           npm run test:packaged
+      # Each Mac app carries its own chip's wasmtime (scripts/fetch-wasmtime.mjs, fetched by npm run dist), signed with it.
+      - name: Check each Mac app's wasmtime
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          for app in release/mac*/Codemm.app; do
+            wasmtime="$app/Contents/Resources/wasmtime/wasmtime"
+            [ "$(lipo -archs "$app/Contents/MacOS/Codemm")" = "$(lipo -archs "$wasmtime")" ] || { echo "$app carries another chip's wasmtime."; exit 1; }
+            codesign --verify --strict --verbose=2 "$wasmtime"
+          done
       # D21: a stable release must be signed. Gatekeeper accepts only a notarized Developer ID app.
       - name: Verify the Mac signature and notarization (stable tags)
         if: needs.tag.outputs.prerelease != 'true' && runner.os == 'macOS'

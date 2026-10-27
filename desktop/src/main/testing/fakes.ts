@@ -57,7 +57,9 @@ export function fakeCore() {
       this.active = r?.course;
     },
     tracks: [] as string[],
-    proposals: [] as { track: string; digest: string; created: string; files: Record<string, string> }[],
+    /** Tracks on the WASI engine (core §4.5): their setup proposes a track.yaml with a wasi block and no Dockerfile. */
+    wasi: new Set<string>(),
+    proposals: [] as { track: string; digest: string; created: string; files: Record<string, string>; engine?: 'docker' | 'wasi' }[],
     lessons: [] as { id: string; concept: string; title: string; markdown: string; notes: string; examples?: Record<string, string>[]; style?: 'io' | 'unit' }[],
     reads: new Set<string>(),
     exercises: new Map<string, { concept: string; file: string; digest: string; created: string; difficulty?: number }>(),
@@ -120,7 +122,7 @@ export function fakeCore() {
     runtimeState: async () => 'ready',
     readWorkspace: () => ({ course: c.roadmap?.course, current: c.current }),
     hiddenMaterial: () => [CANARY, 'printf("CANARY-MUTANT-LINE %d", count + 2);', 'CANARY-HIDDEN-INPUT-LINE with enough length', 'CANARY-EXPECTED-OUTPUT-LINE 42'],
-    listTracks: () => c.tracks.map((track) => ({ track, styles: ['io'], files: ['main.c'] })),
+    listTracks: () => c.tracks.map((track) => ({ track, styles: ['io'], files: ['main.c'], engine: c.wasi.has(track) ? 'wasi' : 'docker' })),
     cleanupLeftovers: async () => void c.cleanups++,
     rebuildTrack: async () => ({}),
     saveRoadmap: async (_ws, course, yaml) => {
@@ -255,7 +257,11 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
     setup: (job) => {
       // Proposes the track the brief names.
       const track = /Propose exactly the track `([^`]+)`/.exec(job.brief)?.[1] ?? 'react@1';
-      c.proposals.push({ track, digest: (track === 'react@1' ? 'a' : 'b').repeat(64), created: new Date().toISOString(), files: { Dockerfile: 'FROM node:22', 'track.yaml': `id: ${track.split('@')[0]}` } });
+      const id = `id: ${track.split('@')[0]}`;
+      const wasi = c.wasi.has(track);
+      // Core names the engine; a WASI proposal here even carries a Dockerfile, so the desktop can't guess from the files.
+      const files = { Dockerfile: 'FROM node:22', 'track.yaml': wasi ? `${id}\nwasi:\n  module: python.wasm` : id };
+      c.proposals.push({ track, digest: (track === 'react@1' ? 'a' : 'b').repeat(64), created: new Date().toISOString(), files, engine: wasi ? 'wasi' : 'docker' });
       return {};
     },
     lesson: (job) => {

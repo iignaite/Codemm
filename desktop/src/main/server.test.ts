@@ -20,4 +20,9 @@ describe("the Codemm server an agent job starts (§2, §4.6)", () => {
     expect(server.env).toEqual({ ELECTRON_RUN_AS_NODE: '1', CODEMM_HOME: '/data/codemm', PATH: '/usr/bin:/Applications/Docker.app/Contents/Resources/bin' });
     expect(server.args).not.toContain('--course');
   });
+
+  it("passes on the app's bundled wasmtime, so the agent's server runs WASI tracks' gates with it (core §4.5)", () => {
+    const server = codemmServer({ runtime: '/App/Codemm', coreDir: '/App/core', ws: '/ws', env: { CODEMM_WASMTIME: '/App/wasmtime/wasmtime', SECRET_TOKEN: 'x' } })('c1', ['save_track']);
+    expect(server.env).toEqual({ ELECTRON_RUN_AS_NODE: '1', CODEMM_WASMTIME: '/App/wasmtime/wasmtime' });
+  });
 });

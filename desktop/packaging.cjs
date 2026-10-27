@@ -30,6 +30,9 @@ function packaging(env, platform = process.platform) {
       { from: 'src/renderer/assets/fonts', to: 'fonts', filter: ['OFL-*.txt'] },
       // So do the MIT, ISC and other notices of what the renderer bundles (mermaid among it): vite writes them here.
       { from: 'out/renderer/licenses.md', to: 'licenses.md' },
+      // The WASI engine's wasmtime for this installer's own chip, and its Apache-2.0 license (scripts/fetch-wasmtime.mjs).
+      // electron-builder signs it with the app, with build/entitlements.mac.inherit.plist, which wasmtime needs to run compiled code.
+      { from: 'vendor/wasmtime/${os}-${arch}', to: 'wasmtime' },
     ],
     // Auto-update reads GitHub Releases (DESIGN §7.2): the app-update.yml in the app names this repository, and
     // the release workflow attaches the latest*.yml feeds to its draft. The build itself never publishes.

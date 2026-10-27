@@ -95,8 +95,13 @@ export interface CoreApp {
   readWorkspace(ws: string): { course?: string; current?: string };
   /** An exercise's solution, mutants, hidden tests and hidden expected outputs, for the reply filter only. */
   hiddenMaterial(course: string, slug: string): string[];
-  /** `track` is `id@version`. */
-  listTracks(): { track: string; styles: string[]; files: string[] }[];
+  /**
+   * core toolchain.ts: the fetch a WASI track's toolchain downloads with (core §4.5). Redirects come back unfollowed,
+   * for core to check each hop. Optional until the core that has it is bundled.
+   */
+  setToolchainFetch?(fetcher?: (url: string, init: { redirect: 'manual'; signal: AbortSignal }) => Promise<Response>): void;
+  /** `track` is `id@version`; `engine` is what runs its code: Docker, or wasmtime for a WASI track (core §4.5). */
+  listTracks(): { track: string; styles: string[]; files: string[]; engine?: 'docker' | 'wasi' }[];
   rebuildTrack(ref: string): Promise<unknown>;
   saveRoadmap(ws: string, course: string, yaml: string, bound?: string): Promise<{ course: string }>;
   progress(ws: string, bound?: string): CoreProgress;
@@ -108,7 +113,8 @@ export interface CoreApp {
   skip(ws: string, concept: string, bound?: string): Promise<void>;
   assertRuntime(): Promise<void>;
   getRoadmap(ws: string, bound?: string): CoreRoadmap;
-  listProposals(): { track: string; digest: string; created: string; files: Record<string, string> }[];
+  /** `engine`: core reads it from the proposal's track.yaml (core §4.5); the desktop never works it out. */
+  listProposals(): { track: string; digest: string; created: string; files: Record<string, string>; engine?: 'docker' | 'wasi' }[];
   /**
    * `onProgress` hears each build step as counts, or a WASI track's toolchain downloading, then the probes: never the
    * build's output (core §4.4, §4.5).

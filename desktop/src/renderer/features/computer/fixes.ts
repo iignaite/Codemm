@@ -11,6 +11,9 @@ export const CHECK_NAMES: Record<CheckId, string> = {
   sandbox: 'The sandbox works',
 };
 
+/** Docker isn't ready, but practice runs on the WASI engine (core §4.5): the learner can go on, and Docker stays an option. */
+export const WITHOUT_DOCKER = 'Codemm can run practice on this computer without Docker, for programs that read input and print output. For everything else, install Docker.';
+
 /** Said while a check needs a step. Never the learner's fault. */
 export const NOT_YET: Record<CheckId, string> = {
   'docker-installed': "Docker isn't installed yet.",

@@ -7,7 +7,7 @@ import { timing, useLoad } from '../../app/useLoad';
 import { Button } from '../../ui/Button';
 import { Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
-import { CHECK_NAMES, DETAILS, FIXES, INSTALL, NOT_YET, REASON, WSL_STEP } from './fixes';
+import { CHECK_NAMES, DETAILS, FIXES, INSTALL, NOT_YET, REASON, WITHOUT_DOCKER, WSL_STEP } from './fixes';
 import { DockerProgress } from './DockerProgress';
 import { ExternalLink } from '../../ui/ExternalLink';
 
@@ -76,15 +76,17 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
   if (error) return <Failed error={error} retry={reload} />;
   if (!data || (data.ready && !hadStep.current)) return null;
   const problem = data.checks.find((c) => c.state === 'problem');
+  // Docker isn't ready, but practice runs without it: the learner can go on, and installing Docker stays an option.
+  const withoutDocker = !data.ready && data.wasi;
   return (
     <main className="center">
       <div className="stack" style={{ width: 620, gap: 22 }}>
         <h1 className="h1 a-up">Check this computer</h1>
-        <p className="sub a-up" style={stagger(1)}>Codemm runs your code in Docker, on this computer.</p>
+        <p className="sub a-up" style={stagger(1)}>{withoutDocker ? WITHOUT_DOCKER : 'Codemm runs your code in Docker, on this computer.'}</p>
         <ul className="stack plain" ref={list} onFocus={() => (focusInList.current = true)}>
           {data.checks.map((c, i) => (
             <CheckItem
-              key={c.id} check={c} computer={data} index={i}
+              key={c.id} check={c} computer={data} index={i} optional={Boolean(withoutDocker)}
               onInstall={() => act(() => api.installDocker())} onOpen={() => act(() => api.openDocker())} onUpdateWindows={() => act(() => api.openWindowsUpdate())}
               onRestart={() => act(() => api.restartWindows())}
             />
@@ -95,11 +97,16 @@ export function Computer({ then, fromConnect = false }: { then: Route; fromConne
             ? 'This computer is ready.'
             : installing(data)
               ? ''
-              : `${problem ? `${problem.reason ? REASON.notYet[problem.reason.kind] : problem.detail ? DETAILS[problem.detail].notYet : NOT_YET[problem.id]} ` : ''}Checking again every few seconds.`}
+              : `${problem && !withoutDocker ? `${problem.reason ? REASON.notYet[problem.reason.kind] : problem.detail ? DETAILS[problem.detail].notYet : NOT_YET[problem.id]} ` : ''}Checking again every few seconds.`}
         </p>
         <div className="actions">
           {data.ready ? (
             <Button ref={action} size="lg" onClick={() => go(then)}>Continue</Button>
+          ) : withoutDocker ? (
+            <>
+              <Button ref={action} size="lg" onClick={() => go(then)}>Continue</Button>
+              <Button variant="ghost" size="lg" onClick={recheck}>Check now</Button>
+            </>
           ) : (
             <>
               <Button ref={action} variant="ghost" size="lg" onClick={recheck}>Check now</Button>
@@ -122,13 +129,15 @@ interface ItemProps {
   check: ComputerCheck;
   computer: ComputerView;
   index: number;
+  /** Practice runs without Docker here: its step reads as optional, and Continue stays the one primary action. */
+  optional: boolean;
   onInstall: () => void;
   onOpen: () => void;
   onUpdateWindows: () => void;
   onRestart: () => void;
 }
 
-function CheckItem({ check, computer, index, onInstall, onOpen, onUpdateWindows, onRestart }: ItemProps) {
+function CheckItem({ check, computer, index, optional, onInstall, onOpen, onUpdateWindows, onRestart }: ItemProps) {
   const name = CHECK_NAMES[check.id];
   const platform = computer.platform;
   // Right after Codemm installed Docker, its first start asks the learner to accept Docker's terms.
@@ -147,19 +156,20 @@ function CheckItem({ check, computer, index, onInstall, onOpen, onUpdateWindows,
   // A stop of Docker's own install belongs to the installed row: the WSL row shows only WSL's.
   const install = wslStep && computer.install?.problem && !WSL_PROBLEMS.has(computer.install.problem) ? undefined : computer.install;
   const busy = Boolean(offerInstall && installing(computer));
+  const action = optional ? 'ghost' : 'primary';
   return (
     <li className={`card check a-up${check.state === 'ok' ? ' on' : ''}`} style={stagger(index + 2)} aria-label={name}>
       <div className="check-head">
         {check.state === 'ok' && <Status kind="ok" size={24} />}
-        {check.state === 'problem' && (busy ? <Status kind="run" size={24} /> : <Status kind="fail" size={24} label="Needs a step" />)}
+        {check.state === 'problem' && (busy ? <Status kind="run" size={24} /> : optional ? <span className="ico wait" aria-hidden="true" /> : <Status kind="fail" size={24} label="Needs a step" />)}
         {check.state === 'waiting' && <span className="ico wait" aria-hidden="true" />}
         <b>{name}</b>
         {/* Installing, Emm's fill says what's happening: no state word beside it. */}
-        {!busy && <span className={`check-state ${check.state}`}>{STATE_TEXT[check.state]}</span>}
+        {!busy && (check.state === 'problem' && optional ? <span className="check-state waiting">Optional</span> : <span className={`check-state ${check.state}`}>{STATE_TEXT[check.state]}</span>)}
       </div>
       {offerInstall && fix ? (
         <InstallDocker
-          install={install} platform={platform} manual={fix.link} onInstall={onInstall} onUpdateWindows={onUpdateWindows} onRestart={onRestart}
+          install={install} platform={platform} manual={fix.link} action={action} onInstall={onInstall} onUpdateWindows={onUpdateWindows} onRestart={onRestart}
           {...(wslStep ? { wsl: { label: wslStep, steps: fix.steps } } : {})}
         />
       ) : (
@@ -167,8 +177,8 @@ function CheckItem({ check, computer, index, onInstall, onOpen, onUpdateWindows,
           <div className="fix">
             <ol>{fix.steps.map((s) => <li key={s}>{s}</li>)}</ol>
             <div className="actions">
-              {offerOpen && <Button onClick={onOpen}>Open Docker Desktop</Button>}
-              {offerRestart && <Button onClick={onRestart}>Restart now</Button>}
+              {offerOpen && <Button variant={action} onClick={onOpen}>Open Docker Desktop</Button>}
+              {offerRestart && <Button variant={action} onClick={onRestart}>Restart now</Button>}
               {fix.link && <ExternalLink className="btn ghost" href={fix.link.url}>{fix.link.label}</ExternalLink>}
             </div>
           </div>
@@ -184,13 +194,15 @@ interface InstallProps {
   manual?: { label: string; url: string };
   /** WSL's setup alone, with its step and button, where Docker Desktop is already installed. */
   wsl?: { label: string; steps: string[] };
+  /** The install button's look: secondary when practice runs without Docker. */
+  action: 'primary' | 'ghost';
   onInstall: () => void;
   onUpdateWindows: () => void;
   onRestart: () => void;
 }
 
 /** Codemm installs Docker Desktop from Docker, checked, with Docker's own window for its terms (§6.1). */
-function InstallDocker({ install, platform, manual, wsl, onInstall, onUpdateWindows, onRestart }: InstallProps) {
+function InstallDocker({ install, platform, manual, wsl, action, onInstall, onUpdateWindows, onRestart }: InstallProps) {
   if (install && install.phase !== 'failed') {
     return (
       <div className="fix install">
@@ -204,9 +216,9 @@ function InstallDocker({ install, platform, manual, wsl, onInstall, onUpdateWind
       {wsl && !problem && <ol>{wsl.steps.map((s) => <li key={s}>{s}</li>)}</ol>}
       {problem && <p className="alert" role="alert">{INSTALL.problem[problem]}</p>}
       <div className="actions">
-        {problem === 'windows-version' && <Button onClick={onUpdateWindows}>Open Windows Update</Button>}
-        {problem === 'restart' && <Button onClick={onRestart}>Restart now</Button>}
-        {(!problem || INSTALL.retry.has(problem)) && <Button onClick={onInstall}>{problem ? 'Try again' : wsl ? wsl.label : 'Install Docker'}</Button>}
+        {problem === 'windows-version' && <Button variant={action} onClick={onUpdateWindows}>Open Windows Update</Button>}
+        {problem === 'restart' && <Button variant={action} onClick={onRestart}>Restart now</Button>}
+        {(!problem || INSTALL.retry.has(problem)) && <Button variant={action} onClick={onInstall}>{problem ? 'Try again' : wsl ? wsl.label : 'Install Docker'}</Button>}
         {manual && <ExternalLink className="btn ghost" href={manual.url}>{wsl ? manual.label : 'Install it myself'}</ExternalLink>}
       </div>
       {!wsl && (
