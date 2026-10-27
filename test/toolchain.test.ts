@@ -40,8 +40,11 @@ function archive(files: Record<string, string>, extra?: (dir: string) => void): 
   return new Uint8Array(readFileSync(out));
 }
 
-/** A zip of `files`, stored uncompressed. Written here, since Linux's tar (GNU tar) can't make one. */
-function zip(files: Record<string, string>): Uint8Array<ArrayBuffer> {
+/**
+ * A zip of `files`, stored uncompressed. Written here, since Linux's tar (GNU tar) can't make one. `encrypted` only
+ * flags each entry as encrypted, which is enough for a tool to want a password before it reads one.
+ */
+function zip(files: Record<string, string>, encrypted = false): Uint8Array<ArrayBuffer> {
   const local: Buffer[] = [];
   const central: Buffer[] = [];
   let offset = 0;
@@ -51,6 +54,7 @@ function zip(files: Record<string, string>): Uint8Array<ArrayBuffer> {
     const head = Buffer.alloc(30);
     head.writeUInt32LE(0x04034b50, 0);
     head.writeUInt16LE(20, 4);
+    head.writeUInt16LE(encrypted ? 1 : 0, 6);
     head.writeUInt16LE(0x21, 12); // 1980-01-01
     head.writeUInt32LE(crc32(data), 14);
     head.writeUInt32LE(data.length, 18);
@@ -124,13 +128,24 @@ describe("ensureToolchain", () => {
     expect(new Uint8Array(readFileSync(join(root, "run.wasm")))).toEqual(body);
   });
 
-  it.runIf(unzips())("unpacks a zip, on Linux too", async () => {
+  // CI requires the WASI engine's tools, so a Linux runner without bsdtar or unzip fails here rather than skipping.
+  it.runIf(unzips() || process.env.CODEMM_REQUIRE_WASMTIME === "1")("unpacks a zip, on Linux too", async () => {
     const body = zip(TOOLCHAIN);
     const url = "https://example.org/python.zip";
     serve({ [url]: () => new Response(body) });
     const { root } = await ensureToolchain(spec(body, url));
     expect(readFileSync(join(root, "lib", "python3", "re.py"), "utf8")).toBe("# re\n");
   });
+
+  it.runIf(unzips())("refuses an encrypted zip as the track's problem, without waiting at the terminal for a password", async () => {
+    const body = zip(TOOLCHAIN, true);
+    const url = "https://example.org/python.zip";
+    serve({ [url]: () => new Response(body) });
+    const install = ensureToolchain(spec(body, url));
+    await expect(install).rejects.toThrow(/didn't unpack/);
+    await expect(install).rejects.toSatisfy((e: CodemmError) => e.code === undefined);
+    expect(stored().filter((n) => !n.endsWith(".lock"))).toEqual([]);
+  }, 20_000);
 
   it("reuses a folder already stored for that digest, without downloading", async () => {
     const body = archive(TOOLCHAIN);
@@ -296,9 +311,10 @@ describe("unpacker", () => {
   const only = (bin: string) => (path: string) => path === bin;
 
   it("unpacks with the system tar, which reads zip too on macOS and Windows", () => {
-    expect(unpacker("a.download", "out", false, "linux", () => false)).toEqual([systemTar(), ["-xf", "a.download", "-C", "out"]]);
-    expect(unpacker("a.download", "out", true, "darwin", () => false)).toEqual([systemTar(), ["-xf", "a.download", "-C", "out"]]);
-    expect(unpacker("a.download", "out", true, "win32", () => false)).toEqual([systemTar(), ["-xf", "a.download", "-C", "out"]]);
+    expect(unpacker("a.download", "out", false, "linux", () => false)).toEqual(["/usr/bin/tar", ["-xf", "a.download", "-C", "out"]]);
+    expect(unpacker("a.download", "out", true, "darwin", () => false)).toEqual(["/usr/bin/tar", ["-xf", "a.download", "-C", "out"]]);
+    expect(unpacker("a.download", "out", true, "win32", () => false)).toEqual([systemTar("win32"), ["-xf", "a.download", "-C", "out"]]);
+    expect(systemTar("win32")).toMatch(/System32[\\/]tar\.exe$/);
   });
 
   it("unpacks a zip on Linux, whose GNU tar can't read one, with bsdtar, else unzip, by absolute path", () => {
