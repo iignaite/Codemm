@@ -1,6 +1,6 @@
 // TEMPORARY: why wasmtime can't open a sealed folder from the tests on Windows. Removed once found.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "vitest";
@@ -58,6 +58,30 @@ describe.runIf(process.platform === "win32" && wasmtimeUp)("windows debug", () =
       writeFileSync(join(d, "main.txt"), "x");
       spawnSync(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "icacls.exe"), [d, "/deny", `*S-1-1-0:${ace}`]);
       variant(`ace ${ace}`, args.map((a) => (a.endsWith("::/work/src") ? `${d}::/work/src` : a)));
+    }
+    // Which entry stops reading a file: each alone and both, on a folder with sub/inner.txt, from the host and the program.
+    const nested = fixture("nested");
+    const nestedEngine = await prepareWasi(nested);
+    const icaclsExe = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "icacls.exe");
+    const entries: Record<string, string[]> = { first: ["(OI)(CI)(WD,AD,WEA,WA,DC)"], second: ["(OI)(IO)(D)"], both: ["(OI)(CI)(WD,AD,WEA,WA,DC)", "(OI)(IO)(D)"], first_no_wa: ["(OI)(CI)(WD,AD,WEA,DC)"], first_no_wea: ["(OI)(CI)(WD,AD,WA,DC)"] };
+    for (const [label, aces] of Object.entries(entries)) {
+      for (const readOnlyFile of [false, true]) {
+        const d = join(tmpdir(), `dbg-read-${process.pid}-${label}-${readOnlyFile}`, "src");
+        mkdirSync(join(d, "sub"), { recursive: true });
+        writeFileSync(join(d, "sub", "inner.txt"), "inner\n");
+        if (readOnlyFile) chmodSync(join(d, "sub", "inner.txt"), 0o444);
+        for (const ace of aces) spawnSync(icaclsExe, [d, "/deny", `*S-1-1-0:${ace}`]);
+        let host = "read";
+        try {
+          readFileSync(join(d, "sub", "inner.txt"));
+        } catch (e) {
+          host = (e as Error).message.slice(0, 80);
+        }
+        const nargs = wasiArgs({ engine: nestedEngine, toolchain: nested, src: d, run: "", memoryMb: 64, timeMs: 5000 });
+        const g = spawnSync(nestedEngine.bin, nargs, { env: { SystemRoot: process.env.SystemRoot }, encoding: "utf8" });
+        console.log(`DBG read ${label} readOnlyFile=${readOnlyFile}: host ${host}; program ${JSON.stringify(g.stdout)} ${JSON.stringify(g.stderr.slice(0, 100))}`);
+        if (label === "both" && readOnlyFile) console.log("DBG file acl\n", spawnSync(icaclsExe, [join(d, "sub", "inner.txt")], { encoding: "utf8" }).stdout);
+      }
     }
     console.log("DBG whoami /priv\n", spawnSync("whoami", ["/priv"], { encoding: "utf8" }).stdout);
     console.log("DBG whoami /groups\n", spawnSync("whoami", ["/groups"], { encoding: "utf8" }).stdout.slice(0, 3000));
