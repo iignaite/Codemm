@@ -313,14 +313,13 @@ wasi:
 - **Nothing is writable:**
   - wasmtime's CLI maps every folder read-write (wasmtime 50 has no read-only option), so the operating system enforces it.
   - One helper in `src/wasi.ts` seals a folder's contents: files 0444, and folders 0555 on macOS and Linux.
-  - On Windows a folder's mode doesn't stop new files, and its read-only attribute stops wasmtime opening it, so folders keep their mode. Instead, each mapped folder gets two inherited deny entries from `%SystemRoot%\System32\icacls.exe`. The folder's owner needs no admin rights for either.
-    - `/deny *S-1-1-0:(OI)(CI)(WD,AD,WEA,WA,DC)` on the folder and everything under it. This blocks creating files and folders, writing, and deleting children.
-    - `/deny *S-1-1-0:(OI)(IO)(D)` on files only. Without it, a file's own DELETE right would let it be deleted.
-  - Why the rights are named one by one, and why folders keep DELETE:
-    - The shorthand `W` also denies `SYNCHRONIZE` and `READ_CONTROL`, which every open asks for.
-    - wasmtime asks for `DELETE` when it opens a folder.
-    - Either would stop wasmtime opening the folder at all. CI tests each right on its own, without admin privileges.
-  - What's left: a folder that was already empty can be deleted. A folder can't be renamed (renaming needs `AD` on the destination), and a folder holding files can't be emptied.
+  - On Windows a folder's mode doesn't stop new files, and its read-only attribute stops wasmtime opening it, so folders keep their mode. Instead, each mapped folder gets one inherited deny entry: `%SystemRoot%\System32\icacls.exe <dir> /deny *S-1-1-0:(OI)(CI)(WD,AD,WEA,WA,DC)`. This blocks creating files and folders, writing, changing attributes, and deleting children. The folder's owner needs no admin rights for it.
+  - **The rights are named one by one, and `DELETE` is never denied.** Each of these would stop the folder or its files opening at all:
+    - the shorthand `W`, which also denies `SYNCHRONIZE` and `READ_CONTROL`, asked for by every open;
+    - `DELETE`, which wasmtime asks for when it opens a folder, and wasmtime and Node both ask for when they open a file, even to read it.
+  - **Files still can't be deleted or renamed** without `DELETE` denied. A read-only file can't be deleted while its attributes can't be changed (`WA`), and deleting through its parent needs `DC`. A rename needs `WD` or `AD` on the destination folder.
+  - **CI proves each case on Windows without admin privileges:** create, truncate, mkdir, unlink, rename, and deleting a folder that holds files.
+  - **What's left:** a folder that was already empty may still be deleted.
   - The toolchain is sealed at install. A run folder's `src` is sealed before the start, and unsealed only to be removed, including by the leftover sweep.
   - A seal that fails is the infrastructure error `wasi-seal` ("Codemm couldn't make its files read-only on this disk"), so a folder on a disk without permissions (FAT, exFAT) fails closed. `doctor` runs a canary module that must fail to create a file in a sealed, mapped folder.
 - **Limits:**
