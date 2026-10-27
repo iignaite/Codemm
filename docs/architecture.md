@@ -18,7 +18,7 @@ Every diagram is Mermaid, which GitHub draws in place. File links point at the c
 
 Codemm has two halves:
 
-- **The core** ([`src/`](../src)) is a Node library with a CLI and an MCP server. It verifies tracks, roadmaps, lessons and exercises, runs code in Docker, grades attempts and keeps the learner's progress. It ships no languages and never calls a model.
+- **The core** ([`src/`](../src)) is a Node library with a CLI and an MCP server. It verifies tracks, roadmaps, lessons and exercises, runs code in Docker (or, for a WASI track, in wasmtime), grades attempts and keeps the learner's progress. It ships no languages and never calls a model.
 - **The desktop app** ([`desktop/`](../desktop)) is an Electron app. Its main process loads the core in-process and launches the learner's own agent CLI (Claude Code, Codex or Cursor) for each piece of work, with the core's MCP server as the agent's only tools (plus web search and fetch for research).
 
 The AI provider is reached only by the agent CLI, on the learner's own account. Codemm never talks to it.
@@ -58,8 +58,10 @@ flowchart TB
       LEARNER["learner<br>pure learner rules"]
       STORE["store<br>persistence"]
       SANDBOX["sandbox<br>containers"]
+      WASI["wasi<br>the WASI engine"]
     end
     DOCKER[("Docker engine<br>track images<br>judge containers")]
+    WASMTIME[("wasmtime<br>one process per io case")]
     DISK[("Files<br>$CODEMM_HOME<br>workspace<br>userData")]
   end
   AI(["AI provider<br>the learner's own account"])
@@ -88,6 +90,9 @@ flowchart TB
   JUDGE --> SANDBOX
   PROGRAM --> SANDBOX
   SANDBOX -- "docker run with every flag" --> DOCKER
+  JUDGE --> WASI
+  PROGRAM --> WASI
+  WASI -- "wasmtime run, a WASI track only" --> WASMTIME
   STORE --> DISK
   STATE --> DISK
 ```
@@ -98,7 +103,8 @@ flowchart TB
 - **Main to core, in-process.** [`wire.ts`](../desktop/src/main/wire.ts) loads the bundled core (`dist/app.cjs`) and hands it to [`live.ts`](../desktop/src/main/live.ts). Check, Try it, Run, notes, file saves, progress and track installs are direct calls into the bundled core: the `app` module ([`src/app.ts`](../src/app.ts)) plus a few helpers such as `cleanupLeftovers`, `runtimeState` and `networkIsolation` ([`desktop/scripts/core-entry.ts`](../desktop/scripts/core-entry.ts)).
 - **Main to the agent.** Work that needs a model (research, roadmap changes, setup, lessons, exercises, tutor answers) is an agent job. [`jobs.ts`](../desktop/src/main/agent/jobs.ts) picks the job's tools and deadline, the agent's adapter turns that into launch arguments, and [`bridge.ts`](../desktop/src/main/agent/bridge.ts) spawns the CLI and reads its stream.
 - **Agent to core.** The agent starts the core's MCP server itself, from the command Codemm gave it ([`server.ts`](../desktop/src/main/server.ts)): `<app> <core>/dist/cli.mjs mcp --workspace <ws> --course <course> --tools <list> --desktop [--progress <file>]`, run with `ELECTRON_RUN_AS_NODE=1`. So two processes write course data, main and the job's server, and the core's locks serialize them ([`store.ts`](../src/store.ts) `withLock`).
-- **Core to Docker.** Only [`sandbox.ts`](../src/sandbox.ts) starts containers. The judge, Run, the gates, lesson examples and the self-test all go through it.
+- **Core to Docker.** Only [`sandbox.ts`](../src/sandbox.ts) starts containers. For a Docker track, the judge, Run, the gates and lesson examples all go through it, and so does the self-test.
+- **Core to wasmtime.** A track with a `wasi` block runs on the WASI engine instead, and only [`wasi.ts`](../src/wasi.ts) starts wasmtime: the bundled copy in `CODEMM_WASMTIME`, else `wasmtime` on `PATH` ([DESIGN §4.5](DESIGN.md#45-the-wasi-engine-no-docker)). When no container CLI (`docker` or `podman`) is installed, the MCP server's instructions say so, and the agent plans io practice and writes a WASI track.
 
 The terminal flow is the same core without the app: `codemm init` sets up the agent's MCP config in a workspace ([`src/init.ts`](../src/init.ts)), and the agent calls the same tools.
 
@@ -118,7 +124,9 @@ $CODEMM_HOME (default ~/.codemm)                 the core's store (src/store.ts)
     events.jsonl                                 the learner's events, append-only
     .lock                                        held while changing this course
   locks/ws-<hash>.lock                           held while changing a workspace: codemm.json, learner file saves, init
-  runs/<pid>-<random>/                           files staged for one container, removed after it
+  runs/<pid>-<random>/                           files staged for one container (or one WASI check's test set), removed after it
+  toolchains/<sha256>/                           a WASI track's unpacked toolchain, read-only, shared by every track that names that file
+  toolchains/compiled/<sha256>-<version>.cwasm   that toolchain's module, compiled once by that wasmtime version, never mapped
 
 <workspace> (the app's is ~/Codemm)              what the learner sees and edits
   codemm.json                                    the active course, the current exercise, assist mode
@@ -264,7 +272,7 @@ erDiagram
 
 **How the records relate:**
 
-- **Track.** Installed under `tracks/<id>@<version>/` only after the track gates pass. `track.json` records the image ID the build reported, and every check verifies that the image still has it ([`app/shared.ts`](../src/app/shared.ts) `ensureImage`). The image tag carries 8 hex characters of the home's path hash, so two homes on one Docker don't collide ([`store.ts`](../src/store.ts) `trackImageTag`).
+- **Track.** Installed under `tracks/<id>@<version>/` only after the track gates pass. `track.json` records the image ID the build reported, and every check verifies that the image still has it ([`app/shared.ts`](../src/app/shared.ts) `ensureImage`). The image tag carries 8 hex characters of the home's path hash, so two homes on one Docker don't collide ([`store.ts`](../src/store.ts) `trackImageTag`). A WASI track has no image: `track.json` records the SHA-256 it downloaded, and every check verifies that the toolchain and its compiled module are there.
 - **Proposal.** In the desktop app, `save_track` only proposes ([`app/tracks.ts`](../src/app/tracks.ts) `proposeTrack`). The files are stored in an immutable folder named by their digest, and a new proposal for the same `id@version` replaces older ones (`writeProposal`). The learner's consent installs exactly that digest (`installProposal`).
 - **Course.** `course.json` is the roadmap YAML, validated, plus `course` and `format_version` (`CourseRecord`). It pins one track by `id@version`, which may not be installed yet: then the next step is `setup`. Concepts and their `requires` form a graph with no cycles, checked with Kahn's algorithm (`parseRoadmapYaml`).
 - **Lesson.** One concept per lesson. `lesson.md` never changes after saving, and `notes.md` beside it is the learner's ([`store.ts`](../src/store.ts) `writeLesson`, `writeNotes`). Runnable examples sit under `examples/<n>/`.
@@ -468,6 +476,10 @@ classDiagram
       +frames: Frame[]
       +push(chunk)
     }
+    class wasi {
+      <<module>>
+      +wasmtimePath() string?
+    }
     class sandbox {
       <<module>>
       +sandboxArgs(run, name, user) string[]
@@ -562,6 +574,7 @@ classDiagram
   gates --> judge : runs
   judge --> grading : grades with
   judge --> sandbox : runs containers with
+  judge --> wasi : runs WASI tracks with
   judge --> FrameReader : reads container output with
   learner ..> ConceptState : computes
 
@@ -693,6 +706,7 @@ sequenceDiagram
   Main-->>UI: results, mastered or stuck, what's next
 ```
 
+- **A WASI track** follows the same steps, but [`wasi.ts`](../src/wasi.ts) runs one wasmtime process per io case instead of a container per set. Tests are never mapped: the host writes each input to stdin, and writes the frames itself into the same frame reader ([DESIGN §4.5](DESIGN.md#45-the-wasi-engine-no-docker)).
 - **Visible and hidden tests never share a container**, so code run against visible tests can't read hidden ones ([`judge.ts`](../src/judge.ts) `runSets`).
 - **Expected outputs never enter the container.** The host compares normalized output by SHA-256 as it streams ([`grading.ts`](../src/grading.ts)).
 - **Learner-caused outcomes are graded.** A build failure, timeout, crash or output flood is `error`, and the check is recorded. A missing runtime, a changed image or a host-side kill throws before anything is recorded, and the app shows "not counted" ([`notCounted.ts`](../desktop/src/main/notCounted.ts)).
@@ -719,6 +733,9 @@ flowchart TB
     subgraph BOX["Judge container"]
       CODE["Learner and agent code<br>--network none, --read-only<br>--cap-drop ALL, no-new-privileges<br>--memory, --cpus 2, --pids-limit 256<br>tmpfs /tmp 256 MB, --user uid:gid"]
     end
+    subgraph WBOX["WASI sandbox, without Docker"]
+      WCODE["Learner and agent code in wasmtime<br>no network, no processes<br>read-only folders, no tests mapped<br>max-memory-size, timeout"]
+    end
   end
   AI2(["AI provider"])
 
@@ -726,16 +743,18 @@ flowchart TB
   MAINB -- "launches, argument arrays" --> AG
   AG --> TOOLS --> CORE2
   CORE2 -- "only through sandbox.ts" --> CODE
+  CORE2 -- "only through wasi.ts" --> WCODE
   AG <-- "the learner's own account" --> AI2
   MAINB -. "never calls" .-x AI2
 ```
 
-- **Untrusted code runs only in containers, only through `sandbox.ts`.** Every judge container gets the same flags, built in one place ([`sandbox.ts`](../src/sandbox.ts) `sandboxArgs`). Among them: `--rm`, a unique `--name`, the `codemm=1` and `codemm.pid` labels, `--network none`, `--read-only`, a 256 MB `/tmp` tmpfs, `--memory` with an equal `--memory-swap`, `--cpus 2`, `--pids-limit 256`, `--security-opt no-new-privileges`, `--cap-drop ALL`, `--user` (the host's `uid:gid`, or `65534:65534` on Windows), `--entrypoint /bin/sh`, `--workdir /work/src`, `HOME=/tmp`, `--no-healthcheck` and `--log-opt max-size=1m` ([DESIGN §4.3](DESIGN.md#43-host-owned-sandbox-settings)). Files are mounted read-only from a run folder, and results come back on stdout, capped. `codemm doctor` proves the network is off with a positive control.
-- **Building a track is a separate trust point.** A track's Dockerfile builds with network access, so in the app the agent can only propose it, and the learner consents to that exact digest ([DESIGN §4.4](DESIGN.md#44-installing-a-track-a-separate-trust-boundary)).
+- **Untrusted code runs only in containers, only through `sandbox.ts`,** or in wasmtime (below). Every judge container gets the same flags, built in one place ([`sandbox.ts`](../src/sandbox.ts) `sandboxArgs`). Among them: `--rm`, a unique `--name`, the `codemm=1` and `codemm.pid` labels, `--network none`, `--read-only`, a 256 MB `/tmp` tmpfs, `--memory` with an equal `--memory-swap`, `--cpus 2`, `--pids-limit 256`, `--security-opt no-new-privileges`, `--cap-drop ALL`, `--user` (the host's `uid:gid`, or `65534:65534` on Windows), `--entrypoint /bin/sh`, `--workdir /work/src`, `HOME=/tmp`, `--no-healthcheck` and `--log-opt max-size=1m` ([DESIGN §4.3](DESIGN.md#43-host-owned-sandbox-settings)). Files are mounted read-only from a run folder, and results come back on stdout, capped. `codemm doctor` proves the network is off with a positive control.
+- **In wasmtime, only through `wasi.ts`,** for a track with a `wasi` block. The program sees only its toolchain's folders and the learner's files, both sealed read-only first, with no network, only the track's environment, a memory cap and a time limit. CPU isn't limited, but a WASI module runs on one thread ([SECURITY.md](SECURITY.md), [DESIGN §4.5](DESIGN.md#45-the-wasi-engine-no-docker)).
+- **Building a track is a separate trust point.** A track's Dockerfile builds with network access (a WASI track instead downloads its toolchain over https), so in the app the agent can only propose it, and the learner consents to that exact digest ([DESIGN §4.4](DESIGN.md#44-installing-a-track-a-separate-trust-boundary)).
 - **The agent is fenced to Codemm's tools.** Each job's server registers only that job's tools. Claude Code runs with `--tools ""` (research: `WebSearch,WebFetch`) and `--strict-mcp-config`; Codex with its shell features off and a read-only sandbox; Cursor with a job folder whose `cli.json` denies the shell, reads and writes ([desktop DESIGN §3.1](desktop/DESIGN.md#31-launch-isolate-stream-cancel-sign-in)). Only research may search the web. Those limits are as strong as each agent makes them, so they are defense in depth.
 - **Hidden data never leaves through Codemm's outputs.** Hidden results carry an index and a status only (`redact`). Gate diagnostics never quote the reference or a mutant. IPC results are built in `views.ts`, and agent text passes a reply filter that holds back any reply quoting a line of hidden material ([`views.ts`](../desktop/src/main/views.ts) `filterReply`). Grading is still on the honor system: the files are on the learner's own computer.
 - **No credentials, no model calls.** Codemm never calls a model API and never opens an agent's credentials. Sign-in is the agent's own status command, and only a yes, a no or "can't tell" is kept ([`signedIn.ts`](../desktop/src/main/agent/signedIn.ts)). Agent stderr is never shown or logged, because it can carry account details: it is drained, and read only to spot known failures, kept as fixed messages ([`bridge.ts`](../desktop/src/main/agent/bridge.ts)).
-- **No host shell.** Every subprocess, Docker and the agents included, takes an argument array.
+- **No host shell.** Every subprocess, Docker, wasmtime and the agents included, takes an argument array.
 
 ## 7. Where to start reading
 

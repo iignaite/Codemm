@@ -204,8 +204,9 @@ describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
     expect(kinds.sort()).toEqual(["author", "lesson", "research", "roadmap", "setup", "tutor"]);
   });
 
-  it.each(kinds)("keeps the %s brief within 25 lines", (kind) => {
-    expect(JOB_BRIEFS[kind].split("\n").length).toBeLessThanOrEqual(25);
+  // Setup carries both engines' track contracts: Docker's, and WASI's for computers without one (DESIGN §4.5).
+  it.each(kinds)("keeps the %s brief within 25 lines (setup 32)", (kind) => {
+    expect(JOB_BRIEFS[kind].split("\n").length).toBeLessThanOrEqual(kind === "setup" ? 32 : 25);
   });
 
   it("gives setup and author the same bench-checked rules as the terminal subagent", () => {
@@ -290,3 +291,48 @@ describe("lesson examples and learner-facing text (learner walkthrough W-2)", ()
   });
 });
 
+
+describe("WASI tracks (DESIGN §4.5)", () => {
+  it("tells a track author when to write a WASI track instead of a Docker one", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).toMatch(/Write a Docker track unless Codemm's instructions say this computer has no container runtime installed; then write a WASI track/);
+    }
+  });
+
+  it("gives the wasi block's contract: url, sha256, module, dirs and env, io only, run with full /work/src paths", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      for (const key of ["url", "sha256", "module", "dirs", "env"]) expect(text).toMatch(new RegExp(`\`${key}\``));
+      expect(text).toMatch(/no `Dockerfile`/);
+      expect(text).toMatch(/ending in `\.wasm`, `\.zip` or `\.tar\.gz`/);
+      expect(text).not.toMatch(/tar\.xz/);
+      expect(text).toMatch(/never `\.`/);
+      expect(text).toMatch(/`styles: \[io\]`, with no `build` or `test`, and its exercises have no `NN.gen`/);
+      expect(text).toMatch(/starts in `\/`.*full path under `\/work\/src`/s);
+      expect(text).toMatch(/Nothing is writable, and there is no network and no subprocess/);
+    }
+  });
+
+  it("asks for a higher time limit, since the interpreter starts on every case", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) expect(text).toMatch(/set `time_ms` to at least 3000/);
+  });
+
+  it("says what build to look for, and makes sha256 optional but never made up", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).toMatch(/a WASI build of the interpreter, published by the language's project, as a `\.wasm` file or an archive with the module and its library folder/);
+      // The desktop's setup job has no web or shell, so it can't hash anything itself.
+      expect(text).toMatch(/`sha256` is optional: give it only when you computed it from the downloaded file or read it from a checksum the release publishes; never make one up/);
+      expect(text).toMatch(/a wrong one fails the gate named toolchain/);
+    }
+  });
+
+  it("ships no pointer to a particular build: no build url and no digest", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) {
+      expect(text).not.toMatch(/[0-9a-f]{64}/);
+      expect(text).not.toMatch(/cpython-wasi-build/);
+    }
+  });
+
+  it("tells an exercise author that NN.gen isn't available when the contract's engine is wasi", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) expect(text).toMatch(/`NN.gen` isn't available when the contract's `engine` is `wasi`/);
+  });
+});

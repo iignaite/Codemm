@@ -79,7 +79,7 @@ describe("packed artifact", () => {
       const track = readFileMap(join(fixtures, "tracks", "shell-io"));
       track.Dockerfile += "LABEL codemm.test=package\n";
       expect(await call("save_track", { files: track })).toEqual({ installed: "shell-io@1" });
-      expect(await call("list_tracks")).toEqual([{ track: "shell-io@1", styles: ["io"], files: ["main.sh"] }]);
+      expect(await call("list_tracks")).toEqual([{ track: "shell-io@1", styles: ["io"], files: ["main.sh"], engine: "docker" }]);
       await call("save_roadmap", { course: "shell", roadmap: readFileSync(join(fixtures, "roadmaps", "shell-io.yaml"), "utf8").replace("sh.loops", "sh.more").replace("Loops", "More") });
       expect(await call("next_step")).toMatchObject({ kind: "author", concept: "sh.basics" });
       const ex = readFileMap(join(fixtures, "exercises", "io-max"));

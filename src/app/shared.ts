@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { CodemmError } from "../errors.js";
 import { subMap } from "../files.js";
 import { assertRuntime, inspectImage } from "../sandbox.js";
@@ -21,13 +23,20 @@ export function installedTrack(ref: string): TrackRecord {
   return track;
 }
 
-/** Fails, without recording anything, when the runtime or the verified image isn't there. */
+/**
+ * Fails, without recording anything, when what the track runs on isn't there: the runtime or the verified image, or a
+ * WASI track's toolchain folder (DESIGN §4.5).
+ */
 export async function ensureImage(track: TrackRecord): Promise<void> {
+  const ref = `${track.id}@${track.version}`;
+  const rebuild = `Run \`codemm track rebuild ${ref}\`, then retry.`;
+  if (track.wasi) {
+    if (!existsSync(join(store.toolchainDir(track.wasi.sha256), track.wasi.module))) throw new CodemmError(`The toolchain for ${ref} is missing. ${rebuild}`, "image-missing");
+    return;
+  }
   await assertRuntime();
   const info = await inspectImage(track.imageId);
-  if (!info) {
-    throw new CodemmError(`The image for ${track.id}@${track.version} is missing or changed. Run \`codemm track rebuild ${track.id}@${track.version}\`, then retry.`, "image-missing");
-  }
+  if (!info) throw new CodemmError(`The image for ${ref} is missing or changed. ${rebuild}`, "image-missing");
 }
 
 /** A progress listener that throws is dropped; the work goes on. */
@@ -42,10 +51,14 @@ export function quietly<T>(listener?: (p: T) => void): ((p: T) => void) | undefi
   });
 }
 
+/** Which engine runs a track (DESIGN §4.5): a wasi block means the WASI engine, anything else Docker. */
+export const engineOf = (track: { wasi?: unknown }): "docker" | "wasi" => (track.wasi ? "wasi" : "docker");
+
 export function trackContract(track: TrackRecord, style: string): TrackContract {
   const files = store.readTrackFiles(`${track.id}@${track.version}`);
   const commands = style === "io" ? { ...(track.build ? { build: track.build } : {}), run: track.run } : { test: track.test };
   return {
+    engine: engineOf(track),
     files: track.files,
     ...commands,
     limits: track.limits,

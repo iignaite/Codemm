@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exampleRefs, parseExerciseYaml, parseLesson, parseRoadmapYaml, parseTrackYaml } from "../src/schemas.js";
+import { exampleRefs, parseExerciseYaml, parseLesson, parseRoadmapYaml, parseTrackYaml, TrackRecord } from "../src/schemas.js";
 
 describe("parseTrackYaml", () => {
   it("accepts an io track and clamps limits to the host ceilings", () => {
@@ -33,6 +33,96 @@ describe("parseTrackYaml", () => {
     ["a version too long to reference", `id: c\nversion: 1000000000\nstyles: [io]\nfiles: [a]\nrun: x\n`, /version/],
   ])("rejects %s", (_label, yaml, error) => {
     expect(() => parseTrackYaml(yaml)).toThrow(error);
+  });
+});
+
+describe("a WASI track's wasi block", () => {
+  const SHA = "a".repeat(64);
+  const yaml = (wasi: string, rest = "styles: [io]\nrun: /work/src/main.py\n") =>
+    `id: py\nversion: 1\nfiles: [main.py]\n${rest}wasi:\n${wasi}`;
+  const ok = `  url: https://example.org/python.zip\n  sha256: ${SHA}\n  module: python.wasm\n  dirs: { /lib: lib }\n  env: { PYTHONHOME: /, PYTHONDONTWRITEBYTECODE: "1" }\n`;
+
+  it("accepts the block, with dirs and env optional", () => {
+    expect(parseTrackYaml(yaml(ok)).wasi).toEqual({
+      url: "https://example.org/python.zip", sha256: SHA, module: "python.wasm", dirs: { "/lib": "lib" }, env: { PYTHONHOME: "/", PYTHONDONTWRITEBYTECODE: "1" },
+    });
+    const bare = parseTrackYaml(yaml(`  url: https://example.org/x/run.wasm\n  sha256: ${SHA}\n  module: run.wasm\n`)).wasi;
+    expect(bare).toEqual({ url: "https://example.org/x/run.wasm", sha256: SHA, module: "run.wasm", dirs: {}, env: {} });
+  });
+
+  it("leaves sha256 optional: Codemm records the digest it downloads", () => {
+    expect(parseTrackYaml(yaml(ok.replace(`  sha256: ${SHA}\n`, ""))).wasi?.sha256).toBeUndefined();
+  });
+
+  it.each(["https://example.org/a.tar.gz", "https://example.org/dl/a.zip?token=x"])("accepts an archive at %s", (url) => {
+    expect(parseTrackYaml(yaml(ok.replace("https://example.org/python.zip", url))).wasi?.url).toBe(url);
+  });
+
+  it.each([
+    ["an http url", ok.replace("https:", "http:"), /url/],
+    ["a url with credentials", ok.replace("https://", "https://me:pw@"), /url/],
+    ["a url of another kind of file", ok.replace("python.zip", "python.exe"), /url/],
+    ["a .tar.xz url", ok.replace("python.zip", "python.tar.xz"), /url/],
+    ["a url whose path doesn't name the file", ok.replace("python.zip", "dl?f=python.zip"), /url/],
+    ["an uppercase sha256", ok.replace(SHA, "A".repeat(64)), /sha256/],
+    ["a short sha256", ok.replace(SHA, "a".repeat(63)), /sha256/],
+    ["an absolute module", ok.replace("module: python.wasm", "module: /python.wasm"), /path/i],
+    ["a module outside the archive", ok.replace("module: python.wasm", "module: ../python.wasm"), /path/i],
+    ["a dirs value outside the archive", ok.replace("/lib: lib", "/lib: ../lib"), /path/i],
+    ["a relative dirs key", ok.replace("/lib: lib", "lib: lib"), /dirs/],
+    ["the root as a dirs key", ok.replace("/lib: lib", "/: lib"), /dirs/],
+    ["/work as a dirs key", ok.replace("/lib: lib", "/work: lib"), /dirs/],
+    ["a dirs key under /work", ok.replace("/lib: lib", "/work/src: lib"), /dirs/],
+    ["a dirs key with a .. part", ok.replace("/lib: lib", "/lib/../work: lib"), /dirs/],
+    ["a dirs key with a colon", ok.replace("/lib: lib", '"/a:b": lib'), /dirs/],
+    ["a dirs key with a . part", ok.replace("/lib: lib", "/lib/.: lib"), /dirs/],
+    ["a dirs key with a space", ok.replace("/lib: lib", '"/my lib": lib'), /dirs/],
+    ["a dirs key ending in /", ok.replace("/lib: lib", "/lib/: lib"), /dirs/],
+    ["a dirs key under another", ok.replace("/lib: lib", "/lib: lib, /lib/extra: lib/x"), /under another/],
+    ["the archive's root as a dirs value", ok.replace("/lib: lib", "/lib: ."), /path/i],
+    ["the archive's root as the module", ok.replace("module: python.wasm", "module: ."), /path/i],
+    ["a lowercase env name", ok.replace("PYTHONHOME", "pythonhome"), /env/],
+    ["an env value over 1 KB", ok.replace('"1"', `"${"x".repeat(1025)}"`), /env/],
+    ["more than 32 env names", ok.replace(/env: .*\n/, `env: { ${Array.from({ length: 33 }, (_, i) => `V${i}: x`).join(", ")} }\n`), /env/],
+    ["a .wasm url whose module isn't its file name", `  url: https://example.org/run.wasm\n  sha256: ${SHA}\n  module: other.wasm\n`, /module/],
+    ["an unknown key", `${ok}  args: x\n`, /args/],
+    ["a .wasm url whose name doesn't decode", `  url: https://example.org/%E0%A4%A.wasm\n  module: x.wasm\n`, /module/],
+    ["a .wasm url whose name holds a /", `  url: https://example.org/x%2Fy.wasm\n  module: x/y.wasm\n`, /module/],
+  ])("rejects %s", (_label, wasi, error) => {
+    expect(() => parseTrackYaml(yaml(wasi))).toThrow(error);
+  });
+
+  it.each([
+    ["the unit style", "styles: [io, unit]\nrun: x\ntest: y\n", /styles must be \[io\]/],
+    ["a build command", "styles: [io]\nbuild: make\nrun: x\n", /build/],
+    ["a test command", "styles: [io]\nrun: x\ntest: y\n", /test/],
+  ])("refuses %s", (_label, rest, error) => {
+    expect(() => parseTrackYaml(yaml(ok, rest))).toThrow(error);
+  });
+});
+
+describe("TrackRecord", () => {
+  const base = { format_version: 1, id: "py", version: 1, styles: ["io"], files: ["main.py"], run: "x", limits: { time_ms: 2000, memory_mb: 256 }, installedAt: "now" };
+  const wasi = { sha256: "a".repeat(64), module: "python.wasm", dirs: { "/lib": "lib" }, env: {} };
+
+  it("reads a Docker track's record as before", () => {
+    expect(TrackRecord.parse({ ...base, image: "codemm-track-py:1", imageId: "sha256:x" })).toMatchObject({ imageId: "sha256:x" });
+  });
+
+  it("reads a WASI track's record, which has no image", () => {
+    expect(TrackRecord.parse({ ...base, wasi })).toMatchObject({ wasi });
+  });
+
+  it("refuses a WASI record whose paths a track.yaml couldn't hold", () => {
+    expect(() => TrackRecord.parse({ ...base, wasi: { ...wasi, dirs: { "/x": "../.." } } })).toThrow();
+    expect(() => TrackRecord.parse({ ...base, wasi: { ...wasi, dirs: { "/work": "lib" } } })).toThrow();
+    expect(() => TrackRecord.parse({ ...base, wasi: { ...wasi, module: "/etc/passwd" } })).toThrow();
+  });
+
+  it("refuses a record with both engines, or neither", () => {
+    expect(() => TrackRecord.parse({ ...base, image: "i", imageId: "sha256:x", wasi })).toThrow();
+    expect(() => TrackRecord.parse(base)).toThrow();
+    expect(() => TrackRecord.parse({ ...base, image: "i" })).toThrow();
   });
 });
 
