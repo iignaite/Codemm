@@ -109,8 +109,11 @@ export interface CoreApp {
   assertRuntime(): Promise<void>;
   getRoadmap(ws: string, bound?: string): CoreRoadmap;
   listProposals(): { track: string; digest: string; created: string; files: Record<string, string> }[];
-  /** `onProgress` hears each build step as counts, then the probes: never the build's output (core §4.4). */
-  installProposal(ref: string, digest: string, onProgress?: (p: { phase: 'building'; done: number; total: number } | { phase: 'checking' }) => void): Promise<unknown>;
+  /**
+   * `onProgress` hears each build step as counts, or a WASI track's toolchain downloading, then the probes: never the
+   * build's output (core §4.4, §4.5).
+   */
+  installProposal(ref: string, digest: string, onProgress?: (p: { phase: 'building'; done: number; total: number } | { phase: 'downloading' } | { phase: 'checking' }) => void): Promise<unknown>;
   dropProposal(ref: string): Promise<void>;
   getLesson(ws: string, id: string, bound?: string): CoreLesson;
   /**

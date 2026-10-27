@@ -155,6 +155,7 @@ describe("the author step", () => {
     expect(app.nextStep(ws)).toEqual({
       kind: "author", concept: "calc.add", title: "Adding numbers", difficulty: 1, lesson: null, style: "unit", track: "custom-unit@1",
       contract: {
+        engine: "docker",
         files: ["src/calc.funcs"],
         test: "sh /opt/judge/run-checks",
         limits: { time_ms: 5000, memory_mb: 128 },
@@ -427,7 +428,7 @@ describe("setup proposals", () => {
     await app.saveRoadmap(ws, "shell", roadmap());
     expect(app.listTracks()).toEqual([]);
     const [p] = app.listProposals();
-    expect(p).toMatchObject({ track: "shell-io@1", digest: expect.stringMatching(/^[0-9a-f]{64}$/), files: track() });
+    expect(p).toMatchObject({ track: "shell-io@1", engine: "docker", digest: expect.stringMatching(/^[0-9a-f]{64}$/), files: track() });
   });
 
   it("replaces an older proposal for the same track", async () => {

@@ -33,7 +33,7 @@ describe.runIf(dockerUp)("app (Docker, end to end)", () => {
     expect(await app.saveTrack(appTrack())).toEqual({ installed: "shell-io@1", unchanged: true });
     const changed = { ...appTrack(), "track.yaml": appTrack()["track.yaml"]!.replace("2000", "3000") };
     await expect(app.saveTrack(changed)).rejects.toThrow(/already installed/);
-    expect(app.listTracks()).toEqual([{ track: "shell-io@1", styles: ["io"], files: ["main.sh"] }]);
+    expect(app.listTracks()).toEqual([{ track: "shell-io@1", styles: ["io"], files: ["main.sh"], engine: "docker" }]);
   });
 
   it("installs a track whose base image isn't pinned by digest, with a warning", async () => {

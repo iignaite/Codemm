@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { CodemmError, infraError } from "./errors.js";
 import { assertId, assertRelativePath, type FileMap, readFileMap, validateFileMap, writeFileMap } from "./files.js";
+import type { JudgeTrack } from "./judge.js";
 import type { LearnerEvent } from "./learner.js";
 import { CourseRecord, ExerciseRecord, LearnerEventSchema, LessonRecord, ProposalRecord, TrackRecord, WorkspaceConfig } from "./schemas.js";
 
@@ -234,6 +235,21 @@ export function listTracks(): TrackRecord[] {
     .filter((n) => n.includes("@") && !n.startsWith("."))
     .sort()
     .flatMap((ref) => readTrack(ref) ?? []);
+}
+
+/** Where WASI toolchains are stored, each in a folder named by its download's SHA-256 (DESIGN §4.5). */
+export const toolchainsDir = () => join(codemmHome(), "toolchains");
+export function toolchainDir(sha256: string): string {
+  if (!/^[0-9a-f]{64}$/.test(sha256)) throw new CodemmError(`Invalid toolchain digest "${sha256}".`);
+  return join(toolchainsDir(), sha256);
+}
+/** Held while a digest's folder is stored or replaced. */
+export const toolchainLockPath = (sha256: string) => `${toolchainDir(sha256)}.lock`;
+
+/** What the judge runs an installed track with: its verified image ID, or its toolchain folder. */
+export function judgeTrack(track: TrackRecord): Omit<TrackRecord, "image" | "imageId" | "wasi"> & JudgeTrack {
+  if (!track.wasi) return { ...track, image: track.imageId };
+  return { ...track, image: "", wasi: { root: toolchainDir(track.wasi.sha256), ...track.wasi } };
 }
 
 // ---------- proposals ----------
