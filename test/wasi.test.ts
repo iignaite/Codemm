@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type RunFolder, stageRunFolder } from "../src/runs.js";
 import { compiledPath, prepareWasi, removeSealed, sealReadOnly, startWasi, unseal, type WasiStart, wasiArgs, wasmtime } from "../src/wasi.js";
@@ -197,6 +197,20 @@ describe.skipIf(!wasmtimeUp)("startWasi", () => {
     expect(readFileSync(join(s.src, "main.txt"), "utf8")).toBe("learner file");
   });
 
+
+  it("lets the program read files in subfolders, and change nothing there", async () => {
+    const s = await start("nested");
+    // Sealed before the run: unseal to add the subfolder, then seal again.
+    const run = dirname(s.src);
+    unseal(run);
+    mkdirSync(join(s.src, "sub"));
+    writeFileSync(join(s.src, "sub", "inner.txt"), "inner\n");
+    sealReadOnly(run);
+    const r = await startWasi(s).done;
+    expect(r.stderr).toBe("");
+    expect(r.stdout.toString()).toBe("inner\ndenied\ndenied\n");
+    expect(readdirSync(join(s.src, "sub"))).toEqual(["inner.txt"]);
+  });
 
   it.runIf(posix)("starts wasmtime with an empty environment", async () => {
     const fake = join(tempDir(), "wasmtime");

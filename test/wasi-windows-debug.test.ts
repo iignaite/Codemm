@@ -52,7 +52,7 @@ describe.runIf(process.platform === "win32" && wasmtimeUp)("windows debug", () =
     spawnSync(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "icacls.exe"), [plain, "/deny", "*S-1-1-0:(OI)(CI)(W,D,DC)"]);
     variant("a folder sealed outside Codemm's home", args.map((a) => (a.endsWith("::/work/src") ? `${plain}::/work/src` : a)));
     // Single rights on a fresh sealed-like folder, from this process: which ones still let wasmtime open it.
-    for (const ace of ["(WD)", "(AD)", "(WA)", "(WEA)", "(D)", "(DC)", "(OI)(CI)(WD,AD,WEA,WA,D,DC)", "(OI)(CI)(W)"]) {
+    for (const ace of ["(OI)(IO)(D)", "(CI)(IO)(D)", "(OI)(CI)(WD,AD,WEA,WA,DC)"]) {
       const d = join(tmpdir(), `dbg-ace-${process.pid}-${ace.replace(/\W/g, "")}`, "src");
       mkdirSync(d, { recursive: true });
       writeFileSync(join(d, "main.txt"), "x");
