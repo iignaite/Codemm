@@ -189,7 +189,11 @@ function runWasiProgram(
     );
     for (const text of early.splice(0)) started.write(text);
     if (ended) started.end();
-    onStart?.("run", limitMs);
+    try {
+      onStart?.("run", limitMs);
+    } catch {
+      // A listener that throws is dropped; the run goes on.
+    }
     const r = await started.done;
     say("stdout", decoders.stdout.end());
     errors.write(decoders.stderr.end());

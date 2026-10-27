@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bothEngines, type Check, doctor, wasiEngine } from "../src/doctor.js";
+import { bothEngines, type Check, doctor, WASI_UNSAFE, wasiEngine } from "../src/doctor.js";
 import { tempDir } from "./temp.js";
 import { wasmtimeUp } from "./wasi-engine.js";
 
@@ -41,6 +41,16 @@ describe("bothEngines", () => {
   it("doesn't fail wasmtime when a container runtime runs checks", () => {
     const [, w] = bothEngines(runtime(true), wasi(false), false);
     expect(w).toEqual({ name: "WASI engine", ok: true, detail: "wasmtime isn't installed. Only needed on a computer without a container runtime." });
+  });
+
+  it("doesn't fail a missing wasmtime while Docker is installed but stopped: starting Docker is the fix", () => {
+    const [r, w] = bothEngines(runtime(false), wasi(false), false);
+    expect([r.ok, w.ok]).toEqual([false, true]);
+  });
+
+  it("always fails a WASI engine that let the canary write, since WASI tracks still run on it", () => {
+    const unsafe = { name: "WASI engine", ok: false, detail: WASI_UNSAFE };
+    expect(bothEngines(runtime(true), unsafe, false)[1]).toEqual(unsafe);
   });
 
   it("doesn't fail a missing container runtime when wasmtime runs checks", () => {

@@ -175,6 +175,9 @@ const WASI_CANARY = `(module
         (i32.store (i32.const 4) (i32.const 7))
         (drop (call $write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 40)))))))`;
 
+/** The canary's failure that no other engine makes up for: an installed WASI track would still run on it. */
+export const WASI_UNSAFE = "the test program could create a file in its read-only folder, so WASI tracks can't run safely here";
+
 /**
  * The WASI engine (DESIGN §4.5): wasmtime 50 is here, and the canary, compiled and run as a check runs a program (every
  * flag, a staged run folder sealed and mapped at /work/src), reads a file there and can't create one.
@@ -202,7 +205,7 @@ export async function wasiEngine(): Promise<Check> {
       const w = wasmtime();
       return { name, ok: true, detail: `wasmtime ${w.version} (${w.bin})` };
     }
-    if (out.endsWith("created")) return { name, ok: false, detail: "the test program could create a file in its read-only folder, so WASI tracks can't run safely here" };
+    if (out.endsWith("created")) return { name, ok: false, detail: WASI_UNSAFE };
     return { name, ok: false, detail: `wasmtime couldn't run the test program (${r.timedOut ? "it didn't finish in 30 seconds" : `exit ${r.exit}`})` };
   } catch (e) {
     return { name, ok: false, ...((e as CodemmError).kind === "disk" ? { kind: "disk" as const } : {}), detail: (e as Error).message };
@@ -214,10 +217,11 @@ export async function wasiEngine(): Promise<Check> {
 /**
  * Either engine runs checks, so one that's missing fails only when the other doesn't work either (DESIGN §4.5). A
  * computer with a container CLI has Docker, running or not, and a stopped one is fixed by starting it: only `noCli`
- * lets wasmtime stand in for it.
+ * lets wasmtime stand in for it, and only a container CLI lets a missing wasmtime pass. A WASI engine that isn't safe
+ * always fails, since a WASI track installed before Docker still runs on it.
  */
 export function bothEngines(runtime: Check, wasi: Check, noCli: boolean): [Check, Check] {
-  if (runtime.ok && !wasi.ok) return [runtime, { ...wasi, ok: true, detail: `${wasi.detail} Only needed on a computer without a container runtime.` }];
+  if (!noCli && !wasi.ok && wasi.detail !== WASI_UNSAFE) return [runtime, { ...wasi, ok: true, detail: `${wasi.detail} Only needed on a computer without a container runtime.` }];
   if (noCli && wasi.ok) return [{ ...runtime, ok: true, detail: `${runtime.detail} WASI tracks run on wasmtime here; Docker tracks need a container runtime.` }, wasi];
   return [runtime, wasi];
 }
