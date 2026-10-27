@@ -247,7 +247,10 @@ describe("ensureToolchain", () => {
     expect(stored().filter((n) => !n.endsWith(".lock"))).toEqual([]);
   });
 
-  it("first removes what crashed installs left, sealed or not, and never a live install's or anything else", async () => {
+  it("first removes what crashed installs left, sealed or not, and never a live install's, a link or anything else", async () => {
+    const body = archive(TOOLCHAIN);
+    const calls = serve({ [URL_TGZ]: () => new Response(body) });
+    await ensureToolchain(spec(body));
     const parent = store.toolchainsDir();
     /** A temp folder as an install leaves it: its contents sealed. */
     const leftover = (name: string) => {
@@ -263,16 +266,19 @@ describe("ensureToolchain", () => {
     const live = leftover(`.staging-${process.pid}-dEf456`);
     // Not named after its owner: an older Codemm's, or not Codemm's.
     const unowned = leftover(".staging-XyZ789");
+    // A sealed folder outside toolchains/, linked under a leftover's name (a junction on Windows, which needs no admin rights).
     const elsewhere = tempDir();
-    writeFileSync(join(elsewhere, "keep.txt"), "x");
+    mkdirSync(join(elsewhere, "sealed"));
+    sealReadOnly(elsewhere);
     const link = `.staging-${dead}-L1nk00`;
-    if (posix) symlinkSync(elsewhere, join(parent, link));
-    const body = archive(TOOLCHAIN);
-    serve({ [URL_TGZ]: () => new Response(body) });
+    symlinkSync(elsewhere, join(parent, link), "junction");
+    // Even an install that downloads nothing, since the digest's folder is there.
     await ensureToolchain(spec(body));
-    expect(stored().filter((n) => !n.endsWith(".lock"))).toEqual([live, unowned, ...(posix ? [link] : []), sha(body)].sort());
-    // A link is never followed, so nothing it points at is unsealed or removed.
-    expect(readFileSync(join(elsewhere, "keep.txt"), "utf8")).toBe("x");
+    expect(calls).toHaveLength(1);
+    expect(stored().filter((n) => !n.endsWith(".lock"))).toEqual([live, unowned, link, sha(body)].sort());
+    // The link was never followed, so what it points at is still sealed.
+    expect(() => writeFileSync(join(elsewhere, "sealed", "new.txt"), "x")).toThrow();
+    unseal(elsewhere);
   });
 });
 
