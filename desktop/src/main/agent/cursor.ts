@@ -17,7 +17,7 @@ export const cursor: AgentCli = {
   launch({ prompt, server, tools, model, resume, web }) {
     // Cursor reads MCP servers and permissions from the working directory (and the learner's ~/.cursor, which stays
     // untouched): the job folder holds only the codemm server, and allows only the job's tools. Print mode approves
-    // web search and fetch only with --force, so research alone gets it; the deny rules still hold under it (§3.1).
+    // web search and fetch only with --force, so only research and setup get it; the deny rules still hold under it (§3.1).
     const permissions = {
       allow: [...tools.map((t) => `Mcp(codemm:${t})`), ...(web ? ['WebFetch(*)'] : [])],
       deny: ['Shell(*)', 'Read(**)', 'Read(/**)', 'Write(**)', 'Write(/**)', ...(web ? [] : ['WebFetch(*)'])],
