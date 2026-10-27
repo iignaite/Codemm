@@ -1,6 +1,6 @@
 // TEMPORARY: why wasmtime can't open a sealed folder from the tests on Windows. Removed once found.
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "vitest";
@@ -34,6 +34,25 @@ describe.runIf(process.platform === "win32" && wasmtimeUp)("windows debug", () =
     console.log("DBG icacls home\n", icacls(codemmHome()));
     console.log("DBG icacls runs\n", icacls(dirname(folder.dir)));
     sync("sealed spawnSync");
+    const variant = (label: string, a: string[]) => {
+      const v = spawnSync(engine.bin, a, { input: "hi\n", env: { SystemRoot: process.env.SystemRoot }, encoding: "utf8" });
+      console.log(`DBG ${label}: exit ${v.status} stdout ${JSON.stringify(v.stdout)} stderr ${JSON.stringify(v.stderr.slice(0, 300))}`);
+    };
+    variant("sealed, .cwasm by its long path", args.map((a) => (a === engine.compiled ? realpathSync.native(a) : a)));
+    variant("sealed, .cwasm copied next to the run folder", (() => {
+      const copy = join(dirname(folder.dir), "copy.cwasm");
+      copyFileSync(engine.compiled, copy);
+      return args.map((a) => (a === engine.compiled ? copy : a));
+    })());
+    const viaNode = spawnSync(process.execPath, ["-e", `const r=require("child_process").spawnSync(process.argv[1], JSON.parse(process.argv[2]), { input: "hi\\n", env: { SystemRoot: process.env.SystemRoot }, encoding: "utf8" }); console.log("exit", r.status, JSON.stringify(r.stderr))`, engine.bin, JSON.stringify(args)], { encoding: "utf8" });
+    console.log("DBG sealed, from a plain node child:", viaNode.stdout.trim(), viaNode.stderr.trim().slice(0, 300));
+    const plain = join(tmpdir(), `dbg-plain-${process.pid}`, "src");
+    mkdirSync(plain, { recursive: true });
+    writeFileSync(join(plain, "main.txt"), "x");
+    spawnSync(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "icacls.exe"), [plain, "/deny", "*S-1-1-0:(OI)(CI)(W,D,DC)"]);
+    variant("a folder sealed outside Codemm's home", args.map((a) => (a.endsWith("::/work/src") ? `${plain}::/work/src` : a)));
+    console.log("DBG whoami /priv\n", spawnSync("whoami", ["/priv"], { encoding: "utf8" }).stdout);
+    console.log("DBG whoami /groups\n", spawnSync("whoami", ["/groups"], { encoding: "utf8" }).stdout.slice(0, 3000));
     const r = await startWasi({ engine, toolchain, src, run: "/work/src/main.txt", memoryMb: 256, timeMs: 5000, input: Buffer.from("hi\n"), outputCap: 1 << 20 }).done;
     console.log(`DBG sealed startWasi: exit ${r.exit} stdout ${JSON.stringify(r.stdout.toString())} stderr ${JSON.stringify(r.stderr)}`);
   });

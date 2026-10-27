@@ -101,6 +101,7 @@ jobs:
           }
           JS
           node diag.mjs
+          whoami //priv
       - run: npm run test:unit
         env:
           CODEMM_REQUIRE_WASMTIME: "1"
