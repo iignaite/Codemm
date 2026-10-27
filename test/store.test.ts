@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { appendEvent, assertFreeSpace, digestText, materialize, readEvents, replaceLearnerFile, trackImageTag, withLock, withWorkspaceLock, writeTextAtomic } from "../src/store.js";
+import * as store from "../src/store.js";
 import { tempDir } from "./temp.js";
 
 let home: string;
@@ -178,5 +179,23 @@ describe("trackImageTag", () => {
     const direct = trackImageTag("python", 1);
     process.env.CODEMM_HOME = link;
     expect(trackImageTag("python", 1)).toBe(direct);
+  });
+});
+
+describe("toolchain folders", () => {
+  const base = { format_version: 1 as const, id: "py", version: 1, styles: ["io" as const], files: ["main.py"], run: "/work/src/main.py", limits: { time_ms: 2000, memory_mb: 256 }, installedAt: "now" };
+
+  it("names a toolchain's folder by its digest, and refuses anything else", () => {
+    expect(store.toolchainDir("a".repeat(64))).toBe(join(store.codemmHome(), "toolchains", "a".repeat(64)));
+    expect(() => store.toolchainDir("../x")).toThrow(/Invalid toolchain digest/);
+  });
+
+  it("runs a Docker track by its image ID, and a WASI track from its toolchain folder", () => {
+    expect(store.judgeTrack({ ...base, image: "tag", imageId: "sha256:x" })).toMatchObject({ image: "sha256:x" });
+    expect(store.judgeTrack({ ...base, image: "tag", imageId: "sha256:x" }).wasi).toBeUndefined();
+    const wasi = { sha256: "b".repeat(64), module: "python.wasm", dirs: { "/lib": "lib" }, env: { A: "1" } };
+    expect(store.judgeTrack({ ...base, wasi })).toMatchObject({
+      image: "", run: "/work/src/main.py", wasi: { root: store.toolchainDir("b".repeat(64)), sha256: "b".repeat(64), module: "python.wasm", dirs: { "/lib": "lib" }, env: { A: "1" } },
+    });
   });
 });

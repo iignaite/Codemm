@@ -14,8 +14,8 @@ describe.runIf(dockerUp)("run folders (Docker)", () => {
   let recorder: ReturnType<typeof recordMounts>;
 
   beforeAll(async () => {
-    ioTrack = { ...fixtureTrack("shell-io").spec, image: await buildFixture("shell-io") };
-    unitTrack = { ...fixtureTrack("shell-unit").spec, image: await buildFixture("shell-unit") };
+    ioTrack = { ...fixtureTrack("shell-io").spec, wasi: undefined, image: await buildFixture("shell-io") };
+    unitTrack = { ...fixtureTrack("shell-unit").spec, wasi: undefined, image: await buildFixture("shell-unit") };
   });
   beforeEach(() => {
     home = tempDir("codemm-home-");

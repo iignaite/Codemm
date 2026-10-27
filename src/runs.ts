@@ -2,6 +2,7 @@
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { codemmHome, processAlive } from "./store.js";
+import { unseal } from "./wasi.js";
 
 /**
  * `<real Codemm home>/runs`. It's under Codemm's home, not the OS temp folder: an engine that runs in a VM (Colima,
@@ -27,16 +28,25 @@ export function stageRunFolder(): RunFolder {
   const dir = mkdtempSync(join(root, `${process.pid}-`));
   // Best effort: a folder that can't be removed now (Windows, while the engine lets go) must not fail the run or
   // hide its result. It's removed with the other leftovers once this process is gone.
-  return { dir, remove: () => removeFolder(dir) };
+  return { dir, remove: () => removeFolder(dir, false) };
 }
 
-function removeFolder(dir: string): boolean {
-  try {
-    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
-    return true;
-  } catch {
-    return false;
+/**
+ * `sealed`: the folder may be a crashed WASI run's, whose contents it sealed (wasi.ts); neither POSIX (a 0555 folder) nor
+ * Windows (a deny entry) lets them be removed then, so a failed removal unseals and tries once more. A live WASI run
+ * unseals its own folder first (removeSealed).
+ */
+function removeFolder(dir: string, sealed: boolean): boolean {
+  for (const unsealFirst of sealed ? [false, true] : [false]) {
+    try {
+      if (unsealFirst) unseal(dir);
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      return true;
+    } catch {
+      // Unseal and retry once, then leave it.
+    }
   }
+  return false;
 }
 
 /** What `mkdtemp` makes of `<pid>-`: the PID, then six letters or digits. Nothing else in `runs/` is Codemm's to remove. */
@@ -61,7 +71,7 @@ export function removeAbandonedRuns(): number {
     } catch {
       continue;
     }
-    if (removeFolder(join(root, name))) removed++;
+    if (removeFolder(join(root, name), true)) removed++;
   }
   return removed;
 }

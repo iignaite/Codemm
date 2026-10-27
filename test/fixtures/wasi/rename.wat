@@ -1,0 +1,20 @@
+;; In /work/src (fd 3), which holds sub/ (not empty) and other/: tries to rename sub to moved, to move sub into other/,
+;; and to delete sub. Prints "denied" or "allowed" for each.
+(module
+  (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_rename" (func $rename (param i32 i32 i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "path_remove_directory" (func $rmdir (param i32 i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (data (i32.const 64) "denied\n")
+  (data (i32.const 72) "allowed\n")
+  (data (i32.const 128) "sub")
+  (data (i32.const 136) "moved")
+  (data (i32.const 144) "other/sub")
+  (func $say (param $errno i32)
+    (i32.store (i32.const 0) (select (i32.const 64) (i32.const 72) (local.get $errno)))
+    (i32.store (i32.const 4) (select (i32.const 7) (i32.const 8) (local.get $errno)))
+    (drop (call $write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 16))))
+  (func (export "_start")
+    (call $say (call $rename (i32.const 3) (i32.const 128) (i32.const 3) (i32.const 3) (i32.const 136) (i32.const 5)))
+    (call $say (call $rename (i32.const 3) (i32.const 128) (i32.const 3) (i32.const 3) (i32.const 144) (i32.const 9)))
+    (call $say (call $rmdir (i32.const 3) (i32.const 128) (i32.const 3)))))

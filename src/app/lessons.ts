@@ -28,7 +28,7 @@ const cap = (text: string, bytes: number) => (Buffer.byteLength(text) > bytes ? 
  * run command once with empty input, unit runs the test command on the example's tests/. `clean` is a zero exit.
  */
 async function runOne(track: TrackRecord, style: string, files: FileMap): Promise<ExampleRun & { clean: boolean }> {
-  const t = { ...track, image: track.imageId };
+  const t = store.judgeTrack(track);
   const learner = Object.fromEntries(track.files.map((f) => [f, files[f]!]));
   if (style === "io") {
     const run = await runIo(t, "visible", learner, { "01.in": "" });
@@ -95,7 +95,7 @@ export async function runExampleLive(
   assertExampleFits(index, files, track, record.style);
   await ensureImage(track);
   const learner = Object.fromEntries(track.files.map((f) => [f, files[f]!]));
-  return runProgram({ ...track, image: track.imageId }, learner, output, options);
+  return runProgram(store.judgeTrack(track), learner, output, options);
 }
 
 /** Runs a saved example in the sandbox, with the track and style it was checked with, for the learner to see. Never recorded. */

@@ -16,9 +16,13 @@ const bigImages = process.env.CODEMM_BIG_IMAGES === "1";
 
 const course = (name: string): CourseRecord => ({ format_version: 1, course: "demo", ...parseRoadmapYaml(readFileSync(join(FIXTURES, "roadmaps", `${name}.yaml`), "utf8")) });
 const exercise = (name: string): FileMap => readFileMap(join(FIXTURES, "exercises", name));
-const record = (verified: Awaited<ReturnType<typeof verifyTrack>>): TrackRecord => ({
-  format_version: 1, ...verified.spec, image: verified.image, imageId: verified.imageId, installedAt: "now",
-});
+/** A Docker track's record, which the judge can run by its image. */
+type DockerTrack = Extract<TrackRecord, { imageId: string }>;
+function record(verified: Awaited<ReturnType<typeof verifyTrack>>): DockerTrack {
+  if (!("imageId" in verified)) throw new Error("expected a Docker track");
+  const { wasi: _none, ...spec } = verified.spec;
+  return { format_version: 1, ...spec, image: verified.image, imageId: verified.imageId, installedAt: "now" };
+}
 async function timed<T>(label: string, work: () => Promise<T>): Promise<T> {
   const started = performance.now();
   const result = await work();
@@ -30,7 +34,7 @@ const LONG = 900_000;
 
 describe.runIf(dockerUp)("heavy tests (Docker)", () => {
   describe("io: big inputs and outputs, slow cases", () => {
-    let heavy: TrackRecord;
+    let heavy: DockerTrack;
     beforeAll(async () => {
       heavy = record(await timed("heavy-io: track install", () => verifyTrack(fixtureTrack("heavy-io").files, "codemm-test-heavy-io:1")));
     }, LONG);
@@ -85,7 +89,7 @@ describe.runIf(dockerUp)("heavy tests (Docker)", () => {
   });
 
   describe.runIf(bigImages)("unit: a Maven and JUnit track, offline", () => {
-    let java: TrackRecord;
+    let java: DockerTrack;
     beforeAll(async () => {
       java = record(await timed("java-maven: track install (build and probes)", () => verifyTrack(fixtureTrack("java-maven").files, "codemm-test-java-maven:1")));
     }, LONG);

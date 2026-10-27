@@ -21,8 +21,8 @@ const statuses = (tests: { status: string }[]) => tests.map((t) => t.status);
 
 describe.runIf(dockerUp)("judge (Docker)", () => {
   beforeAll(async () => {
-    ioTrack = { ...io.spec, image: await buildFixture("shell-io") };
-    unitTrack = { ...unit.spec, image: await buildFixture("shell-unit") };
+    ioTrack = { ...io.spec, wasi: undefined, image: await buildFixture("shell-io") };
+    unitTrack = { ...unit.spec, wasi: undefined, image: await buildFixture("shell-unit") };
   });
 
   it("Run: sends typed input to the learner's program and streams its output, in the sandbox", async () => {
