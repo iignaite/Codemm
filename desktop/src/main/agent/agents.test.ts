@@ -203,8 +203,12 @@ describe('launch arguments (§3.1)', () => {
     expect(args).not.toContain('--resume');
   });
 
-  it('claude: research may search the web; resume adds the session', () => {
-    expect(AGENT_CLIS.claude.launch!({ prompt: 'r', server, tools: [], web: true }).args).toContain('WebSearch,WebFetch');
+  it('claude: a web job may search and fetch, allowed so print mode never refuses them; resume adds the session', () => {
+    const web = AGENT_CLIS.claude.launch!({ prompt: 'r', server, tools: ['save_track'], web: true }).args;
+    expect(web[web.indexOf('--tools') + 1]).toBe('WebSearch,WebFetch');
+    expect(web[web.indexOf('--allowedTools') + 1]).toBe('mcp__codemm__save_track,WebSearch,WebFetch');
+    const plain = AGENT_CLIS.claude.launch!({ prompt: 'r', server, tools: ['save_track'] }).args;
+    expect(plain[plain.indexOf('--allowedTools') + 1]).toBe('mcp__codemm__save_track');
     const { args } = AGENT_CLIS.claude.launch!({ prompt: 'again', server, tools: [], resume: 'abc' });
     expect(args[args.indexOf('--resume') + 1]).toBe('abc');
   });
