@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -107,6 +108,19 @@ describe("the checks before a set", () => {
     const at = statSync(engine.compiled).mtimeMs;
     await prepareWasi(t);
     expect(statSync(engine.compiled).mtimeMs).toBe(at);
+  });
+
+  it.skipIf(!wasmtimeUp)("remove the temp files of compiles whose Codemm process is gone", async () => {
+    const t = fixture("cat", { sha256: `sweep-${Date.now()}` });
+    const dir = dirname(compiledPath(t.sha256, wasmtime().version));
+    mkdirSync(dir, { recursive: true });
+    const gone = Number(spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" }).stdout.trim());
+    const leftover = join(dir, `other-50.0.0.cwasm.${gone}-0123abcd.tmp`);
+    const live = join(dir, `other-50.0.0.cwasm.${process.pid}-0123abcd.tmp`);
+    writeFileSync(leftover, "half a module");
+    writeFileSync(live, "still compiling");
+    await prepareWasi(t);
+    expect([existsSync(leftover), existsSync(live)]).toEqual([false, true]);
   });
 
   it.skipIf(!wasmtimeUp)("say a module that doesn't compile is the toolchain's fault, not this computer's", async () => {

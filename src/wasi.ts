@@ -1,11 +1,11 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { CodemmError, infraError } from "./errors.js";
 import type { WasiToolchain } from "./judge.js";
 import type { RunFolder } from "./runs.js";
-import { codemmHome } from "./store.js";
+import { codemmHome, processAlive } from "./store.js";
 
 /**
  * The WASI engine (DESIGN §4.5): wasmtime runs a WASI track's code, with no Docker, VM or admin rights. The only
@@ -13,7 +13,7 @@ import { codemmHome } from "./store.js";
  */
 
 /** The wasmtime major version Codemm passes its flags to. */
-export const WASMTIME_MAJOR = 50;
+const WASMTIME_MAJOR = 50;
 const VERSION_MS = 10_000;
 const COMPILE_MS = 5 * 60_000;
 
@@ -29,9 +29,10 @@ function onPath(name: string): string | undefined {
   const extensions = process.platform === "win32" ? [".exe", ""] : [""];
   for (const dir of (process.env.PATH ?? "").split(delimiter).filter(Boolean)) {
     for (const ext of extensions) {
-      const path = join(dir, name + ext);
+      const path = resolve(dir, name + ext);
       try {
-        if (statSync(path).isFile()) return path;
+        // Windows has no execute bit; elsewhere a file wasmtime can't run is passed over, as the shell does.
+        if (statSync(path).isFile() && (process.platform === "win32" || (accessSync(path, constants.X_OK), true))) return path;
       } catch {
         // Not here.
       }
@@ -40,18 +41,25 @@ function onPath(name: string): string | undefined {
   return undefined;
 }
 
-export type Wasmtime = { bin: string; version: string };
+type Wasmtime = { bin: string; version: string };
 
 /** wasmtime and its version ("50.0.0"), or undefined when it isn't there or doesn't answer `--version` within 10 s. */
 function findWasmtime(): Wasmtime | undefined {
-  const key = `${process.env.CODEMM_WASMTIME ?? ""}\0${process.env.PATH ?? ""}`;
-  if (found?.key === key) return found.wasmtime;
   const bin = onPath(process.env.CODEMM_WASMTIME || "wasmtime");
   if (!bin) return undefined;
+  // The binary's size and time too, so a wasmtime replaced in place is asked again rather than run with the old answer.
+  let key: string;
+  try {
+    const { size, mtimeMs } = statSync(bin);
+    key = `${bin}\0${size}\0${mtimeMs}`;
+  } catch {
+    return undefined;
+  }
+  if (found?.key === key) return found.wasmtime;
   const r = spawnSync(bin, ["--version"], { encoding: "utf8", timeout: VERSION_MS, env: engineEnv(), windowsHide: true });
   const version = r.status === 0 ? /^wasmtime (\d+\.\d+\.\d+)/.exec(r.stdout)?.[1] : undefined;
   if (!version) return undefined;
-  // Remembered for this setting, so a check doesn't ask again per case; a lookup that failed is asked again.
+  // Remembered for this binary, so a check doesn't ask again per case; a lookup that failed is asked again.
   found = { key, wasmtime: { bin, version } };
   return found.wasmtime;
 }
@@ -60,7 +68,7 @@ let found: { key: string; wasmtime: Wasmtime } | undefined;
 /** wasmtime's path: CODEMM_WASMTIME (the desktop app's bundled copy), else `wasmtime` on PATH; undefined when neither runs. */
 export const wasmtimePath = (): string | undefined => findWasmtime()?.bin;
 
-export const NO_WASMTIME = `wasmtime isn't installed, and WASI tracks run on it. Install wasmtime ${WASMTIME_MAJOR}, or set CODEMM_WASMTIME to its path, then retry.`;
+const NO_WASMTIME = `wasmtime isn't installed, and WASI tracks run on it. Install wasmtime ${WASMTIME_MAJOR}, or set CODEMM_WASMTIME to its path, then retry.`;
 
 /** wasmtime at the version Codemm needs, or the infrastructure error `no-wasmtime`. */
 export function wasmtime(): Wasmtime {
@@ -84,6 +92,7 @@ export async function compileModule(toolchain: WasiToolchain): Promise<string> {
   const w = wasmtime();
   const out = compiledPath(toolchain.sha256, w.version);
   mkdirSync(dirname(out), { recursive: true });
+  removeAbandonedCompiles(dirname(out));
   const temp = `${out}.${process.pid}-${randomBytes(4).toString("hex")}.tmp`;
   try {
     const r = await collect(w.bin, ["compile", "-W", "epoch-interruption=y", join(toolchain.root, toolchain.module), "-o", temp], COMPILE_MS);
@@ -91,10 +100,23 @@ export async function compileModule(toolchain: WasiToolchain): Promise<string> {
     if (r.timedOut) throw infraError("Compiling the track's toolchain took more than 5 minutes, so nothing was recorded. Close other programs, then retry.", "check-timeout");
     if (/no space left|os error (?:28|112)\b|not enough space/i.test(r.output)) throw infraError(`The disk is full, so the track's toolchain couldn't be compiled (${last}). Free some space, then retry.`, "host-disk");
     if (r.exit !== 0) throw new CodemmError(`The toolchain's module didn't compile with wasmtime ${w.version} (${last || `exit ${r.exit}`}).`);
-    renameSync(temp, out);
+    try {
+      renameSync(temp, out);
+    } catch (e) {
+      // Another compile of the same module got there first (Windows won't replace a file wasmtime has mapped).
+      if (!existsSync(out)) throw e;
+    }
     return out;
   } finally {
     rmSync(temp, { force: true });
+  }
+}
+
+/** Removes the temp files of compiles whose Codemm process is gone (`<out>.<pid>-<random>.tmp`), as run folders are. */
+function removeAbandonedCompiles(dir: string): void {
+  for (const name of readdirSync(dir)) {
+    const owner = /\.(\d+)-[0-9a-f]{8}\.tmp$/.exec(name)?.[1];
+    if (owner !== undefined && !processAlive(Number(owner))) rmSync(join(dir, name), { force: true });
   }
 }
 
@@ -168,6 +190,15 @@ function modes(dir: string, file: number, folder: number | undefined): void {
   if (folder !== undefined) chmodSync(dir, folder);
 }
 
+const writableByUs = (path: string) => {
+  try {
+    accessSync(path, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const sealFailed = (e: unknown) =>
   infraError(`Codemm couldn't make its files read-only on this disk (${(e as Error).message.slice(0, 200)}), so nothing was recorded. Keep Codemm's home on a disk with file permissions (not FAT or exFAT), then retry.`, "wasi-seal");
 
@@ -189,8 +220,11 @@ export function sealReadOnly(dir: string): void {
           icacls([path, "/deny", `${EVERYONE}:${DENIED}`]);
         } else modes(path, 0o444, 0o555);
       } else if (entry.isFile()) chmodSync(path, 0o444);
-      // A disk without permissions (FAT, exFAT) can accept the change and keep nothing. Windows reports its deny entry.
-      if (process.platform !== "win32" && (entry.isDirectory() || entry.isFile()) && (lstatSync(path).mode & 0o222) !== 0) throw new Error(`${entry.name} stayed writable`);
+      // access(2), not the mode: root writes whatever the mode says, and a disk without permissions (FAT, exFAT) can
+      // accept the change and keep nothing. Windows reports its deny entry instead.
+      if (process.platform !== "win32" && (entry.isDirectory() || entry.isFile()) && writableByUs(path)) {
+        throw new Error(`${entry.name} stayed writable${process.getuid?.() === 0 ? " (Codemm is running as root; run it as yourself)" : ""}`);
+      }
     }
   } catch (e) {
     throw sealFailed(e);
@@ -234,7 +268,7 @@ export type WasiStart = WasiRun & { input?: Buffer; outputCap: number; killMs?: 
  */
 export type WasiResult = { exit: number; stdout: Buffer; stderr: string; flooded: boolean; timedOut: boolean };
 /** Output as it arrives, within the output cap. A handler that throws is dropped; the run goes on. */
-export type WasiOutput = { stdout?: (chunk: Buffer) => void; stderr?: (chunk: Buffer) => void };
+type WasiOutput = { stdout?: (chunk: Buffer) => void; stderr?: (chunk: Buffer) => void };
 /** As a started container (sandbox.ts): `write` drops text that is too long, piles up unread, or comes after the end. */
 export type StartedWasi = { write(text: string): boolean; end(): void; kill(): void; done: Promise<WasiResult> };
 

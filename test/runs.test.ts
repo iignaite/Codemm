@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, symlinkSync
 import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { removeAbandonedRuns, runsDir, stageRunFolder } from "../src/runs.js";
-import { sealReadOnly } from "../src/wasi.js";
+import { removeSealed, sealReadOnly } from "../src/wasi.js";
 import { tempDir } from "./temp.js";
 
 /** Run folders (DESIGN §4.3): where the files a container mounts are staged. */
@@ -60,7 +60,7 @@ describe("stageRunFolder", () => {
     mkdirSync(join(run.dir, "src", "pkg"), { recursive: true });
     writeFileSync(join(run.dir, "src", "pkg", "main.py"), "x");
     sealReadOnly(run.dir);
-    run.remove();
+    removeSealed(run);
     expect(existsSync(run.dir)).toBe(false);
   });
 });
