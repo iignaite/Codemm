@@ -320,6 +320,7 @@ wasi:
   - **Files still can't be deleted or renamed** without `DELETE` denied. A read-only file can't be deleted while its attributes can't be changed (`WA`), and deleting through its parent needs `DC`. A rename needs `WD` or `AD` on the destination folder.
   - **CI proves each case on Windows without admin privileges:** create, truncate, mkdir, unlink, rename, and deleting a folder that holds files.
   - **What's left:** a folder that was already empty may still be deleted.
+  - **Running as root (or an administrator that skips permission checks) is refused.** Root ignores mode bits, so a seal can't hold. After sealing, Codemm checks that the folder really isn't writable (`access(W_OK)`). If it still is, that's `wasi-seal`, with a message to run Codemm as yourself.
   - The toolchain is sealed at install. A run folder's `src` is sealed before the start, and unsealed only to be removed, including by the leftover sweep.
   - A seal that fails is the infrastructure error `wasi-seal` ("Codemm couldn't make its files read-only on this disk"), so a folder on a disk without permissions (FAT, exFAT) fails closed. `doctor` runs a canary module that must fail to create a file in a sealed, mapped folder.
 - **Limits:**
