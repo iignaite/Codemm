@@ -150,6 +150,8 @@ const icacls = (args: string[]) => {
   if (r.status !== 0) throw new Error(`icacls: ${(r.stderr || r.stdout || r.error?.message || `exit ${r.status}`).trim().split("\n")[0]}`);
 };
 const EVERYONE = "*S-1-1-0";
+/** Writing data or attributes, adding files or folders, and deleting, inherited by everything under the folder. */
+const DENIED = "(OI)(CI)(WD,AD,WEA,WA,D,DC)";
 
 /** Sets a tree's modes, folders after what's in them (unless `folder` is undefined). Links and special files are left as they are. */
 function modes(dir: string, file: number, folder: number | undefined): void {
@@ -166,9 +168,8 @@ const sealFailed = (e: unknown) =>
 
 /**
  * Seals everything under `dir`, but not `dir` itself, read-only (DESIGN §4.5): files 0444 and folders 0555. On
- * Windows, files are read-only and each top-level folder gets one deny entry that everything under it inherits; there a
- * program can still make an empty folder, but write nothing into it. wasmtime maps folders read-write and WASI can't
- * change permissions, so the program can't write there. `dir` stays writable so it can be renamed (a toolchain's temp folder) and is never
+ * Windows, files are read-only and each top-level folder gets one deny entry that everything under it inherits.
+ * wasmtime maps folders read-write and WASI can't change permissions, so the program can't write there. `dir` stays writable so it can be renamed (a toolchain's temp folder) and is never
  * mapped. A seal that fails, or that the disk ignores, is the infrastructure error `wasi-seal`.
  */
 export function sealReadOnly(dir: string): void {
@@ -180,7 +181,8 @@ export function sealReadOnly(dir: string): void {
         // by everything under it, is what seals it.
         if (process.platform === "win32") {
           modes(path, 0o444, undefined);
-          icacls([path, "/deny", `${EVERYONE}:(OI)(CI)(W,D,DC)`]);
+          // The specific rights, not icacls' generic W: that includes SYNCHRONIZE and READ_CONTROL, so it would deny every open.
+          icacls([path, "/deny", `${EVERYONE}:${DENIED}`]);
         } else modes(path, 0o444, 0o555);
       } else if (entry.isFile()) chmodSync(path, 0o444);
       // A disk without permissions (FAT, exFAT) can accept the change and keep nothing. Windows reports its deny entry.

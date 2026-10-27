@@ -191,19 +191,12 @@ describe.skipIf(!wasmtimeUp)("startWasi", () => {
   it("gives the program no writable path: it can't create, change or delete anything in /work/src", async () => {
     const s = await start("write");
     const r = await startWasi(s).done;
-    // Create new.txt, truncate main.txt, make a folder, delete main.txt. Windows lets a program make an empty folder in
-    // a sealed one (a known limitation, DESIGN §4.5), but nothing can be written into it (below).
-    expect(r.stdout.toString()).toBe(posix ? "denied\ndenied\ndenied\ndenied\n" : "denied\ndenied\nallowed\ndenied\n");
-    expect(readdirSync(s.src).sort()).toEqual(posix ? ["main.txt"] : ["dir", "main.txt"]);
+    // Create new.txt, truncate main.txt, make a folder, delete main.txt.
+    expect(r.stdout.toString()).toBe("denied\ndenied\ndenied\ndenied\n");
+    expect(readdirSync(s.src)).toEqual(["main.txt"]);
     expect(readFileSync(join(s.src, "main.txt"), "utf8")).toBe("learner file");
   });
 
-  it("lets nothing be written into a folder the program made, where the OS lets it make one", async () => {
-    const s = await start("mkdir");
-    const r = await startWasi(s).done;
-    expect(r.stdout.toString()).toBe(posix ? "denied\ndenied\n" : "allowed\ndenied\n");
-    expect(existsSync(join(s.src, "made", "new.txt"))).toBe(false);
-  });
 
   it.runIf(posix)("starts wasmtime with an empty environment", async () => {
     const fake = join(tempDir(), "wasmtime");
