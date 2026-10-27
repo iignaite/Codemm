@@ -312,7 +312,9 @@ wasi:
 - **Tests are never mapped.** The host reads each case's input and writes it to the program's stdin.
 - **Nothing is writable:**
   - wasmtime's CLI maps every folder read-write (wasmtime 50 has no read-only option), so the operating system enforces it.
-  - One helper in `src/wasi.ts` seals a folder's contents: files 0444 and folders 0555. On Windows, where a folder's mode doesn't stop new files, it also adds an inherited deny entry with `%SystemRoot%\System32\icacls.exe <dir> /deny *S-1-1-0:(OI)(CI)(W,D,DC)`. The folder's owner needs no admin rights for this.
+  - One helper in `src/wasi.ts` seals a folder's contents: files 0444, and folders 0555 on macOS and Linux.
+  - On Windows a folder's mode doesn't stop new files, and its read-only attribute stops wasmtime opening it, so folders keep their mode. Instead, each mapped folder gets one inherited deny entry: `%SystemRoot%\System32\icacls.exe <dir> /deny *S-1-1-0:(OI)(CI)(WD,AD,WEA,WA,D,DC)`. The folder's owner needs no admin rights for this.
+  - The deny entry names the write rights one by one. The shorthand `W` would also deny `SYNCHRONIZE` and `READ_CONTROL`, which every open asks for, so wasmtime couldn't open the folder at all.
   - The toolchain is sealed at install. A run folder's `src` is sealed before the start, and unsealed only to be removed, including by the leftover sweep.
   - A seal that fails is the infrastructure error `wasi-seal` ("Codemm couldn't make its files read-only on this disk"), so a folder on a disk without permissions (FAT, exFAT) fails closed. `doctor` runs a canary module that must fail to create a file in a sealed, mapped folder.
 - **Limits:**
