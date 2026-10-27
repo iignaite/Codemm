@@ -151,23 +151,24 @@ const icacls = (args: string[]) => {
 };
 const EVERYONE = "*S-1-1-0";
 
-/** Sets a tree's modes, folders after what's in them. Links and special files are left as they are. */
-function modes(dir: string, file: number, folder: number): void {
+/** Sets a tree's modes, folders after what's in them (unless `folder` is undefined). Links and special files are left as they are. */
+function modes(dir: string, file: number, folder: number | undefined): void {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) modes(path, file, folder);
     else if (entry.isFile()) chmodSync(path, file);
   }
-  chmodSync(dir, folder);
+  if (folder !== undefined) chmodSync(dir, folder);
 }
 
 const sealFailed = (e: unknown) =>
   infraError(`Codemm couldn't make its files read-only on this disk (${(e as Error).message.slice(0, 200)}), so nothing was recorded. Keep Codemm's home on a disk with file permissions (not FAT or exFAT), then retry.`, "wasi-seal");
 
 /**
- * Seals everything under `dir`, but not `dir` itself, read-only (DESIGN §4.5): files 0444 and folders 0555, and on
- * Windows an inherited deny entry on each folder. wasmtime maps folders read-write and WASI can't change permissions,
- * so the program can't write there. `dir` stays writable so it can be renamed (a toolchain's temp folder) and is never
+ * Seals everything under `dir`, but not `dir` itself, read-only (DESIGN §4.5): files 0444 and folders 0555. On
+ * Windows, files are read-only and each top-level folder gets one deny entry that everything under it inherits; there a
+ * program can still make an empty folder, but write nothing into it. wasmtime maps folders read-write and WASI can't
+ * change permissions, so the program can't write there. `dir` stays writable so it can be renamed (a toolchain's temp folder) and is never
  * mapped. A seal that fails, or that the disk ignores, is the infrastructure error `wasi-seal`.
  */
 export function sealReadOnly(dir: string): void {
@@ -175,8 +176,12 @@ export function sealReadOnly(dir: string): void {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) {
-        modes(path, 0o444, 0o555);
-        if (process.platform === "win32") icacls([path, "/deny", `${EVERYONE}:(OI)(CI)(W,D,DC)`]);
+        // On Windows a folder's mode is only a read-only attribute, which stops nothing there but makes wasmtime's open
+        // of a mapped folder fail; the deny entry, inherited by everything under it, is what seals it.
+        if (process.platform === "win32") {
+          modes(path, 0o444, undefined);
+          icacls([path, "/deny", `${EVERYONE}:(OI)(CI)(W,D,DC)`]);
+        } else modes(path, 0o444, 0o555);
       } else if (entry.isFile()) chmodSync(path, 0o444);
       // A disk without permissions (FAT, exFAT) can accept the change and keep nothing. Windows reports its deny entry.
       if (process.platform !== "win32" && (entry.isDirectory() || entry.isFile()) && (lstatSync(path).mode & 0o222) !== 0) throw new Error(`${entry.name} stayed writable`);
