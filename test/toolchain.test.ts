@@ -2,10 +2,11 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { crc32 } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodemmError } from "../src/errors.js";
 import * as store from "../src/store.js";
-import { ensureToolchain, type Fetcher, setToolchainFetch, systemTar, toolchainMissing } from "../src/toolchain.js";
+import { ensureToolchain, type Fetcher, setToolchainFetch, systemTar, toolchainMissing, unpacker } from "../src/toolchain.js";
 import { unseal } from "../src/wasi.js";
 import { posix } from "./fake-docker.js";
 import { tempDir } from "./temp.js";
@@ -25,19 +26,57 @@ afterEach(() => {
 
 const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 
-/** A .tar.gz (or, with bsdtar, a .zip) of a folder holding `files`, plus whatever `extra` adds to it. */
-function archive(files: Record<string, string>, format: "tar.gz" | "zip" = "tar.gz", extra?: (dir: string) => void): Uint8Array<ArrayBuffer> {
+/** A .tar.gz of a folder holding `files`, plus whatever `extra` adds to it. */
+function archive(files: Record<string, string>, extra?: (dir: string) => void): Uint8Array<ArrayBuffer> {
   const src = tempDir("codemm-archive-src-");
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(join(src, path, ".."), { recursive: true });
     writeFileSync(join(src, path), text);
   }
   extra?.(src);
-  const out = join(tempDir("codemm-archive-"), `a.${format}`);
-  const args = format === "zip" ? ["--format", "zip", "-cf", out, "-C", src, "."] : ["-czf", out, "-C", src, "."];
-  const made = spawnSync(systemTar(), args);
+  const out = join(tempDir("codemm-archive-"), "a.tar.gz");
+  const made = spawnSync(systemTar(), ["-czf", out, "-C", src, "."]);
   if (made.status !== 0) throw new Error(made.stderr.toString());
   return new Uint8Array(readFileSync(out));
+}
+
+/**
+ * A zip of `files`, stored uncompressed. Written here, since Linux's tar (GNU tar) can't make one. `encrypted` only
+ * flags each entry as encrypted, which is enough for a tool to want a password before it reads one.
+ */
+function zip(files: Record<string, string>, encrypted = false): Uint8Array<ArrayBuffer> {
+  const local: Buffer[] = [];
+  const central: Buffer[] = [];
+  let offset = 0;
+  for (const [path, text] of Object.entries(files)) {
+    const name = Buffer.from(path);
+    const data = Buffer.from(text);
+    const head = Buffer.alloc(30);
+    head.writeUInt32LE(0x04034b50, 0);
+    head.writeUInt16LE(20, 4);
+    head.writeUInt16LE(encrypted ? 1 : 0, 6);
+    head.writeUInt16LE(0x21, 12); // 1980-01-01
+    head.writeUInt32LE(crc32(data), 14);
+    head.writeUInt32LE(data.length, 18);
+    head.writeUInt32LE(data.length, 22);
+    head.writeUInt16LE(name.length, 26);
+    // The central directory's entry repeats the local header's fields, then adds where that header is.
+    const entry = Buffer.alloc(46);
+    entry.writeUInt32LE(0x02014b50, 0);
+    entry.writeUInt16LE(20, 4);
+    head.copy(entry, 6, 4, 30);
+    entry.writeUInt32LE(offset, 42);
+    local.push(head, name, data);
+    central.push(entry, name);
+    offset += head.length + name.length + data.length;
+  }
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(central.length / 2, 8);
+  end.writeUInt16LE(central.length / 2, 10);
+  end.writeUInt32LE(central.reduce((n, b) => n + b.length, 0), 12);
+  end.writeUInt32LE(offset, 16);
+  return new Uint8Array(Buffer.concat([...local, ...central, end]));
 }
 
 const TOOLCHAIN = { "python.wasm": "\0asm fake module", "lib/python3/os.py": "# os\n", "lib/python3/re.py": "# re\n" };
@@ -89,13 +128,24 @@ describe("ensureToolchain", () => {
     expect(new Uint8Array(readFileSync(join(root, "run.wasm")))).toEqual(body);
   });
 
-  it.runIf(systemTarReadsZip())("unpacks a zip with the system tar", async () => {
-    const body = archive(TOOLCHAIN, "zip");
+  // CI requires the WASI engine's tools, so a Linux runner without bsdtar or unzip fails here rather than skipping.
+  it.runIf(unzips() || process.env.CODEMM_REQUIRE_WASMTIME === "1")("unpacks a zip, on Linux too", async () => {
+    const body = zip(TOOLCHAIN);
     const url = "https://example.org/python.zip";
     serve({ [url]: () => new Response(body) });
     const { root } = await ensureToolchain(spec(body, url));
     expect(readFileSync(join(root, "lib", "python3", "re.py"), "utf8")).toBe("# re\n");
   });
+
+  it.runIf(unzips())("refuses an encrypted zip as the track's problem, without waiting at the terminal for a password", async () => {
+    const body = zip(TOOLCHAIN, true);
+    const url = "https://example.org/python.zip";
+    serve({ [url]: () => new Response(body) });
+    const install = ensureToolchain(spec(body, url));
+    await expect(install).rejects.toThrow(/didn't unpack/);
+    await expect(install).rejects.toSatisfy((e: CodemmError) => e.code === undefined);
+    expect(stored().filter((n) => !n.endsWith(".lock"))).toEqual([]);
+  }, 20_000);
 
   it("reuses a folder already stored for that digest, without downloading", async () => {
     const body = archive(TOOLCHAIN);
@@ -153,10 +203,10 @@ describe("ensureToolchain", () => {
   });
 
   it.runIf(posix)("refuses an archive holding a link or a hard-linked file, and stores nothing", async () => {
-    const soft = archive(TOOLCHAIN, "tar.gz", (dir) => symlinkSync("/etc", join(dir, "lib", "etc")));
+    const soft = archive(TOOLCHAIN, (dir) => symlinkSync("/etc", join(dir, "lib", "etc")));
     serve({ [URL_TGZ]: () => new Response(soft) });
     await expect(ensureToolchain(spec(soft))).rejects.toThrow(/link or special file \(lib\/etc\)/);
-    const hard = archive(TOOLCHAIN, "tar.gz", (dir) => linkSync(join(dir, "lib", "python3", "os.py"), join(dir, "lib", "os2.py")));
+    const hard = archive(TOOLCHAIN, (dir) => linkSync(join(dir, "lib", "python3", "os.py"), join(dir, "lib", "os2.py")));
     serve({ [URL_TGZ]: () => new Response(hard) });
     await expect(ensureToolchain(spec(hard))).rejects.toThrow(/link or special file/);
     expect(stored().filter((n) => !n.endsWith(".lock"))).toEqual([]);
@@ -257,6 +307,44 @@ describe("toolchainMissing", () => {
   });
 });
 
-function systemTarReadsZip(): boolean {
-  return /bsdtar/.test(spawnSync(systemTar(), ["--version"]).stdout?.toString() ?? "");
+describe("unpacker", () => {
+  const only = (bin: string) => (path: string) => path === bin;
+
+  it("unpacks with the system tar, which reads zip too on macOS and Windows", () => {
+    expect(unpacker("a.download", "out", false, "linux", () => false)).toEqual(["/usr/bin/tar", ["-xf", "a.download", "-C", "out"]]);
+    expect(unpacker("a.download", "out", true, "darwin", () => false)).toEqual(["/usr/bin/tar", ["-xf", "a.download", "-C", "out"]]);
+    expect(unpacker("a.download", "out", true, "win32", () => false)).toEqual([systemTar("win32"), ["-xf", "a.download", "-C", "out"]]);
+    expect(systemTar("win32")).toMatch(/System32[\\/]tar\.exe$/);
+  });
+
+  it("unpacks a zip on Linux, whose GNU tar can't read one, with bsdtar, else unzip, by absolute path", () => {
+    expect(unpacker("a.download", "out", true, "linux", () => true)).toEqual(["/usr/bin/bsdtar", ["-xf", "a.download", "-C", "out"]]);
+    expect(unpacker("a.download", "out", true, "linux", only("/usr/bin/unzip"))).toEqual(["/usr/bin/unzip", ["-qq", "-o", "a.download", "-d", "out"]]);
+  });
+
+  it("with neither on Linux, fails the toolchain gate, saying what to install", () => {
+    const neither = () => unpacker("a.download", "out", true, "linux", () => false);
+    expect(neither).toThrow(/install unzip[\s\S]*\.tar\.gz/i);
+    // Gate "toolchain" (no infrastructure code): a .tar.gz link avoids it.
+    expect(neither).toThrow(expect.objectContaining({ code: undefined }));
+  });
+
+  it.runIf(existsSync("/usr/bin/unzip"))("unzip's arguments unpack a zip into the folder", () => {
+    const file = join(tempDir(), "a.download");
+    writeFileSync(file, zip(TOOLCHAIN));
+    const dir = tempDir();
+    const [bin, args] = unpacker(file, dir, true, "linux", only("/usr/bin/unzip"));
+    expect(spawnSync(bin, args, { encoding: "utf8" })).toMatchObject({ status: 0, stderr: "" });
+    expect(readFileSync(join(dir, "lib", "python3", "re.py"), "utf8")).toBe("# re\n");
+  });
+});
+
+/** Whether this computer can unpack a zip: always on macOS and Windows; on Linux, with bsdtar or unzip installed. */
+function unzips(): boolean {
+  try {
+    unpacker("a.download", "out", true);
+    return true;
+  } catch {
+    return false;
+  }
 }

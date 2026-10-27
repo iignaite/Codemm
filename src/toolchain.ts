@@ -2,16 +2,17 @@ import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, type Stats } from "node:fs";
 import { open } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { CodemmError, infraError, type InfraCode } from "./errors.js";
 import type { WasiSpec } from "./schemas.js";
 import * as store from "./store.js";
 import { sealReadOnly, unseal } from "./wasi.js";
 
 /**
- * A WASI track's toolchain (DESIGN §4.5): downloaded over https, hashed as it arrives, unpacked with the system tar,
+ * A WASI track's toolchain (DESIGN §4.5): downloaded over https, hashed as it arrives, unpacked with the system's tools,
  * sealed read-only and stored once per digest under $CODEMM_HOME/toolchains/. A plain CodemmError is the track's
- * problem (gates report it as gate "toolchain"); this computer's network or disk throws with its infrastructure code.
+ * problem (gates report it as gate "toolchain"), as is a zip on a Linux computer with nothing to unpack it, which a
+ * .tar.gz link avoids; this computer's network or disk throws with its infrastructure code.
  */
 
 /** `fetch`, or the desktop's (Electron's net.fetch, for the system's proxy and certificates). Redirects come back to be checked. */
@@ -54,9 +55,12 @@ export async function ensureToolchain(wasi: Source, { replace = false, ...limits
   const staging = mkdtempSync(join(parent, ".staging-"));
   const file = `${staging}.download`;
   try {
+    const path = new URL(wasi.url).pathname;
+    // Before downloading, so a computer that can't unpack the archive says so at once.
+    const command = path.endsWith(".wasm") ? undefined : unpacker(file, staging, path.endsWith(".zip"));
     const sha256 = await download(wasi.url, file, wasi.sha256, limits);
-    if (new URL(wasi.url).pathname.endsWith(".wasm")) renameSync(file, join(staging, wasi.module));
-    else await unpack(file, staging);
+    if (command) await unpack(command, staging);
+    else renameSync(file, join(staging, wasi.module));
     assertLayout(staging, wasi);
     // Its root stays writable, so it can be renamed (macOS) and replaced; no dirs value maps it. A seal that fails is
     // the infrastructure error wasi-seal.
@@ -219,29 +223,48 @@ function networkError(e: unknown, stalled: boolean): CodemmError {
 // ---------- unpacking ----------
 
 /** The system's own tar, by absolute path: bsdtar on macOS and Windows, which reads zip too. */
-export function systemTar(): string {
-  return process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "/usr/bin/tar";
+export function systemTar(platform = process.platform): string {
+  return platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "/usr/bin/tar";
 }
 
-/** Unpacks `file` into `dir`, then refuses any link, special file or file with more than one hard link. */
-async function unpack(file: string, dir: string): Promise<void> {
+/**
+ * The command that unpacks `file` into `dir`, by absolute path: the system's tar, except for a zip on Linux, whose tar
+ * is usually GNU tar and can't read one. There it's bsdtar, else unzip, whichever is installed.
+ */
+export function unpacker(file: string, dir: string, zip: boolean, platform = process.platform, installed: (path: string) => boolean = existsSync): [string, string[]] {
+  const tar = (bin: string): [string, string[]] => [bin, ["-xf", file, "-C", dir]];
+  if (!zip || platform !== "linux") return tar(systemTar(platform));
+  if (installed("/usr/bin/bsdtar")) return tar("/usr/bin/bsdtar");
+  // -o: never ask before replacing a file, as tar doesn't.
+  if (installed("/usr/bin/unzip")) return ["/usr/bin/unzip", ["-qq", "-o", file, "-d", dir]];
+  throw new CodemmError(
+    "This computer can't unpack the .zip at wasi.url: its tar can't read zip, and neither unzip (/usr/bin/unzip) nor bsdtar (/usr/bin/bsdtar) " +
+      "is installed. Install unzip, or link a .tar.gz of the same toolchain if its project publishes one, then retry.",
+  );
+}
+
+/** Unpacks into `dir` with `command` (unpacker's), then refuses any link, special file or file with more than one hard link. */
+async function unpack([bin, args]: [string, string[]], dir: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(systemTar(), ["-xf", file, "-C", dir], { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
+    // In its own session on macOS and Linux, so with no terminal: bsdtar and unzip ask for an encrypted zip's password
+    // there (/dev/tty), and fail at once without one. On Windows its stdin, NUL, isn't a console, so they fail too.
+    const child = spawn(bin, args, { stdio: ["ignore", "ignore", "pipe"], windowsHide: true, detached: process.platform !== "win32" });
     let stderr = "";
     child.stderr.on("data", (d: Buffer) => (stderr = (stderr + d.toString()).slice(-4000)));
     const timer = setTimeout(() => child.kill("SIGKILL"), UNPACK_TIMEOUT_MS);
     child.on("error", (e) => {
       clearTimeout(timer);
-      reject(new Error(`Couldn't run the system tar (${systemTar()}) to unpack the toolchain: ${e.message}`));
+      reject(new Error(`Couldn't run ${bin} to unpack the toolchain: ${e.message}`));
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
       if (code === 0) return resolve();
       const said = stderr.trim().split("\n").slice(-3).join("\n");
-      if (/no space left|quota exceeded/i.test(said)) return reject(infraError("The disk filled up while unpacking the toolchain. Free some space, then retry.", "host-disk"));
-      // Only the timer kills tar: a slow computer, not the track.
+      // unzip says "disk full?".
+      if (/no space left|quota exceeded|disk full/i.test(said)) return reject(infraError("The disk filled up while unpacking the toolchain. Free some space, then retry.", "host-disk"));
+      // Only the timer kills it: a slow computer, not the track.
       if (signal) return reject(infraError("Unpacking the toolchain took more than 10 minutes. Close other programs, then retry with the same files.", "check-timeout"));
-      reject(new CodemmError(`The archive at wasi.url didn't unpack with this computer's tar${said ? `:\n${said}` : "."}`));
+      reject(new CodemmError(`The archive at wasi.url didn't unpack with this computer's ${basename(bin, ".exe")}${said ? `:\n${said}` : "."}`));
     });
   });
   walk(dir, (_path, rel, stat) => {
