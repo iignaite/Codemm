@@ -64,7 +64,7 @@ jobs:
           const fx = (n) => resolve("test/fixtures/wasi", n + ".wat");
           const show = (label, r) => console.log(`${label}: exit ${r.status} stdout ${JSON.stringify(r.stdout)} stderr ${JSON.stringify((r.stderr || "").slice(0, 600))}`);
           const run = (label, args, env, input = "hi\n") => show(label, spawnSync(W, args, { input, env, encoding: "utf8" }));
-          const pre = ["run", "--allow-precompiled", "-C", "cache=n"];
+          const pre = ["run", "--allow-precompiled", "-C", "cache=n", "-W", "timeout=5s"];
           for (const n of ["cat", "write"]) show(`compile ${n}`, spawnSync(W, ["compile", "-W", "epoch-interruption=y", fx(n), "-o", join(T, n + ".cwasm")], { env: sys, encoding: "utf8" }));
           run("A text module, inherited env", ["run", fx("cat")], process.env);
           run("B text module, empty env", ["run", fx("cat")], sys);
@@ -80,6 +80,12 @@ jobs:
             V3: [["(OI)(CI)(WD,AD,D,DC)"]],
             V4: [["(OI)(CI)(WD,AD,DC)"]],
             V5: [["(OI)(CI)(WD,AD,WEA,WA,D,DC)"]],
+            V6: [["(OI)(CI)(IO)(W,D,DC)"]],
+            V7: [["(DC)"], ["(OI)(CI)(IO)(W,D,DC)"]],
+            V8: [["(AD,DC)"], ["(OI)(CI)(IO)(W,D,DC)"]],
+            V9: [["(WD,DC)"], ["(OI)(CI)(IO)(W,D,DC)"]],
+            // One right on the folder alone, to see which ones wasmtime's open asks for.
+            R_WD: [["(WD)"]], R_AD: [["(AD)"]], R_WA: [["(WA)"]], R_WEA: [["(WEA)"]], R_D: [["(D)"]], R_DC: [["(DC)"]],
           };
           for (const [v, aces] of Object.entries(variants)) {
             const d = fresh(v);
