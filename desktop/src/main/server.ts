@@ -21,7 +21,12 @@ export function codemmServer({ runtime, coreDir, ws, env }: ServerPlaces) {
       ...(progress ? ['--progress', progress] : []),
     ],
     // Codex starts MCP servers without the app's environment, so the server is told where Codemm's data is,
-    // and the PATH the app found Docker and its helpers on (§3.1).
-    env: { ELECTRON_RUN_AS_NODE: '1', ...(env.CODEMM_HOME ? { CODEMM_HOME: env.CODEMM_HOME } : {}), ...(env.PATH ? { PATH: env.PATH } : {}) },
+    // the PATH the app found Docker and its helpers on (§3.1), and the wasmtime the app bundles (core §4.5).
+    env: {
+      ELECTRON_RUN_AS_NODE: '1',
+      ...(env.CODEMM_HOME ? { CODEMM_HOME: env.CODEMM_HOME } : {}),
+      ...(env.PATH ? { PATH: env.PATH } : {}),
+      ...(env.CODEMM_WASMTIME ? { CODEMM_WASMTIME: env.CODEMM_WASMTIME } : {}),
+    },
   });
 }

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { packaging, releaseTag } from './packaging.cjs';
 
@@ -53,6 +55,24 @@ describe('packaging', () => {
     expect(from).toContain('src/renderer/assets/fonts');
     // vite.config.mts writes them to out/renderer/licenses.md (build.license).
     expect(from).toContain('out/renderer/licenses.md');
+  });
+
+  it('ships each installer only its own chip\'s wasmtime, with its license, outside the archive', () => {
+    // scripts/fetch-wasmtime.mjs fills vendor/wasmtime/<os>-<arch>; electron-builder expands the macros per build.
+    expect(packaging({}).extraResources).toContainEqual({ from: 'vendor/wasmtime/${os}-${arch}', to: 'wasmtime' });
+  });
+
+  it('signs the binaries beside the app, wasmtime among them, with the entitlement wasmtime needs to run compiled code', () => {
+    // Under the hardened runtime, wasmtime maps the code it compiled, or precompiled, as executable: without
+    // allow-unsigned-executable-memory, macOS kills it (exit 137) or refuses the mapping. allow-jit alone isn't enough,
+    // since wasmtime doesn't use MAP_JIT. Checked with wasmtime 50 on macOS 15. electron-builder reads this file from
+    // build/ for every binary but the app itself, so nothing may override it.
+    expect(packaging({ CSC_LINK: 'base64-p12' }, 'darwin').mac).not.toHaveProperty('entitlementsInherit');
+    const inherit = readFileSync(join(__dirname, 'build', 'entitlements.mac.inherit.plist'), 'utf8');
+    expect(inherit).toMatch(/<key>com\.apple\.security\.cs\.allow-unsigned-executable-memory<\/key>\s*<true\/>/);
+    // The same keys as electron-builder's template, which Electron's helpers were signed with before: they're unchanged.
+    const keys = (plist: string) => [...plist.matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1]).sort();
+    expect(keys(inherit)).toEqual(keys(readFileSync(require.resolve('app-builder-lib/templates/entitlements.mac.plist'), 'utf8')));
   });
 
   it('builds only macOS and Windows installers', () => {

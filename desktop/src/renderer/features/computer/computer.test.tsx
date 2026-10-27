@@ -30,6 +30,52 @@ describe('check this computer', () => {
     expect(await screen.findByRole('heading', { name: 'What do you want to learn?' })).toBeInTheDocument();
   });
 
+  describe('without Docker, on the WASI engine (core §4.5)', () => {
+    const LINE = 'Codemm can run practice on this computer without Docker, for programs that read input and print output. For everything else, install Docker.';
+
+    it('says practice runs here without Docker and offers Continue, with installing Docker still an option', async () => {
+      const user = open({ docker: 'missing', platform: 'mac', wasi: true });
+      expect(await screen.findByText(LINE)).toBeInTheDocument();
+      // Docker reads as optional, not as a step to take: Continue is the one primary action.
+      const installed = screen.getByRole('listitem', { name: 'Docker is installed' });
+      expect(within(installed).getByText('Optional')).toBeInTheDocument();
+      expect(within(installed).queryByText('Needs a step')).not.toBeInTheDocument();
+      expect(within(installed).getByRole('button', { name: 'Install Docker' })).toHaveClass('ghost');
+      expect(screen.getByRole('button', { name: 'Continue' })).toHaveClass('primary');
+      expect(screen.queryByRole('button', { name: 'Later' })).not.toBeInTheDocument();
+      // Nothing says Docker is expected ("not installed yet").
+      expect(screen.getByRole('status')).toHaveTextContent(/^Checking again every few seconds\.$/);
+      await user.click(screen.getByRole('button', { name: 'Continue' }));
+      expect(await screen.findByRole('heading', { name: 'Learn anything.' })).toBeInTheDocument();
+    });
+
+    it('keeps the start-Docker step when Docker is installed but stopped', async () => {
+      // Main never reports wasi then (core §4.5): a computer with Docker gets Docker tracks.
+      open({ docker: 'stopped', platform: 'windows', wasi: true });
+      expect(await screen.findByRole('button', { name: 'Open Docker Desktop' })).toHaveClass('primary');
+      expect(screen.queryByText(LINE)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Later' })).toBeInTheDocument();
+    });
+
+    it('stays on the screen from Connect, so the learner reads it once before going on', async () => {
+      renderApp({ to: 'computer', then: { to: 'goal' }, fromConnect: true }, createMock({ docker: 'missing', platform: 'mac', wasi: true }));
+      expect(await screen.findByText(LINE)).toBeInTheDocument();
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.getByRole('heading', { name: 'Check this computer' })).toBeInTheDocument();
+    });
+
+    it('is the usual Docker screen once Docker is installed and ready', async () => {
+      const options: MockOptions = { docker: 'missing', platform: 'mac', wasi: true };
+      open(options);
+      await screen.findByText(LINE);
+      options.docker = 'ready';
+      window.dispatchEvent(new Event('focus'));
+      expect(await screen.findByText('This computer is ready.')).toBeInTheDocument();
+      expect(screen.getByText('Codemm runs your code in Docker, on this computer.')).toBeInTheDocument();
+      expect(screen.queryByText(LINE)).not.toBeInTheDocument();
+    });
+  });
+
   it('waits for Continue once the learner had a step to take', async () => {
     const options: MockOptions = { docker: 'stopped', platform: 'mac' };
     const user = open(options);

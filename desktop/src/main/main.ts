@@ -31,7 +31,13 @@ process.on('uncaughtExceptionMonitor', (e) => log('error', { where: 'main', ...e
 process.on('unhandledRejection', (e) => log('error', { where: 'main', ...errorFields(e) }));
 
 const mock = !app.isPackaged && process.env.CODEMM_MOCK !== undefined;
-const live = mock ? null : liveApi({ coreDir: app.isPackaged ? join(process.resourcesPath, 'core') : join(__dirname, '../core'), userData: app.getPath('userData'), log });
+const live = mock ? null : liveApi({
+  coreDir: app.isPackaged ? join(process.resourcesPath, 'core') : join(__dirname, '../core'),
+  // packaging.cjs ships this chip's wasmtime; in development, scripts/fetch-wasmtime.mjs fetches it.
+  wasmtimeDir: app.isPackaged ? join(process.resourcesPath, 'wasmtime') : join(__dirname, '../../vendor/wasmtime', `${process.platform === 'win32' ? 'win' : 'mac'}-${process.arch}`),
+  userData: app.getPath('userData'),
+  log,
+});
 // The mock loads only in mock mode, so installers can leave it out.
 // Auto-update (§7.2): in an installed app, on GitHub Releases. In development only, CODEMM_UPDATE_FEED points the
 // check at a local feed instead, for tests; an installed app ignores it.

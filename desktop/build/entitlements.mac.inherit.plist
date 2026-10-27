@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  What electron-builder signs every binary but the app itself with, under the hardened runtime: Electron's helpers
+  and the bundled wasmtime (packaging.cjs). The same keys as electron-builder's own template. wasmtime needs
+  allow-unsigned-executable-memory to run the code it compiled or precompiled; allow-jit alone isn't enough.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>

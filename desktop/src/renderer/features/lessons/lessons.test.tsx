@@ -280,6 +280,18 @@ describe('topic page and setup consent', () => {
     expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Stop', 'Try again']);
   });
 
+  it("says when a WASI track's setup couldn't start wasmtime, with Stop and Try again, and nothing about Docker", async () => {
+    const user = userEvent.setup();
+    const { api } = await approved({ setupProblem: 'wasi' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Set up' }));
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByRole('heading', { name: "Codemm couldn't start the part that runs your code." })).toBeInTheDocument();
+    expect(alert).toHaveTextContent('Reinstall Codemm, then try again.');
+    expect(alert).not.toHaveTextContent('Docker');
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Stop', 'Try again']);
+  });
+
   it('asks again with a new proposal when the gates fail', async () => {
     const user = userEvent.setup();
     const { api } = await approved(scenario('setup-gates'));
@@ -414,6 +426,23 @@ describe('background work that stopped', () => {
     expect(alert).toHaveTextContent(said);
     expect(alert).not.toHaveTextContent('Docker stopped');
     expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(buttons);
+  });
+
+  it("says when a WASI track's wasmtime didn't start, with nothing about Docker, which the learner may not have", async () => {
+    const { api } = await mockWithCourse({ stalled: 'wasi' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Codemm couldn't start the part that runs your code. Reinstall Codemm, then try again.");
+    expect(alert).not.toHaveTextContent('Docker');
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
+  });
+
+  it("says when Codemm couldn't make its files read-only on this drive, and where to keep its folder", async () => {
+    const { api } = await mockWithCourse({ stalled: 'wasi-seal' });
+    renderApp({ to: 'topic', topicId: TOPIC }, api);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Codemm couldn't make its files read-only on this drive. Keep Codemm's folder on this computer's own drive, then try again.");
+    expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
   });
 
   it('says the disk is full, with Try again and no Check your agent', async () => {

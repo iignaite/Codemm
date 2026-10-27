@@ -17,7 +17,7 @@
     "build": "vite build && tsc -p tsconfig.node.json && node scripts/bundle-core.mjs",
     "start": "npm run build && electron .",
     "test:e2e": "npm run build && playwright test e2e/smoke.spec.ts e2e/a11y.spec.ts",
-    "dist": "npm run build && electron-builder --config electron-builder.config.cjs --publish never",
+    "dist": "npm run build && node scripts/fetch-wasmtime.mjs && electron-builder --config electron-builder.config.cjs --publish never",
     "test:packaged": "playwright test e2e/packaged.spec.ts e2e/artifact.spec.ts"
   },
   "devDependencies": {

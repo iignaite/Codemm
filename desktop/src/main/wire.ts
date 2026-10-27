@@ -16,7 +16,7 @@ import { connector } from './connect';
 import { dockerDesktop, nativeArch, nodeDesktopDeps } from './dockerDesktop';
 import { restartWindows } from './windows';
 import { wsl } from './wsl';
-import { electronGet } from './download';
+import { electronFetch, electronGet } from './download';
 import type { CoreApp } from './core/types';
 import { createLive, type Live } from './live';
 import type { Log } from './log';
@@ -24,17 +24,26 @@ import { codemmServer } from './server';
 import { agentSignIn, nodeSignInDeps } from './signIn';
 import { desktopState, workspaceOf } from './state';
 import { usageStore } from './usage';
+import { wasmtimeIn } from './wasmtime';
 
 export interface Places {
   /** out/core in development, <resources>/core when packaged. */
   coreDir: string;
+  /** Where the bundled wasmtime is: <resources>/wasmtime when packaged, vendor/wasmtime/<os>-<arch> in development. */
+  wasmtimeDir: string;
   userData: string;
   log: Log;
 }
 
-export function liveApi({ coreDir, userData, log }: Places): Live {
+export function liveApi({ coreDir, wasmtimeDir, userData, log }: Places): Live {
+  // Core's WASI engine, in-process and in the agent's server (server.ts), runs WASI tracks on the bundled wasmtime.
+  const wasmtime = wasmtimeIn(wasmtimeDir, process.platform);
+  if (wasmtime) process.env.CODEMM_WASMTIME = wasmtime;
   // The bundled core (scripts/bundle-core.mjs), loaded in-process.
   const core = require(join(coreDir, 'dist', 'app.cjs')) as CoreApp;
+  // A WASI track's toolchain downloads through Chromium's network stack too: school networks need the system's proxy
+  // and certificates (core §4.5).
+  core.setToolchainFetch?.(electronFetch(net.request));
   const state = desktopState(userData);
   const ws = workspaceOf(state.read(), homedir());
   mkdirSync(ws, { recursive: true });
@@ -85,6 +94,13 @@ export function liveApi({ coreDir, userData, log }: Places): Live {
       return state === 'busy' ? 'down' : state;
     },
     sandbox: () => core.networkIsolation(),
+    // No container CLI, as core's containerCli() looks (docker or podman), and the wasmtime core's WASI engine runs
+    // (core wasi.ts): the bundled one, else one on PATH, at the major version core needs.
+    wasi: async () => {
+      if (find('podman')) return false;
+      const bin = process.env.CODEMM_WASMTIME ? { path: process.env.CODEMM_WASMTIME, js: false } : find('wasmtime');
+      return Boolean(bin && (await ask(bin, ['--version'], ({ code, output }) => code === 0 && /^wasmtime 50\./.test(output))));
+    },
     now: () => Date.now(),
   }, process.platform, log);
 

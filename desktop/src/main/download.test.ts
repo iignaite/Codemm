@@ -3,8 +3,8 @@ import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
-import { describe, expect, it } from 'vitest';
-import { downloader, electronGet, OfflineError, type Get } from './download';
+import { describe, expect, it, vi } from 'vitest';
+import { downloader, electronFetch, electronGet, OfflineError, type Get } from './download';
 import { tempDir } from './testing/temp';
 
 const any = () => true;
@@ -189,5 +189,99 @@ describe("Electron's network stack: the system's proxy and certificates (§3.1)"
     stalls.made[0].respond(body, 200, { 'content-length': '100' });
     body.write('some');
     await expect(saving).rejects.toBeInstanceOf(OfflineError);
+  });
+});
+
+describe("core's toolchain download over Electron's network stack (core §4.5)", () => {
+  function electronAsFetch() {
+    const made: Request[] = [];
+    const request = ((options: { url: string; redirect: string }) => {
+      expect(options.redirect).toBe('manual');
+      const r = new Request(options.url);
+      made.push(r);
+      return r;
+    }) as unknown as Parameters<typeof electronFetch>[0];
+    return { fetch: electronFetch(request), made };
+  }
+  const init = () => ({ redirect: 'manual' as const, signal: new AbortController().signal });
+
+  // net.fetch with redirect "manual" throws "Redirect was cancelled" (Electron 44), so core couldn't check each hop.
+  it('hands a redirect back unfollowed, with its location, for core to check', async () => {
+    const e = electronAsFetch();
+    const got = e.fetch('https://github.com/a.zip', init());
+    expect(e.made[0].headers).toEqual({ 'User-Agent': 'Codemm' });
+    e.made[0].emit('redirect', 302, 'GET', 'http://mirror.example/a.zip', {});
+    const res = await got;
+    expect([res.status, res.headers.get('location')]).toEqual([302, 'http://mirror.example/a.zip']);
+    expect(e.made[0].followed).toBe(0);
+    expect(e.made[0].aborted).toBe(true);
+  });
+
+  it('answers with the status, headers and body', async () => {
+    const e = electronAsFetch();
+    const got = e.fetch('https://github.com/a.zip', init());
+    e.made[0].respond(Readable.from([Buffer.from('zip '), Buffer.from('bytes')]), 200, { 'content-type': 'application/zip' });
+    const res = await got;
+    expect([res.status, res.headers.get('content-type')]).toEqual([200, 'application/zip']);
+    expect(await res.text()).toBe('zip bytes');
+  });
+
+  it("passes on the request's error, and an abort fails the request or the body midway with its reason", async () => {
+    const failing = electronAsFetch();
+    const failed = failing.fetch('https://github.com/a.zip', init());
+    failing.made[0].emit('error', new Error('net::ERR_PROXY_CONNECTION_FAILED'));
+    await expect(failed).rejects.toThrow('net::ERR_PROXY_CONNECTION_FAILED');
+
+    const early = electronAsFetch();
+    const stop = new AbortController();
+    const waiting = early.fetch('https://github.com/a.zip', { redirect: 'manual', signal: stop.signal });
+    stop.abort(new Error('stalled'));
+    await expect(waiting).rejects.toThrow('stalled');
+    expect(early.made[0].aborted).toBe(true);
+
+    const midway = electronAsFetch();
+    const later = new AbortController();
+    const got = midway.fetch('https://github.com/a.zip', { redirect: 'manual', signal: later.signal });
+    const body = new PassThrough();
+    midway.made[0].respond(body, 200);
+    const res = await got;
+    body.write('some');
+    const reading = res.arrayBuffer();
+    later.abort(new Error('stalled'));
+    // Never a short file that reads as complete: the body fails, so a stall isn't a digest mismatch.
+    await expect(reading).rejects.toThrow('stalled');
+  });
+
+  it("answers what fetch can't build without throwing in the main process: an empty status's body, an odd status, raw header bytes", async () => {
+    const empty = electronAsFetch();
+    const got = empty.fetch('https://github.com/a.zip', init());
+    empty.made[0].respond(Readable.from([]), 204, { 'x-name': 'caf\u00e9' });
+    const res = await got;
+    expect([res.status, await res.text()]).toEqual([204, '']);
+    // Electron hands header bytes over as UTF-8 text: they pass as bytes, as Electron's own net.fetch does.
+    expect(res.headers.get('x-name')).toBe('caf\u00c3\u00a9');
+    expect(empty.made[0].aborted).toBe(true);
+
+    const odd = electronAsFetch();
+    const failing = odd.fetch('https://github.com/a.zip', init());
+    odd.made[0].respond(Readable.from([]), 999);
+    await expect(failing).rejects.toThrow('999');
+    expect(odd.made[0].aborted).toBe(true);
+  });
+
+  it('stops the request when core stops reading the body, as a headers-only check does', async () => {
+    const e = electronAsFetch();
+    const got = e.fetch('https://github.com/a.zip', init());
+    e.made[0].respond(new PassThrough(), 200, { 'content-length': '157286400' });
+    await (await got).body!.cancel();
+    await vi.waitFor(() => expect(e.made[0].aborted).toBe(true));
+  });
+
+  it('never sends a request whose signal has already aborted', async () => {
+    const e = electronAsFetch();
+    const stop = new AbortController();
+    stop.abort(new Error('stalled'));
+    await expect(e.fetch('https://github.com/a.zip', { redirect: 'manual', signal: stop.signal })).rejects.toThrow('stalled');
+    expect(e.made).toEqual([]);
   });
 });

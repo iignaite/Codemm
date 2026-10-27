@@ -31,6 +31,10 @@ export const NOT_COUNTED = {
   'docker-disk': 'Docker ran out of disk space.',
   disk: 'This computer is out of disk space.',
   offline: "Docker couldn't reach the network.",
+  // A WASI track's wasmtime didn't start (core §4.5): it comes with Codemm, so reinstalling brings it back.
+  wasi: "Codemm couldn't start the part that runs your code.",
+  // A drive without file permissions (FAT, exFAT): Codemm can't keep the learner's program from writing (core §4.5).
+  'wasi-seal': "Codemm couldn't make its files read-only on this drive.",
   // A container Docker refused for a reason core named: what to change, since trying again won't help.
   'docker-cpus': "Docker has fewer than the 2 CPUs a check uses. Give it more in Docker Desktop's settings.",
   'docker-log-driver': "Docker's logging driver refused Codemm's log options. Set it to json-file or local in Docker's settings.",
@@ -44,6 +48,8 @@ export const RUN_AGAIN: Record<string, string> = {
   [NOT_COUNTED['docker-disk']]: 'Remove unused images in Docker Desktop, then run again.',
   [NOT_COUNTED.disk]: 'Free some space, then run again.',
   [NOT_COUNTED.offline]: 'Connect to the internet, then run again.',
+  [NOT_COUNTED.wasi]: 'Reinstall Codemm, then run again.',
+  [NOT_COUNTED['wasi-seal']]: "Keep Codemm's folder on this computer's own drive, then run again.",
 };
 /** A run that didn't run: why, then what to do next. */
 export const notRunLine = (reason: string) => (RUN_AGAIN[reason] ? `${reason} ${RUN_AGAIN[reason]}` : reason);
@@ -142,6 +148,11 @@ export interface Computer {
   canInstall?: boolean;
   /** An install Codemm started, while it runs and after it fails. */
   install?: DockerInstall;
+  /**
+   * Docker isn't ready, but Codemm's WASI engine runs here (core §4.5): practice with programs that read input and
+   * print output runs without Docker, so the learner can go on. Docker stays an option for everything else.
+   */
+  wasi?: true;
 }
 
 // ---------- roadmap (§4.2) ----------
@@ -201,7 +212,7 @@ export type SetupState = 'proposing' | 'consent' | 'installing' | 'ready' | 'fai
  * Why setup failed. `gates` means the proposals didn't pass; the rest are this computer's problems: Docker stopped,
  * busy and not answering, or answering but failing, Docker's disk or this computer's, or the network.
  */
-export type SetupProblem = 'offline' | 'disk' | 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'gates';
+export type SetupProblem = 'offline' | 'disk' | 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'wasi' | 'wasi-seal' | 'gates';
 
 /** What the learner approves before setup: exactly the files Codemm will build (§4.1). */
 export interface Proposal {
@@ -244,7 +255,7 @@ export interface CourseView {
   topics: TopicView[];
   done: boolean;
   /** Background work (setup, lessons, activities) stopped after its retry, and why (§5). Nothing was recorded. */
-  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'disk' | 'rebuild' | 'lesson' | 'failed' | 'unstoppable';
+  stalled?: 'plan-limit' | 'signed-out' | 'offline' | 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' | 'disk' | 'wasi' | 'wasi-seal' | 'rebuild' | 'lesson' | 'failed' | 'unstoppable';
   /** The background work that stalled, so its banner can name it. */
   stalledWork?: 'setup' | 'lesson' | 'author';
   /**

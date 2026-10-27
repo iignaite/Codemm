@@ -30,6 +30,47 @@ describe('check this computer (§6.1, D13)', () => {
     });
   });
 
+  describe('without Docker, the WASI engine (core §4.5)', () => {
+    it('says practice can run here when no Docker is installed but wasmtime runs', async () => {
+      const missing = await computerCheck(probe({ find: () => null, wasi: async () => true }), 'win32')();
+      expect(missing).toMatchObject({ ready: false, wasi: true });
+      expect(missing.checks.map((c) => c.state)).toEqual(['problem', 'waiting', 'waiting']);
+    });
+
+    it("doesn't when Docker is installed, running or not: then the agent writes Docker tracks, and the fix is to start it", async () => {
+      let asked = false;
+      const wasi = async () => ((asked = true), true);
+      expect(await computerCheck(probe({ state: async () => 'down', wasi }), 'darwin')()).not.toHaveProperty('wasi');
+      // A docker command without Docker Desktop's app, its engine down: installed, though the row offers Install Docker.
+      expect(await computerCheck(probe({ state: async () => 'down', canInstall: true, desktopInstalled: () => false, wasi }), 'darwin')()).not.toHaveProperty('wasi');
+      expect(await computerCheck(probe({ sandbox: async () => FAIL, wasi }), 'darwin')()).not.toHaveProperty('wasi');
+      expect(asked).toBe(false);
+    });
+
+    it("doesn't ask when Docker is ready: its flows are unchanged", async () => {
+      let asked = false;
+      const ready = await computerCheck(probe({ wasi: async () => ((asked = true), true) }), 'darwin')();
+      expect(ready).not.toHaveProperty('wasi');
+      expect(asked).toBe(false);
+    });
+
+    it("says nothing of it when wasmtime doesn't run, and asks again on the next check", async () => {
+      let asks = 0;
+      const check = computerCheck(probe({ find: () => null, wasi: async () => (asks++, false) }), 'darwin');
+      expect(await check()).not.toHaveProperty('wasi');
+      await check();
+      expect(asks).toBe(2);
+    });
+
+    it('asks once wasmtime has run: it stays there while Codemm runs', async () => {
+      let asks = 0;
+      const check = computerCheck(probe({ find: () => null, wasi: async () => (asks++, true) }), 'darwin');
+      await check();
+      expect(await check()).toMatchObject({ wasi: true });
+      expect(asks).toBe(1);
+    });
+  });
+
   it('missing Docker fails the first row, and nothing after it runs', async () => {
     let asked = false;
     const check = computerCheck(probe({ find: () => null, state: async () => ((asked = true), 'ready') }), 'win32');

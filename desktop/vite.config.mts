@@ -12,7 +12,7 @@ export default defineConfig({
   build: { outDir: '../../out/renderer', emptyOutDir: true, license: { fileName: 'licenses.md' } },
   test: {
     root: '.',
-    include: ['src/**/*.test.{ts,tsx}', '*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/*.test.ts', '*.test.ts'],
     environment: 'jsdom',
     // Journey tests type and click through several screens; slow CI runners need room.
     testTimeout: 20_000,

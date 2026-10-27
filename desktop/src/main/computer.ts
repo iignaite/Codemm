@@ -27,6 +27,11 @@ export interface Probe {
   install?(): DockerInstall | undefined;
   /** On Windows, what WSL needs for Docker Desktop's engine, when that can be read (wsl.ts). */
   wsl?(): Promise<WslState | undefined>;
+  /**
+   * Whether io practice can run here without Docker (core §4.5): no other container CLI (podman) is installed either,
+   * and wasmtime 50 runs. Asked only when no docker command is found.
+   */
+  wasi?(): Promise<boolean>;
 }
 
 /** What WSL needs, as the running row says it: nothing when it's ready. */
@@ -50,10 +55,15 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
   /** When this check first saw Docker Desktop's app running with its engine down. */
   let openAt: number | undefined;
   let lastReason: string | undefined;
+  /** Set once wasmtime ran: it stays while Codemm runs. */
+  let wasi = false;
+  /** Whether the last check found a docker command, running or not. */
+  let installed = false;
   const recent = (at: number | undefined) => at !== undefined && probe.now() - at <= STARTING_MS;
 
   async function failing(): Promise<{ at: number; detail?: ComputerCheck['detail']; reason?: ComputerCheck['reason'] } | null> {
     const docker = probe.find();
+    installed = docker !== null;
     const state = docker ? await probe.state(docker) : 'missing';
     if (state === 'missing' || state === 'down') down = true;
     // Open Docker Desktop can't start an engine that isn't Docker Desktop's: install it instead.
@@ -95,7 +105,13 @@ export function computerCheck(probe: Probe, platform: NodeJS.Platform = process.
       return { id, state: 'problem', ...(problem.detail ? { detail: problem.detail } : {}), ...(problem.reason ? { reason: problem.reason } : {}) };
     });
     const install = probe.install?.();
-    return { platform: platformOf(platform), checks, ready: !problem, ...(probe.canInstall ? { canInstall: true } : {}), ...(install ? { install } : {}) };
+    // Only with no Docker installed: a computer with Docker gets Docker tracks, and a stopped one is started (core §4.5).
+    const without = Boolean(problem) && !installed;
+    if (without && !wasi) wasi = (await probe.wasi?.()) ?? false;
+    return {
+      platform: platformOf(platform), checks, ready: !problem, ...(probe.canInstall ? { canInstall: true } : {}), ...(install ? { install } : {}),
+      ...(without && wasi ? { wasi: true as const } : {}),
+    };
   };
 }
 
