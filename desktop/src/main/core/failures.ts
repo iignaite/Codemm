@@ -10,6 +10,8 @@ export type Infra = 'docker' | 'docker-busy' | 'docker-failed' | 'docker-disk' |
 /** core src/errors.ts INFRA: each of core's codes, and what the learner is told about it. */
 const CODES = {
   'no-runtime': 'docker',
+  'no-wasmtime': 'docker-failed',
+  'wasi-seal': 'docker-failed',
   'runtime-down': 'docker',
   'runtime-paused': 'docker',
   'socket-permission': 'docker',
