@@ -137,6 +137,8 @@ async function start(name: string, extra: Partial<WasiStart> = {}): Promise<Wasi
 describe.skipIf(!wasmtimeUp)("startWasi", () => {
   it("pipes the input to stdin and returns stdout and the exit code", async () => {
     const r = await startWasi(await start("cat", { input: Buffer.from("hello\nworld\n") })).done;
+    // First, so a failing start shows wasmtime's own words.
+    expect(r.stderr).toBe("");
     expect(r).toMatchObject({ exit: 0, flooded: false, timedOut: false });
     expect(r.stdout.toString()).toBe("hello\nworld\n");
   });

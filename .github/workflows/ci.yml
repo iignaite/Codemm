@@ -47,6 +47,49 @@ jobs:
           if [ "$ext" = zip ]; then 7z x -bd -o"$RUNNER_TEMP" "$file" > /dev/null; else tar -xJf "$file" -C "$RUNNER_TEMP"; fi
           echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
       - run: wasmtime --version
+      # TEMPORARY: why wasmtime exits 1 on Windows under the seal or the empty environment. Removed once found.
+      - name: Diagnose wasmtime on Windows
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/diag.mjs" <<'JS'
+          import { spawnSync } from "node:child_process";
+          import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+          import { join, resolve } from "node:path";
+          const T = process.env.RUNNER_TEMP;
+          const W = spawnSync("where", ["wasmtime"], { encoding: "utf8" }).stdout.split(/\r?\n/)[0].trim();
+          const icacls = join(process.env.SystemRoot, "System32", "icacls.exe");
+          const sys = { SystemRoot: process.env.SystemRoot };
+          const fx = (n) => resolve("test/fixtures/wasi", n + ".wat");
+          const show = (label, r) => console.log(`${label}: exit ${r.status} stdout ${JSON.stringify(r.stdout)} stderr ${JSON.stringify((r.stderr || "").slice(0, 600))}`);
+          const run = (label, args, env, input = "hi\n") => show(label, spawnSync(W, args, { input, env, encoding: "utf8" }));
+          const pre = ["run", "--allow-precompiled", "-C", "cache=n"];
+          for (const n of ["cat", "write"]) show(`compile ${n}`, spawnSync(W, ["compile", "-W", "epoch-interruption=y", fx(n), "-o", join(T, n + ".cwasm")], { env: sys, encoding: "utf8" }));
+          run("A text module, inherited env", ["run", fx("cat")], process.env);
+          run("B text module, empty env", ["run", fx("cat")], sys);
+          run("C precompiled, inherited env", [...pre, join(T, "cat.cwasm")], process.env);
+          run("D precompiled, empty env", [...pre, join(T, "cat.cwasm")], sys);
+          const fresh = (name) => { const d = join(T, name, "src"); mkdirSync(d, { recursive: true }); writeFileSync(join(d, "main.txt"), "x"); chmodSync(join(d, "main.txt"), 0o444); return d; };
+          const e = fresh("plain");
+          run("E --dir, no deny, empty env", [...pre, "--dir", `${e}::/work/src`, join(T, "cat.cwasm")], sys);
+          run("E2 --dir, no deny, write fixture", [...pre, "--dir", `${e}::/work/src`, join(T, "write.cwasm")], sys);
+          const variants = {
+            V1: [["(OI)(CI)(W,D,DC)"]],
+            V2: [["(WD,AD,DC)"], ["(OI)(CI)(IO)(W,D,DC)"]],
+            V3: [["(OI)(CI)(WD,AD,D,DC)"]],
+            V4: [["(OI)(CI)(WD,AD,DC)"]],
+            V5: [["(OI)(CI)(WD,AD,WEA,WA,D,DC)"]],
+          };
+          for (const [v, aces] of Object.entries(variants)) {
+            const d = fresh(v);
+            for (const [ace] of aces) show(`${v} icacls ${ace}`, spawnSync(icacls, [d, "/deny", `*S-1-1-0:${ace}`], { encoding: "utf8" }));
+            run(`${v} cat`, [...pre, "--dir", `${d}::/work/src`, join(T, "cat.cwasm")], sys);
+            run(`${v} write`, [...pre, "--dir", `${d}::/work/src`, join(T, "write.cwasm")], sys);
+            show(`${v} remove`, spawnSync(icacls, [d, "/remove:d", "*S-1-1-0"], { encoding: "utf8" }));
+          }
+          JS
+          node "$RUNNER_TEMP/diag.mjs"
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
