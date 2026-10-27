@@ -50,8 +50,11 @@ export async function ensureToolchain(wasi: Source, { replace = false, ...limits
     return { root: store.toolchainDir(wasi.sha256), sha256: wasi.sha256 };
   }
   const parent = store.toolchainsDir();
+  // Before the free-space check: what crashed installs left may be what fills the disk.
+  removeAbandonedInstalls(parent);
   store.assertFreeSpace(parent, MIN_FREE_BYTES);
-  const staging = mkdtempSync(join(parent, ".staging-"));
+  // Named after this process, so a crash leaves a folder the next install can tell is abandoned.
+  const staging = mkdtempSync(join(parent, `.staging-${process.pid}-`));
   const file = `${staging}.download`;
   try {
     const sha256 = await download(wasi.url, file, wasi.sha256, limits);
@@ -64,7 +67,7 @@ export async function ensureToolchain(wasi: Source, { replace = false, ...limits
     const root = store.toolchainDir(sha256);
     await store.withLock(store.toolchainLockPath(sha256), async () => {
       if (existsSync(root) && sameFiles(root, staging)) return;
-      const aside = existsSync(root) ? join(parent, `.discard-${randomBytes(4).toString("hex")}`) : undefined;
+      const aside = existsSync(root) ? join(parent, `.discard-${process.pid}-${randomBytes(4).toString("hex")}`) : undefined;
       if (aside) renameSync(root, aside);
       try {
         renameSync(staging, root);
@@ -307,4 +310,31 @@ export function removeTree(dir: string): void {
     // Not sealed, or partly gone: rmSync reports what matters.
   }
   rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+}
+
+/** What an install names its temp entries, after its process: `.staging-<pid>-…`, its `.download`, and `.discard-<pid>-…`. */
+const LEFTOVER = /^\.(?:staging|discard)-(\d+)-[A-Za-z0-9]+(?:\.download)?$/;
+
+/**
+ * Removes the temp folders and downloads of installs whose Codemm process is gone, as run folders are (runs.ts). Their
+ * contents may be sealed, so removeTree unseals them first. A live process's entries, links and anything else here are
+ * never touched. Best effort: what can't be removed now is tried again by the next install.
+ */
+function removeAbandonedInstalls(parent: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(parent);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const owner = LEFTOVER.exec(name)?.[1];
+    if (owner === undefined || store.processAlive(Number(owner))) continue;
+    try {
+      // Never through a link: unsealing would change whatever it points at.
+      if (!lstatSync(join(parent, name)).isSymbolicLink()) removeTree(join(parent, name));
+    } catch {
+      // Tried again by the next install.
+    }
+  }
 }

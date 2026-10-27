@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodemmError } from "../src/errors.js";
 import * as store from "../src/store.js";
 import { ensureToolchain, type Fetcher, setToolchainFetch, systemTar, toolchainMissing } from "../src/toolchain.js";
-import { unseal } from "../src/wasi.js";
+import { sealReadOnly, unseal } from "../src/wasi.js";
 import { posix } from "./fake-docker.js";
 import { tempDir } from "./temp.js";
 import { removeHome, removeToolchains } from "./toolchains.js";
@@ -24,6 +24,8 @@ afterEach(() => {
 });
 
 const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
+/** A PID that belonged to a Codemm process that has since exited. */
+const deadPid = () => Number(spawnSync(process.execPath, ["-e", "console.log(process.pid)"], { encoding: "utf8" }).stdout.trim());
 
 /** A .tar.gz (or, with bsdtar, a .zip) of a folder holding `files`, plus whatever `extra` adds to it. */
 function archive(files: Record<string, string>, format: "tar.gz" | "zip" = "tar.gz", extra?: (dir: string) => void): Uint8Array<ArrayBuffer> {
@@ -243,6 +245,34 @@ describe("ensureToolchain", () => {
       new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))));
     await expect(ensureToolchain(spec(body), { stallMs: 50 })).rejects.toMatchObject({ code: "network-timeout" });
     expect(stored().filter((n) => !n.endsWith(".lock"))).toEqual([]);
+  });
+
+  it("first removes what crashed installs left, sealed or not, and never a live install's or anything else", async () => {
+    const parent = store.toolchainsDir();
+    /** A temp folder as an install leaves it: its contents sealed. */
+    const leftover = (name: string) => {
+      mkdirSync(join(parent, name, "lib"), { recursive: true });
+      writeFileSync(join(parent, name, "lib", "os.py"), "# os\n");
+      sealReadOnly(join(parent, name));
+      return name;
+    };
+    const dead = deadPid();
+    leftover(`.staging-${dead}-AbC123`);
+    writeFileSync(join(parent, `.staging-${dead}-AbC123.download`), "partial");
+    leftover(`.discard-${dead}-0a1b2c3d`);
+    const live = leftover(`.staging-${process.pid}-dEf456`);
+    // Not named after its owner: an older Codemm's, or not Codemm's.
+    const unowned = leftover(".staging-XyZ789");
+    const elsewhere = tempDir();
+    writeFileSync(join(elsewhere, "keep.txt"), "x");
+    const link = `.staging-${dead}-L1nk00`;
+    if (posix) symlinkSync(elsewhere, join(parent, link));
+    const body = archive(TOOLCHAIN);
+    serve({ [URL_TGZ]: () => new Response(body) });
+    await ensureToolchain(spec(body));
+    expect(stored().filter((n) => !n.endsWith(".lock"))).toEqual([live, unowned, ...(posix ? [link] : []), sha(body)].sort());
+    // A link is never followed, so nothing it points at is unsealed or removed.
+    expect(readFileSync(join(elsewhere, "keep.txt"), "utf8")).toBe("x");
   });
 });
 
