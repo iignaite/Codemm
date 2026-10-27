@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, renameSync, rmSync, type Stats } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readdirSync, renameSync, rmSync, type Stats } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { CodemmError, infraError, type InfraCode } from "./errors.js";
 import type { WasiSpec } from "./schemas.js";
 import * as store from "./store.js";
+import { sealReadOnly, unseal } from "./wasi.js";
 
 /**
  * A WASI track's toolchain (DESIGN §4.5): downloaded over https, hashed as it arrives, unpacked with the system tar,
@@ -57,12 +58,9 @@ export async function ensureToolchain(wasi: Source, { replace = false, ...limits
     if (new URL(wasi.url).pathname.endsWith(".wasm")) renameSync(file, join(staging, wasi.module));
     else await unpack(file, staging);
     assertLayout(staging, wasi);
-    // Its root stays writable, so it can be renamed (macOS) and replaced; no dirs value maps it.
-    try {
-      seal(staging);
-    } catch (e) {
-      throw infraError(`The toolchain couldn't be made read-only, so nothing was installed: ${(e as Error).message}`, "wasi-seal");
-    }
+    // Its root stays writable, so it can be renamed (macOS) and replaced; no dirs value maps it. A seal that fails is
+    // the infrastructure error wasi-seal.
+    sealReadOnly(staging);
     const root = store.toolchainDir(sha256);
     await store.withLock(store.toolchainLockPath(sha256), async () => {
       const aside = replace && existsSync(root) ? join(parent, `.discard-${randomBytes(4).toString("hex")}`) : undefined;
@@ -135,8 +133,10 @@ async function download(url: string, file: string, expected: string | undefined,
     const hash = createHash("sha256");
     let bytes = 0;
     const out = await open(file, "wx", 0o600).catch(diskError);
+    const reader = response.body?.getReader();
     try {
-      for await (const chunk of response.body ?? []) {
+      for (let read = await reader?.read(); read && !read.done; read = await reader!.read()) {
+        const chunk = read.value;
         alive();
         bytes += chunk.byteLength;
         if (bytes > maxDownload) {
@@ -262,30 +262,13 @@ function assertLayout(root: string, wasi: Pick<WasiSpec, "module" | "dirs">): vo
   }
 }
 
-// ---------- sealing (moves to the engine's sealReadOnly and unseal in src/wasi.ts) ----------
-
-/** Everything under `root` read-only: files 0444, folders 0555, deepest first. `root` itself stays as it is. */
-function seal(root: string): void {
-  const dirs: string[] = [];
-  walk(root, (path, _rel, stat) => (stat.isDirectory() ? dirs.push(path) : chmodSync(path, 0o444)));
-  for (const d of dirs.reverse()) chmodSync(d, 0o555);
-}
-
-/** Removes a folder that may be sealed, as a stored toolchain is. */
+/** Removes a folder whose contents may be sealed, as a stored toolchain's are. */
 export function removeTree(dir: string): void {
-  const writable = (d: string) => {
-    try {
-      chmodSync(d, 0o700);
-      for (const entry of readdirSync(d, { withFileTypes: true })) {
-        const path = join(d, entry.name);
-        if (entry.isDirectory()) writable(path);
-        else if (entry.isFile()) chmodSync(path, 0o600);
-      }
-    } catch {
-      // Gone already, or not ours: rmSync reports what matters.
-    }
-  };
   if (!existsSync(dir)) return;
-  writable(dir);
+  try {
+    unseal(dir);
+  } catch {
+    // Not sealed, or partly gone: rmSync reports what matters.
+  }
   rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
 }

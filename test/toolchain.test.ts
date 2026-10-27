@@ -1,13 +1,15 @@
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodemmError } from "../src/errors.js";
 import * as store from "../src/store.js";
 import { ensureToolchain, type Fetcher, removeTree, setToolchainFetch, systemTar, toolchainMissing } from "../src/toolchain.js";
+import { unseal } from "../src/wasi.js";
 import { posix } from "./fake-docker.js";
 import { tempDir } from "./temp.js";
+import { removeHome } from "./toolchains.js";
 
 let home: string;
 beforeEach(() => {
@@ -16,7 +18,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   // Stored toolchains are read-only, so the temp folder's own cleanup couldn't remove them.
-  removeTree(home);
+  removeHome(home);
   vi.unstubAllEnvs();
   setToolchainFetch();
 });
@@ -117,7 +119,8 @@ describe("ensureToolchain", () => {
     const body = archive(TOOLCHAIN);
     const calls = serve({ [URL_TGZ]: () => new Response(body) });
     const { root } = await ensureToolchain(spec(body));
-    removeTree(join(root, "lib"));
+    unseal(root);
+    rmSync(join(root, "lib"), { recursive: true });
     await expect(ensureToolchain(spec(body))).rejects.toThrow(/wasi.dirs "\/lib"/);
     await ensureToolchain(spec(body), { replace: true });
     expect(readFileSync(join(root, "lib", "python3", "os.py"), "utf8")).toBe("# os\n");
@@ -146,7 +149,8 @@ describe("ensureToolchain", () => {
   });
 
   it("refuses a download over the size limit, whether declared or streamed", async () => {
-    const body = archive({ ...TOOLCHAIN, "lib/big.bin": "x".repeat(50_000) });
+    // Random bytes, so gzip can't shrink the archive under the limit.
+    const body = archive({ ...TOOLCHAIN, "lib/big.bin": randomBytes(50_000).toString("base64") });
     serve({ [URL_TGZ]: () => new Response(body) });
     await expect(ensureToolchain(spec(body), { maxDownload: 1000 })).rejects.toThrow(/larger than/);
     setToolchainFetch(async () => new Response(new Blob([body]).stream()));
