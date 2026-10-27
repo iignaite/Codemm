@@ -152,11 +152,11 @@ const icacls = (args: string[]) => {
 const EVERYONE = "*S-1-1-0";
 /**
  * What a sealed folder denies everyone on Windows, inherited by everything under it: writing data or attributes, adding
- * files or folders and deleting what's in a folder, and deleting files. The specific rights, not icacls' generic W,
- * which includes SYNCHRONIZE and READ_CONTROL and so denies every open; and DELETE on files only, since wasmtime asks
- * for it when it opens a folder. A file can't be deleted while both its DELETE and its folder's DELETE_CHILD are denied.
+ * files or folders, and deleting what's in a folder. The specific rights, not icacls' generic W, which includes
+ * SYNCHRONIZE and READ_CONTROL and so denies every open; and never DELETE, which wasmtime and Node ask for when they
+ * open a folder or a file, even to read it. The tests prove a program still can't delete, rename or create anything.
  */
-const DENIED = ["(OI)(CI)(WD,AD,WEA,WA,DC)", "(OI)(IO)(D)"];
+const DENIED = "(OI)(CI)(WD,AD,WEA,WA,DC)";
 
 /** Sets a tree's modes, folders after what's in them (unless `folder` is undefined). Links and special files are left as they are. */
 function modes(dir: string, file: number, folder: number | undefined): void {
@@ -186,7 +186,7 @@ export function sealReadOnly(dir: string): void {
         // by everything under it, is what seals it.
         if (process.platform === "win32") {
           modes(path, 0o444, undefined);
-          for (const rights of DENIED) icacls([path, "/deny", `${EVERYONE}:${rights}`]);
+          icacls([path, "/deny", `${EVERYONE}:${DENIED}`]);
         } else modes(path, 0o444, 0o555);
       } else if (entry.isFile()) chmodSync(path, 0o444);
       // A disk without permissions (FAT, exFAT) can accept the change and keep nothing. Windows reports its deny entry.
