@@ -15,6 +15,7 @@ import * as store from "../src/store.js";
 import { removeTree, setToolchainFetch } from "../src/toolchain.js";
 import * as wasi from "../src/wasi.js";
 import { tempDir } from "./temp.js";
+import { removeHome } from "./toolchains.js";
 
 /**
  * WASI tracks (DESIGN §4.5) without wasmtime: the judge is stood in for by a tiny interpreter of the learner file
@@ -31,7 +32,13 @@ vi.mock("../src/judge.js", async (original) => ({
     }]] : [])));
   }),
 }));
-vi.mock("../src/wasi.js", () => ({ wasmtimePath: vi.fn(() => "wasmtime") }));
+// wasmtime is stood in for too; sealing stays real.
+vi.mock("../src/wasi.js", async (original) => ({
+  ...(await original<typeof import("../src/wasi.js")>()),
+  wasmtimePath: vi.fn(() => "wasmtime"),
+  wasmtime: vi.fn(() => ({ bin: "wasmtime", version: "50.0.0" })),
+  compileModule: vi.fn(async () => "compiled.cwasm"),
+}));
 vi.mock("../src/sandbox.js", async (original) => ({
   ...(await original<typeof import("../src/sandbox.js")>()),
   containerCli: vi.fn(() => "docker"),
@@ -83,10 +90,12 @@ beforeEach(() => {
   vi.mocked(sandbox.missingBaseImages).mockClear();
 });
 afterEach(() => {
-  removeTree(home);
+  removeHome(home);
   vi.unstubAllEnvs();
   setToolchainFetch();
   vi.mocked(wasi.wasmtimePath).mockImplementation(() => "wasmtime");
+  vi.mocked(wasi.wasmtime).mockImplementation(() => ({ bin: "wasmtime", version: "50.0.0" }));
+  vi.mocked(wasi.compileModule).mockClear();
   vi.mocked(sandbox.containerCli).mockImplementation(() => "docker");
 });
 
@@ -112,6 +121,16 @@ describe("verifyTrack on a WASI track", () => {
     const ran = vi.mocked(judge.runSets).mock.calls[0]![0];
     expect(ran).toMatchObject({ image: "", run: "/work/src/answer.txt", wasi: { root: store.toolchainDir(SHA), sha256: SHA, module: "echo.wasm", dirs: {}, env: { MODE: "plain" } } });
     expect(sandbox.cli).not.toHaveBeenCalled();
+    // Compiled once at install, before the probes, so no case pays for it.
+    expect(wasi.compileModule).toHaveBeenCalledWith({ root: store.toolchainDir(SHA), sha256: SHA, module: "echo.wasm", dirs: {}, env: { MODE: "plain" } });
+  });
+
+  it("fails gate toolchain on a module that doesn't compile", async () => {
+    vi.mocked(wasi.compileModule).mockImplementationOnce(async () => {
+      throw new CodemmError("The toolchain's module didn't compile with wasmtime 50.0.0 (bad magic).");
+    });
+    await expect(verifyTrack(track())).rejects.toThrow(/Gate "toolchain" failed: The toolchain's module didn't compile/);
+    expect(judge.runSets).not.toHaveBeenCalled();
   });
 
   it("fails gate toolchain on a toolchain whose digest doesn't match, naming both", async () => {
@@ -131,7 +150,9 @@ describe("verifyTrack on a WASI track", () => {
   });
 
   it("refuses before downloading anything when this computer has no wasmtime", async () => {
-    vi.mocked(wasi.wasmtimePath).mockImplementation(() => undefined);
+    vi.mocked(wasi.wasmtime).mockImplementation(() => {
+      throw new CodemmError("no wasmtime", "docker", "no-wasmtime");
+    });
     await expect(verifyTrack(track())).rejects.toMatchObject({ code: "no-wasmtime" });
     expect(downloads).toBe(0);
   });

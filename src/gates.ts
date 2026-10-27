@@ -5,14 +5,14 @@ import { join } from "node:path";
 import { CodemmError, infraError } from "./errors.js";
 import { type FileMap, subMap, validateFileMap, writeFileMap } from "./files.js";
 import { CASE_OUTPUT_MB, caseDigest, type Expected, gradeRuns, type IoRun, type RawCase, recordOutput, redact, type Runs, type TestResult, type UnitRun } from "./grading.js";
-import { GENERATOR_SECONDS, generatorFailed, type JudgeTrack, runSets } from "./judge.js";
+import { GENERATOR_SECONDS, generatorFailed, type JudgeTrack, runSets, type WasiToolchain } from "./judge.js";
 import { buildImage, type BuildStep, inspectImage } from "./sandbox.js";
 import {
   type CourseRecord, type ExerciseRecord, type ExerciseSpec, LIMITS, parseExerciseYaml, parseTrackYaml, type Style, type TrackRecord, type TrackSpec,
   type WasiRecord,
 } from "./schemas.js";
 import { ensureToolchain } from "./toolchain.js";
-import { wasmtimePath } from "./wasi.js";
+import { compileModule, wasmtime } from "./wasi.js";
 
 /**
  * A gate failed: the track's or the exercise's to fix. The message names the gate and never contains hidden inputs or
@@ -267,23 +267,24 @@ export async function verifyTrack(
 async function verifyWasiTrack(
   spec: TrackSpec, block: NonNullable<TrackSpec["wasi"]>, probes: Probes, onProgress: ((p: TrackProgress) => void) | undefined, rebuild: boolean,
 ): Promise<{ spec: TrackSpec; wasi: WasiRecord; warning?: string }> {
-  // Before downloading: without wasmtime, nothing could run the probes.
-  if (!wasmtimePath()) {
-    throw infraError("wasmtime isn't installed, so this WASI track can't be checked. Install wasmtime (https://wasmtime.dev), or use the Codemm desktop app, which brings its own, then retry with the same files.", "no-wasmtime");
-  }
+  // Before downloading: without wasmtime 50 (the infrastructure error no-wasmtime), nothing could run the probes.
+  wasmtime();
   onProgress?.({ phase: "downloading" });
-  let stored: { root: string; sha256: string };
+  const { module, dirs, env } = block;
+  let toolchain: WasiToolchain;
   try {
-    stored = await ensureToolchain(block, { replace: rebuild });
+    const { root, sha256 } = await ensureToolchain(block, { replace: rebuild });
+    toolchain = { root, sha256, module, dirs, env };
+    // Once, at install (and again on a rebuild), so no case pays for compiling.
+    await compileModule(toolchain);
   } catch (e) {
-    // The track's link, digest or archive is wrong (no infrastructure code).
+    // The track's link, digest, archive or module is wrong (no infrastructure code).
     if (e instanceof CodemmError && !e.code) throw new GateError("toolchain", e.message);
     throw e;
   }
-  const { root, sha256 } = stored;
-  const { module, dirs, env } = block;
+  const { sha256 } = toolchain;
   onProgress?.({ phase: "checking" });
-  await runProbes({ ...spec, image: "", wasi: { root, sha256, module, dirs, env } }, spec, probes, rebuild);
+  await runProbes({ ...spec, image: "", wasi: toolchain }, spec, probes, rebuild);
   // As for a base image not pinned by digest (§4.4): rebuilds must match what was recorded.
   const warning = block.sha256
     ? undefined
