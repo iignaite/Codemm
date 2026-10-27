@@ -291,7 +291,9 @@ wasi:
     | A digest that doesn't match | Gate "toolchain" fails, naming both digests |
 
 - **Unpacking:**
-  - A `.wasm` is stored as it is. An archive is unpacked with the system's own `tar`, by absolute path (`/usr/bin/tar`, or `%SystemRoot%\System32\tar.exe`, bsdtar, which reads zip), through an argument array.
+  - A `.wasm` is stored as it is. An archive is unpacked with the system's own `tar`, by absolute path (`/usr/bin/tar`, or `%SystemRoot%\System32\tar.exe`), through an argument array. On macOS and Windows that's bsdtar, which reads zip too.
+  - Linux's tar is usually GNU tar, which can't read zip, so a `.zip` there is unpacked with `/usr/bin/bsdtar`, else `/usr/bin/unzip -qq -o`. With neither, gate "toolchain" fails before downloading, saying to install unzip or link a `.tar.gz` of the same toolchain.
+  - The tool runs with no terminal (its own session on macOS and Linux), so an encrypted archive fails the gate at once instead of waiting for a password.
   - Then a link, a special file, or a file with more than one hard link anywhere fails the install, and `module` and every `dirs` folder must exist.
   - Unpacked size isn't capped, a known limitation as for Docker builds (§4.4): the learner's consent is the trust point. WASI installs check that 1.5 GB is free first.
 - **Precompiling:** wasmtime compiles the module once, at install: `wasmtime compile -W epoch-interruption=y <module> -o $CODEMM_HOME/toolchains/compiled/<sha256>-<wasmtime version>.cwasm`.
