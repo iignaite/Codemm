@@ -110,7 +110,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 | Headless turn | `claude -p <brief> --output-format stream-json --verbose` | `codex exec --json --skip-git-repo-check <brief>` | `cursor-agent -p --output-format stream-json --approve-mcps --trust [--model <m>] <brief>`, run in a job folder |
 | Codemm server | `--mcp-config <json> --strict-mcp-config` | `-c mcp_servers.codemm.{command,args,env}=…` | `.cursor/mcp.json` in the job folder, `<userData>/agents/cursor-<config hash>` (no flag exists, and the workspace and `~/.cursor` stay untouched) |
 | Codemm tools | `--allowedTools mcp__codemm__<tool>,…` | `-c mcp_servers.codemm.enabled_tools=[…]`, then `default_tools_approval_mode="approve"` | `.cursor/cli.json` in the job folder: `permissions.allow` `Mcp(codemm:<tool>)`, … |
-| Built-in tools | `--tools ""` (web search and fetch for the research job only) | `--ignore-user-config`, `--disable shell_tool --disable unified_exec --disable browser_use --disable computer_use --disable apps --disable multi_agent`, `-c sandbox_mode="read-only"`, and `-c web_search="disabled"` except for research | The same file denies `Shell(*)`, `Read` and `Write` of `**` and `/**`, and `WebFetch(*)` except for research. Research adds `--force`, since print mode approves web search and fetch only with it |
+| Built-in tools | `--tools ""` (web search and fetch for the research and setup jobs only) | `--ignore-user-config`, `--disable shell_tool --disable unified_exec --disable browser_use --disable computer_use --disable apps --disable multi_agent`, `-c sandbox_mode="read-only"`, and `-c web_search="disabled"` except for research and setup | The same file denies `Shell(*)`, `Read` and `Write` of `**` and `/**`, and `WebFetch(*)` except for research and setup. Those two add `--force`, since print mode approves web search and fetch only with it |
 | Follow-up turn | `--resume <session_id>` | `codex exec resume <thread_id>` | `--resume <chatId>` |
 | Sign-in check | `claude auth status --json`, field `loggedIn` | `codex login status`, exit 0 and "Logged in" | `cursor-agent status`, "Not logged in" |
 
@@ -124,7 +124,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
   - Code mode (`functions.exec`) remains, because Codex calls MCP tools through it. Whether it can read files is unproven. Hidden data is therefore protected by the reply filter and the honor system, under the reworded invariant (decision 10).
 - **Cursor.**
   - It reads MCP servers and permissions from its working directory, and keeps chats per working directory. So each job runs in a Codemm-owned folder named by its config: the same config gets the same folder, and a tutor turn resumes its chat. `--trust` stops an untrusted folder from halting print mode.
-  - The folder's `cli.json` allows only the job's Codemm tools. It denies the shell, file reads and writes, and web fetches outside research. Deny rules win over the learner's own allow list.
+  - The folder's `cli.json` allows only the job's Codemm tools. It denies the shell, file reads and writes, and web fetches outside research and setup. Deny rules win over the learner's own allow list.
   - **What the canary showed** (a signed-in run asked to break out, with and without `--force`):
     - The shell, file reads and writes were denied, inside the job folder and outside it.
     - Grep returned no matches and glob no file names, though glob reported a file count.

@@ -46,13 +46,16 @@ type Options = { replace?: boolean; stallMs?: number; maxDownload?: number };
  * when its files differ from the download's, so an intact one that a check may be running from is never touched.
  */
 export async function ensureToolchain(wasi: Source, { replace = false, ...limits }: Options = {}): Promise<{ root: string; sha256: string }> {
+  const parent = store.toolchainsDir();
+  // First, and so before the free-space check: what crashed installs left may be what fills the disk.
+  removeAbandonedInstalls(parent);
   // A folder damaged outside Codemm (its module or a dirs folder gone) is downloaded again, and so repaired.
   if (wasi.sha256 && !replace && existsSync(store.toolchainDir(wasi.sha256)) && laidOut(store.toolchainDir(wasi.sha256), wasi)) {
     return { root: store.toolchainDir(wasi.sha256), sha256: wasi.sha256 };
   }
-  const parent = store.toolchainsDir();
   store.assertFreeSpace(parent, MIN_FREE_BYTES);
-  const staging = mkdtempSync(join(parent, ".staging-"));
+  // Named after this process, so a crash leaves a folder the next install can tell is abandoned.
+  const staging = mkdtempSync(join(parent, `.staging-${process.pid}-`));
   const file = `${staging}.download`;
   try {
     const path = new URL(wasi.url).pathname;
@@ -68,7 +71,7 @@ export async function ensureToolchain(wasi: Source, { replace = false, ...limits
     const root = store.toolchainDir(sha256);
     await store.withLock(store.toolchainLockPath(sha256), async () => {
       if (existsSync(root) && sameFiles(root, staging)) return;
-      const aside = existsSync(root) ? join(parent, `.discard-${randomBytes(4).toString("hex")}`) : undefined;
+      const aside = existsSync(root) ? join(parent, `.discard-${process.pid}-${randomBytes(4).toString("hex")}`) : undefined;
       if (aside) renameSync(root, aside);
       try {
         renameSync(staging, root);
@@ -330,4 +333,35 @@ export function removeTree(dir: string): void {
     // Not sealed, or partly gone: rmSync reports what matters.
   }
   rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+}
+
+/**
+ * What an install names its temp entries, after its process: `.staging-<pid>-` and mkdtemp's six letters or digits, its
+ * `.download`, and `.discard-<pid>-<eight hex digits>`. Nothing else in toolchains/ is the sweep's to remove.
+ */
+const LEFTOVER = /^\.(?:staging-(\d+)-[A-Za-z0-9]{6}(?:\.download)?|discard-(\d+)-[0-9a-f]{8})$/;
+
+/**
+ * Removes the temp folders and downloads of installs whose Codemm process is gone, as run folders are (runs.ts). Their
+ * contents may be sealed, so removeTree unseals them first. A live process's entries, links and anything else here are
+ * never touched. Best effort: what can't be removed now is tried again by the next install.
+ */
+function removeAbandonedInstalls(parent: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(parent);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const match = LEFTOVER.exec(name);
+    const owner = match?.[1] ?? match?.[2];
+    if (owner === undefined || store.processAlive(Number(owner))) continue;
+    try {
+      // Never through a link: unsealing would change whatever it points at.
+      if (!lstatSync(join(parent, name)).isSymbolicLink()) removeTree(join(parent, name));
+    } catch {
+      // Tried again by the next install.
+    }
+  }
 }

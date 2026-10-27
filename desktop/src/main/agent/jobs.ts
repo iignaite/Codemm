@@ -27,7 +27,7 @@ const MIN = 60_000;
 export const JOBS: Record<JobKind, JobSpec> = {
   research: { tools: ['list_tracks', 'save_roadmap'], deadlineMs: 10 * MIN, web: true },
   roadmap: { tools: ['get_roadmap', 'save_roadmap'], deadlineMs: 10 * MIN },
-  setup: { tools: ['list_tracks', 'save_track'], deadlineMs: 10 * MIN },
+  setup: { tools: ['list_tracks', 'save_track'], deadlineMs: 10 * MIN, web: true },
   lesson: { tools: ['get_roadmap', 'save_lesson'], deadlineMs: 5 * MIN, save: 'save_lesson' },
   author: { tools: ['next_step', 'save_exercise'], deadlineMs: 15 * MIN, save: 'save_exercise', resumes: true },
   tutor: { tools: ['progress', 'next_step', 'get_exercise', 'get_lesson', 'mark_lesson_read', 'get_roadmap', 'list_tracks'], deadlineMs: 5 * MIN },
