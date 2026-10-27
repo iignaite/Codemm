@@ -176,8 +176,8 @@ export function sealReadOnly(dir: string): void {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) {
-        // On Windows a folder's mode is only a read-only attribute, which stops nothing there but makes wasmtime's open
-        // of a mapped folder fail; the deny entry, inherited by everything under it, is what seals it.
+        // On Windows a folder's mode is only a read-only attribute, which stops nothing there; the deny entry, inherited
+        // by everything under it, is what seals it.
         if (process.platform === "win32") {
           modes(path, 0o444, undefined);
           icacls([path, "/deny", `${EVERYONE}:(OI)(CI)(W,D,DC)`]);

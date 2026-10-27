@@ -50,6 +50,50 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      # TEMPORARY: why a sealed run folder can't be mapped on Windows. Removed once found.
+      - name: Diagnose the seal on Windows
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: bash
+        run: |
+          cat > diag.mjs <<'JS'
+          import { spawnSync } from "node:child_process";
+          import { mkdirSync, writeFileSync } from "node:fs";
+          import { tmpdir } from "node:os";
+          import { join, resolve } from "node:path";
+          const homes = { C_tmpdir: join(tmpdir(), "diag-home"), D_runner_temp: join(process.env.RUNNER_TEMP, "diag-home") };
+          for (const [label, home] of Object.entries(homes)) {
+            process.env.CODEMM_HOME = home;
+            const { prepareWasi, sealReadOnly, unseal, wasiArgs } = await import(`./dist/wasi.js?${label}`);
+            const { stageRunFolder } = await import(`./dist/runs.js?${label}`);
+            const toolchain = { root: resolve("test/fixtures/wasi"), sha256: "diag-cat", module: "cat.wat", dirs: {}, env: {} };
+            const engine = await prepareWasi(toolchain);
+            const folder = stageRunFolder();
+            const src = join(folder.dir, "src");
+            mkdirSync(src, { recursive: true });
+            writeFileSync(join(src, "main.txt"), "x");
+            const real = wasiArgs({ engine, toolchain, src, run: "/work/src/main.txt", memoryMb: 256, timeMs: 5000 });
+            const minimal = ["run", "--allow-precompiled", "-C", "cache=n", "-W", "timeout=5s", "--dir", `${src}::/work/src`, engine.compiled];
+            const go = (what, args) => {
+              const r = spawnSync(engine.bin, args, { input: "hi\n", env: { SystemRoot: process.env.SystemRoot }, encoding: "utf8" });
+              console.log(`${label} ${what}: exit ${r.status} stdout ${JSON.stringify(r.stdout)} stderr ${JSON.stringify((r.stderr || "").slice(0, 300))}`);
+            };
+            console.log(`${label} src = ${src}`);
+            go("unsealed, real args", real);
+            go("unsealed, minimal args", minimal);
+            sealReadOnly(folder.dir);
+            console.log(spawnSync(join(process.env.SystemRoot, "System32", "icacls.exe"), [src], { encoding: "utf8" }).stdout);
+            go("sealed, real args", real);
+            go("sealed, minimal args", minimal);
+            for (const drop of ["-S", "-W max-memories"]) {
+              const i = real.findIndex((a, k) => (drop === "-S" ? a === "-S" : a === "-W" && real[k + 1].startsWith("max-memories")));
+              go(`sealed, real args without ${drop}`, [...real.slice(0, i), ...real.slice(i + 2)]);
+            }
+            unseal(folder.dir);
+            folder.remove();
+          }
+          JS
+          node diag.mjs
       - run: npm run test:unit
         env:
           CODEMM_REQUIRE_WASMTIME: "1"
