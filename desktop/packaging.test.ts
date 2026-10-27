@@ -70,6 +70,9 @@ describe('packaging', () => {
     expect(packaging({ CSC_LINK: 'base64-p12' }, 'darwin').mac).not.toHaveProperty('entitlementsInherit');
     const inherit = readFileSync(join(__dirname, 'build', 'entitlements.mac.inherit.plist'), 'utf8');
     expect(inherit).toMatch(/<key>com\.apple\.security\.cs\.allow-unsigned-executable-memory<\/key>\s*<true\/>/);
+    // The same keys as electron-builder's template, which Electron's helpers were signed with before: they're unchanged.
+    const keys = (plist: string) => [...plist.matchAll(/<key>([^<]+)<\/key>/g)].map((m) => m[1]).sort();
+    expect(keys(inherit)).toEqual(keys(readFileSync(require.resolve('app-builder-lib/templates/entitlements.mac.plist'), 'utf8')));
   });
 
   it('builds only macOS and Windows installers', () => {

@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { downloader, electronFetch, electronGet, OfflineError, type Get } from './download';
 import { tempDir } from './testing/temp';
 
@@ -250,5 +250,38 @@ describe("core's toolchain download over Electron's network stack (core §4.5)",
     later.abort(new Error('stalled'));
     // Never a short file that reads as complete: the body fails, so a stall isn't a digest mismatch.
     await expect(reading).rejects.toThrow('stalled');
+  });
+
+  it("answers what fetch can't build without throwing in the main process: an empty status's body, an odd status, raw header bytes", async () => {
+    const empty = electronAsFetch();
+    const got = empty.fetch('https://github.com/a.zip', init());
+    empty.made[0].respond(Readable.from([]), 204, { 'x-name': 'caf\u00e9' });
+    const res = await got;
+    expect([res.status, await res.text()]).toEqual([204, '']);
+    // Electron hands header bytes over as UTF-8 text: they pass as bytes, as Electron's own net.fetch does.
+    expect(res.headers.get('x-name')).toBe('caf\u00c3\u00a9');
+    expect(empty.made[0].aborted).toBe(true);
+
+    const odd = electronAsFetch();
+    const failing = odd.fetch('https://github.com/a.zip', init());
+    odd.made[0].respond(Readable.from([]), 999);
+    await expect(failing).rejects.toThrow('999');
+    expect(odd.made[0].aborted).toBe(true);
+  });
+
+  it('stops the request when core stops reading the body, as a headers-only check does', async () => {
+    const e = electronAsFetch();
+    const got = e.fetch('https://github.com/a.zip', init());
+    e.made[0].respond(new PassThrough(), 200, { 'content-length': '157286400' });
+    await (await got).body!.cancel();
+    await vi.waitFor(() => expect(e.made[0].aborted).toBe(true));
+  });
+
+  it('never sends a request whose signal has already aborted', async () => {
+    const e = electronAsFetch();
+    const stop = new AbortController();
+    stop.abort(new Error('stalled'));
+    await expect(e.fetch('https://github.com/a.zip', { redirect: 'manual', signal: stop.signal })).rejects.toThrow('stalled');
+    expect(e.made).toEqual([]);
   });
 });
