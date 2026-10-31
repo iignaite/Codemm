@@ -125,8 +125,8 @@ export function createServer(ws: string, version: string, { course, tools, deskt
     {
       description:
         "Create or update the course roadmap and make it active in this workspace. YAML with title (the course's name in a few plain words, " +
-        "at most 60 characters), goal, track (id@version, installed or not yet), style (io|unit) and concepts [{id, title, requires}]. " +
-        "Keep concept ids stable when you edit it.",
+        "at most 60 characters), goal, track (id@version, installed or not yet), style (io|unit), concepts [{id, title, requires, practice?, pitfalls?, refs?}] and optional sources " +
+        "[{title, url}]; refs are indexes into sources. Keep concept ids stable when you edit it.",
       inputSchema: { course: z.string().describe("Course id, e.g. c-pointers"), roadmap: z.string().describe("Roadmap YAML") },
     },
     ({ course: c, roadmap }) => respond(() => app.saveRoadmap(ws, c, roadmap, course)),
