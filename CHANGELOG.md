@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0-beta.10
+
+- **Lesson counts stay steady.** A topic no longer shows an extra lesson for a moment while its lesson is being written.
+- **The Activities switch says what it's doing.** While activities are being turned on or off, the switch says so instead of just waiting.
+
 ## 1.0.0-beta.9
 
 - **Choose how you practise.** A new course can have coding activities, quizzes or lessons only, so a topic you can't practise with code, such as design or theory, still gets a course. Activities can be switched on or off later from the course, and your progress is kept either way.
