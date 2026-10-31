@@ -35,9 +35,9 @@ export type NextStep =
 
 /**
  * What the author adapts the task to: the concept's lessons as the learner reads them, and their last check on the
- * concept as counts only (the tutor calls next_step too, so nothing about a test but how many passed).
+ * concept, including what they missed. Hidden tests stay indexes only, as the tutor already sees in check.
  */
-export type LearnerContext = { lessonText?: string; last?: { passed: number; total: number; assisted: boolean } };
+export type LearnerContext = { lessonText?: string; last?: ReturnType<typeof lastCheck> };
 
 /** At most this many bytes of lesson text, so next_step stays small enough for an agent to take in whole. */
 const LESSON_TEXT_BYTES = 32_768;
@@ -316,7 +316,8 @@ export async function testExercise(ws: string, slug?: string, bound?: string, on
 export async function checkExercise(ws: string, slug?: string, bound?: string, onProgress?: (p: CheckProgress) => void): Promise<CheckView> {
   const { course, config, record, files, track, src, tests } = await judge(ws, slug, true, bound, onProgress);
   const unedited = track.files.every((f) => src[f] === files[`starter/${f}`]);
-  const passed = tests.filter((t) => t.status === "pass").length;
+  const view = present(record.slug, tests, !unedited, unedited ? "unedited starter, not recorded" : undefined);
+  const missed = view.tests.filter((t) => t.status !== "pass");
   // Only move "current" if the workspace still points at the course that was checked. This write can fail (a full
   // disk), so it goes first and the attempt is recorded last: a failed workspace update never leaves a counted attempt.
   await store.updateWorkspace(ws, (c) => (c.course === course.course ? { ...c, current: record.slug } : c));
@@ -326,8 +327,12 @@ export async function checkExercise(ws: string, slug?: string, bound?: string, o
     const assisted = config.assist || store.readEvents(course.course).some((e) => e.kind === "assist" && e.exercise === record.slug);
     store.appendEvent(course.course, {
       format_version: 1, kind: "check", at: new Date().toISOString(), exercise: record.slug,
-      concepts: record.concepts, difficulty: record.difficulty, passed, total: tests.length, assisted,
+      concepts: record.concepts, difficulty: record.difficulty, passed: view.passed, total: view.total, assisted,
+      ...(missed.length ? { missed: {
+        visible: missed.filter((t) => t.index === undefined).map((t) => t.name).slice(0, 50),
+        hidden: missed.flatMap((t) => t.index === undefined ? [] : [t.index]).slice(0, 50),
+      } } : {}),
     });
   });
-  return unedited ? present(record.slug, tests, false, "unedited starter, not recorded") : present(record.slug, tests, true);
+  return view;
 }

@@ -1,5 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { exampleRefs, parseExerciseYaml, parseLesson, parseRoadmapYaml, parseTrackYaml, TrackRecord } from "../src/schemas.js";
+import { exampleRefs, LearnerEventSchema, parseExerciseYaml, parseLesson, parseRoadmapYaml, parseTrackYaml, TrackRecord } from "../src/schemas.js";
+
+describe("check events", () => {
+  const check = { format_version: 1, kind: "check", at: "2026-10-31T00:00:00Z", exercise: "e", concepts: ["a"], difficulty: 1, passed: 0, total: 102, assisted: false };
+
+  it("reads old events without missed and ignores unknown fields", () => {
+    expect(LearnerEventSchema.parse(check)).toEqual(check);
+    expect(LearnerEventSchema.parse({ ...check, future: true })).toEqual(check);
+  });
+
+  it("keeps up to 50 visible names and 50 hidden indexes", () => {
+    const missed = { visible: Array.from({ length: 50 }, (_, i) => `visible/${i}`), hidden: Array.from({ length: 50 }, (_, i) => i + 1) };
+    expect(LearnerEventSchema.parse({ ...check, missed })).toEqual({ ...check, missed });
+    expect(LearnerEventSchema.safeParse({ ...check, missed: { ...missed, visible: [...missed.visible, "extra"] } }).success).toBe(false);
+    expect(LearnerEventSchema.safeParse({ ...check, missed: { ...missed, hidden: [...missed.hidden, 51] } }).success).toBe(false);
+  });
+
+  it.each([0, -1, 1.5, "hidden/secret"])("rejects a hidden index of %j", (index) => {
+    expect(LearnerEventSchema.safeParse({ ...check, missed: { visible: [], hidden: [index] } }).success).toBe(false);
+  });
+});
 
 describe("parseTrackYaml", () => {
   it("accepts an io track and clamps limits to the host ceilings", () => {

@@ -285,6 +285,10 @@ export const LearnerEventSchema = z.discriminatedUnion("kind", [
     passed: z.number().int().nonnegative(),
     total: z.number().int().positive(),
     assisted: z.boolean(),
+    missed: z.object({
+      visible: z.array(z.string()).max(50),
+      hidden: z.array(z.number().int().positive()).max(50),
+    }).optional(),
   }),
   z.object({ format_version: z.literal(1), kind: z.literal("skip"), at: z.string(), concept: Id }),
   z.object({ format_version: z.literal(1), kind: z.literal("assist"), at: z.string(), exercise: Id }),

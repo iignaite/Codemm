@@ -88,17 +88,26 @@ describe.runIf(posix)("check progress", () => {
     for (const p of seen.filter((p) => p.phase === "hidden")) expect(p).toEqual({ phase: "hidden", done: 0, total: 0 });
   });
 
-  it("shows each hidden test as an index and a status only, in the result and its progress", async () => {
+  it("keeps hidden data out of results, progress, recorded misses and the author's last check", async () => {
     const ws = await installedExercise();
+    await app.saveRoadmap(ws, "shell", "goal: Loops\ntrack: shell-io@1\nstyle: io\nconcepts: [{ id: sh.loops, title: Loops }]\n");
+    // The learner is at difficulty 1; this task is difficulty 2. The middle hidden case passes.
+    const { record } = store.readExercise("shell", "max-of-line");
+    writeFileSync(join(store.exerciseDir("shell", record.slug), "exercise.json"), JSON.stringify({ ...record, difficulty: 2, expected: { ...record.expected, "hidden/01": "HIDDEN-EXPECTED\n", "hidden/02": "0\n" } }));
     fakeDocker("streams");
     const seen: CheckProgress[] = [];
     const view = await app.checkExercise(ws, undefined, undefined, (p) => seen.push(p));
     const hidden = view.tests.filter((t) => t.name.startsWith("hidden"));
     expect(hidden.map((t) => Object.keys(t).sort())).toEqual([["index", "name", "status"], ["index", "name", "status"], ["index", "name", "status"]]);
     expect(hidden.map((t) => [t.name, t.index])).toEqual([["hidden #1", 1], ["hidden #2", 2], ["hidden #3", 3]]);
+    const missed = { visible: ["visible/01"], hidden: [1, 3] };
+    const events = store.readEvents("shell");
+    expect(events).toEqual([expect.objectContaining({ kind: "check", passed: 1, total: 4, missed })]);
+    const step = app.nextStep(ws);
+    expect(step).toMatchObject({ kind: "author", concept: "sh.loops", difficulty: 1, last: { passed: 1, total: 4, assisted: false, missed } });
     // Nothing from the hidden files: their names, inputs or expected outputs.
-    const out = JSON.stringify({ view, seen });
-    for (const secret of ["hidden/01", "hidden/02", "hidden/03", "-1\\n", "7\\n"]) expect(out).not.toContain(secret);
+    const out = JSON.stringify({ view, seen, events, step });
+    for (const secret of ["hidden/01", "hidden/02", "hidden/03", "1 5 2\\n", "-3 -1 -2\\n", "7\\n", "HIDDEN-EXPECTED"]) expect(out).not.toContain(secret);
   });
 
   it("keeps a failing hidden io test's output and errors in, while a visible one's come out", async () => {
@@ -124,6 +133,30 @@ describe.runIf(posix)("check progress", () => {
 });
 
 describe.runIf(posix)("check progress for unit exercises", () => {
+  it("records no missed field on a perfect check", async () => {
+    const ws = await unitExercise();
+    writeFileSync(join(ws, "exercises", "units", "maxof", "lib.sh"), "# edited\n");
+    fakeDocker("streams");
+    expect(await app.checkExercise(ws)).toMatchObject({ recorded: true, passed: 2, total: 2 });
+    const events = store.readEvents("units");
+    expect(events).toHaveLength(1);
+    expect(events[0]).not.toHaveProperty("missed");
+  });
+
+  it("records at most 50 misses per set, keeping their shown names and indexes", async () => {
+    const names = Array.from({ length: 51 }, (_, i) => `case-${i + 1}`);
+    // Only t is reported (passing); the other inventory entries are graded as errors.
+    const ws = await unitExercise(["t", ...names], ["t", ...names]);
+    writeFileSync(join(ws, "exercises", "units", "maxof", "lib.sh"), "# edited\n");
+    fakeDocker("streams");
+    const view = await app.checkExercise(ws);
+    expect(view).toMatchObject({ recorded: true, passed: 2, total: 104 });
+    expect(store.readEvents("units")).toEqual([expect.objectContaining({
+      kind: "check",
+      missed: { visible: names.slice(0, 50).map((name) => `visible/${name}`), hidden: Array.from({ length: 50 }, (_, i) => i + 2) },
+    })]);
+  });
+
   it("reports each phase once, with no count, because the runner reports at the end", async () => {
     const ws = await unitExercise();
     fakeDocker("streams");
@@ -172,8 +205,8 @@ describe.runIf(posix)("exercise gate progress", () => {
   });
 });
 
-/** A workspace whose unit exercise (visible test "t", and `hidden`) is installed with a fake image. */
-async function unitExercise(hidden = ["t"]) {
+/** A workspace whose unit exercise is installed with a fake image and the given test inventory. */
+async function unitExercise(hidden = ["t"], visible = ["t"]) {
   const ws = tempDir("codemm-ws-");
   const track = readFileMap(join(fixtures, "tracks", "shell-unit"));
   store.commitFolder(store.trackDir("shell-unit@1"), track, {
@@ -181,7 +214,7 @@ async function unitExercise(hidden = ["t"]) {
   });
   await app.saveRoadmap(ws, "units", "goal: Units\ntrack: shell-unit@1\nstyle: unit\nconcepts:\n  - { id: sh.loops, title: Loops, requires: [] }\n");
   store.commitFolder(store.exerciseDir("units", "maxof"), readFileMap(join(fixtures, "exercises", "unit-max")), {
-    "exercise.json": { format_version: 1, slug: "maxof", style: "unit", concepts: ["sh.loops"], difficulty: 1, track: "shell-unit@1", createdAt: new Date().toISOString(), inventory: { visible: ["t"], hidden } },
+    "exercise.json": { format_version: 1, slug: "maxof", style: "unit", concepts: ["sh.loops"], difficulty: 1, track: "shell-unit@1", createdAt: new Date().toISOString(), inventory: { visible, hidden } },
   });
   await app.getExercise(ws, "maxof");
   return ws;

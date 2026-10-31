@@ -292,9 +292,16 @@ describe("lastCheck", () => {
   const at = new Date().toISOString();
   const check = (exercise: string, concepts: string[], passed: number, assisted = false) => ({ format_version: 1 as const, kind: "check" as const, at, exercise, concepts, difficulty: 1, passed, total: 4, assisted });
 
-  it("is the learner's last check on a concept, as counts only", () => {
+  it("is the learner's last check on a concept, including old events without missed", () => {
     const log = [check("a", ["x"], 1), check("b", ["y"], 4), check("c", ["x", "y"], 3, true), { format_version: 1 as const, kind: "skip" as const, at, concept: "x" }];
     expect(lastCheck(log, "x")).toEqual({ passed: 3, total: 4, assisted: true });
+  });
+
+  it("returns missed from the latest check only", () => {
+    const missed = { visible: ["visible/bounds"], hidden: [2] };
+    const log = [{ ...check("a", ["x"], 2), missed }, check("b", ["y"], 4)];
+    expect(lastCheck(log, "x")).toEqual({ passed: 2, total: 4, assisted: false, missed });
+    expect(lastCheck([...log, check("c", ["x"], 4)], "x")).toEqual({ passed: 4, total: 4, assisted: false });
   });
 
   it("is undefined before any check on the concept", () => {

@@ -132,10 +132,10 @@ export function replay(log: LearnerEvent[]): Map<string, ConceptState> {
   return states;
 }
 
-/** The learner's last check on a concept, as counts only, or undefined before any. */
-export function lastCheck(log: LearnerEvent[], concept: string): { passed: number; total: number; assisted: boolean } | undefined {
+/** The learner's last check on a concept, with misses when recorded, or undefined before any. */
+export function lastCheck(log: LearnerEvent[], concept: string): Pick<CheckEvent, "passed" | "total" | "assisted" | "missed"> | undefined {
   const last = log.filter((e): e is CheckEvent => e.kind === "check" && e.concepts.includes(concept)).at(-1);
-  return last && { passed: last.passed, total: last.total, assisted: last.assisted };
+  return last && { passed: last.passed, total: last.total, assisted: last.assisted, ...(last.missed ? { missed: last.missed } : {}) };
 }
 
 /** Concept ids in topological order (prerequisites first, ties by roadmap order). Assumes no cycles. */
