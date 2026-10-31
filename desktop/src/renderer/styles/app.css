@@ -267,6 +267,15 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .map-main { flex: 1; min-width: 0; padding: 36px 48px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
 .map-side { width: 360px; flex-shrink: 0; padding: 36px 24px; background: #fff; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px; overflow: auto; }
 .map-side .card { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.map-side .card.activities { flex-direction: row; align-items: center; }
+/* The Activities switch: grey off, green on, its thumb sliding only where motion is welcome. */
+.switch { position: relative; flex: none; width: 44px; height: 26px; padding: 0; border: 0; border-radius: 13px; background: var(--muted); cursor: pointer; }
+.switch[aria-checked="true"] { background: var(--green-ink); }
+.switch .thumb { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; }
+.switch[aria-checked="true"] .thumb { transform: translateX(18px); }
+.switch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.switch:disabled { opacity: 0.6; cursor: default; }
+@media (prefers-reduced-motion: no-preference) { .switch .thumb { transition: transform 0.15s ease; } }
 .map-head { max-width: 760px; display: flex; flex-direction: column; gap: 6px; }
 .tally { margin: -4px 0 4px; color: var(--muted); font-size: 14px; }
 .tally b { margin-right: 2px; color: var(--ink); font: 600 34px/1 var(--display); }
@@ -288,7 +297,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .leaf .blade-art { position: absolute; inset: 0; overflow: visible; }
 .leaf.flip .blade-art { transform: scaleX(-1); }
 .leaf .blade { fill: #fff; stroke: var(--faint); stroke-width: 1.75; stroke-linejoin: round; }
-.leaf.mastered .blade { fill: var(--green-ink); stroke: var(--green-ink); }
+.leaf:is(.mastered, .covered) .blade { fill: var(--green-ink); stroke: var(--green-ink); }
 .leaf.now .blade { stroke: var(--green-ink); stroke-width: 2.5; }
 .leaf > :not(.blade-art) { position: relative; }
 .stop-row { grid-column: 2; grid-row: 1; min-height: 58px; display: flex; flex-wrap: wrap; align-items: center; column-gap: 16px; animation: up .45s var(--ease) backwards; animation-delay: calc(var(--d) + 80ms); }

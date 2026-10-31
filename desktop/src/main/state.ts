@@ -18,6 +18,8 @@ export interface DesktopState {
   courses?: string[];
   /** The words the learner typed for each course researched before roadmaps had titles: its name on screen (W-5). */
   names?: Record<string, string>;
+  /** The coding style to restore after turning activities off. */
+  activityStyles?: Record<string, string>;
   /** The learner's model choice per agent (O6). Absent: the recommended one. */
   models?: Partial<Record<AgentId, string>>;
 }

@@ -75,7 +75,7 @@ function hasContainerCli(): boolean {
 function assertCoursesFit(ref: string, styles: string[]): void {
   for (const id of store.listCourses()) {
     const course = store.readCourse(id);
-    if (course?.track === ref && !styles.includes(course.style)) {
+    if (course?.track === ref && course.style !== "none" && !styles.includes(course.style)) {
       throw new CodemmError(`Course "${id}" needs style "${course.style}", but ${ref} offers ${styles.join(", ")}. Add ${course.style} to the track's styles, with its probes.`);
     }
   }
@@ -217,7 +217,8 @@ async function recheckExercises(ref: string, track: TrackRecord, what: "image" |
       count += 1;
       const { files } = store.readExercise(courseId, ex.slug);
       try {
-        const again = await verifyExercise(track, course, files, new Set());
+        // In the exercise's own style: a course whose activities are off keeps its track and its exercises.
+        const again = await verifyExercise(track, { ...course, track: ref, style: ex.style }, files, new Set());
         if (JSON.stringify(digests(again.expected)) !== JSON.stringify(digests(ex.expected)) || JSON.stringify(again.inventory) !== JSON.stringify(ex.inventory)) {
           changed.push(`${courseId}/${ex.slug}: results changed`);
         }

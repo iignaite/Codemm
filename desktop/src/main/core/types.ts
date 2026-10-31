@@ -35,7 +35,7 @@ export interface CoreRoadmap {
   /** The course's name, as the agent wrote it (core §5); older roadmaps have none. */
   title?: string;
   goal: string;
-  track: string;
+  track?: string;
   style: string;
   concepts: { id: string; title: string; requires: string[]; practice?: string; pitfalls?: string[]; refs?: number[] }[];
   /** The roadmaps and docs the research job used (core §5): https links only. */
@@ -43,6 +43,7 @@ export interface CoreRoadmap {
 }
 
 export type CoreNextStep =
+  | { kind: 'learn'; concept: string; lesson: string | null }
   | { kind: 'practice'; exercise: string; concept: string; lesson?: string | null }
   | { kind: 'author'; concept: string; difficulty: number; lesson?: string | null; review?: true }
   | { kind: 'review'; concept: string; difficulty: number; exercise: string }
@@ -53,9 +54,10 @@ export type CoreNextStep =
 export interface CoreProgress {
   course: string;
   goal: string;
-  track: string;
+  track?: string;
+  style: string;
   /** `reviewDue`: when a mastered concept's next review is due (core §7). */
-  concepts: { id: string; title: string; requires: string[]; mastery: number; mastered: boolean; attempts: number; stuck: boolean; reviewDue?: string }[];
+  concepts: { id: string; title: string; requires: string[]; mastery: number; mastered: boolean; covered: boolean; attempts: number; stuck: boolean; reviewDue?: string }[];
   next: CoreNextStep;
 }
 
@@ -103,7 +105,7 @@ export interface CoreApp {
   /** `track` is `id@version`; `engine` is what runs its code: Docker, or wasmtime for a WASI track (core §4.5). */
   listTracks(): { track: string; styles: string[]; files: string[]; engine?: 'docker' | 'wasi' }[];
   rebuildTrack(ref: string): Promise<unknown>;
-  saveRoadmap(ws: string, course: string, yaml: string, bound?: string): Promise<{ course: string }>;
+  saveRoadmap(ws: string, course: string, yaml: string, bound?: string, activate?: boolean): Promise<{ course: string }>;
   progress(ws: string, bound?: string): CoreProgress;
   /** Containers whose owning Codemm process is gone are removed (doctor --fix's rule). Added by scripts/core-entry.ts. */
   cleanupLeftovers(): Promise<void>;

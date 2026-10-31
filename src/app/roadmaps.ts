@@ -12,14 +12,15 @@ const eventConcepts = (e: LearnerEvent): string[] => (e.kind === "check" ? e.con
  * The track may be a draft that isn't installed yet (next_step then says "setup"), and may change until the
  * course has exercises. A stuck concept that gains a prerequisite gets a `retry` event: a fresh start.
  */
-export async function saveRoadmap(ws: string, course: string, yaml: string, bound?: string): Promise<{ course: string; concepts: number }> {
+/** Saving makes the course active in `ws`, unless `activate` is false: the app re-saving one of the learner's courses mustn't replace a new course's draft. */
+export async function saveRoadmap(ws: string, course: string, yaml: string, bound?: string, activate = true): Promise<{ course: string; concepts: number }> {
   if (bound && course !== bound) throw new CodemmError(`This job saves only course "${bound}".`);
   const roadmap = parseRoadmapYaml(yaml);
   const record: CourseRecord = { format_version: 1, course, ...roadmap };
   // Course lock, then the track's lock (as saveExercise does), so an install can't land between this check and the save.
-  await store.withLock(store.courseLockPath(course), () => store.withLock(store.trackLockPath(store.parseTrackRef(roadmap.track).id), async () => {
-    const track = store.readTrack(roadmap.track);
-    if (track && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
+  const save = async () => {
+    const track = roadmap.track ? store.readTrack(roadmap.track) : undefined;
+    if (track && roadmap.style !== "none" && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
     let retries: string[] = [];
     const existing = store.readCourse(course);
     if (existing) {
@@ -49,14 +50,17 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
     // and the re-save writes the roadmap. Until then, a concept can be offered before its new prerequisite exists.
     for (const concept of retries) store.appendEvent(course, { format_version: 1, kind: "retry", at: new Date().toISOString(), concept });
     store.writeCourse(record);
-  }));
-  await store.updateWorkspace(ws, (config) => ({ ...config, course, current: config.course === course ? config.current : undefined }));
+  };
+  await store.withLock(store.courseLockPath(course), () => roadmap.track
+    ? store.withLock(store.trackLockPath(store.parseTrackRef(roadmap.track).id), save)
+    : save());
+  if (activate) await store.updateWorkspace(ws, (config) => ({ ...config, course, current: config.course === course ? config.current : undefined }));
   return { course, concepts: roadmap.concepts.length };
 }
 
 /** With `withContract`, an installed track's contract too (as next_step's author step has it), for lesson examples. */
 export function getRoadmap(ws: string, bound?: string, withContract = false) {
   const { course, title, goal, track, style, concepts, sources } = activeCourse(ws, bound);
-  const installed = withContract ? store.readTrack(track) : undefined;
-  return { course, ...(title ? { title } : {}), goal, track, style, concepts, ...(sources ? { sources } : {}), ...(installed ? { contract: trackContract(installed, style) } : {}) };
+  const installed = withContract && track ? store.readTrack(track) : undefined;
+  return { course, ...(title ? { title } : {}), goal, track, style, concepts, ...(sources ? { sources } : {}), ...(installed ? { contract: trackContract(installed, style === "none" ? installed.styles[0]! : style) } : {}) };
 }

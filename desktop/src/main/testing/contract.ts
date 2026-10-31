@@ -9,7 +9,7 @@ export interface Subject {
   stopDocker(): void;
 }
 
-const GOAL = { topic: 'React', known: '', depth: 'standard' as const };
+const GOAL = { topic: 'React', known: '', depth: 'standard' as const, practice: 'code' as const };
 const pause = () => new Promise((r) => setTimeout(r, 5));
 
 /** Reads until `done`, as a screen polls; both APIs move background work on as they're read or as time passes. */

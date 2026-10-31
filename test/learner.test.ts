@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MASTERED, REVIEW_DAYS, lastCheck, nextStep, replay, type CheckEvent, type LearnerEvent, type RetryEvent, type SkipEvent } from "../src/learner.js";
+import { MASTERED, REVIEW_DAYS, lastCheck, nextLesson, nextStep, replay, type CheckEvent, type LearnerEvent, type RetryEvent, type SkipEvent } from "../src/learner.js";
 
 const at = (n: number) => new Date(Date.UTC(2026, 9, 17, 0, n)).toISOString();
 /** The same day as every `at`: no review is due yet. */
@@ -299,5 +299,30 @@ describe("lastCheck", () => {
 
   it("is undefined before any check on the concept", () => {
     expect(lastCheck([check("b", ["y"], 4)], "x")).toBeUndefined();
+  });
+});
+
+describe("nextLesson", () => {
+  const roadmap = { concepts: [{ id: "b", requires: ["a"] }, { id: "a", requires: [] }, { id: "c", requires: [] }] };
+  const lessons = [{ id: "a1", concept: "a" }, { id: "a2", concept: "a" }, { id: "b1", concept: "b" }, { id: "c1", concept: "c" }];
+  it("requests a lesson, waits for every unread lesson, and follows topological and roadmap order", () => {
+    expect(nextLesson(roadmap, [], [])).toEqual({ kind: "learn", concept: "a", lesson: null });
+    expect(nextLesson(roadmap, [], lessons)).toEqual({ kind: "learn", concept: "a", lesson: "a1" });
+    expect(nextLesson(roadmap, [read("a1", "a", 1)], lessons)).toEqual({ kind: "learn", concept: "a", lesson: "a2" });
+    expect(nextLesson(roadmap, [read("a1", "a", 1), read("a2", "a", 2)], lessons)).toEqual({ kind: "learn", concept: "b", lesson: "b1" });
+  });
+  it("lets skips unlock prerequisites and defers them until the other candidates are covered", () => {
+    const log: LearnerEvent[] = [skip("a", 0)];
+    expect(nextLesson(roadmap, log, lessons)).toEqual({ kind: "learn", concept: "b", lesson: "b1" });
+    log.push(read("b1", "b", 1), read("c1", "c", 2));
+    expect(nextLesson(roadmap, log, lessons)).toEqual({ kind: "learn", concept: "a", lesson: "a1" });
+    log.push(read("a1", "a", 3), read("a2", "a", 4));
+    expect(nextLesson(roadmap, log, lessons)).toEqual({ kind: "done" });
+  });
+  it("ends a skip on a read, not a check, and returns the first candidate when all are skipped", () => {
+    const log = [skip("a", 0), attempt({ exercise: "e", concepts: ["a"] }, 1)];
+    expect(nextLesson(roadmap, log, lessons)).toMatchObject({ concept: "b" });
+    expect(nextLesson(roadmap, [...log, read("a1", "a", 2)], lessons)).toMatchObject({ concept: "a", lesson: "a2" });
+    expect(nextLesson(roadmap, [skip("a", 0), skip("b", 1), skip("c", 2)], lessons)).toMatchObject({ concept: "a" });
   });
 });

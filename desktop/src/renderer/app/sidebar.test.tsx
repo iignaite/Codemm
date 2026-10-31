@@ -201,7 +201,7 @@ describe('changing the agent', () => {
 async function twoCourses() {
   const { api, roadmap } = await mockWithRoadmap();
   await api.approve(roadmap.concepts);
-  const goal = { topic: 'Python', known: '', depth: 'standard' as const };
+  const goal = { topic: 'Python', known: '', depth: 'standard' as const, practice: 'code' as const };
   let r = await api.research(goal);
   while (r.state === 'running') r = await api.research(goal);
   await api.approve(r.roadmap!.concepts);
@@ -255,7 +255,7 @@ describe('courses (§4.13)', () => {
     expect(await within(sidebar()).findByRole('button', { name: 'New course' })).toBeInTheDocument();
     expect(within(sidebar()).queryByText('No course yet')).not.toBeInTheDocument();
     view.unmount();
-    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard', practice: 'code' } }, api);
     expect(await within(sidebar()).findByRole('button', { name: 'New course' })).toBeInTheDocument();
     expect(within(sidebar()).queryByText('No course yet')).not.toBeInTheDocument();
   });

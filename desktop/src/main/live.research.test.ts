@@ -7,13 +7,13 @@ import { HELD_BACK } from './views';
 describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
   it('needs a connected agent before research', async () => {
     const t = live();
-    await expect(t.api.research({ topic: 'React', known: '', depth: 'standard' })).rejects.toThrow('codemm:no-agent');
+    await expect(t.api.research({ topic: 'React', known: '', depth: 'standard', practice: 'code' })).rejects.toThrow('codemm:no-agent');
   });
 
   it('researches a new course on a server bound to it, then shows the roadmap', async () => {
     const t = live();
     const r = await researched(t);
-    expect(r).toEqual({ state: 'done', roadmap: { title: 'React', goal: 'React', track: 'React', installed: false, concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }], sources: [] } });
+    expect(r).toEqual({ state: 'done', roadmap: { title: 'React', goal: 'React', track: 'React', installed: false, activities: true, concepts: [{ id: 'values', title: 'Values', requires: [] }, { id: 'state', title: 'State', requires: ['values'] }], sources: [] } });
     const job = t.jobs.ran[0];
     const course = t.c.roadmap!.course;
     expect(course).toMatch(/^react-[a-z0-9]+$/);
@@ -42,7 +42,7 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
       },
     });
     await t.api.connect('claude');
-    const goal = { topic: 'Systems', known: '', depth: 'standard' as const };
+    const goal = { topic: 'Systems', known: '', depth: 'standard' as const, practice: 'code' as const };
     expect(await t.api.research(goal)).toEqual({ state: 'running' });
     await vi.waitFor(() => expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review']));
     expect(await t.api.research(goal)).toEqual({ state: 'running' });
@@ -78,7 +78,7 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
       job.signal!.addEventListener('abort', () => resolve({ ok: false, problem: 'failed' }), { once: true });
     }) });
     await t.api.connect('claude');
-    await t.api.research({ topic: 'Systems', known: '', depth: 'standard' });
+    await t.api.research({ topic: 'Systems', known: '', depth: 'standard', practice: 'code' });
     await vi.waitFor(() => expect(t.jobs.ran.at(-1)?.kind).toBe('review'));
     await t.api.stop();
     expect(t.jobs.ran.at(-1)!.signal!.aborted).toBe(true);
@@ -101,10 +101,10 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     const t = live();
     const { id } = await practising(t);
     const approved = t.c.roadmap!.course;
-    let r = await t.api.research({ topic: 'Vue', known: '', depth: 'standard' });
+    let r = await t.api.research({ topic: 'Vue', known: '', depth: 'standard', practice: 'code' });
     for (let i = 0; i < 20 && r.state === 'running'; i++) {
       await new Promise((res) => setTimeout(res, 5));
-      r = await t.api.research({ topic: 'Vue', known: '', depth: 'standard' });
+      r = await t.api.research({ topic: 'Vue', known: '', depth: 'standard', practice: 'code' });
     }
     const draft = t.c.roadmap!.course;
     expect(draft).not.toBe(approved);
@@ -192,7 +192,7 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
       return save(...args);
     };
     await t.api.connect('claude');
-    const goal = { topic: 'React', known: '', depth: 'standard' as const };
+    const goal = { topic: 'React', known: '', depth: 'standard' as const, practice: 'code' as const };
     await t.api.research(goal);
     await new Promise((r) => setTimeout(r, 20));
     expect(await t.api.research(goal)).toEqual({ state: 'running' });

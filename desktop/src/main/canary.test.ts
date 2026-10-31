@@ -58,7 +58,7 @@ describe('the learner-safe boundary (D4)', () => {
       }
     };
     const concepts = [{ id: 'values', title: 'Values', requires: [] }];
-    const roadmap = (await t.api.research({ topic: 'React', known: '', depth: 'standard' })).roadmap;
+    const roadmap = (await t.api.research({ topic: 'React', known: '', depth: 'standard', practice: 'code' })).roadmap;
     // Every method dispatch takes, in this order: the type makes a new IPC method fail to compile until it's here.
     const calls: Record<Method, unknown[]> = {
       agents: [],
@@ -76,6 +76,7 @@ describe('the learner-safe boundary (D4)', () => {
       course: [],
       courses: [],
       switchCourse: [onScreen],
+      setActivities: [true],
       draft: [],
       lesson: ['values-1'],
       saveNotes: ['values-1', 'my note'],
@@ -104,7 +105,7 @@ describe('the learner-safe boundary (D4)', () => {
       easier: ['state'],
       saveDraft: [concepts],
       approve: [concepts],
-      research: [{ topic: 'React', known: '', depth: 'standard' }],
+      research: [{ topic: 'React', known: '', depth: 'standard', practice: 'code' }],
     };
     const payloads = [await call('ask', [{ lessonId: 'values-1' }, 'Why?'])];
     const results: Partial<Record<Method, string>> = {};
@@ -118,7 +119,7 @@ describe('the learner-safe boundary (D4)', () => {
     }
     payloads.push(...(await Promise.all(running)));
     // The last research call started a job; wait for it, so its progress is heard.
-    await settle(() => t.api.research({ topic: 'React', known: '', depth: 'standard' }), (r) => r.state !== 'running', 'Research');
+    await settle(() => t.api.research({ topic: 'React', known: '', depth: 'standard', practice: 'code' }), (r) => r.state !== 'running', 'Research');
     payloads.push(JSON.stringify(heard));
 
     // Each path really ran, so its success payload was checked, not only an error.

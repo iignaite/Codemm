@@ -17,9 +17,10 @@ export function currentConcept(progress: CoreProgress): string | undefined {
 
 /** Whether a topic besides these is ready: not mastered, with every prerequisite mastered. Only then does deferring move on (§4.4). */
 export function otherReady(progress: CoreProgress, concepts: string[]): boolean {
-  const mastered = new Set(progress.concepts.filter((c) => c.mastered).map((c) => c.id));
+  const complete = (c: CoreProgress['concepts'][number]) => progress.style === 'none' ? c.covered : c.mastered;
+  const mastered = new Set(progress.concepts.filter(complete).map((c) => c.id));
   // A topic left for later counts as met for unlocking (core §7), so the topics after these open too.
-  return progress.concepts.some((c) => !concepts.includes(c.id) && !c.mastered && c.requires.every((r) => mastered.has(r) || concepts.includes(r)));
+  return progress.concepts.some((c) => !concepts.includes(c.id) && !complete(c) && c.requires.every((r) => mastered.has(r) || concepts.includes(r)));
 }
 
 export function courseView(
@@ -32,12 +33,17 @@ export function courseView(
   failedLesson?: string,
 ): Omit<CourseView, 'title'> {
   const next = progress.next;
+  const activities = progress.style !== 'none';
   const current = currentConcept(progress);
   const topics = progress.concepts.map((c): TopicView => {
     const own: TopicView['lessons'] = lessons.filter((l) => l.concept === c.id).map((l) => ({ id: l.id, title: l.title, state: l.read ? 'read' : 'ready' }));
     if (running.has(`lesson:${c.id}`)) own.push({ id: `${c.id}-writing`, title: 'Lesson', state: 'writing' });
     else if (failedLesson === c.id) own.push({ id: `${c.id}-writing`, title: 'Lesson', state: 'failed' });
     const isCurrent = c.id === current;
+    if (!activities) return {
+      id: c.id, title: c.title, state: c.covered ? 'covered' : isCurrent ? 'now' : 'later',
+      mastery: 0, stuck: false, lessons: own, activity: 'none',
+    };
     let activity: TopicView['activity'] = 'locked';
     // A due review reopens a mastered topic's activity (core §7).
     const review = isCurrent && (next.kind === 'review' ? 'due' : next.kind === 'author' && next.review ? 'writing' : undefined);
@@ -59,7 +65,8 @@ export function courseView(
   });
   return {
     goal: progress.goal,
-    track: trackName(progress.track),
+    track: progress.track ? trackName(progress.track) : '',
+    activities,
     setup: setup.state,
     ...(setup.state === 'failed' ? { setupProblem: setup.problem } : {}),
     ...(setup.proposal ? { proposal: setup.proposal } : {}),

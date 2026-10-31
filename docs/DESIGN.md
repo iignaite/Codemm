@@ -357,8 +357,8 @@ wasi:
 ```yaml
 title: "React"              # optional: the course's name in a few plain words, at most 60 characters
 goal: "Components and state in React"
-track: react@1              # a track pinned by version; it may not be installed yet
-style: unit                 # the default style for new exercises; must be offered by the track
+track: react@1              # optional only for style none; may not be installed yet
+style: unit                 # io or unit offered by the track, or none for lessons only
 concepts:
   - { id: react.jsx, title: "JSX", requires: [] }
   - id: react.state
@@ -376,8 +376,9 @@ sources:                    # optional: the roadmaps and docs the agent used, at
 - **Sources** are optional: at most 10, each a `title` of at most 120 characters and an https `url` with no credentials. The app shows them and opens them only in the learner's browser.
 - **Practice and pitfalls** are optional on each concept: `practice` is trimmed, 1 to 300 characters; `pitfalls` has at most 5 strings, each 1 to 200 characters. They are checked for structure only.
 - **Refs** are optional on each concept: at most 10 distinct nonnegative integer indexes into `sources`, starting at 0. Every ref must be in range. When sources are nonempty, a concept with `practice` or nonempty `pitfalls` must have at least one ref.
-- **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is. Proposing or installing a track that a course names but whose styles lack that course's style is refused, so a course can't be stranded; an install checks this under the track lock, which roadmap saves also take (after the course lock). `next_step` fails with "Edit the roadmap's style" if an installed track still doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
-- **Re-saving** an existing course may change `title`, `goal`, concept titles and order, add concepts, and change `requires` while staying acyclic. Edits keep concept ids, so renaming changes only the title. It may change `track` while the course has no exercises.
+- **Lessons only.** `style: none` needs no track. `CourseStyle` is `Style | "none"`; `Style` stays `io | unit` for tracks, exercises and lesson examples. A course may keep its track when activities are off. Exercise saves, `get_exercise`, `check` and `test` are refused; lessons, notes and reads still work. Examples need an installed track.
+- **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is. Proposing or installing a track that a course names but whose styles lack that course's coding style is refused, so a course can't be stranded; an install checks this under the track lock, which roadmap saves also take (after the course lock). `next_step` fails with "Edit the roadmap's style" if an installed track still doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
+- **Re-saving** an existing course may change `title`, `goal`, concept titles and order, add concepts, and change `requires` while staying acyclic. Edits keep concept ids, so renaming changes only the title. It may change `track` while the course has no exercises. Switching activities off or on is an ordinary re-save of `style`; turning them off keeps the track. The event log, exercises, mastery and lesson reads stay unchanged. Without a track, a save takes only the course lock; with one, it also takes the track lock.
 - **Re-saving is rejected** if it changes `track` after exercises exist, or removes a concept that an exercise, event or lesson uses.
 - **A fresh start.** When a re-save adds a prerequisite to a stuck concept, Codemm appends a `retry` event for it (§7).
 - **Saving makes it active:** it sets the course in `codemm.json` for the bound workspace.
@@ -389,7 +390,7 @@ sources:                    # optional: the roadmaps and docs the agent used, at
 - **Examples.** A lesson may carry up to 5 runnable examples, each a file map of at most 64 KB:
   - Each holds exactly the installed track's learner files; for a unit course, it adds test files under `tests/`.
   - The Markdown places example N as an unindented fence (``` or ~~~) whose info string is `example`, then one line holding N, then the closing fence. A fence inside another fence (which may be indented up to 3 spaces) is shown, never run. Every example is placed, and every placement names an example. Examples hold at most 250 files in all.
-  - The lesson records the track and style its examples were checked with, and they always run with those.
+  - The lesson records the track and style its examples were checked with, and they always run with those. In a lessons-only course, new examples use the retained track's first offered style; `get_roadmap` returns that contract too.
   - The gate: under the course lock, then the track lock, each example runs in the track's image exactly as a check runs code, with the same sandbox and limits. io runs the build and run commands once, with empty input; unit runs the test command on the example's tests. Each must exit 0 within the limits. A runtime failure is infrastructure and saves nothing.
   - Examples need the installed track, and `get_roadmap` over MCP includes the track's contract once it's installed.
 - **Running.** `runExample(ws, lesson, n)` runs a saved example the same way and returns its exit code, output (capped at 16 KB) and errors (capped at 4 KB). It is never recorded. `runExampleLive(ws, lesson, n, bound, output)` runs an io example interactively instead, as Run does for an activity (`runProgram`): its output streams, and the learner's typed input reaches its stdin. It checks the files against the recorded track first, and is never recorded either. A unit example has no live run.
@@ -469,7 +470,7 @@ For each `check`, in order, for each concept it lists:
 
 Checks before the due time are ordinary checks. A concept that drops below mastery any other way loses its review too.
 
-**Next step**, in order:
+**Next step for coding courses**, in order:
 
 1. If the roadmap's track isn't installed, return `setup` with the track.
 2. If a mastered concept's review is due, the earliest due first: return `review` with the concept, its difficulty and an exercise of that concept at that difficulty the learner has never checked; if there is none, return `author` with `review: true`.
@@ -484,6 +485,18 @@ Checks before the due time are ordinary checks. A concept that drops below maste
 
 **Corrupt log.** A truncated final line, from a crash mid-append, is ignored when reading. Before the next append, the log is backed up to `events.jsonl.bak-<time>` and the torn line is removed. Any other invalid line makes state-changing commands fail with the line number until it's repaired.
 
+### Lessons-only progression
+
+`nextLesson(roadmap, log, lessons)` is separate from `nextStep` and `replay`. It has no mastery, difficulty, reviews or stuck state.
+
+- A concept is covered when it has at least one lesson and every lesson for it has a `read` event.
+- Candidates are concepts not covered whose prerequisites are each covered or skipped. Their order is topological, with ties broken by roadmap order.
+- A skipped concept waits while any other candidate is open, then returns at the end. Reading one of its lessons ends its skip in this mode. A skip unlocks later concepts but never covers a concept.
+- Return `{ kind: "learn", concept, lesson }` for the first candidate. `lesson` is `null` when it has no lesson yet, otherwise the earliest unread lesson's id.
+- Return `{ kind: "done" }` when every concept is covered.
+
+A lessons-only course uses this step without looking up a track. `codemm status` shows lessons read instead of mastery. Switching back to coding keeps mastery and reads; reading never changes mastery.
+
 ## 8. Interfaces
 
 The MCP tools and CLI commands are thin calls into one application module.
@@ -493,12 +506,12 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `list_tracks` | — | installed tracks: id, version, styles |
 | `save_track` | `files` | `{ installed: "id@v", warning? }` or diagnostics; with `--desktop`, `{ proposed: "id@v", note }` (§4.4) |
 | `save_roadmap` | `course`, `roadmap` (YAML text) | ok or errors |
-| `get_roadmap` | — | `{ course, title?, goal, track, style, concepts, sources? }`; concepts have `id`, `title`, `requires` and optional `practice`, `pitfalls`, `refs` |
-| `next_step` | — | `setup` / `review` / `practice` / `author` / `stuck` / `done`; `author` carries the concept's `title`, optional `practice` and `pitfalls`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests), and, when there are any, `lessonText` (the concept's lessons, newest first, at most 32 KB) and `last` (the learner's last check on the concept as `passed`, `total` and `assisted` only) |
+| `get_roadmap` | — | `{ course, title?, goal, track?, style, concepts, sources? }`; concepts have `id`, `title`, `requires` and optional `practice`, `pitfalls`, `refs` |
+| `next_step` | — | `setup` / `review` / `practice` / `author` / `learn` / `stuck` / `done`; `learn` carries `concept` and `lesson` (null or the earliest unread id); `author` carries the concept's `title`, optional `practice` and `pitfalls`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests), and, when there are any, `lessonText` (the concept's lessons, newest first, at most 32 KB) and `last` (the learner's last check on the concept as `passed`, `total` and `assisted` only) |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
 | `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint, and for io the track's run command; a generated visible input shows its generator (`generated: true`), and a long expected output its first 64 KB with `expectedBytes` |
 | `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |
-| `progress` | — | mastery and difficulty per concept (with `reviewDue` for a mastered concept whose review is scheduled), next step |
+| `progress` | — | course style, mastery and difficulty per concept (with `reviewDue` for a mastered concept whose review is scheduled), `covered` (at least one lesson, all read), next step |
 | `save_lesson` | `id`, `concept`, `title`, `markdown` | `{ lesson: id }` or errors |
 | `get_lesson` | `id` | `{ id, concept, title, markdown, notes, examples, style? }`; records nothing |
 | `mark_lesson_read` | `id` | ok; records a `read` event once |

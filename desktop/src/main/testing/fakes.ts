@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { CodemmApi, CourseView } from '../../shared/api';
 import type { Job, JobOutcome } from '../agent/jobs';
 import { connector } from '../connect';
+import { nextLesson } from '../../../../src/learner';
 import { JOB_BRIEFS } from '../../../../src/templates';
 import type { CoreErrorKind } from '../core/failures';
 import type { CoreApp, CoreCheckView, CoreNextStep, CoreProgramRun } from '../core/types';
@@ -14,7 +15,7 @@ import { tempDir } from './temp';
 
 export const CANARY = 'printf("CANARY-SOLUTION-LINE %d", count + 1);';
 
-type FakeRoadmap = { course: string; title?: string; goal: string; track: string; style: string; concepts: { id: string; title: string; requires: string[] }[]; sources?: { title: string; url: string }[] };
+type FakeRoadmap = { course: string; title?: string; goal: string; track?: string; style: string; concepts: { id: string; title: string; requires: string[] }[]; sources?: { title: string; url: string }[] };
 
 const DOCKER_DOWN = "The container runtime isn't running. Start Docker Desktop and wait until it says it's running, then retry.";
 
@@ -96,6 +97,8 @@ export function fakeCore() {
   };
   const next = (bound?: string): CoreNextStep => {
     const r = roadmapOf(bound);
+    if (r.style === 'none') return nextLesson(r, [...c.reads].map((lesson) => ({ format_version: 1, kind: 'read', at: '', lesson, concept: c.lessons.find((l) => l.id === lesson)!.concept })), c.lessons);
+    if (!r.track) throw new Error('A coding course needs a track');
     if (!c.tracks.includes(r.track)) return { kind: 'setup', track: r.track };
     if (c.review) return { kind: 'review', concept: c.review.concept, difficulty: c.wanted, exercise: c.review.exercise };
     if (c.reviewWithout) return { kind: 'author', concept: c.reviewWithout, difficulty: c.wanted, review: true };
@@ -125,9 +128,10 @@ export function fakeCore() {
     listTracks: () => c.tracks.map((track) => ({ track, styles: ['io'], files: ['main.c'], engine: c.wasi.has(track) ? 'wasi' : 'docker' })),
     cleanupLeftovers: async () => void c.cleanups++,
     rebuildTrack: async () => ({}),
-    saveRoadmap: async (_ws, course, yaml) => {
+    saveRoadmap: async (_ws, course, yaml, _bound, activate = true) => {
       const parsed = JSON.parse(yaml);
-      c.roadmap = { course, ...parsed };
+      if (activate) c.roadmap = { course, ...parsed };
+      else c.courses.set(course, { course, ...parsed });
       return { course };
     },
     progress: (_ws, bound) => {
@@ -137,7 +141,8 @@ export function fakeCore() {
         course: r.course,
         goal: r.goal,
         track: r.track,
-        concepts: r.concepts.map((x) => ({ ...x, mastery: c.mastered.has(x.id) ? 1 : 0.5, mastered: c.mastered.has(x.id), attempts: 0, stuck: c.stuck === x.id })),
+        style: r.style,
+        concepts: r.concepts.map((x) => ({ ...x, covered: c.lessons.some((l) => l.concept === x.id) && c.lessons.filter((l) => l.concept === x.id).every((l) => c.reads.has(l.id)), mastery: c.mastered.has(x.id) ? 1 : 0.5, mastered: c.mastered.has(x.id), attempts: 0, stuck: c.stuck === x.id })),
         next: next(bound),
       };
     },
@@ -329,7 +334,7 @@ export async function until(api: CodemmApi, done: (c: CourseView) => boolean) {
 
 export async function researched(t: ReturnType<typeof live>) {
   await t.api.connect('claude');
-  return settle(() => t.api.research({ topic: 'React', known: '', depth: 'standard' }), (r) => r.state !== 'running', 'Research');
+  return settle(() => t.api.research({ topic: 'React', known: '', depth: 'standard', practice: 'code' }), (r) => r.state !== 'running', 'Research');
 }
 
 export async function practising(t: ReturnType<typeof live>) {

@@ -194,6 +194,13 @@ describe("the 1.0 learning flow in the tutor instructions", () => {
     expect(AGENTS_SECTION).toMatch(/`setup`: the roadmap's track isn't installed yet/);
     expect(AGENTS_SECTION).toMatch(/`save_lesson`.*`get_lesson`.*call `mark_lesson_read` only after the learner says they've read it/s);
   });
+
+  // Lessons only (proposal §3.5): a course with style `none` has no track and no exercises.
+  it("teaches a lessons-only course through the learn step, and lets a roadmap choose it", () => {
+    expect(AGENTS_SECTION).toMatch(/`learn`: the course has lessons only/);
+    expect(AGENTS_SECTION).toMatch(/On `practice`, `author` and `learn`, a `lesson` field means teach first/);
+    for (const text of [AGENTS_SECTION, JOB_BRIEFS.research, JOB_BRIEFS.roadmap]) expect(text).toMatch(/`none` when the learner wants lessons only, with no `track`/);
+  });
 });
 
 describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {

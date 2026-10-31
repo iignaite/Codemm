@@ -125,7 +125,7 @@ export function createServer(ws: string, version: string, { course, tools, deskt
     {
       description:
         "Create or update the course roadmap and make it active in this workspace. YAML with title (the course's name in a few plain words, " +
-        "at most 60 characters), goal, track (id@version, installed or not yet), style (io|unit), concepts [{id, title, requires, practice?, pitfalls?, refs?}] and optional sources " +
+        "at most 60 characters), goal, track (id@version, optional only for none), style (io|unit|none), concepts [{id, title, requires, practice?, pitfalls?, refs?}] and optional sources " +
         "[{title, url}]; refs are indexes into sources. Keep concept ids stable when you edit it.",
       inputSchema: { course: z.string().describe("Course id, e.g. c-pointers"), roadmap: z.string().describe("Roadmap YAML") },
     },
@@ -143,8 +143,8 @@ export function createServer(ws: string, version: string, { course, tools, deskt
     {
       description:
         "What to do next: setup (install the track), practice an existing exercise, review a mastered concept on an exercise (a check keeps it mastered), " +
-        "author a new one (concept, difficulty, style, track; review: true when it's for a review), stuck, or done. " +
-        "On practice and author, lesson is null when the concept needs a lesson first, or the id of a lesson the learner hasn't read yet; teach before the activity until it's gone.",
+        "author a new one (concept, difficulty, style, track; review: true when it's for a review), learn (lessons only), stuck, or done. " +
+        "On learn, lesson is null when a lesson needs writing, otherwise the earliest unread lesson id. On practice and author, lesson is null when the concept needs a lesson first, or the id of a lesson the learner hasn't read yet; teach before the activity until it's gone.",
     },
     () => respond(() => app.nextStep(ws, course)),
   );
@@ -170,7 +170,7 @@ export function createServer(ws: string, version: string, { course, tools, deskt
     ({ slug: s }) => respond(() => app.checkExercise(ws, s, course)),
   );
 
-  if (want("progress")) server.registerTool("progress", { description: "Mastery and difficulty per concept, and the next step." }, () => respond(() => app.progress(ws, course)));
+  if (want("progress")) server.registerTool("progress", { description: "Course style, mastery, difficulty and covered per concept, and the next step. Covered means at least one lesson, all read." }, () => respond(() => app.progress(ws, course)));
 
   if (want("save_lesson")) server.registerTool(
     "save_lesson",

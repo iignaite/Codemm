@@ -7,7 +7,7 @@ import { Icon } from '../../ui/Icon';
 import { continueRoute, offeredTopic, reviewText } from '../../app/course';
 import { Writing } from '../lessons/Writing';
 
-const STATE_LABEL = { mastered: 'Mastered', now: 'Now', later: 'Later' } as const;
+const STATE_LABEL = { covered: 'Read', mastered: 'Mastered', now: 'Now', later: 'Later' } as const;
 /** Each stop lands this long after the one before it, so the branch fills in order; past the first few, all at once. */
 const STEP_MS = 140;
 const STAGGERED = 8;
@@ -26,7 +26,7 @@ export function Path({ course }: { course: CourseView }) {
   const { topics } = course;
   const at = currentIndex(topics);
   // Reached: mastered, or the current topic. A topic passed over (skipped, or locked behind the current one) sits on grey.
-  const reached = topics.map((t, i) => t.state === 'mastered' || i === at);
+  const reached = topics.map((t, i) => t.state === 'mastered' || t.state === 'covered' || i === at);
   return (
     <div className="path-wrap">
       <ol className="path" aria-label="Topics">
@@ -57,10 +57,10 @@ function Stop({ topic, index, current, track, up, down, last }: StopProps) {
         {index > 0 && <i className={`seg up${up ? ' on' : ''}`} />}
         {!last && <i className={`seg down${down ? ' on' : ''}`} />}
       </span>
-      <Leaf state={topic.state} flip={index % 2 === 1} />
+      <Leaf state={topic.state} reading={topic.activity === 'none'} flip={index % 2 === 1} />
       {current ? (
         <Current topic={topic} track={track} />
-      ) : topic.state === 'mastered' ? (
+      ) : topic.state === 'mastered' || topic.state === 'covered' ? (
         <div className="stop-row">
           {/* A mastered topic opens again: its lessons and the activity, to reread or practise. */}
           <button type="button" className="stop-name link" onClick={() => go({ to: 'topic', topicId: topic.id })}>{topic.title}</button>
@@ -76,14 +76,14 @@ function Stop({ topic, index, current, track, up, down, last }: StopProps) {
 }
 
 /** A topic's state as a leaf on the branch: filled with a check when mastered, outlined while it waits. */
-function Leaf({ state, flip }: { state: TopicView['state']; flip: boolean }) {
+function Leaf({ state, flip, reading }: { state: TopicView['state']; flip: boolean; reading: boolean }) {
   return (
     <span className={`leaf ${state}${flip ? ' flip' : ''}`} role="img" aria-label={STATE_LABEL[state]}>
       <svg className="blade-art" viewBox="0 0 36 36" width="36" height="36" aria-hidden="true">
         <path className="blade" d="M5 31 C 5 15, 15 5, 31 5 C 31 21, 21 31, 5 31 Z" />
       </svg>
-      {state === 'mastered' && <Icon name="check" color="#fff" size={15} />}
-      {state === 'now' && <Icon name="code" color="var(--green-ink)" size={15} />}
+      {(state === 'mastered' || state === 'covered') && <Icon name="check" color="#fff" size={15} />}
+      {state === 'now' && <Icon name={reading ? 'book' : 'code'} color="var(--green-ink)" size={15} />}
       {state === 'later' && <Icon name="lock" color="var(--faint)" size={13} />}
     </span>
   );
@@ -123,7 +123,7 @@ function Steps({ topic }: { topic: TopicView }) {
     <div className="steps">
       <span className="step-bar" aria-hidden="true">
         {topic.lessons.map((l) => <i key={l.id} className={l.state} />)}
-        <i className={`act ${topic.activity}`} />
+        {topic.activity !== 'none' && <i className={`act ${topic.activity}`} />}
       </span>
       {all ? (
         <span className="done"><Icon name="check" color="var(--green-ink)" size={14} />Lessons</span>

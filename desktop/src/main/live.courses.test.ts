@@ -9,7 +9,7 @@ type Test = ReturnType<typeof live>;
 /** Researches a goal and approves its roadmap: it becomes one of the learner's courses, on screen. */
 async function approved(t: Test, topic: string): Promise<string> {
   await t.api.connect('claude');
-  const goal = { topic, known: '', depth: 'standard' } as const;
+  const goal = { topic, known: '', depth: 'standard', practice: 'code' } as const;
   const r = await settle(() => t.api.research(goal), (x) => x.state !== 'running', 'Research');
   await t.api.approve(r.roadmap!.concepts);
   return t.c.roadmap!.course;
@@ -59,7 +59,7 @@ describe('live CodemmApi: several courses (§4.13)', () => {
       },
     });
     await t.api.connect('claude');
-    const r = await settle(() => t.api.research({ topic: 'springboot?', known: '', depth: 'standard' }), (x) => x.state !== 'running', 'Research');
+    const r = await settle(() => t.api.research({ topic: 'springboot?', known: '', depth: 'standard', practice: 'code' }), (x) => x.state !== 'running', 'Research');
     expect(r.roadmap).toMatchObject({ title: 'Spring Boot', goal });
     await t.api.saveDraft(r.roadmap!.concepts);
     expect(await t.api.draft()).toMatchObject({ title: 'Spring Boot', goal });
@@ -73,7 +73,7 @@ describe('live CodemmApi: several courses (§4.13)', () => {
     const goal = 'Develop systematic thinking about React applications, from components to state';
     const t = live({ research: (_job, usual) => (usual(), (t.c.roadmap!.goal = goal), {}) });
     await t.api.connect('claude');
-    const r = await settle(() => t.api.research({ topic: 'react?', known: '', depth: 'standard' }), (x) => x.state !== 'running', 'Research');
+    const r = await settle(() => t.api.research({ topic: 'react?', known: '', depth: 'standard', practice: 'code' }), (x) => x.state !== 'running', 'Research');
     expect(r.roadmap).toMatchObject({ title: goal, goal });
     await t.api.approve(r.roadmap!.concepts);
     expect(await t.api.course()).toMatchObject({ title: goal, goal });

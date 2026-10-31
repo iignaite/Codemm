@@ -4,11 +4,11 @@ import type { CoreProgress } from './core/types';
 import { courseView, otherReady, type Setup } from './courseView';
 
 const concepts = [
-  { id: 'values', title: 'Values', requires: [], mastery: 0.9, mastered: true, attempts: 2, stuck: false },
-  { id: 'state', title: 'State', requires: ['values'], mastery: 0.5, mastered: false, attempts: 1, stuck: true },
-  { id: 'forms', title: 'Forms', requires: [], mastery: 0.5, mastered: false, attempts: 0, stuck: false },
+  { id: 'values', title: 'Values', requires: [], mastery: 0.9, mastered: true, covered: false, attempts: 2, stuck: false },
+  { id: 'state', title: 'State', requires: ['values'], mastery: 0.5, mastered: false, covered: false, attempts: 1, stuck: true },
+  { id: 'forms', title: 'Forms', requires: [], mastery: 0.5, mastered: false, covered: false, attempts: 0, stuck: false },
 ];
-const progress = (next: CoreProgress['next']): CoreProgress => ({ course: 'react', goal: 'React', track: 'react@1', concepts, next });
+const progress = (next: CoreProgress['next']): CoreProgress => ({ course: 'react', goal: 'React', track: 'react@1', style: 'io', concepts, next });
 const ready: Setup = { state: 'ready' };
 
 describe('course view', () => {
@@ -49,7 +49,7 @@ describe('course view', () => {
 
   it('counts down only to future reviews: an overdue one waiting its turn shows no countdown', () => {
     const now = Date.parse('2026-10-20T12:00:00Z');
-    const both = concepts.map((c) => (c.id === 'values' ? { ...c, reviewDue: '2026-10-19T09:00:00Z' } : c.id === 'forms' ? { ...c, mastered: true, reviewDue: '2026-10-18T09:00:00Z' } : c));
+    const both = concepts.map((c) => (c.id === 'values' ? { ...c, reviewDue: '2026-10-19T09:00:00Z' } : c.id === 'forms' ? { ...c, mastered: true, covered: false, reviewDue: '2026-10-18T09:00:00Z' } : c));
     const view = courseView({ ...progress({ kind: 'review', concept: 'forms', difficulty: 1, exercise: 'f-2' }), concepts: both }, [], ready, new Set(), now);
     expect(view.topics[0]).not.toHaveProperty('reviewIn');
     expect(view.topics[0]).not.toHaveProperty('review');
@@ -83,7 +83,17 @@ describe('another topic ready', () => {
   });
 
   it("counts a topic left for later as met: the topics after it open (core §7)", () => {
-    const chain = { ...progress({ kind: 'author', concept: 'state', difficulty: 1 }), concepts: [...concepts.filter((c) => c.id !== 'forms'), { id: 'hooks', title: 'Hooks', requires: ['state'], mastery: 0.5, mastered: false, attempts: 0, stuck: false }] };
+    const chain = { ...progress({ kind: 'author', concept: 'state', difficulty: 1 }), concepts: [...concepts.filter((c) => c.id !== 'forms'), { id: 'hooks', title: 'Hooks', requires: ['state'], mastery: 0.5, mastered: false, covered: false, attempts: 0, stuck: false }] };
     expect(otherReady(chain, ['state'])).toBe(true);
   });
+});
+
+it('shows coverage and no activity or review for lessons only, even with old mastery', () => {
+  const p = { ...progress({ kind: 'learn', concept: 'state', lesson: 's' }), style: 'none', track: undefined,
+    concepts: concepts.map((c) => ({ ...c, covered: c.id === 'values', reviewDue: '2099-01-01' })) };
+  const view = courseView(p, [{ id: 's', concept: 'state', title: 'State', read: false }], ready, new Set());
+  expect(view).toMatchObject({ activities: false, setup: 'ready', done: false });
+  expect(view.topics.map((t) => t.state)).toEqual(['covered', 'now', 'later']);
+  expect(view.topics.every((t) => t.activity === 'none' && !t.review && !t.reviewIn && !t.stuck)).toBe(true);
+  expect(courseView({ ...p, next: { kind: 'done' } }, [], ready, new Set()).done).toBe(true);
 });

@@ -29,6 +29,7 @@ function neighbours(topic: TopicView, lessonId: string): { prev: Route; next: (c
       const fresh = course.topics.find((t) => t.id === topic.id)!;
       const after = fresh.lessons[at + 1];
       if (after && after.state !== 'writing') return { to: 'lesson', lessonId: after.id };
+      if (!after && !course.activities) return { to: 'learn' };
       if (!after && fresh.activity === 'open') return { to: 'practice', concept: topic.id };
       return back;
     },

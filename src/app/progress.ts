@@ -1,5 +1,5 @@
 import { CodemmError } from "../errors.js";
-import { MASTERED, replay } from "../learner.js";
+import { MASTERED, coveredConcepts, replay } from "../learner.js";
 import { assertRuntime } from "../sandbox.js";
 import * as store from "../store.js";
 import { activeCourse, noteAssistLocked } from "./shared.js";
@@ -9,16 +9,19 @@ import { nextStep } from "./exercises.js";
 
 export function progress(ws: string, bound?: string) {
   const course = activeCourse(ws, bound);
-  const states = replay(store.readEvents(course.course));
+  const log = store.readEvents(course.course);
+  const states = replay(log);
+  const covered = coveredConcepts(log, store.listLessons(course.course));
   return {
     course: course.course,
     goal: course.goal,
     track: course.track,
+    style: course.style,
     concepts: course.concepts.map((c) => {
       const s = states.get(c.id);
       const mastery = s?.mastery ?? 0.5;
       return {
-        id: c.id, title: c.title, requires: c.requires, mastery: Math.round(mastery * 1000) / 1000,
+        id: c.id, title: c.title, requires: c.requires, covered: covered.has(c.id), mastery: Math.round(mastery * 1000) / 1000,
         mastered: mastery >= MASTERED, difficulty: s?.difficulty ?? 1, attempts: s?.attempts ?? 0, stuck: s?.stuck ?? false,
         ...(s?.review ? { reviewDue: s.review.due } : {}),
       };

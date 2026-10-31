@@ -196,3 +196,29 @@ export function nextStep(roadmap: RoadmapGraph, exercises: ExerciseSummary[], lo
   if (fit) return { kind: "practice", exercise: fit.slug, concept, difficulty: s.difficulty, ...lesson };
   return { kind: "author", concept, difficulty: s.difficulty, ...lesson };
 }
+
+export type LessonStep = { kind: "learn"; concept: string; lesson: string | null } | { kind: "done" };
+
+/** A concept is covered only after every saved lesson for it has been read. */
+export function coveredConcepts(log: LearnerEvent[], lessons: LessonSummary[]): Set<string> {
+  const read = new Set(log.flatMap((e) => e.kind === "read" ? [e.lesson] : []));
+  const unread = new Set(lessons.filter((l) => !read.has(l.id)).map((l) => l.concept));
+  return new Set(lessons.map((l) => l.concept).filter((id) => !unread.has(id)));
+}
+
+/** Reading progression has no mastery, difficulty or reviews. A read ends a skip in this mode. */
+export function nextLesson(roadmap: RoadmapGraph, log: LearnerEvent[], lessons: LessonSummary[]): LessonStep {
+  const covered = coveredConcepts(log, lessons);
+  const deferred = new Set<string>();
+  for (const event of log) {
+    if (event.kind === "skip") deferred.add(event.concept);
+    if (event.kind === "read") deferred.delete(event.concept);
+  }
+  const requires = new Map(roadmap.concepts.map((c) => [c.id, c.requires]));
+  const candidates = topoOrder(roadmap).filter((id) => !covered.has(id) && requires.get(id)!.every((r) => covered.has(r) || deferred.has(r)));
+  const concept = candidates.find((id) => !deferred.has(id)) ?? candidates[0];
+  if (!concept) return { kind: "done" };
+  const read = new Set(log.flatMap((e) => e.kind === "read" ? [e.lesson] : []));
+  const lesson = lessons.find((l) => l.concept === concept && !read.has(l.id))?.id ?? null;
+  return { kind: "learn", concept, lesson };
+}

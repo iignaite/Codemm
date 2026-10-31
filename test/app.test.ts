@@ -517,3 +517,68 @@ describe("setup proposals", () => {
     expect(app.listProposals()).toEqual([]);
   });
 });
+
+describe("lessons only", () => {
+  const lessonsOnly = () => roadmap().replace("track: shell-io@1\n", "").replace("style: io", "style: none");
+  it("needs no track, progresses through reads, and exposes coverage", async () => {
+    await app.saveRoadmap(ws, "shell", lessonsOnly());
+    expect(app.nextStep(ws)).toEqual({ kind: "learn", concept: "sh.basics", lesson: null });
+    expect(app.progress(ws).concepts[0]).toMatchObject({ covered: false });
+    await app.saveLesson(ws, { id: "intro", concept: "sh.basics", title: "Intro", markdown: "Read this." });
+    expect(app.nextStep(ws)).toEqual({ kind: "learn", concept: "sh.basics", lesson: "intro" });
+    await app.markLessonRead(ws, "intro");
+    expect(app.progress(ws).concepts[0]).toMatchObject({ covered: true, mastery: 0.5 });
+    expect(app.progress(ws).next).toEqual({ kind: "learn", concept: "sh.loops", lesson: null });
+    await app.saveLesson(ws, { id: "more", concept: "sh.basics", title: "More", markdown: "Read more." });
+    expect(app.progress(ws).concepts[0]).toMatchObject({ covered: false });
+  });
+  it.each(["getExercise", "checkExercise", "testExercise", "saveExercise"] as const)("refuses %s before looking up a track or exercise", async (operation) => {
+    await app.saveRoadmap(ws, "shell", lessonsOnly());
+    const call = operation === "saveExercise" ? app.saveExercise(ws, {}) : app[operation](ws);
+    await expect(call).rejects.toThrow(/lessons only.*Turn activities on/);
+  });
+  it("keeps the track, exercises, events, mastery and reads when switched both ways", async () => {
+    installFake();
+    await app.saveRoadmap(ws, "shell", roadmap());
+    addExercise("shell", "e", "sh.basics");
+    store.appendEvent("shell", event({ kind: "check", exercise: "e", concepts: ["sh.basics"], difficulty: 1, passed: 1, total: 1, assisted: false }));
+    await app.saveLesson(ws, { id: "intro", concept: "sh.basics", title: "Intro", markdown: "Read this." });
+    await app.markLessonRead(ws, "intro");
+    const log = store.readEvents("shell");
+    const mastery = app.progress(ws).concepts[0]!.mastery;
+    await app.saveRoadmap(ws, "shell", roadmap().replace("style: io", "style: none"));
+    expect(app.getRoadmap(ws).track).toBe("shell-io@1");
+    expect(app.nextStep(ws).kind).toBe("learn");
+    await expect(app.saveRoadmap(ws, "shell", lessonsOnly())).rejects.toThrow(/can't switch tracks/);
+    await app.saveRoadmap(ws, "shell", roadmap());
+    expect(store.readEvents("shell")).toEqual(log);
+    expect(app.progress(ws).concepts[0]).toMatchObject({ mastery, covered: true });
+    expect(app.listLessons(ws)[0]!.read).toBe(true);
+    expect(app.nextStep(ws)).not.toHaveProperty("lesson");
+  });
+});
+
+it("keeps lesson examples on a retained track's coding style when activities are off", async () => {
+  installFake();
+  await app.saveRoadmap(ws, "shell", roadmap().replace("style: io", "style: none"));
+  expect(app.getRoadmap(ws, undefined, true).contract).toMatchObject({ run: "sh main.sh" });
+  fakeDocker("missing");
+  // A valid io example reaches the sandbox, rather than being mistaken for a unit example needing tests/.
+  await expect(app.saveLesson(ws, { id: "ex", concept: "sh.basics", title: "Example", markdown: "```example\n1\n```", examples: [{ "main.sh": "echo 1" }] })).rejects.toThrow(/container runtime/i);
+  expect(app.listLessons(ws)).toEqual([]);
+});
+
+it("re-saves a course without making it active when asked, so another course's draft stays active", async () => {
+  await app.saveRoadmap(ws, "shell", roadmap());
+  await app.saveRoadmap(ws, "draft", roadmap());
+  await app.saveRoadmap(ws, "shell", roadmap().replace("style: io", "style: none"), "shell", false);
+  expect(app.getRoadmap(ws).course).toBe("draft");
+  expect(app.getRoadmap(ws, "shell").style).toBe("none");
+});
+
+it("allows proposing a coding track retained by a lessons-only course", async () => {
+  // As in "setup proposals": nothing on PATH, so a runner with wasmtime and no Docker gets the same answer.
+  fakeDocker("missing");
+  await app.saveRoadmap(ws, "shell", roadmap().replace("style: io", "style: none"));
+  expect(await app.proposeTrack(readFileMap(join(import.meta.dirname, "fixtures", "tracks", "shell-io")))).toMatchObject({ proposed: "shell-io@1" });
+});

@@ -353,3 +353,13 @@ describe("the engines this computer has (DESIGN §4.5)", () => {
     expect(needsEngines(["next_step", "save_exercise"])).toBe(false);
   });
 });
+
+it("returns learn and covered through MCP without a track", async () => {
+  const { call } = await connect();
+  await call("save_roadmap", { course: "reading", roadmap: "goal: Learn\nstyle: none\nconcepts: [{ id: a, title: A }]" });
+  expect(await call("next_step")).toEqual({ kind: "learn", concept: "a", lesson: null });
+  await call("save_lesson", { id: "intro", concept: "a", title: "Intro", markdown: "Read this." });
+  expect(await call("next_step")).toEqual({ kind: "learn", concept: "a", lesson: "intro" });
+  await call("mark_lesson_read", { id: "intro" });
+  expect(await call("progress")).toMatchObject({ concepts: [{ covered: true }], next: { kind: "done" } });
+});

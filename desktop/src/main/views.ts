@@ -55,7 +55,8 @@ export function roadmapView(r: CoreRoadmap, installed: boolean, title = r.goal):
   return {
     title,
     goal: r.goal,
-    track: trackName(r.track),
+    track: r.track ? trackName(r.track) : '',
+    activities: r.style !== 'none',
     installed,
     concepts: r.concepts.map((c) => ({ id: c.id, title: c.title, requires: [...c.requires] })),
     sources: (r.sources ?? []).filter((s) => isSafeLink(s.url)).map((s) => ({ title: s.title, url: s.url })),

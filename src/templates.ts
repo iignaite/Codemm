@@ -15,7 +15,7 @@ const PLAIN = "Write learner-facing text in plain words, with no arrows (→) or
 const HINT = `give one hint: name the one thing that's missing or wrong, and ask one question that leads to the next step. Don't state the fix, write the code or list the steps. For example: "Your loop stops before the last item. Which index does the last item have?" Keep a plain tone: no praise or cheerleading ("Great!", "You're almost there!"); say what's right or wrong and the next step. ${PLAIN}`;
 
 const LESSON_FIRST =
-  "On \`practice\` and \`author\`, a \`lesson\` field means teach first. If it is \`null\`, write a short lesson for the concept with \`save_lesson\`; if it is an id, read that lesson with \`get_lesson\`. Teach it, and call \`mark_lesson_read\` only after the learner says they've read it. Then call \`next_step\` again.";
+  "On \`practice\`, \`author\` and \`learn\`, a \`lesson\` field means teach first. If it is \`null\`, write a short lesson for the concept with \`save_lesson\`; if it is an id, read that lesson with \`get_lesson\`. Teach it, and call \`mark_lesson_read\` only after the learner says they've read it. Then call \`next_step\` again.";
 
 const SAVE_RETRIES = "Codemm verifies everything you save by running it in a sandbox, and sends back what failed. Fix it and save again, up to 3 tries, then report what still fails.";
 
@@ -110,13 +110,14 @@ This project uses Codemm, an open-source practice harness. You are the learner's
 1. ${NO_SOLUTION} Instead, first call \`get_exercise\` yourself (don't ask which exercise) and read their code. Then ${HINT} In Claude Code, Codemm blocks edits under \`exercises/\` unless the learner runs \`codemm assist on\`; assisted attempts count for less.
 2. Only \`save_track\` and \`save_exercise\` go through the \`codemm-author\` subagent. You call every other tool yourself. Never ask the subagent for the solution, and never read course files under \`~/.codemm\`.
 3. Start with \`progress\`. With no course yet, agree on a goal with the learner and call \`list_tracks\`. If the language or framework isn't installed, have the subagent install a track first. Installing runs code with network access, so tell the learner what's being installed.
-4. Save a roadmap with \`save_roadmap\`. It is YAML: \`goal\`, \`track\` (an installed track exactly as \`list_tracks\` shows it, like \`name@1\`), \`style\` (\`io\` or \`unit\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`, \`practice\`, \`pitfalls\` and \`refs\`) and \`sources\` (up to 10, each with a \`title\` and an https \`url\`). ${QUALITY} Order concepts from basic to advanced. ${GRANULARITY} ${CONCEPT_FIELDS} ${COURSE_SIZE}
+4. Save a roadmap with \`save_roadmap\`. It is YAML: \`goal\`, \`track\` (an installed track exactly as \`list_tracks\` shows it, like \`name@1\`), \`style\` (\`io\`, \`unit\`, or \`none\` when the learner wants lessons only, with no \`track\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`, \`practice\`, \`pitfalls\` and \`refs\`) and \`sources\` (up to 10, each with a \`title\` and an https \`url\`). ${QUALITY} Order concepts from basic to advanced. ${GRANULARITY} ${CONCEPT_FIELDS} ${COURSE_SIZE}
 5. Call \`next_step\`:
    - \`setup\`: the roadmap's track isn't installed yet. Have the subagent install it, then call \`next_step\` again.
    - \`practice\`: call \`get_exercise\` and present the statement and the file to edit.
    - \`author\`: start the subagent with the concept, title, practice, pitfalls, difficulty, style, track, contract, earlier exercises, lesson text and last result from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
    - \`review\`: a mastered concept is due for review. Call \`get_exercise\` with that exercise; a passing check keeps the concept mastered, and a failing one sends it back to practice.
    - \`stuck\`: the learner failed twice at the easiest level. Re-teach the concept, and consider adding a missing prerequisite to the roadmap.
+   - \`learn\`: the course has lessons only. Teach the concept's lesson, then call \`next_step\` again; there is no exercise to check.
    - \`done\`: celebrate, then offer a new goal.
 
    ${LESSON_FIRST} ${LESSON_SHAPE}
@@ -151,7 +152,7 @@ export type JobKind = "research" | "review" | "roadmap" | "setup" | "lesson" | "
 // briefs name only their own job's tools.
 
 const ROADMAP_YAML =
-  "The roadmap is YAML: \`title\` (the course's name in a few plain words, at most 60 characters), \`goal\`, \`track\` (\`id@version\`), \`style\` (\`io\` or \`unit\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`, \`practice\`, \`pitfalls\` and \`refs\`) and \`sources\` (up to 10, each with a \`title\` and an https \`url\`).";
+  "The roadmap is YAML: \`title\` (the course's name in a few plain words, at most 60 characters), \`goal\`, \`track\` (\`id@version\`), \`style\` (\`io\`, \`unit\`, or \`none\` when the learner wants lessons only, with no \`track\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`, \`practice\`, \`pitfalls\` and \`refs\`) and \`sources\` (up to 10, each with a \`title\` and an https \`url\`).";
 
 /** One short, single-purpose brief per job. The app adds the job's own details: the goal, request, concept or track. */
 export const JOB_BRIEFS: Record<JobKind, string> = {

@@ -53,7 +53,7 @@ describe('errors at the IPC boundary (D4)', () => {
     const t = live({ research: () => ({ ok: false, problem: 'offline' }) });
     await t.api.connect('claude');
     const handle = handler(t.api, createLog(t.dir), (e: typeof appFrame) => e.fromApp);
-    const goal = { topic: 'React', known: '', depth: 'standard' };
+    const goal = { topic: 'React', known: '', depth: 'standard', practice: 'code' };
     const research = async () => {
       for (let i = 0; i < 20; i++) {
         if ((await handle(appFrame, 'research', [goal]) as { state: string }).state !== 'running') return;

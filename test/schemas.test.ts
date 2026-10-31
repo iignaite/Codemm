@@ -309,3 +309,17 @@ describe("lesson diagrams", () => {
     expect(() => parseLesson(lesson("```mermaid\n1\n```", [{ "main.sh": "echo hi\n" }]))).toThrow(/example 1 is never placed/);
   });
 });
+
+describe("course styles", () => {
+  const yaml = (style: string) => `goal: Learn\nstyle: ${style}\nconcepts: [{ id: a, title: A }]\n`;
+  it("accepts lessons only with or without a retained track", () => {
+    expect(parseRoadmapYaml(yaml("none")).track).toBeUndefined();
+    expect(parseRoadmapYaml(yaml("none") + "track: example@1\n").track).toBe("example@1");
+  });
+  it.each(["io", "unit"])("requires a track for %s", (style) => {
+    expect(() => parseRoadmapYaml(yaml(style))).toThrow(/track/);
+  });
+  it("keeps none out of exercise styles", () => {
+    expect(() => parseExerciseYaml("slug: e\nstyle: none\nconcepts: [a]\ndifficulty: 1")).toThrow();
+  });
+});

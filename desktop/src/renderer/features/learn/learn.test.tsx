@@ -18,7 +18,7 @@ describe('how deep the roadmap goes', () => {
     expect(within(depth).getByRole('radio', { name: 'Standard' })).toBeChecked();
     await user.click(within(depth).getByRole('radio', { name: 'In depth' }));
     await user.type(screen.getByRole('textbox', { name: 'What do you want to learn?' }), 'React{Enter}');
-    await waitFor(() => expect(asked[0]).toEqual({ topic: 'React', known: '', depth: 'in-depth' }));
+    await waitFor(() => expect(asked[0]).toEqual({ topic: 'React', known: '', depth: 'in-depth', practice: 'code' }));
   });
 });
 
@@ -103,7 +103,7 @@ describe('choose journey', () => {
     const api = createMock(options);
     await api.connect('claude');
     options.agentProblem = 'signed-out';
-    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard', practice: 'code' } }, api);
     const claude = await screen.findByRole('listitem', { name: 'Claude Code' });
     expect(claude).toHaveTextContent('Sign in to Claude Code, then try again.');
   });
@@ -111,7 +111,7 @@ describe('choose journey', () => {
   it('says when research hits the plan limit', async () => {
     const api = createMock({ agentProblem: 'plan-limit' });
     await api.connect('claude');
-    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard', practice: 'code' } }, api);
     expect(await screen.findByText("Your agent's plan limit is reached. Try again later.")).toBeInTheDocument();
     expect(screen.queryByText("Couldn't reach Codemm.")).not.toBeInTheDocument();
   });
@@ -119,7 +119,7 @@ describe('choose journey', () => {
   it('says when research found the computer offline, with no Check your agent', async () => {
     const api = createMock({ agentProblem: 'offline' });
     await api.connect('claude');
-    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard', practice: 'code' } }, api);
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent("You're offline. Connect to the internet, then try again.");
     expect(within(alert).getAllByRole('button').map((b) => b.textContent)).toEqual(['Try again']);
@@ -132,7 +132,7 @@ describe('choose journey', () => {
     const research = api.research;
     let failed = false;
     api.research = (goal) => (failed ? research(goal) : ((failed = true), Promise.resolve({ state: 'failed' as const })));
-    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard', practice: 'code' } }, api);
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent("Codemm couldn't finish the research.");
     expect(within(alert).getByRole('button', { name: 'Check your agent' })).toBeInTheDocument();
@@ -141,7 +141,7 @@ describe('choose journey', () => {
   });
 
   it('goes to connect when no agent is connected', async () => {
-    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } });
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard', practice: 'code' } });
     expect(await screen.findByRole('heading', { name: 'Connect an agent' })).toBeInTheDocument();
   });
 
@@ -170,4 +170,17 @@ describe('resuming a roadmap', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByRole('button', { name: 'Resume roadmap' })).not.toBeInTheDocument();
   });
+});
+
+it('sends Lessons only with the goal', async () => {
+  const user = userEvent.setup();
+  const api = createMock();
+  await api.connect('claude');
+  const asked: unknown[] = [];
+  const research = api.research;
+  api.research = (goal) => (asked.push(goal), research(goal));
+  renderApp({ to: 'goal' }, api);
+  await user.click(await screen.findByRole('radio', { name: 'Lessons only' }));
+  await user.type(screen.getByRole('textbox', { name: 'What do you want to learn?' }), 'History{Enter}');
+  await waitFor(() => expect(asked[0]).toEqual({ topic: 'History', known: '', depth: 'standard', practice: 'none' }));
 });
