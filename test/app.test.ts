@@ -200,16 +200,16 @@ describe("authoring a new exercise", () => {
 });
 
 describe("an author step's learner context", () => {
-  it("carries the concept's lesson text and the learner's last result on it, as counts only", async () => {
+  it("carries the concept's lesson text and the learner's last result on it: its exercise and counts", async () => {
     installFake();
     await app.saveRoadmap(ws, "shell", roadmap());
     await app.saveLesson(ws, { id: "basics-intro", concept: "sh.basics", title: "Reading input", markdown: "# Reading input\n\nUse `read a b` to read two words.\n" });
     addExercise("shell", "sum-two", "sh.basics", "shell-io@1", "# Sum two numbers\n\nRead two integers and print their sum.\n");
     store.appendEvent("shell", event({ kind: "check", at: new Date().toISOString(), exercise: "sum-two", concepts: ["sh.basics"], difficulty: 1, passed: 3, total: 3, assisted: false }));
     const step = app.nextStep(ws);
-    expect(step).toMatchObject({ kind: "author", difficulty: 2, lessonText: expect.stringContaining("Use `read a b` to read two words."), last: { passed: 3, total: 3, assisted: false } });
-    // Counts only: never a test's name, message or output.
-    expect(Object.keys((step as { last: object }).last).sort()).toEqual(["assisted", "passed", "total"]);
+    expect(step).toMatchObject({ kind: "author", difficulty: 2, lessonText: expect.stringContaining("Use `read a b` to read two words."), last: { exercise: "sum-two", passed: 3, total: 3, assisted: false } });
+    // The exercise the learner sees and counts: never a test's message or output (a perfect check misses nothing).
+    expect(Object.keys((step as { last: object }).last).sort()).toEqual(["assisted", "exercise", "passed", "total"]);
   });
 
   it("puts the newest lesson first and keeps the text within 32 KB, never the learner's notes", async () => {
