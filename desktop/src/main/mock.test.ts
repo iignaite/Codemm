@@ -15,6 +15,19 @@ async function roadmapped(options?: MockOptions) {
 }
 
 describe('mock naming', () => {
+  it('reports review progress after research and before returning the roadmap', async () => {
+    const api = createMock();
+    await api.connect('claude');
+    const heard: JobProgress[] = [];
+    api.onJobProgress((p) => heard.push(p));
+    let result = await api.research(goal);
+    while (result.state === 'running') result = await api.research(goal);
+    expect(result.state).toBe('done');
+    expect(heard.findIndex((p) => p.kind === 'review')).toBeGreaterThan(heard.findIndex((p) => p.kind === 'research' && p.ended));
+    expect(heard.filter((p) => p.kind === 'review').map((p) => p.stage)).toEqual([0, 1, 2, 2]);
+    expect(heard.at(-1)).toMatchObject({ kind: 'review', ended: true });
+  });
+
   it('names a researched course as the live app would: a title, not the punctuation typed', async () => {
     const api = createMock();
     await api.connect('claude');
@@ -355,7 +368,7 @@ describe('mock: job progress (§4.11)', () => {
     while (r.state === 'running') r = await api.research({ topic: 'React', known: '', depth: 'standard' });
     await api.approve(r.roadmap!.concepts);
     await api.course();
-    expect(new Set(heard.map((p) => p.kind))).toEqual(new Set(['research', 'setup', 'lesson']));
+    expect(new Set(heard.map((p) => p.kind))).toEqual(new Set(['research', 'review', 'setup', 'lesson']));
     const lesson = heard.filter((p) => p.kind === 'lesson');
     expect(lesson.map((p) => [p.stage, p.ended ?? false])).toEqual([[0, false], [1, false], [2, false], [2, true]]);
     expect(await api.jobProgress()).toEqual([]);

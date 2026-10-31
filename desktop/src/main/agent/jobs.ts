@@ -26,6 +26,7 @@ interface JobSpec {
 const MIN = 60_000;
 export const JOBS: Record<JobKind, JobSpec> = {
   research: { tools: ['list_tracks', 'save_roadmap'], deadlineMs: 10 * MIN, web: true },
+  review: { tools: ['get_roadmap', 'save_roadmap'], deadlineMs: 10 * MIN, web: true },
   roadmap: { tools: ['get_roadmap', 'save_roadmap'], deadlineMs: 10 * MIN },
   setup: { tools: ['list_tracks', 'save_track'], deadlineMs: 10 * MIN, web: true },
   lesson: { tools: ['get_roadmap', 'save_lesson'], deadlineMs: 5 * MIN, save: 'save_lesson' },

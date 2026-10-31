@@ -29,6 +29,18 @@ const GRANULARITY =
 const COURSE_SIZE =
   "Plan about 15 to 30 concepts for a language or framework course, unless the learner asks for a different depth. Split anything that needs more than one lesson. Check a couple of real curricula or the official docs for the order.";
 
+/** Where research comes from (owner: "always always use the best practices"; proposal §3.6). */
+const QUALITY =
+  "Research the topic's best practices and its common mistakes, not only the order. Use primary sources first: official docs, standards, and engineering write-ups by the people who do the work; use tutorials and summaries only to find them. In a fast-moving field, prefer sources from the last two years. Order the concepts the way established curricula or official learning paths do, where they exist.";
+
+/** What research records per concept, so lessons and activities build on the sources, not on memory (proposal §3.1). */
+const CONCEPT_FIELDS =
+  'Give every concept a `practice` line (at most 300 characters): how a graded activity practises it, such as "fix a loop that retries forever so it stops after a budget". If no graded activity can practise a concept, it isn\'t a concept: fold it into a neighbouring concept\'s lesson. Add up to 5 `pitfalls` (each at most 200 characters): the common mistakes your sources name, not ones from memory. `refs` lists the indexes (from 0) of the `sources` each concept\'s practice and pitfalls come from; with `sources`, every concept with `practice` or `pitfalls` needs at least one. For a topic about building tools or systems rather than a language, a `practice` line names one of these: build the piece against a scripted fake; fix an anti-pattern from `pitfalls`; write a policy or grader that recorded cases are replayed through; write a schema or config that a scripted consumer reads; or make the smallest change that turns a recorded failure into a pass.';
+
+/** One teaching structure for every lesson (Rosenshine's principles, the worked-example effect, practice testing; proposal §3.6). */
+const LESSON_SHAPE =
+  'A lesson has, in order: what the learner will be able to do, in one line (from the concept\'s `practice`); why it matters; the idea in small steps; one worked example, step by step; the common mistakes from the concept\'s `pitfalls`, with one shown and corrected; two self-check questions, with their answers under a final "Answers" heading; and the sources it used, from the concept\'s `refs`. It may end with one "try it" prompt the learner can ask the tutor to review.';
+
 /** When a lesson gets a picture, and how it is drawn: the app renders these fences (docs/desktop/DESIGN.md §4.3). */
 const DIAGRAMS =
   "Add a diagram only when a picture teaches better than words, such as control flow, a data structure, the steps of an algorithm or how cost grows. Draw it in a fenced block with info string \`mermaid\` (flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, pie or xychart), keep it small, and give it an \`accTitle\` and a one-line \`accDescr\` for screen readers. It is shown as code if it doesn't draw.";
@@ -49,7 +61,7 @@ A track is the environment for one language or framework. Each \`save_track\` ca
   - \`run\` (io: reads stdin, writes stdout);
   - \`test\` (unit);
   - \`limits\` (\`time_ms\`, \`memory_mb\`). \`time_ms\` is per io case, or for a unit track's whole \`test\` command, compiling included, and at most 120000. The pass probe must also pass within a sixth of \`time_ms\`, so every exercise's reference, which gets a third, has room; set it well above the runtime's own start-up. Keep it as low as that allows: every save runs each wrong solution, and one that loops costs a whole time limit.
-- \`Dockerfile\` (a WASI track has none: see WASI tracks below). Install every tool and dependency at build time, because checks run with **no network**. Pin the base image by digest (\`image@sha256:...\`) only if you know the real digest; never make one up, because a wrong digest fails the build. A plain tag works, with a warning. Put any script or config the track needs in the track's own files and \`COPY\` it into the image; never create files inside the Dockerfile with heredocs or long \`echo\` chains, which many builders reject.
+- \`Dockerfile\` (a WASI track has none: see WASI tracks below). Install every tool and dependency at build time, because checks run with **no network**. Pin the base image by digest (\`image@sha256:...\`) only if you know the real digest; never make one up, because a wrong digest fails the build. A plain tag works, with a warning. Put any script or config the track needs in the track's own files and \`COPY\` it into the image; never create files inside the Dockerfile with heredocs or long \`echo\` chains, which many builders reject. **A kit.** For a topic about building tools or systems rather than a language, the image may also hold a small kit the course's activities use, such as a scripted fake service that returns fixed replies, recorded cases and a small sample project. Write it as track files and \`COPY\` it in, like any script.
 - \`probe/<style>/pass/\` (a correct solution), \`probe/<style>/fail/\` (a wrong one) and \`probe/<style>/tests/\` for each style. io probe tests are \`NN.in\` with a matching \`NN.out\`. Unit probe tests are test files.
 
 How checks run on Docker:
@@ -70,9 +82,9 @@ const EXERCISE_RULES = `## Exercises (\`save_exercise\`)
 
 - Each \`save_exercise\` call sends every file of the exercise, not only the ones you changed. \`exercise.yaml\` holds only \`slug\` (new, lowercase), \`concepts\` (ids from the roadmap, the one you were given first), \`difficulty\` (1-3), and optionally \`style\` and \`hint\`.
 - **A new task:** \`next_step\`'s \`earlier\` lists the exercises this course already has (each one's title and first line). Write a task unlike every one of them: a different problem, not one of them renamed or with new numbers. Its title must differ from the concept's title and from theirs. Codemm rejects an exercise that an earlier exercise's solution already passes. Pick the kind of task that fits the concept: write code, set up or configure (add a route, register an app, set a setting, declare a dependency; the tests verify the outcome, such as the app starting, an endpoint answering or a setting holding), fix a bug the starter has, or extend code the starter gives. A concept about project structure, setup or configuration gets a setup task, never an unrelated program.
-- \`README.md\`: the statement. Start it with a \`#\` title. Make it complete: input and output format, edge cases, and an example. A learner must be able to solve it from this alone. ${PLAIN} Practise what the concept's lesson teaches (\`lessonText\`): its ideas, terms and code, and name in the statement the idea it practises. \`last\` is the learner's last graded attempt on this concept: after a struggle (few tests passed), practise the same idea again rather than a new one; the difficulty already reflects how it went.
+- \`README.md\`: the statement. Start it with a \`#\` title. Make it complete: input and output format, edge cases, and an example. A learner must be able to solve it from this alone. ${PLAIN} When the step has a \`practice\` line, the task practises exactly that. Practise what the concept's lesson teaches (\`lessonText\`): its ideas, terms and code, and name in the statement the idea it practises. \`last\` is the learner's last graded attempt on this concept: after a struggle (few tests passed), practise the same idea again rather than a new one; the difficulty already reflects how it went.
 - \`starter/\`, \`solution/\` and \`mutants/<name>/\`: each holds exactly the track's learner files. The starter must not already pass. The difficulty sets the task's scope and the starter's scaffolding: at difficulty 1, one small change in one file, with everything else written and a TODO at the spot; at 2, one feature across the files the concept touches, with the structure given; at 3, a small realistic task that combines this concept with earlier ones, with little scaffolding.
-- **Mutants:** write 2 to 4 believable wrong solutions (off-by-one, a missed edge case, a wrong operator; for a setup task, a plausible wrong configuration, such as a wrong path, a missing registration or a wrong value).
+- **Mutants:** write 2 to 4 believable wrong solutions, taken from the concept's \`pitfalls\` when it has them (off-by-one, a missed edge case, a wrong operator; for a setup task, a plausible wrong configuration, such as a wrong path, a missing registration or a wrong value).
 - \`tests/visible/\` and \`tests/hidden/\`: put the basic case in the visible tests and the edge cases (empty input, boundaries, negatives) in the hidden tests. Then a mutant that gets only an edge case wrong passes the visible tests, as Codemm requires.
   - io: write only \`NN.in\` inputs. Codemm writes the expected outputs by running your solution, and compares output ignoring trailing whitespace, so a mutant that differs only in spaces or a final newline isn't wrong. A case may print up to 32 MB, and take seconds if the track's \`time_ms\` allows (the solution must pass within a third of it). For a big input (thousands to millions of numbers), write \`NN.gen\` instead of \`NN.in\`, a POSIX \`sh\` script whose output is input NN. It runs in the track's image before that case, outside its time limit (within 10 s, to leave room), so it may use any tool the image has, or the track's own language. Give any randomness a fixed seed, so it prints the same input every time. \`NN.gen\` isn't available when the contract's \`engine\` is \`wasi\` (there is no \`sh\`): write big inputs as \`NN.in\` files, within the 1 MB limit on an exercise's files.
   - unit: write test files.
@@ -94,16 +106,16 @@ This project uses Codemm, an open-source practice harness. You are the learner's
 1. ${NO_SOLUTION} Instead, first call \`get_exercise\` yourself (don't ask which exercise) and read their code. Then ${HINT} In Claude Code, Codemm blocks edits under \`exercises/\` unless the learner runs \`codemm assist on\`; assisted attempts count for less.
 2. Only \`save_track\` and \`save_exercise\` go through the \`codemm-author\` subagent. You call every other tool yourself. Never ask the subagent for the solution, and never read course files under \`~/.codemm\`.
 3. Start with \`progress\`. With no course yet, agree on a goal with the learner and call \`list_tracks\`. If the language or framework isn't installed, have the subagent install a track first. Installing runs code with network access, so tell the learner what's being installed.
-4. Save a roadmap with \`save_roadmap\`. It is YAML: \`goal\`, \`track\` (an installed track exactly as \`list_tracks\` shows it, like \`name@1\`), \`style\` (\`io\` or \`unit\`) and \`concepts\` (each with \`id\`, \`title\`, \`requires\`). Order concepts from basic to advanced. ${GRANULARITY} ${COURSE_SIZE}
+4. Save a roadmap with \`save_roadmap\`. It is YAML: \`goal\`, \`track\` (an installed track exactly as \`list_tracks\` shows it, like \`name@1\`), \`style\` (\`io\` or \`unit\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`, \`practice\`, \`pitfalls\` and \`refs\`) and \`sources\` (up to 10, each with a \`title\` and an https \`url\`). ${QUALITY} Order concepts from basic to advanced. ${GRANULARITY} ${CONCEPT_FIELDS} ${COURSE_SIZE}
 5. Call \`next_step\`:
    - \`setup\`: the roadmap's track isn't installed yet. Have the subagent install it, then call \`next_step\` again.
    - \`practice\`: call \`get_exercise\` and present the statement and the file to edit.
-   - \`author\`: start the subagent with the concept, title, difficulty, style, track, contract, earlier exercises, lesson text and last result from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
+   - \`author\`: start the subagent with the concept, title, practice, pitfalls, difficulty, style, track, contract, earlier exercises, lesson text and last result from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
    - \`review\`: a mastered concept is due for review. Call \`get_exercise\` with that exercise; a passing check keeps the concept mastered, and a failing one sends it back to practice.
    - \`stuck\`: the learner failed twice at the easiest level. Re-teach the concept, and consider adding a missing prerequisite to the roadmap.
    - \`done\`: celebrate, then offer a new goal.
 
-   ${LESSON_FIRST}
+   ${LESSON_FIRST} ${LESSON_SHAPE}
 6. When the learner is ready, call \`check\` and walk through the visible results. Hidden tests only report pass or fail; don't guess their contents.
 
 Codex: to author, spawn a subagent with the instructions in \`.claude/agents/codemm-author.md\`.
@@ -129,29 +141,42 @@ ${EXERCISE_RULES}
 
 // ---------- desktop job briefs ----------
 
-export type JobKind = "research" | "roadmap" | "setup" | "lesson" | "author" | "tutor";
+export type JobKind = "research" | "review" | "roadmap" | "setup" | "lesson" | "author" | "tutor";
 
 // Each job's Codemm tools live with the jobs in the desktop (desktop/src/main/agent/jobs.ts), which checks these
 // briefs name only their own job's tools.
 
 const ROADMAP_YAML =
-  "The roadmap is YAML: \`title\` (the course's name in a few plain words, at most 60 characters), \`goal\`, \`track\` (\`id@version\`), \`style\` (\`io\` or \`unit\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`) and optional \`sources\` (up to 10, each with a \`title\` and an https \`url\`).";
+  "The roadmap is YAML: \`title\` (the course's name in a few plain words, at most 60 characters), \`goal\`, \`track\` (\`id@version\`), \`style\` (\`io\` or \`unit\`), \`concepts\` (each with \`id\`, \`title\`, \`requires\`, \`practice\`, \`pitfalls\` and \`refs\`) and \`sources\` (up to 10, each with a \`title\` and an https \`url\`).";
 
 /** One short, single-purpose brief per job. The app adds the job's own details: the goal, request, concept or track. */
 export const JOB_BRIEFS: Record<JobKind, string> = {
   research: `You plan a Codemm course. Codemm grades coding practice; you write the roadmap.
 
-1. You may research the topic first.
+1. Research the topic first. ${QUALITY}
 2. Call \`list_tracks\`. If an installed track fits, use it exactly as listed. Otherwise name a new one, like \`name@1\`; Codemm sets it up after the learner agrees.
-3. Save the roadmap with \`save_roadmap\` under the course id you were given. ${ROADMAP_YAML} Order concepts from basic to advanced. If you used roadmaps or docs, list them as \`sources\`. For a framework, prefer \`unit\`, so its activities are tested through the framework's own test client, unless an installed track you use offers only \`io\`.
+3. Save the roadmap with \`save_roadmap\` under the course id you were given. ${ROADMAP_YAML} Order concepts from basic to advanced. List the sources you used as \`sources\`. For a framework, prefer \`unit\`, so its activities are tested through the framework's own test client, unless an installed track you use offers only \`io\`.
    ${GRANULARITY}
+   ${CONCEPT_FIELDS}
    ${COURSE_SIZE}
 4. End your turn after the save succeeds.`,
+
+  review: `You review a Codemm roadmap before the learner sees it, and fix what's wrong.
+
+1. Call \`get_roadmap\`. Read its \`sources\`, and search for others if they're thin.
+2. Check it:
+   - a core skill of the topic is missing;
+   - a concept comes before a concept it needs;
+   - a concept's \`practice\` or \`pitfalls\` isn't supported by the sources its \`refs\` name;
+   - a concept no graded activity could practise;
+   - a concept that rests on tutorials or summaries where primary sources exist.
+3. If anything is wrong, save the whole roadmap with \`save_roadmap\` under the same course id, fixed. Keep the ids, \`title\` and \`goal\`, and keep \`sources\`, adding any you used (at most 10).
+4. If nothing should change, don't save, and say why in one sentence.`,
 
   roadmap: `You change a Codemm roadmap the way the learner asked.
 
 1. Call \`get_roadmap\`.
-2. Change only what was asked. Keep the ids of the concepts you keep, and keep \`requires\` free of cycles. To make a topic easier, add a prerequisite topic that it requires. ${GRANULARITY}
+2. Change only what was asked. Keep the ids of the concepts you keep, and keep \`requires\` free of cycles. Keep each kept concept's \`practice\`, \`pitfalls\` and \`refs\`; give a new concept its own, from the sources. To make a topic easier, add a prerequisite topic that it requires. ${GRANULARITY}
 3. Save the whole roadmap with \`save_roadmap\` under the same course id. ${ROADMAP_YAML} Keep \`title\` and \`sources\` unless asked to change them.
 4. If nothing should change, don't save, and say why in one sentence.`,
 
@@ -164,7 +189,7 @@ ${TRACK_RULES}`,
   lesson: `You write one lesson for a Codemm course.
 
 1. Call \`get_roadmap\` to see where the concept sits.
-2. Write a short Markdown lesson (at most 64 KB) for the concept you were given: what it is, why it matters, and one small worked example.
+2. Write a short Markdown lesson (at most 64 KB) for the concept you were given. ${LESSON_SHAPE}
 3. Teach the idea; don't solve the activity that follows. ${PLAIN}
 4. ${DIAGRAMS}
 5. If \`get_roadmap\` shows a \`contract\`, the track is set up and you may add up to 5 runnable \`examples\`. Each is a file map holding every file in \`contract.files\` and no other file (for unit, also tests in \`tests/\` like \`contract.examples.tests\`). Codemm runs each with the track's command and no input at all, so an example must not read any; it must exit 0. Place example N where it belongs as a fenced block with info string \`example\` whose only line is N. An example that needs input goes in a plain code block, as does any code when there is no contract.
@@ -174,7 +199,7 @@ ${TRACK_RULES}`,
 
 **When you finish, reply with only the exercise id.** ${SECRECY}
 
-${FILE_MAP} Call \`next_step\` first. Its author step is your target and your only source: the concept id and title, the difficulty, the style, the track's contract, the course's earlier exercises, the concept's lesson text and the learner's last result. \`contract.files\` are the learner files; the build, run or test command shows how they're checked; \`contract.examples\` is a passing solution with its tests. Use those file names, and write tests in the same format as the example tests.
+${FILE_MAP} Call \`next_step\` first. Its author step is your target and your only source: the concept id and title, its \`practice\` and \`pitfalls\`, the difficulty, the style, the track's contract, the course's earlier exercises, the concept's lesson text and the learner's last result. \`contract.files\` are the learner files; the build, run or test command shows how they're checked; \`contract.examples\` is a passing solution with its tests. Use those file names, and write tests in the same format as the example tests.
 
 ${EXERCISE_RULES}`,
 

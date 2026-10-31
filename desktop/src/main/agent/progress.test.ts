@@ -58,7 +58,7 @@ describe('job progress (§4.11)', () => {
   });
 
   it('goes back to the second stage when a roadmap save is rejected, with no bounded retry', () => {
-    for (const kind of ['research', 'roadmap'] as const) {
+    for (const kind of ['research', 'roadmap', 'review'] as const) {
       const t = jobTracker(kind, { id: 'job-1' });
       t.event({ type: 'tool_call', id: 'c1', name: 'codemm.save_roadmap' });
       t.event({ type: 'tool_result', id: 'c1', error: true });
@@ -103,7 +103,7 @@ describe('job progress (§4.11)', () => {
   });
 
   it("shows web searches and pages for research only: another job's agent may still search (Codex)", () => {
-    for (const kind of ['author', 'lesson', 'tutor', 'setup', 'roadmap'] as const) {
+    for (const kind of ['author', 'lesson', 'tutor', 'setup', 'roadmap', 'review'] as const) {
       const t = jobTracker(kind, { id: 'job-1' });
       t.event({ type: 'progress', step: { kind: 'search', query: 'reverse a linked list solution' } });
       t.event({ type: 'progress', step: { kind: 'read', url: 'example.com/answer', href: 'https://example.com/answer' } });

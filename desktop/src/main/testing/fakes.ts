@@ -250,6 +250,7 @@ export function fakeJobs(c: ReturnType<typeof fakeCore>['c'], over: Partial<Reco
       c.roadmap = { course: boundOf(job), goal: topic, track: `${slug}@1`, style: 'io', concepts: [{ id: values, title: 'Values', requires: [] }, { id: state, title: 'State', requires: [values] }] };
       return {};
     },
+    review: () => ({}),
     roadmap: (job) => {
       c.courses.get(boundOf(job))!.concepts.push({ id: 'testing', title: 'Testing', requires: [] });
       return { text: ['Added Testing.'] };

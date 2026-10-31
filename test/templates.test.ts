@@ -201,7 +201,7 @@ describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
 
   // The desktop checks each brief against its job's tools (desktop/src/main/agent/briefs.test.ts).
   it("has a brief for every job in the spec", () => {
-    expect(kinds.sort()).toEqual(["author", "lesson", "research", "roadmap", "setup", "tutor"]);
+    expect(kinds.sort()).toEqual(["author", "lesson", "research", "review", "roadmap", "setup", "tutor"]);
   });
 
   // Setup carries both engines' track contracts: Docker's, and WASI's for computers without one (DESIGN §4.5).
@@ -219,7 +219,7 @@ describe("desktop job briefs (docs/desktop/DESIGN.md §3.2, §8)", () => {
   it("sends a fresh author to next_step for the exact target and the track's contract", () => {
     expect(JOB_BRIEFS.author).toMatch(/`contract\.files`/);
     expect(JOB_BRIEFS.author).toMatch(/`contract\.examples`/);
-    expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, difficulty, style, track, contract, earlier exercises, lesson text and last result from `next_step`/);
+    expect(AGENTS_SECTION).toMatch(/start the subagent with the concept, title, practice, pitfalls, difficulty, style, track, contract, earlier exercises, lesson text and last result from `next_step`/);
   });
 
   it("asks the research job for its sources, and a roadmap change to keep them and the title", () => {
@@ -334,5 +334,55 @@ describe("WASI tracks (DESIGN §4.5)", () => {
 
   it("tells an exercise author that NN.gen isn't available when the contract's engine is wasi", () => {
     for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) expect(text).toMatch(/`NN.gen` isn't available when the contract's `engine` is `wasi`/);
+  });
+});
+
+// The owner: "the quality of the roadmap and its teachings matter so always always use the best practices"
+// (docs/proposals/activities-for-any-topic.md §3.1, §3.6).
+describe("research and teaching quality", () => {
+  it("has every roadmap writer research from primary sources and record each concept's practice, pitfalls and refs", () => {
+    for (const text of [AGENTS_SECTION, JOB_BRIEFS.research]) {
+      expect(text).toMatch(/primary sources first/i);
+      expect(text).toMatch(/last two years/);
+      expect(text).toMatch(/Give every concept a `practice` line/);
+      expect(text).toMatch(/If no graded activity can practise a concept, it isn't a concept/);
+      expect(text).toMatch(/`pitfalls`.*the common mistakes your sources name, not ones from memory/);
+      expect(text).toMatch(/`refs` lists the indexes \(from 0\) of the `sources`/);
+      expect(text).toMatch(/scripted fake/);
+    }
+  });
+
+  it("has a roadmap change keep each kept concept's practice, pitfalls and refs", () => {
+    expect(JOB_BRIEFS.roadmap).toMatch(/Keep each kept concept's `practice`, `pitfalls` and `refs`/);
+  });
+
+  it("has the review job check the roadmap against its sources, and fix it or say why not", () => {
+    const brief = JOB_BRIEFS.review;
+    expect(brief).toMatch(/a core skill of the topic is missing/);
+    expect(brief).toMatch(/isn't supported by the sources its `refs` name/);
+    expect(brief).toMatch(/a concept no graded activity could practise/);
+    expect(brief).toMatch(/If nothing should change, don't save, and say why/);
+  });
+
+  it("gives every lesson the same teaching structure, built on the concept's practice and pitfalls", () => {
+    for (const text of [AGENTS_SECTION, JOB_BRIEFS.lesson]) {
+      expect(text).toMatch(/what the learner will be able to do, in one line \(from the concept's `practice`\)/);
+      expect(text).toMatch(/one worked example, step by step/);
+      expect(text).toMatch(/the common mistakes from the concept's `pitfalls`, with one shown and corrected/);
+      expect(text).toMatch(/two self-check questions, with their answers under a final "Answers" heading/);
+      expect(text).toMatch(/"try it" prompt/);
+    }
+  });
+
+  it("has every author practise the concept's practice line and write wrong solutions from its pitfalls", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) {
+      expect(text).toMatch(/When the step has a `practice` line, the task practises exactly that/);
+      expect(text).toMatch(/taken from the concept's `pitfalls` when it has them/);
+    }
+    expect(AGENTS_SECTION).toMatch(/the concept, title, practice, pitfalls, difficulty/);
+  });
+
+  it("lets a track hold a kit for a topic about tools or systems, written as track files", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) expect(text).toMatch(/\*\*A kit\.\*\*.*scripted fake service/);
   });
 });

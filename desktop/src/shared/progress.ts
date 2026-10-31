@@ -3,6 +3,7 @@ import type { JobKind } from './api';
 
 export const JOB_STAGES: Record<JobKind, readonly string[]> = {
   research: ['Starting', 'Researching', 'Saving the roadmap'],
+  review: ['Starting', 'Reviewing the roadmap', 'Saving the roadmap'],
   roadmap: ['Starting', 'Changing the roadmap', 'Saving the roadmap'],
   setup: ['Proposing the setup', 'Building', 'Checking the setup'],
   lesson: ['Starting', 'Writing the lesson', 'Saving the lesson'],

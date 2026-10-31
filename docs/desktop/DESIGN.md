@@ -227,11 +227,14 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 | Job | Codemm tools | Done when |
 |---|---|---|
 | Research and roadmap | `list_tracks`, `save_roadmap` | the job's course exists |
+| Roadmap review | `get_roadmap`, `save_roadmap` | the turn ends without error |
 | Roadmap change ("Ask Codemm for changes") | `get_roadmap`, `save_roadmap` | the course record changed, or the turn ended without error and without a save (shown as "No change" with the agent's text) |
 | Setup | `list_tracks`, `save_track` (proposes only) | a new proposal exists for the job's track |
 | Lesson | `get_roadmap`, `save_lesson` | a new lesson exists for the job's concept |
 | Author | `next_step`, `save_exercise` | a new exercise exists for the job's concept and difficulty |
 | Tutor | `progress`, `next_step`, `get_exercise`, `get_lesson`, `mark_lesson_read`, `get_roadmap`, `list_tracks` | the turn ends without error |
+
+After research, one review job checks the roadmap in a fresh session and may save corrections. It runs in the foreground on the same course, with web access and a 10-minute deadline.
 
 - **Bound to a course.** Every job's server gets `--course <course>`, so switching courses in the app can't redirect a job's save.
 - **Checking the result.** "Done when" is checked against core records created after the job started, never against the agent's text. Before relaunching a failed job, main checks again, because a save can commit just before a crash.
@@ -404,6 +407,7 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 
 - **Progress.** The stream parsers in `agent/claude.ts` and `agent/codex.ts`, with the shared steps in `agent/stream.ts`, read both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. The research job's steps travel with its progress (§4.11). The research screen lists them quietly, the latest first and fading as they age, with a step count.
 - **Reads become sources.** When research has saved the roadmap, the https pages it read join the agent's own `sources` (at most 10), saved through core's roadmap rules.
+- **Review.** After sources save, research stays running until the review ends. A failed or timed-out review, or one that makes no change, is logged and the learner still gets the roadmap.
 
 - **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
 - **Showing.** The roadmap and course-edit screens show a quiet "Sources" line under the heading, so a long roadmap never pushes it out of view. Each link opens only after a click, in the system browser, through main's `shell.openExternal`, and main accepts only https links. Nothing loads inside the app window.
@@ -465,9 +469,9 @@ Every long step shows its live progress, so the learner always knows where it is
   - The tutor rail: "Codemm is thinking…" and the turn's latest step.
   - The Tracks page: a rebuild's compact bar on its card, with the time so far. The card's Rebuild is off while it runs, also when the learner left and came back. A card is matched to its job by the track's name, the only name the page shows (it never shows versions). A failure is said on the card (on the banner when the learner has left the page by then): "Couldn't rebuild React." and why, in Codemm's words. This computer's problem says its next step ("Docker isn't running. Open Docker Desktop, then try again."), and a rebuild core didn't accept says "The rebuilt environment wasn't accepted, so nothing changed." (core builds under a candidate tag and keeps the installed image until every check passes). Main makes these (`rebuildFailure` in `notCounted.ts`): core's own messages carry commands, image names and Docker's output and never reach the learner. A damaged record still opens the repair banner.
 - **Sidebar.** The learner can leave the page a job started on and still see it.
-  - **What it lists.** Research, a roadmap change, setup, a rebuild, and a lesson or activity being written. Not a tutor turn: its answer belongs to its own screen. One job per kind and topic or track, the furthest along (a proposing agent can end its turn while the install runs); if a screen shows a bar for any job of that group, the group is left out.
+  - **What it lists.** Research, a roadmap review or change, setup, a rebuild, and a lesson or activity being written. Not a tutor turn: its answer belongs to its own screen. One job per kind and topic or track, the furthest along (a proposing agent can end its turn while the install runs); if a screen shows a bar for any job of that group, the group is left out.
   - **Each job** is a button: a small Emm filling as in the bars, what it is ("Setting up Java", "Rebuilding React", "Writing a lesson on Variables", "Researching Java"), and beneath it the stage (for example "Building, step 3 of 7"; "Taking a little longer" on a retry; "Still working" after 90 seconds of quiet). It shows no time. A retry or a quiet job dims Emm. In the slim sidebar only Emm shows, named by the same words, which also sit in its tooltip. A job that ends while its button has the keyboard's focus hands the focus to the current navigation item.
-  - **Clicking** opens the place the job belongs to: research and its goal, the roadmap's editor (or the course map when it isn't a draft), the current topic for setup, the topic for a lesson or activity, Tracks for a rebuild.
+  - **Clicking** opens the place the job belongs to: research or its review and their goal, the roadmap's editor (or the course map when it isn't a draft), the current topic for setup, the topic for a lesson or activity, Tracks for a rebuild.
   - **No duplicate.** Every `JobBar` on screen claims its job (`ui/shownJobs.ts`) before paint, and the sidebar leaves out claimed jobs. A screen that shows a job's bar, in whatever form, therefore never also has it in the sidebar, and a new place that shows a bar needs nothing more.
   - It reads the same events as the bars (`useJobs`, which `useJob` takes its newest from) and adds no IPC. Research's reports carry no goal, so the sidebar remembers the goal the research screen last ran for.
 - **Mock.** `CODEMM_MOCK=slow-jobs` holds each stage over a few reads, and a rebuild for a few half seconds, so every state can be seen; `quiet-jobs` also shows the quiet line.

@@ -50,7 +50,7 @@ export interface Turn {
   model?: string;
   /** A session or thread id to continue (tutor turns). */
   resume?: string;
-  /** Built-in tools the job may use; only the research job gets web search and fetch (§3.2). */
+  /** Built-in tools the job may use; research, review and setup get web search and fetch (§3.2). */
   web?: boolean;
   /** How long one Codemm tool call may run: the job's deadline. */
   toolTimeoutSec?: number;

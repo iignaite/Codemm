@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type JobProgress } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
 import { HELD_BACK } from './views';
@@ -21,6 +21,76 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     expect(job.brief).toContain(`Course id: ${course}`);
     // Agents that read config from their working directory get Codemm's own folder, never the workspace.
     expect([job.cwd, job.agentDir]).toEqual(['/Users/me/Codemm', '/userData/agents']);
+  });
+
+  it('reviews once on the same course after sources save, and stays running until review ends', async () => {
+    let release: () => void = () => undefined;
+    const waiting = new Promise<void>((resolve) => (release = resolve));
+    const t = live({
+      research: (job, usual) => {
+        job.onSource?.({ title: 'Guide', url: 'https://example.com/guide' });
+        return usual();
+      },
+      review: async (job) => {
+        expect(t.c.roadmap!.sources).toEqual([{ title: 'Guide', url: 'https://example.com/guide' }]);
+        expect(job.server([]).args).toEqual(t.jobs.ran[0].server([]).args);
+        expect(await job.done({ ok: false })).toBe(false);
+        expect(await job.done({ ok: true })).toBe(true);
+        await waiting;
+        t.c.roadmap = { ...t.c.roadmap!, title: 'Reviewed course' };
+        return {};
+      },
+    });
+    await t.api.connect('claude');
+    const goal = { topic: 'Systems', known: '', depth: 'standard' as const };
+    expect(await t.api.research(goal)).toEqual({ state: 'running' });
+    await vi.waitFor(() => expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review']));
+    expect(await t.api.research(goal)).toEqual({ state: 'running' });
+    release();
+    await vi.waitFor(async () => expect(await t.api.research(goal)).toMatchObject({ state: 'done', roadmap: { title: 'Reviewed course' } }));
+    expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review']);
+  });
+
+  it.each(['failed', 'no save', 'throws'])('keeps successful research when review %s', async (failure) => {
+    const log = vi.fn();
+    const t = live({ review: () => {
+      if (failure === 'throws') throw new Error('Review failed');
+      return failure === 'no save' ? {} : { ok: false, problem: 'failed' };
+    } }, { log });
+    const r = await researched(t);
+    expect(r).toMatchObject({ state: 'done', roadmap: { title: 'React' } });
+    expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review']);
+    expect(log.mock.calls.some(([event]) => event === 'review-error' || event === 'review-no-change')).toBe(true);
+  });
+
+  it('does not review failed research', async () => {
+    const t = live({ research: () => ({ ok: false, problem: 'failed' }) });
+    expect(await researched(t)).toEqual({ state: 'failed' });
+    expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research']);
+  });
+
+  it('stops a running review when quitting', async () => {
+    const t = live({ review: (job) => new Promise((resolve) => {
+      job.signal!.addEventListener('abort', () => resolve({ ok: false, problem: 'failed' }), { once: true });
+    }) });
+    await t.api.connect('claude');
+    await t.api.research({ topic: 'Systems', known: '', depth: 'standard' });
+    await vi.waitFor(() => expect(t.jobs.ran.at(-1)?.kind).toBe('review'));
+    await t.api.stop();
+    expect(t.jobs.ran.at(-1)!.signal!.aborted).toBe(true);
+  });
+
+  it.each(['approve', 'saveDraft', 'reviseRoadmap'] as const)('keeps concept metadata by id through %s', async (method) => {
+    const t = live();
+    await researched(t);
+    const fields = { practice: 'Fix a loop', pitfalls: ['No budget'], refs: [0] };
+    t.c.roadmap!.concepts[0] = { ...t.c.roadmap!.concepts[0], ...fields };
+    t.c.roadmap!.sources = [{ title: 'Guide', url: 'https://example.com/guide' }];
+    const concepts = [{ id: 'state', title: 'First', requires: [] }, { id: 'values', title: 'Renamed', requires: ['state'] }, { id: 'new', title: 'New', requires: [] }];
+    if (method === 'reviseRoadmap') await t.api.reviseRoadmap(concepts, 'Add testing');
+    else await t.api[method](concepts);
+    expect(t.c.roadmap!.concepts.slice(0, 3)).toEqual([concepts[0], { ...concepts[1], ...fields }, concepts[2]]);
+    await t.api.stop();
   });
 
   it('keeps the approved course while a new roadmap is a draft, and offers the draft to resume', async () => {
@@ -129,7 +199,7 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     expect(stopped).toBe(false);
     release();
     await stopping;
-    expect(t.jobs.ran.filter((j) => j.kind === 'research')).toHaveLength(1);
+    expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research']);
     expect(t.c.roadmap!.sources).toEqual([{ title: 'roadmap.sh/react', url: 'https://roadmap.sh/react' }]);
   });
 
@@ -170,9 +240,10 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     const heard: JobProgress[] = [];
     t.api.onJobProgress((p) => heard.push(p));
     const r = await researched(t);
-    expect(heard.map((p) => p.kind)).toEqual(['research', 'research', 'research', 'research', 'research']);
-    expect(heard.at(-2)!.steps).toEqual([{ kind: 'read', url: 'react.dev/learn' }, { kind: 'read', url: 'roadmap.sh/react' }, { kind: 'search', query: 'react roadmap 2026' }]);
-    expect(heard.at(-1)).toMatchObject({ ended: true, stage: 1, count: 3 });
+    const research = heard.filter((p) => p.kind === 'research');
+    expect(research.map((p) => p.kind)).toEqual(['research', 'research', 'research', 'research', 'research']);
+    expect(research.at(-2)!.steps).toEqual([{ kind: 'read', url: 'react.dev/learn' }, { kind: 'read', url: 'roadmap.sh/react' }, { kind: 'search', query: 'react roadmap 2026' }]);
+    expect(research.at(-1)).toMatchObject({ ended: true, stage: 1, count: 3 });
     // The agent's own source comes first; a page it read only once joins it.
     expect(r.roadmap!.sources).toEqual([{ title: 'React docs', url: 'https://react.dev/learn' }, { title: 'roadmap.sh/react', url: 'https://roadmap.sh/react' }]);
   });

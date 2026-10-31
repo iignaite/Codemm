@@ -8,7 +8,7 @@ import type { AgentEvent } from './agents';
 import { JOBS, SAVE_BOUND } from './jobs';
 
 /** The tool whose call reaches a job's last stage: its save. Setup only proposes, so it stays on its first stage. */
-const SAVES: Partial<Record<JobKind, string>> = { research: 'save_roadmap', roadmap: 'save_roadmap', lesson: 'save_lesson', author: 'save_exercise' };
+const SAVES: Partial<Record<JobKind, string>> = { research: 'save_roadmap', roadmap: 'save_roadmap', review: 'save_roadmap', lesson: 'save_lesson', author: 'save_exercise' };
 const KEPT = 8;
 
 /** The exercise gates (core §6), in the order they run, in the learner's words: the gates' own names mean nothing to them. */

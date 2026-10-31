@@ -203,6 +203,45 @@ describe("roadmap sources", () => {
   });
 });
 
+describe("roadmap practice and sources", () => {
+  const source = { title: "Guide", url: "https://example.com/guide" };
+  const yaml = (fields: Record<string, unknown>, sources?: typeof source[]) => JSON.stringify({
+    goal: "G", track: "custom@1", style: "io", concepts: [{ id: "a", title: "A", ...fields }], sources,
+  });
+
+  it("keeps optional practice, pitfalls and source refs, trimming practice", () => {
+    expect(parseRoadmapYaml(yaml({ practice: "  Fix a retry loop  ", pitfalls: ["No retry budget"], refs: [0] }, [source])).concepts[0])
+      .toEqual({ id: "a", title: "A", requires: [], practice: "Fix a retry loop", pitfalls: ["No retry budget"], refs: [0] });
+  });
+
+  it("accepts the limits and all ten distinct source refs", () => {
+    const fields = { practice: "p".repeat(300), pitfalls: Array(5).fill("p".repeat(200)), refs: Array.from({ length: 10 }, (_, i) => i) };
+    expect(parseRoadmapYaml(yaml(fields, Array(10).fill(source))).concepts[0]).toMatchObject(fields);
+  });
+
+  it.each([undefined, []])("allows practice without refs when there are no sources (%s)", (sources) => {
+    expect(parseRoadmapYaml(yaml({ practice: "Fix a loop", pitfalls: [] }, sources)).concepts[0]).toMatchObject({ practice: "Fix a loop", pitfalls: [] });
+  });
+
+  it.each([
+    { practice: "" }, { practice: "  " }, { practice: "p".repeat(301) },
+    { pitfalls: [""] }, { pitfalls: ["p".repeat(201)] }, { pitfalls: Array(6).fill("p") },
+    { refs: [-1] }, { refs: [0.5] }, { refs: ["0"] }, { refs: [0, 0] }, { refs: Array.from({ length: 11 }, (_, i) => i) },
+    { extra: "unknown" },
+  ])("rejects invalid concept fields %j", (fields) => {
+    expect(() => parseRoadmapYaml(yaml(fields, Array(10).fill(source)))).toThrow(/Invalid roadmap:/);
+  });
+
+  it.each([undefined, [], [source]])("rejects out-of-range refs (%j)", (sources) => {
+    expect(() => parseRoadmapYaml(yaml({ refs: [sources?.length ?? 0] }, sources))).toThrow(/Invalid roadmap:.*ref.*range/);
+  });
+
+  it.each([{ practice: "Fix a loop" }, { pitfalls: ["No budget"] }, { pitfalls: [] }, { practice: "Fix a loop", refs: [] }])
+    ("requires refs for practice or pitfalls with sources (%j)", (fields) => {
+      expect(() => parseRoadmapYaml(yaml(fields, [source]))).toThrow(/Invalid roadmap:.*ref/);
+    });
+});
+
 describe("lesson examples", () => {
   const fence = (n: number) => "```example\n" + n + "\n```";
   const lesson = (markdown: string, examples?: Record<string, string>[]) => ({ id: "l", concept: "c", title: "L", markdown, ...(examples ? { examples } : {}) });

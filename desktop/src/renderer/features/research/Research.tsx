@@ -18,7 +18,7 @@ export function Research({ goal }: { goal: Goal }) {
   const { go } = useRouter();
   const { data, error, stale, reload } = useLoad(() => api.research(goal), [goal], { settled: (r) => r.state !== 'running' });
   // What the agent is looking at, the latest first (§4.9, §4.11).
-  const job = useJob((p) => p.kind === 'research', []);
+  const job = useJob((p) => p.kind === 'research' || p.kind === 'review', []);
   const topic = shownTopic(goal.topic);
   const steps = job?.progress.steps ?? [];
   const count = job?.progress.count ?? 0;
