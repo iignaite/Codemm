@@ -373,6 +373,30 @@ it('switches Activities on and off from the course map', async () => {
   expect(toggle).toBeChecked();
 });
 
+it('says why the Activities switch waits while it changes', async () => {
+  const user = userEvent.setup();
+  const { api } = await mockWithCourse();
+  const set = api.setActivities.bind(api);
+  let finish = () => {};
+  // Turning activities on can run a roadmap job, and off waits for setup to stop: both take a while.
+  api.setActivities = (on) => new Promise<void>((r) => (finish = r)).then(() => set(on));
+  renderApp({ to: 'learn' }, api);
+  const toggle = await screen.findByRole('switch', { name: 'Activities' });
+  expect(toggle).not.toHaveAccessibleDescription();
+  await user.click(toggle);
+  expect(toggle).toBeDisabled();
+  expect(toggle).toHaveAccessibleDescription('Turning activities off');
+  finish();
+  await screen.findByRole('heading', { name: 'Lessons read' });
+  expect(toggle).not.toHaveAccessibleDescription();
+  await user.click(toggle);
+  expect(toggle).toHaveAccessibleDescription('Turning activities on');
+  expect(screen.getByText('Turning activities on')).toBeVisible();
+  finish();
+  await screen.findByRole('heading', { name: 'Mastery' });
+  expect(screen.queryByText('Turning activities on')).not.toBeInTheDocument();
+});
+
 it('finishes a lessons-only topic from the reader and returns to the map', async () => {
   const user = userEvent.setup();
   const { api, course } = await mockWithCourse();

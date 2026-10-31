@@ -22,6 +22,8 @@ export function CourseMap() {
   const { data: usage } = useLoad(() => api.usage(), [course]);
   // A finished course celebrates first; View course opens its map again.
   const [viewing, setViewing] = useState(false);
+  // Which way the Activities switch is going: it can take a while (a roadmap job on, setup stopping off).
+  const [turning, setTurning] = useState<'on' | 'off'>('on');
   if (error) return <Failed error={error} retry={reload} />;
   if (course === undefined) return null;
   if (course === null) return <Goal />;
@@ -39,7 +41,8 @@ export function CourseMap() {
       <Aside course={course} usage={usage ?? null}>
         <div className="card activities">
           <h2 className="h3 fill" id="activities-label">Activities</h2>
-          <button type="button" className="switch" role="switch" aria-labelledby="activities-label" aria-checked={course.activities} disabled={changing.busy} onClick={() => changing.guard(async () => {
+          <button type="button" className="switch" role="switch" aria-labelledby="activities-label" aria-describedby={changing.busy ? 'activities-why' : undefined} aria-checked={course.activities} disabled={changing.busy} onClick={() => changing.guard(async () => {
+            setTurning(course.activities ? 'off' : 'on');
             try {
               await api.setActivities(!course.activities);
               reload();
@@ -47,6 +50,7 @@ export function CourseMap() {
               fail(e);
             }
           })}><span className="thumb" /></button>
+          {changing.busy && <p className="quiet-text why" id="activities-why" role="status">Turning activities {turning}</p>}
         </div>
       </Aside>
       {course.stalled && <Stalled stalled={course.stalled} work={course.stalledWork} later={course.later} retry={reload} />}

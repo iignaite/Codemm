@@ -274,7 +274,8 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .map-main { flex: 1; min-width: 0; padding: 36px 48px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
 .map-side { width: 360px; flex-shrink: 0; padding: 36px 24px; background: #fff; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px; overflow: auto; }
 .map-side .card { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
-.map-side .card.activities { flex-direction: row; align-items: center; }
+.map-side .card.activities { flex-direction: row; flex-wrap: wrap; align-items: center; row-gap: 6px; }
+.activities .why { flex-basis: 100%; margin: 0; }
 /* The Activities switch: grey off, green on, its thumb sliding only where motion is welcome. */
 .switch { position: relative; flex: none; width: 44px; height: 26px; padding: 0; border: 0; border-radius: 13px; background: var(--muted); cursor: pointer; }
 .switch[aria-checked="true"] { background: var(--green-ink); }

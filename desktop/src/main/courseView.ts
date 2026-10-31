@@ -37,8 +37,9 @@ export function courseView(
   const current = currentConcept(progress);
   const topics = progress.concepts.map((c): TopicView => {
     const own: TopicView['lessons'] = lessons.filter((l) => l.concept === c.id).map((l) => ({ id: l.id, title: l.title, state: l.read ? 'read' : 'ready' }));
-    if (running.has(`lesson:${c.id}`)) own.push({ id: `${c.id}-writing`, title: 'Lesson', state: 'writing' });
-    else if (failedLesson === c.id) own.push({ id: `${c.id}-writing`, title: 'Lesson', state: 'failed' });
+    // A lesson job writes a topic's first lesson (core next_step): once that is saved, the job is ending, not writing another.
+    const job = running.has(`lesson:${c.id}`) ? 'writing' : failedLesson === c.id ? 'failed' : undefined;
+    if (job && own.length === 0) own.push({ id: `${c.id}-writing`, title: 'Lesson', state: job });
     const isCurrent = c.id === current;
     if (!activities) return {
       id: c.id, title: c.title, state: c.covered ? 'covered' : isCurrent ? 'now' : 'later',
