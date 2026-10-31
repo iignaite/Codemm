@@ -98,8 +98,10 @@ export function fakeCore() {
   const next = (bound?: string): CoreNextStep => {
     const r = roadmapOf(bound);
     if (r.style === 'none') return nextLesson(r, [...c.reads].map((lesson) => ({ format_version: 1, kind: 'read', at: '', lesson, concept: c.lessons.find((l) => l.id === lesson)!.concept })), c.lessons);
-    if (!r.track) throw new Error('A coding course needs a track');
-    if (!c.tracks.includes(r.track)) return { kind: 'setup', track: r.track };
+    if (r.style !== 'quiz') {
+      if (!r.track) throw new Error('A coding course needs a track');
+      if (!c.tracks.includes(r.track)) return { kind: 'setup', track: r.track };
+    }
     if (c.review) return { kind: 'review', concept: c.review.concept, difficulty: c.wanted, exercise: c.review.exercise };
     if (c.reviewWithout) return { kind: 'author', concept: c.reviewWithout, difficulty: c.wanted, review: true };
     const concept = openConcept(c, r.concepts);

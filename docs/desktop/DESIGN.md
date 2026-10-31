@@ -296,9 +296,9 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 
 ### 4.2 Roadmap draft and edits
 
-The goal form offers Code (the default) or Lessons only. The choice travels with the goal; for Lessons only, the desktop research brief adds "Save style: none and no track."
+The goal form offers Code (the default), Quiz and Lessons only. The choice travels with the goal. For Quiz the research brief adds "Save style: quiz and no track." For Lessons only it adds "Save style: none and no track."
 
-The course map has an **Activities** switch, On or Off. Off re-saves `style: none`, keeping the track and all history, and stops this course's author jobs and any setup job it alone needs. On restores the track's offered style; for a track offering both, `desktop.json` keeps the course's previous coding style. Without a track, On runs the existing roadmap job with "Turn on graded coding activities: choose a track and a style for this course." Setup then follows the ordinary flow.
+The course map has an **Activities** switch, On or Off. Off re-saves `style: none`, keeping the track and all history, and stops this course's author jobs and any setup job it alone needs. On restores the previous activity style, including quiz, remembered in `desktop.json`. Code styles must still be offered by the track. With neither a track nor a remembered quiz style, On runs the existing roadmap job with "Turn on graded coding activities: choose a track and a style for this course." Setup then follows the ordinary flow for code. Quiz has no setup job or Docker wait.
 
 - **Draft before setup.**
   - `save_roadmap` accepts a track that isn't installed yet, if it is a valid `id@version`.
@@ -372,15 +372,17 @@ A lessons-only course follows core's `learn` step. `lesson: null` starts a lesso
 
 ### 4.5 Learner files
 
-- **Reading.** `app.readLearnerFiles(ws, slug)` returns `{ path: { text, digest } }` for that exercise's track files only.
+- **Reading.** `app.readLearnerFiles(ws, slug)` returns `{ path: { text, digest } }` for that exercise's track files, or only `answers.yaml` for a quiz.
 - **Saving.** `app.writeLearnerFile(ws, slug, path, text, digest)`:
   - holds the workspace lock;
-  - accepts only that exercise's track files;
+  - accepts only that exercise's track files, or `answers.yaml` for a quiz;
   - refuses any path whose components include a symlink;
   - replaces the file through a temp file and a rename;
   - refuses with "Changed outside Codemm" when the file's current digest isn't the one the editor loaded, and the editor reloads.
 - **Try it and Check.** Try it calls `testExercise` (visible tests, not recorded), and Check calls `checkExercise` (recorded).
 - **Continue after a pass.** A passing Check says "You mastered ‹topic›." or "Keep practicing ‹topic›." with Continue, ending once when the title has its own ? or !. When the topic Codemm offers now is a review (due or in progress, §4.14) or the same topic while its mastery needs more passes, Continue opens Practice, fresh, never under the last one's result, and while that activity is written Practice waits with its job's progress (§1, §4.11) and opens it by itself. For another topic it goes where the course map's Continue goes (core §7). A finished course opens its celebration. A sidebar item that leads to the screen on show does nothing, so it never resets that screen.
+
+**Quiz activities.** The scenario comes first, followed by questions and radio choices in their stored order. Selections save `answers.yaml` through the same digest-checked `writeLearnerFile` path as the editor, including before Check. There is no editor, Try it or Run. Results show Right or Wrong per question and only the picked wrong choice's explanation. The key never reaches the renderer. Check waits until every question has an answer, and a repeated check says it wasn't recorded. Continue opens the next quiz after a recorded check; stuck offers the existing ways forward. The screen uses the existing components and focus styles, without dots, arrows or metadata. Result scrolling respects reduced motion.
 
 ### 4.6 Per-job MCP server
 

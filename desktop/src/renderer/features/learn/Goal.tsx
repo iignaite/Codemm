@@ -68,7 +68,7 @@ export function Goal() {
         </div>
         <div className="depth a-up" style={stagger(4)} role="radiogroup" aria-labelledby="practice-q">
           <span className="depth-q" id="practice-q">How to practise</span>
-          {([['code', 'Code'], ['none', 'Lessons only']] as const).map(([id, label]) => (
+          {([['code', 'Code'], ['quiz', 'Quiz'], ['none', 'Lessons only']] as const).map(([id, label]) => (
             <label key={id} className={`opt${practice === id ? ' on' : ''}`}>
               <input type="radio" name="practice" value={id} checked={practice === id} onChange={() => setPractice(id)} />
               {label}

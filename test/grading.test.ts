@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  digestOf, FrameReader, frameProgress, gradeIo, gradeIoRun, gradeRuns, gradeUnit, gradeUnitRun, normalizeOutput, OutputDigest, parseFrames, recordOutput, redact, SHOWN_BYTES,
+  gradeQuiz, digestOf, FrameReader, frameProgress, gradeIo, gradeIoRun, gradeRuns, gradeUnit, gradeUnitRun, normalizeOutput, OutputDigest, parseFrames, recordOutput, redact, SHOWN_BYTES,
 } from "../src/grading.js";
 
 describe("parseFrames", () => {
@@ -305,4 +305,21 @@ describe("frameProgress", () => {
     // Quadratic copying would take many seconds here; linear takes milliseconds. The bound leaves room for slow runners.
     expect(performance.now() - started).toBeLessThan(2000);
   });
+});
+
+
+it("grades quizzes without revealing the right choice or unpicked explanations", () => {
+  const quiz = { questions: Array.from({ length: 3 }, () => ({ text: "Decide", choices: [
+    { text: "KEY", correct: true as const }, { text: "Wrong", why: "Picked mistake" }, { text: "Other", why: "UNPICKED" },
+  ] })) };
+  const answers = { 1: 1, 2: 2, 3: null };
+  const before = JSON.stringify({ quiz, answers });
+  const results = gradeQuiz(quiz, answers);
+  expect(results).toEqual([
+    { set: "visible", name: "1", status: "pass" },
+    { set: "visible", name: "2", status: "fail", message: "Picked mistake" },
+    { set: "visible", name: "3", status: "fail" },
+  ]);
+  expect(JSON.stringify(results)).not.toMatch(/KEY|correct|UNPICKED/);
+  expect(JSON.stringify({ quiz, answers })).toBe(before);
 });

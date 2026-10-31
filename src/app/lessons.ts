@@ -2,6 +2,7 @@ import { CodemmError } from "../errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "../files.js";
 import { CASE_OUTPUT_MB, expectedText } from "../grading.js";
 import { runIo, runUnit } from "../judge.js";
+import { replay } from "../learner.js";
 import { type ProgramOptions, type ProgramRun, runProgram } from "../program.js";
 import { assertNotes, parseLesson, type TrackRecord } from "../schemas.js";
 import * as store from "../store.js";
@@ -59,7 +60,7 @@ export async function saveLesson(ws: string, input: unknown, bound?: string): Pr
     if (!course.concepts.some((c) => c.id === lesson.concept)) throw new CodemmError(`"${lesson.concept}" is not in the roadmap for ${courseId}.`);
     if (store.listLessons(courseId).some((l) => l.id === lesson.id)) throw new CodemmError(`Lesson id "${lesson.id}" is already used in ${courseId}. Pick a new id.`);
     const track = examples.length > 0 && course.track ? store.readTrack(course.track) : undefined;
-    const style = course.style === "none" ? track?.styles[0] : course.style;
+    const style = course.style === "quiz" ? undefined : course.style === "none" ? track?.styles[0] : course.style;
     if (examples.length > 0) {
       if (!track || !style) throw new CodemmError(course.track ? `Examples run in ${course.track}, which isn't set up yet. Save the lesson without examples.` : "Examples need an installed track. Save the lesson without examples.");
       examples.forEach((files, i) => assertExampleFits(i + 1, files, track, style));
@@ -150,7 +151,11 @@ export async function markLessonRead(ws: string, id: string, bound?: string): Pr
   const course = activeCourse(ws, bound).course;
   await store.withLock(store.courseLockPath(course), async () => {
     const { record } = store.readLesson(course, id);
-    if (store.readEvents(course).some((e) => e.kind === "read" && e.lesson === id)) return;
+    const events = store.readEvents(course);
+    if (store.readCourse(course)!.style === "quiz" && replay(events).get(record.concept)?.stuck) {
+      store.appendEvent(course, { format_version: 1, kind: "retry", at: new Date().toISOString(), concept: record.concept });
+    }
+    if (events.some((e) => e.kind === "read" && e.lesson === id)) return;
     store.appendEvent(course, { format_version: 1, kind: "read", at: new Date().toISOString(), lesson: id, concept: record.concept });
   });
 }

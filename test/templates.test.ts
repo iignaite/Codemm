@@ -204,7 +204,7 @@ describe("the 1.0 learning flow in the tutor instructions", () => {
   it("teaches a lessons-only course through the learn step, and lets a roadmap choose it", () => {
     expect(AGENTS_SECTION).toMatch(/`learn`: the course has lessons only/);
     expect(AGENTS_SECTION).toMatch(/On `practice`, `author` and `learn`, a `lesson` field means teach first/);
-    for (const text of [AGENTS_SECTION, JOB_BRIEFS.research, JOB_BRIEFS.roadmap]) expect(text).toMatch(/`none` when the learner wants lessons only, with no `track`/);
+    for (const text of [AGENTS_SECTION, JOB_BRIEFS.research, JOB_BRIEFS.roadmap]) expect(text).toMatch(/`none` when they want lessons only; `quiz` and `none` have no `track`/);
   });
 });
 
@@ -410,5 +410,37 @@ describe("research and teaching quality", () => {
 
   it("lets a track hold a kit for a topic about tools or systems, written as track files", () => {
     for (const text of [AUTHOR_AGENT, JOB_BRIEFS.setup]) expect(text).toMatch(/\*\*A kit\.\*\*.*scripted fake service/);
+  });
+});
+
+describe("quizzes (proposal §3.2, §3.6)", () => {
+  it("lets a roadmap choose quiz, with no track, and research skip the tracks for it", () => {
+    for (const text of [AGENTS_SECTION, JOB_BRIEFS.research, JOB_BRIEFS.roadmap]) expect(text).toMatch(/`quiz` when the learner wants multiple-choice questions instead of code/);
+    expect(JOB_BRIEFS.research).toMatch(/Unless the course is `quiz` or `none`, call `list_tracks`/);
+  });
+
+  it("tells every author the quiz files, the key's shape and the item-writing guidelines", () => {
+    for (const text of [AUTHOR_AGENT, JOB_BRIEFS.author]) {
+      expect(text).toMatch(/Send `exercise.yaml`, `README.md` and `quiz.yaml`/);
+      expect(text).toMatch(/5 to 10 `questions`, each with `text` and 3 to 5 `choices`/);
+      expect(text).toMatch(/exactly one choice has `correct: true`, and every other one has a `why`/);
+      expect(text).toMatch(/taken from the concept's `pitfalls`/);
+      expect(text).toMatch(/Haladyna, Downing and Rodriguez/);
+      expect(text).toMatch(/apply the idea to the scenario, not to recall a definition/);
+      expect(text).toMatch(/no "all of the above" or "none of the above"/);
+      expect(text).toMatch(/no negatives such as "which is NOT"/);
+      expect(text).toMatch(/similar in length and form/);
+    }
+    expect(JOB_BRIEFS.author).toMatch(/the track's contract \(none for a quiz\)/);
+  });
+
+  it("tells the tutor how a stuck quiz topic gets a new quiz", () => {
+    expect(AGENTS_SECTION).toMatch(/In a quiz course, once they've reread its lesson, call `mark_lesson_read` for it: that starts a new quiz/);
+  });
+
+  it("never lets the tutor give a quiz's key", () => {
+    for (const text of [AGENTS_SECTION, JOB_BRIEFS.tutor]) {
+      expect(text).toMatch(/In a quiz, never say which choice is right, not even by its number or letter: explain only why a choice the learner picked is wrong/);
+    }
   });
 });

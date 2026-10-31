@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { z } from "zod";
+import type { Answers, Quiz } from "./schemas.js";
 
 export type TestSet = "visible" | "hidden";
 export type Status = "pass" | "fail" | "error";
@@ -394,5 +395,15 @@ export function gradeUnit(set: TestSet, raw: RawReport, inventory?: string[], st
     const t = byName.get(n);
     if (!t) return { set, name: `${set}/${n}`, status: "error", message: "Missing from the test report." };
     return t.message ? { set, name: `${set}/${n}`, status: t.status, message: cap(t.message) } : { set, name: `${set}/${n}`, status: t.status };
+  });
+}
+
+/** Only the picked wrong choice explains itself. The right choice is never identified. */
+export function gradeQuiz(quiz: Quiz, answers: Answers): TestResult[] {
+  return quiz.questions.map((q, i) => {
+    const picked = answers[i + 1];
+    const choice = picked === null || picked === undefined ? undefined : q.choices[picked - 1];
+    return { set: "visible", name: String(i + 1), status: choice?.correct ? "pass" : "fail",
+      ...(!choice?.correct && choice?.why ? { message: choice.why } : {}) };
   });
 }

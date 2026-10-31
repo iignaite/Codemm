@@ -19,7 +19,8 @@ export interface CoreExercise {
   exercise: string;
   /** An absolute path: never shown (D15). */
   path: string;
-  style: 'io' | 'unit';
+  style: 'io' | 'unit' | 'quiz';
+  questions?: { text: string; choices: { text: string }[] }[];
   concepts: string[];
   difficulty: number;
   files: string[];

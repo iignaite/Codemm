@@ -344,6 +344,19 @@ describe("lessons", () => {
     expect(app.listLessons(ws)).toEqual([{ id: "intro", concept: "sh.basics", title: "About intro", created: expect.any(String), read: true }]);
   });
 
+  it("keeps a code concept stuck after reading its lesson", async () => {
+    installFake();
+    addExercise("shell", "first", "sh.basics");
+    for (let i = 0; i < 2; i++) store.appendEvent("shell", event({ kind: "check", exercise: "first", concepts: ["sh.basics"], difficulty: 1, passed: 0, total: 1, assisted: false }));
+    expect(app.nextStep(ws)).toEqual({ kind: "stuck", concept: "sh.basics" });
+    await app.saveLesson(ws, lesson("intro"));
+    await app.markLessonRead(ws, "intro");
+    expect(app.nextStep(ws)).toEqual({ kind: "stuck", concept: "sh.basics" });
+    expect(store.readEvents("shell").filter((e) => e.kind === "retry")).toEqual([]);
+    store.appendEvent("shell", event({ kind: "check", exercise: "first", concepts: ["sh.basics"], difficulty: 1, passed: 1, total: 1, assisted: false }));
+    expect(app.nextStep(ws).kind).not.toBe("stuck");
+  });
+
   it("asks for a lesson, then the earliest unread one, before practice", async () => {
     installFake();
     expect(app.nextStep(ws)).toMatchObject({ kind: "author", lesson: null });

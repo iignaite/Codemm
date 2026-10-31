@@ -20,7 +20,7 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
   // Course lock, then the track's lock (as saveExercise does), so an install can't land between this check and the save.
   const save = async () => {
     const track = roadmap.track ? store.readTrack(roadmap.track) : undefined;
-    if (track && roadmap.style !== "none" && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
+    if (track && roadmap.style !== "none" && roadmap.style !== "quiz" && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
     let retries: string[] = [];
     const existing = store.readCourse(course);
     if (existing) {
@@ -61,6 +61,6 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
 /** With `withContract`, an installed track's contract too (as next_step's author step has it), for lesson examples. */
 export function getRoadmap(ws: string, bound?: string, withContract = false) {
   const { course, title, goal, track, style, concepts, sources } = activeCourse(ws, bound);
-  const installed = withContract && track ? store.readTrack(track) : undefined;
-  return { course, ...(title ? { title } : {}), goal, track, style, concepts, ...(sources ? { sources } : {}), ...(installed ? { contract: trackContract(installed, style === "none" ? installed.styles[0]! : style) } : {}) };
+  const installed = withContract && style !== "quiz" && track ? store.readTrack(track) : undefined;
+  return { course, ...(title ? { title } : {}), goal, track, style, concepts, ...(sources ? { sources } : {}), ...(installed && style !== "quiz" ? { contract: trackContract(installed, style === "none" ? installed.styles[0]! : style) } : {}) };
 }

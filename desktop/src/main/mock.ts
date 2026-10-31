@@ -1,7 +1,8 @@
 // An in-memory CodemmApi, for tests and for clicking through screens in
-// development (CODEMM_MOCK). Like the core, it never holds a solution or a
-// hidden test: it grades by whether the learner replaced the starter's
-// placeholder, and reports hidden results as statuses only.
+// development (CODEMM_MOCK). Code is graded by whether the learner replaced
+// the starter's placeholder; quizzes use a private key. Hidden code results
+// are reported as statuses only.
+import { parse, stringify } from 'yaml';
 import { type CheckProgress, type JobKind, type JobProgress, type JobStep, type RunOutput, type UpdateStatus, type RunResult,
   AGENT_FAILED,
   CHANGED,
@@ -213,6 +214,47 @@ export default function Counter() {
 const IO_STARTER = `name = input("What's your name? ")\nprint(${PLACEHOLDER})\n`;
 const APP = "import Counter from './Counter';\n\nexport default function App() {\n  return <Counter />;\n}\n";
 
+const QUIZ = [
+  { text: 'How should the counter remember its value?', choices: [
+    { text: 'Keep the count in state.', correct: true },
+    { text: 'Change a local variable.', why: 'Changing a local variable does not update the screen.' },
+    { text: 'Store the count in the button label.', why: 'A label displays a value; it does not manage updates.' },
+  ] },
+  { text: 'What should happen when Add one is clicked?', choices: [
+    { text: 'Update the count from its previous value.', correct: true },
+    { text: 'Always set the count to one.', why: 'Setting one each time loses the previous count.' },
+    { text: 'Reload the page.', why: 'Reloading discards the current count.' },
+  ] },
+  { text: 'When should the click handler run?', choices: [
+    { text: 'When the learner clicks the button.', correct: true },
+    { text: 'While rendering the button.', why: 'Running during render updates the count without a click.' },
+    { text: 'Only when the page closes.', why: 'Waiting until the page closes ignores the clicks.' },
+  ] },
+  { text: 'Where should the displayed count come from?', choices: [
+    { text: 'The current state value.', correct: true },
+    { text: 'A fixed string of zero.', why: 'A fixed string cannot reflect later clicks.' },
+    { text: 'The number of buttons on the page.', why: 'The number of buttons does not measure clicks.' },
+  ] },
+  { text: 'What checks that repeated clicks work?', choices: [
+    { text: 'Click three times and check that the count is three.', correct: true },
+    { text: 'Check only that the button exists.', why: 'A button can exist without updating the count.' },
+    { text: 'Check only the initial count.', why: 'The initial count says nothing about later updates.' },
+  ] },
+];
+
+function quizTests(text: string): TestView[] {
+  const answers = parse(text) as Record<string, unknown> | null;
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers) || Object.entries(answers).some(([n, choice]) =>
+    !/^[1-9][0-9]*$/.test(n) || !QUIZ[Number(n) - 1] || (choice !== null && (typeof choice !== 'number' || !Number.isInteger(choice) || choice < 1 || choice > 3)))) {
+    throw new Error('Invalid answers.yaml: use the question and choice numbers shown in the quiz.');
+  }
+  if (QUIZ.some((_, i) => answers[i + 1] == null)) throw new Error('Answer every question, then check.');
+  return QUIZ.map((q, i) => {
+    const choice = q.choices[(answers[i + 1] as number) - 1];
+    return { hidden: false, name: String(i + 1), status: choice.correct ? 'pass' : 'fail', ...(!choice.correct ? { message: choice.why } : {}) };
+  });
+}
+
 const PROPOSAL_FILES = [
   { path: 'Dockerfile', text: 'FROM node:22-alpine\nWORKDIR /work\nRUN npm install --global vitest@3\n' },
   { path: 'track.yaml', text: 'id: react\nversion: 1\nstyles: [unit]\n' },
@@ -241,7 +283,9 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   const tracks: Track[] = [];
   // The course on screen: its lessons, activities, roadmap and view. Switching swaps them for another course's (§4.13).
   let lessons = new Map<string, Lesson>();
-  let activities = new Map<string, { activity: Activity; fails: number }>();
+  let activities = new Map<string, { activity: Activity; fails: number; checked?: boolean }>();
+  let quiz = false;
+  let draftQuiz = false;
   let research: { topic: string; calls: number; job: string; review: string; started: number } | null = null;
   /** The roadmap research wrote or the learner edited; a draft until approved. */
   let roadmap: Roadmap | null = null;
@@ -253,7 +297,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   /** Concepts skipped since their last check (§4.4). */
   let deferred = new Set<string>();
   /** Every approved course, by id, and the one on screen. */
-  const kept = new Map<string, { course: CourseView; approved: Roadmap; lessons: typeof lessons; activities: typeof activities; deferred: typeof deferred }>();
+  const kept = new Map<string, { course: CourseView; approved: Roadmap; lessons: typeof lessons; activities: typeof activities; deferred: typeof deferred; quiz: boolean }>();
   let current = '';
 
   // Installing or opening Docker moves the mock's Docker along, one step per check (§6.1).
@@ -301,7 +345,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     ];
     own.forEach((l) => lessons.set(l.id, { ...l, examples: [] }));
     // An io course's first lesson has an example Run takes typed input for.
-    if (options.style === 'io') {
+    if (!quiz && options.style === 'io') {
       const first = lessons.get(own[0].id)!;
       first.markdown += '\n\nTry it: type a name.\n\n```example\n1\n```';
       first.examples = [{ files: [{ path: 'main.py', text: 'name = input("What\'s your name? ")\nprint(f"Hello, {name}!")\n' }] }];
@@ -314,7 +358,17 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
   /** A concept's `n`th activity, from its starter files. */
   function exercise(concept: string, n: number): Activity {
-    const activity: Activity = options.style === 'io' ? {
+    const answers = stringify(Object.fromEntries(QUIZ.map((_, i) => [i + 1, null])));
+    const activity: Activity = quiz ? {
+      id: `${concept}-easy-1`,
+      concept,
+      style: 'quiz',
+      title: 'Click Counter quiz',
+      statement: 'A counter starts at zero. Each click on Add one should increase it by one. Choose how it should work.',
+      questions: QUIZ.map((q) => ({ text: q.text, choices: q.choices.map((c) => ({ text: c.text })) })),
+      visibleTests: [],
+      files: [{ path: 'answers.yaml', text: answers, digest: digestOf(answers) }],
+    } : options.style === 'io' ? {
       id: `${concept}-easy-1`,
       concept,
       title: 'Greet by name',
@@ -692,11 +746,12 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         return { state: 'running' };
       }
       tellJob({ ...review, ended: true });
+      draftQuiz = goal.practice === 'quiz';
       roadmap = {
         // As an agent would title it: the live app shows the agent's title (§4.13).
         title: shownTopic(goal.topic),
         goal: goal.topic,
-        track: goal.topic,
+        track: draftQuiz ? '' : goal.topic,
         activities: goal.practice !== 'none',
         installed: tracks.some((t) => t.name === goal.topic),
         concepts: TOPICS.map(([title, requires]) => ({ id: slugOf(title), title, requires: [...requires] })),
@@ -718,13 +773,14 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       if (!roadmap) throw new Error('No roadmap');
       roadmap = { ...roadmap, concepts: structuredClone(edited) };
       approved = structuredClone(roadmap);
+      quiz = draftQuiz;
       drafting = false;
       lessons = new Map();
       activities = new Map();
       deferred = new Set();
-      course = { title: roadmap.title, goal: roadmap.goal, track: roadmap.track, activities: roadmap.activities, setup: !roadmap.activities || roadmap.installed ? 'ready' : 'proposing', done: false, topics: edited.map(addConcept) };
+      course = { title: roadmap.title, goal: roadmap.goal, track: roadmap.track, activities: roadmap.activities, setup: quiz || !roadmap.activities || roadmap.installed ? 'ready' : 'proposing', done: false, topics: edited.map(addConcept) };
       current = `course-${kept.size + 1}`;
-      kept.set(current, { course, approved, lessons, activities, deferred });
+      kept.set(current, { course, approved, lessons, activities, deferred, quiz });
       advance();
       happen('approve');
     },
@@ -736,7 +792,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async switchCourse(id) {
       const k = kept.get(id);
       if (!k) throw new Error('No such course.');
-      ({ course, approved, lessons, activities, deferred } = k);
+      ({ course, approved, lessons, activities, deferred, quiz } = k);
       current = id;
     },
 
@@ -758,7 +814,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async setActivities(on) {
       if (!course) throw new Error('No course');
       course.activities = on;
-      course.setup = !on || tracks.some((t) => t.name === course!.track) ? 'ready' : 'proposing';
+      course.setup = quiz || !on || tracks.some((t) => t.name === course!.track) ? 'ready' : 'proposing';
       advance();
     },
 
@@ -829,6 +885,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async tryIt(activityId, run) {
       const { activity } = find(activities, activityId);
+      if (activity.style === 'quiz') throw new Error("A quiz has no practice run. Check it when you're ready.");
       if (!counts()) return notCounted();
       if (activity.run) {
         const tests = ioTests(run, activity);
@@ -847,41 +904,46 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async check(activityId, run): Promise<CheckResult> {
       const record = find(activities, activityId);
-      if (!counts()) return notCounted();
+      const graded = record.activity.style === 'quiz' ? quizTests(record.activity.files[0].text) : undefined;
+      if (!graded && !counts()) return notCounted();
       if (++checks === 1) happen('check');
-      if (!record.activity.run) progress(run, 'visible', 2);
-      deferred.delete(record.activity.concept);
+      if (!graded && !record.activity.run) progress(run, 'visible', 2);
       const text = record.activity.files[0].text;
-      const done = !text.includes(PLACEHOLDER);
+      const done = graded ? graded.every((t) => t.status === 'pass') : !text.includes(PLACEHOLDER);
       const unedited = text === STARTER;
+      const recorded = graded ? !record.checked : !unedited;
       const topic = topicOf(record.activity.concept);
-      if (!done && !unedited) record.fails++;
-      if (done && topic.state !== 'mastered') {
-        const passes = [...activities.values()].filter((r) => r.activity.concept === topic.id).length;
-        if (passes >= (options.passes ?? 1)) {
-          Object.assign(topic, { state: 'mastered', mastery: 1, activity: 'passed' });
-          advance();
-        } else {
-          // Not mastered yet: the topic's next activity is written, then opens (tick).
-          const next = exercise(topic.id, passes + 1);
-          activities.set(next.id, { activity: next, fails: 0 });
-          topic.activity = 'writing';
+      if (!graded || recorded) {
+        deferred.delete(record.activity.concept);
+        if (!done && !unedited) record.fails++;
+        if (done && topic.state !== 'mastered') {
+          const passes = [...activities.values()].filter((r) => r.activity.concept === topic.id).length;
+          if (passes >= (options.passes ?? 1)) {
+            Object.assign(topic, { state: 'mastered', mastery: 1, activity: 'passed' });
+            advance();
+          } else {
+            // Not mastered yet: the topic's next activity is written, then opens (tick).
+            const next = exercise(topic.id, passes + 1);
+            activities.set(next.id, { activity: next, fails: 0 });
+            topic.activity = 'writing';
+          }
         }
+        topic.stuck = !done && record.fails >= 3;
       }
-      topic.stuck = !done && record.fails >= 3;
+      if (graded) record.checked = true;
       const visible = record.activity.run ? ioTests(run, record.activity) : [];
-      progress(run, 'hidden', 0);
-      const tests: TestView[] = record.activity.run ? [...visible, { hidden: true, index: 1, status: 'pass' }, { hidden: true, index: 2, status: done ? 'pass' : 'fail' }] : [
+      if (!graded) progress(run, 'hidden', 0);
+      const tests: TestView[] = graded ?? (record.activity.run ? [...visible, { hidden: true, index: 1, status: 'pass' }, { hidden: true, index: 2, status: done ? 'pass' : 'fail' }] : [
         { hidden: false, name: 'Shows Count: 0', status: 'pass' },
         { hidden: false, name: 'Adds one per click', status: done ? 'pass' : 'fail', ...(done ? {} : { actual: 'Count: 0' }) },
         { hidden: true, index: 1, status: 'pass' },
         { hidden: true, index: 2, status: done ? 'pass' : 'fail' },
-      ];
+      ]);
       const requires = (id: string) => approved!.concepts.find((x) => x.id === id)?.requires ?? [];
       // Leaving this topic for later opens another: one ready already, or one after it (core §7).
       const met = (r: string) => topicOf(r).state === 'mastered' || r === topic.id || deferred.has(r);
       const later = course!.topics.some((t) => t !== topic && t.state !== 'mastered' && requires(t.id).every(met));
-      return { kind: 'graded', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests, recorded: !unedited, stuck: topic.stuck, mastered: topic.state === 'mastered', later };
+      return { kind: 'graded', passed: tests.filter((t) => t.status === 'pass').length, total: tests.length, tests, recorded, stuck: topic.stuck, mastered: topic.state === 'mastered', later };
     },
 
     async ask(place, text) {

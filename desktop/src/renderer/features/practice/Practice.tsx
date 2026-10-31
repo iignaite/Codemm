@@ -13,6 +13,7 @@ import { Markdown } from '../../ui/Markdown';
 import { stagger } from '../../ui/motion';
 import { Rail } from '../../ui/Rail';
 import { Terminal, type TerminalHandle } from '../../ui/Terminal';
+import { answeredAll, QuizAnswers } from './QuizAnswers';
 import { Editor } from './Editor';
 import { Results } from './Results';
 import { useAttempt } from './useAttempt';
@@ -142,13 +143,22 @@ function Workspace({ activity, course, focus }: { activity: Activity; course: Co
   };
 
   return (
-    <div className="ws">
-      <section className="stmt" aria-labelledby="activity-title">
+    <div className={`ws${activity.style === 'quiz' ? ' quiz' : ''}`}>
+      {activity.style !== 'quiz' && <section className="stmt" aria-labelledby="activity-title">
         {topic?.review === 'due' && <span className="pill" style={{ alignSelf: 'flex-start' }}>Review</span>}
         <h1 className="h2" id="activity-title" ref={title} tabIndex={-1}>{activity.title}</h1>
         <Markdown text={activity.statement} />
-      </section>
+      </section>}
       <div className="mid">
+        {activity.style === 'quiz' ? <section className="stmt quiz-form" aria-labelledby="activity-title">
+          <h1 className="h2" id="activity-title" ref={title} tabIndex={-1}>{activity.title}</h1>
+          <Markdown text={activity.statement} />
+          <QuizAnswers questions={activity.questions} text={files[0].text} disabled={busy} onChange={(text) => {
+            edit('answers.yaml', text);
+            setShown({ kind: 'idle' });
+          }} />
+          <div className="actions"><Button disabled={busy || !answeredAll(activity.questions, files[0].text)} onClick={check}>Check</Button></div>
+        </section> : <>
         <Editor
           files={files}
           open={open}
@@ -161,7 +171,8 @@ function Workspace({ activity, course, focus }: { activity: Activity; course: Co
           </>}
         />
         {activity.run && ran && <Terminal ref={terminal} label={`Terminal for ${activity.title}`} status={program.status} onInput={program.input} onEnd={program.end} />}
-        <Results shown={shown} name={course.track} topic={topic?.title ?? ''} visibleTests={activity.visibleTests} ways={ways} />
+        </>}
+        <Results quiz={activity.style === 'quiz'} shown={shown} name={course.track} topic={topic?.title ?? ''} visibleTests={activity.visibleTests} ways={ways} />
       </div>
       <Rail messages={chat.messages} onAsk={ask} busy={chat.busy} answering={chat.answering} name={course.track}>
         <div className="actions">

@@ -24,7 +24,7 @@ Each item is verified by an automated test unless marked *journey*. Journeys run
 |---|---|
 | A1 | Codemm ships no tracks or toolchains. The packed npm artifact contains only `dist/`, `README.md`, `LICENSE` and `package.json`, and no code dispatches on a language or framework name. |
 | A2 | `save_track` / `codemm track add` installs `<id>@<version>` only after the track gates pass. The install is atomic and records the image ID. A conflicting `id@version` with different files is rejected. |
-| A3 | Both test styles work end to end. `io`: stdin/stdout, with expected outputs written by Codemm from the reference. `unit`: the track's runner writes a results report checked against a fixed test inventory. |
+| A3 | Code and quiz activities work end to end. Quiz runs without a track or sandbox (§6). Both code test styles work end to end. `io`: stdin/stdout, with expected outputs written by Codemm from the reference. `unit`: the track's runner writes a results report checked against a fixed test inventory. |
 | A4 | `save_roadmap` enforces the roadmap schema and replacement rules (§5). |
 | A5 | `save_exercise` runs the exercise gates (§6). On success it commits the exercise to the store, then writes only learner-side files to the workspace. Solutions, mutants, hidden tests and expected hidden outputs never reach the workspace or any tool output. |
 | A6 | The judge reports `pass`/`fail`/`error` per test for wrong output, crashes, timeouts, build failures, missing tests and malformed reports. Output is capped while running. |
@@ -52,6 +52,7 @@ The desktop app, the private beta and the minimum model per agent are in scope f
 
 - The full cross-host model bench, including the desktop's per-job flow.
 - Independent-solve gate, placement quiz, per-test concept tags.
+- Mixing code and quizzes in one course (Both), and per-concept activity styles.
 - Practice hooks for Codex and Cursor in the terminal; protection is advisory there.
 - Multi-container tracks, course sharing, watch mode.
 - For heavy tests: per-exercise time limits (the track's `time_ms` applies to every exercise), running a check's test sets in parallel, a runner that stays warm across io cases (each case starts `run` afresh), and a unit `build` step timed apart from `test`.
@@ -357,8 +358,8 @@ wasi:
 ```yaml
 title: "React"              # optional: the course's name in a few plain words, at most 60 characters
 goal: "Components and state in React"
-track: react@1              # optional only for style none; may not be installed yet
-style: unit                 # io or unit offered by the track, or none for lessons only
+track: react@1              # absent for quiz, optional for none; may not be installed yet
+style: unit                 # io or unit offered by the track, quiz, or none for lessons only
 concepts:
   - { id: react.jsx, title: "JSX", requires: [] }
   - id: react.state
@@ -376,7 +377,8 @@ sources:                    # optional: the roadmaps and docs the agent used, at
 - **Sources** are optional: at most 10, each a `title` of at most 120 characters and an https `url` with no credentials. The app shows them and opens them only in the learner's browser.
 - **Practice and pitfalls** are optional on each concept: `practice` is trimmed, 1 to 300 characters; `pitfalls` has at most 5 strings, each 1 to 200 characters. They are checked for structure only.
 - **Refs** are optional on each concept: at most 10 distinct nonnegative integer indexes into `sources`, starting at 0. Every ref must be in range. When sources are nonempty, a concept with `practice` or nonempty `pitfalls` must have at least one ref.
-- **Lessons only.** `style: none` needs no track. `CourseStyle` is `Style | "none"`; `Style` stays `io | unit` for tracks, exercises and lesson examples. A course may keep its track when activities are off. Exercise saves, `get_exercise`, `check` and `test` are refused; lessons, notes and reads still work. Examples need an installed track.
+- **Lessons only.** `style: none` needs no track. `CourseStyle` is `ExerciseStyle | "none"`; `ExerciseStyle` is `Style | "quiz"`. `Style` stays `io | unit` for tracks and lesson examples. A course may keep its track when activities are off. Exercise saves, `get_exercise`, `check` and `test` are refused; lessons, notes and reads still work. Examples need an installed track.
+- **Quiz.** `style: quiz` has no track. It needs no setup, Docker or WASI. Tracks cannot offer quiz. Quiz and lessons only can switch both ways without changing history. A quiz course with exercises cannot become a code course, since that would change its track.
 - **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is. Proposing or installing a track that a course names but whose styles lack that course's coding style is refused, so a course can't be stranded; an install checks this under the track lock, which roadmap saves also take (after the course lock). `next_step` fails with "Edit the roadmap's style" if an installed track still doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
 - **Re-saving** an existing course may change `title`, `goal`, concept titles and order, add concepts, and change `requires` while staying acyclic. Edits keep concept ids, so renaming changes only the title. It may change `track` while the course has no exercises. Switching activities off or on is an ordinary re-save of `style`; turning them off keeps the track. The event log, exercises, mastery and lesson reads stay unchanged. Without a track, a save takes only the course lock; with one, it also takes the track lock.
 - **Re-saving is rejected** if it changes `track` after exercises exist, or removes a concept that an exercise, event or lesson uses.
@@ -440,6 +442,17 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
 
 Gates 4 to 7 only ask whether everything passes, so their io runs stop a set at its first error: a slow wrong solution costs one time limit per set, not one per case.
 
+**Quiz gates.** A quiz has exactly `exercise.yaml` (`style: quiz`), `README.md` (the scenario) and `quiz.yaml`. The latter holds `questions`, each with `text` and `choices`. Each choice has `text`, optional `correct: true`, and `why` for a wrong choice. It stays in the store.
+
+1. The schema validates, the slug is new and the concepts exist.
+2. There are 5 to 10 questions, each with 3 to 5 choices, exactly one marked correct and a nonempty `why` on every wrong choice. Question text is at most 1000 characters, choice text 300 and `why` 500; invalid quiz diagnostics list the limits without quoting private content.
+3. Choice texts within a question differ, ignoring case and spacing.
+4. No question repeats another in this quiz or one from an earlier quiz in the course, ignoring case and spacing. Rewordings can pass; the gates do not prove the key is right.
+
+These replace the code gates and run without a sandbox, under the course lock only. Once they pass, each question's choices are shuffled once with Fisher–Yates using `node:crypto`'s `randomInt`, independently of the public slug, and stored through the same atomic commit. That stored order is the only order; reads never shuffle again. The workspace receives only `README.md` and `answers.yaml`, with each question number mapped to null initially. The learner replaces null with a choice number; both start at 1.
+
+**Quiz grading.** Grading is pure: `passed` counts right answers and `total` counts questions. Missing or null answers are wrong. Invalid question or choice numbers are refused. Each result shows right or wrong; a wrong answer includes only the picked choice's `why`. It never identifies the right choice or shows an unpicked explanation. Test is refused with "A quiz has no practice run. Check it when you're ready." Run is unavailable.
+
 **Commit point.** After the gates pass, the exercise folder is renamed into the store under the course lock. Learner files are then materialized into the workspace. `get_exercise`, `test` and `check` re-materialize any missing learner files, so a crash between the two steps is recoverable.
 
 ## 7. Learner model
@@ -447,6 +460,7 @@ Gates 4 to 7 only ask whether everything passes, so their io runs stop a set at 
 `events.jsonl` is the only learner state. It holds `check`, `skip`, `assist`, `retry` and `read` events, and everything below is recomputed by replaying them in order.
 
 - **`check` event:** `{ kind: "check", at, exercise, concepts, difficulty, passed, total, assisted, missed? }`. `missed` is `{ visible: string[], hidden: number[] }`: tests that didn't pass, with visible names and 1-based hidden indexes exactly as `check` shows them. Each list keeps its first 50 entries. Hidden names, inputs, messages and outputs are never recorded in it. A perfect check omits `missed`; older events without it still parse. It is recorded only when grading completed. Infrastructure failures record nothing: no container runtime, a missing image, or a host-side kill of the whole check. Learner-caused outcomes are graded, as `error`: build failures, timeouts and output floods. A check whose learner files are byte-identical to the starter is graded and shown but no `check` event is recorded (`recorded: false`): it isn't an attempt, so it can't count toward the fail streak, lower mastery or take the first try. Assistance and the current exercise are still updated as for any check.
+- **Quiz checks.** A quiz is checked only when every question is answered: grading one answer at a time would reveal the key, as Test would. Only the first check is recorded; later ones are graded with `recorded: false`, and the course lock makes concurrent checks obey the same rule. `missed.visible` holds wrong question numbers as strings, and `missed.hidden` is empty. A recorded quiz check changes mastery, difficulty, reviews and stuck state by the same rules as code.
 - **`skip` event:** `{ kind: "skip", at, concept }`. "Come back later": it defers the concept until a `check` of an exercise written for it (the exercise's first concept, the one `next_step` asked for) and never changes mastery. A check of a later concept's exercise that also lists it ends nothing. While deferred, the concept counts as met for unlocking the concepts that require it, so a learner whose activity can't be written still moves on; it never counts as mastered, so it never finishes a course, and it comes back once nothing else is open.
 - **`retry` event:** `{ kind: "retry", at, concept }`. It resets the concept's fail streak, so a stuck concept isn't stuck, and leaves mastery and difficulty unchanged (§5).
 - **`read` event:** `{ kind: "read", at, lesson, concept }`. The learner acknowledged a lesson. It never changes mastery.
@@ -470,14 +484,14 @@ For each `check`, in order, for each concept it lists:
 
 Checks before the due time are ordinary checks. A concept that drops below mastery any other way loses its review too.
 
-**Next step for coding courses**, in order:
+**Next step for courses with activities**, in order:
 
-1. If the roadmap's track isn't installed, return `setup` with the track.
+1. For code, if the roadmap's track isn't installed, return `setup` with the track. Quiz skips this step.
 2. If a mastered concept's review is due, the earliest due first: return `review` with the concept, its difficulty and an exercise of that concept at that difficulty the learner has never checked; if there is none, return `author` with `review: true`.
 3. Candidates are concepts that aren't mastered and whose prerequisites are each mastered or deferred (skipped since a check of an exercise written for them), in topological order with ties broken by roadmap order.
 4. Among candidates that aren't deferred, take the lowest mastery; the first in order wins ties. If every candidate is deferred, take the first in order.
-5. If that concept is stuck, return `stuck`.
-6. Otherwise, if an exercise exists for that concept at its current difficulty with no perfect check, return `practice`. The earliest-created such exercise wins.
+5. If that concept is stuck, return `stuck`. The tutor re-teaches; in a quiz course, acknowledging a lesson for that concept (including re-acknowledging an older lesson) appends the existing `retry` event under the course lock, the smallest way to reset its streak without changing learner rules or recording another check on a quiz.
+6. Otherwise, if an exercise exists for that concept at its current difficulty with no perfect check, return `practice`. The earliest-created such exercise wins. Before applying these rules, `pickFor` leaves out every quiz with a recorded check, including failed ones. It therefore asks for a new quiz rather than offering an unrecordable retry forever. Two failed quizzes at difficulty 1 make the concept stuck, just like two failed code checks.
 7. Otherwise return `author` with the concept, difficulty and the course style.
 8. If there are no candidates, return `done`. A review can still come due later.
 
@@ -507,20 +521,22 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `save_track` | `files` | `{ installed: "id@v", warning? }` or diagnostics; with `--desktop`, `{ proposed: "id@v", note }` (§4.4) |
 | `save_roadmap` | `course`, `roadmap` (YAML text) | ok or errors |
 | `get_roadmap` | — | `{ course, title?, goal, track?, style, concepts, sources? }`; concepts have `id`, `title`, `requires` and optional `practice`, `pitfalls`, `refs` |
-| `next_step` | — | `setup` / `review` / `practice` / `author` / `learn` / `stuck` / `done`; `learn` carries `concept` and `lesson` (null or the earliest unread id); `author` carries the concept's `title`, optional `practice` and `pitfalls`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests), and, when there are any, `lessonText` (the concept's lessons, newest first, at most 32 KB) and `last` (the learner's last check on the concept as its `exercise`, `passed`, `total`, `assisted` and optional `missed`: visible names and hidden indexes, as in §7) |
+| `next_step` | — | `setup` / `review` / `practice` / `author` / `learn` / `stuck` / `done`; `learn` carries `concept` and `lesson` (null or the earliest unread id); `author` carries the concept's `title`, optional `practice` and `pitfalls`, `style`, and for code `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests), and, when there are any, `lessonText` (the concept's lessons, newest first, at most 32 KB) and `last` (the learner's last check on the concept as its `exercise`, `passed`, `total`, `assisted` and optional `missed`: visible names and hidden indexes, as in §7) |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
-| `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint, and for io the track's run command; a generated visible input shows its generator (`generated: true`), and a long expected output its first 64 KB with `expectedBytes` |
+| `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint; for quiz, questions and stored choices with only text, never `correct` or `why`; and for io the track's run command; a generated visible input shows its generator (`generated: true`), and a long expected output its first 64 KB with `expectedBytes` |
 | `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |
 | `progress` | — | course style, mastery and difficulty per concept (with `reviewDue` for a mastered concept whose review is scheduled), `covered` (at least one lesson, all read), next step |
 | `save_lesson` | `id`, `concept`, `title`, `markdown` | `{ lesson: id }` or errors |
 | `get_lesson` | `id` | `{ id, concept, title, markdown, notes, examples, style? }`; records nothing |
 | `mark_lesson_read` | `id` | ok; records a `read` event once |
 
+**Quiz disclosure.** The tutor never says which choice is right, only why a picked choice is wrong. This is an author/tutor rule, not a guarantee against paraphrases from the reply filter. No Codemm output returns the key. Quiz authors receive `style: "quiz"` and no track contract. `codemm check` reads `answers.yaml`; `codemm test` refuses a quiz.
+
 **Per-job servers.** `codemm mcp --course <course>` makes course-scoped tools use that course instead of the workspace's active one, and `save_roadmap` may save only that course. `--tools <a,b>` registers only the listed tools. With neither option the server behaves as above. `--progress <file>` (an absolute path) makes `save_exercise` write which gate is running, `{ "format_version": 1, "gate": "reference" | "starter" | "mutants" }`, replacing the file atomically as each starts, so the desktop app can show it (`saveExercise`'s optional `onProgress` hears the same). Only the gate's name is written.
 
 **Failure codes.** An error for this computer's problem carries a stable code (`src/errors.ts` `INFRA`) and the kind that follows from it: Docker missing or not running (`no-runtime`, `runtime-down`, `runtime-paused`, `socket-permission`, `runtime-context`), up but not answering (`runtime-busy`, `check-timeout`, `container-remove`), answering but failing (`windows-containers`, `credentials`, `container-start`, `docker-cpus`, `docker-log-driver`, `docker-file-sharing`, `runtime-failed`, `image-id`, `image-inspect`, `container-list`), Docker's disk or this computer's (`docker-disk`, `host-disk`), or the network (`offline`, `rate-limit`, `tls`, `network-timeout`). Every failed tool result starts with Codemm's own line, `codemm:<code, kind or error>`, so nothing a message quotes (a build log, a runner, a program, the agent's own files) can stand there. A write that runs out of space reaches the agent as `host-disk`, not as an unexpected error.
 
-**App functions without tools** (the desktop app calls them in-process): `listLessons`, `saveNotes`, `listExercises`, `listProposals`, `installProposal`, `dropProposal`, `readLearnerFiles` and `writeLearnerFile`. `writeLearnerFile(ws, slug, path, text, digest)` accepts only the exercise's track files, holds the workspace lock, refuses symlinked paths, and replaces the file through a temp file and a rename only if its current digest is the one the editor loaded ("Changed outside Codemm").
+**App functions without tools** (the desktop app calls them in-process): `listLessons`, `saveNotes`, `listExercises`, `listProposals`, `installProposal`, `dropProposal`, `readLearnerFiles` and `writeLearnerFile`. `writeLearnerFile(ws, slug, path, text, digest)` accepts only the exercise's track files, or `answers.yaml` for a quiz, holds the workspace lock, refuses symlinked paths, and replaces the file through a temp file and a rename only if its current digest is the one the editor loaded ("Changed outside Codemm").
 
 ## 9. Host setup (`codemm init`)
 

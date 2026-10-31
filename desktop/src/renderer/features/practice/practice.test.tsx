@@ -1,3 +1,4 @@
+import { parse } from 'yaml';
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -692,4 +693,35 @@ describe('Run', () => {
     await open();
     expect(screen.queryByRole('button', { name: 'Run' })).not.toBeInTheDocument();
   });
+});
+
+it('shows quiz choices, saves answers before Check, and explains only picked wrong choices', async () => {
+  const writes: string[] = [];
+  const { user } = await open(undefined, (api) => {
+    api.activity = async (concept) => ({
+      id: 'quiz', style: 'quiz', concept, title: 'Click Counter', statement: 'Choose what to do.', visibleTests: [],
+      questions: Array.from({ length: 5 }, (_, i) => ({ text: `Situation ${i + 1}?`, choices: [{ text: 'Bound work' }, { text: 'Retry forever' }, { text: 'Ignore failure' }] })),
+      files: [{ path: 'answers.yaml', text: '1: null\n2: null\n3: null\n4: null\n5: null\n', digest: 'first' }],
+    });
+    api.saveFile = async (_id, path, text) => { expect(path).toBe('answers.yaml'); writes.push(text); return 'saved'; };
+    api.check = async () => {
+      expect(parse(writes.at(-1)!)).toMatchObject({ 1: 2 });
+      return { kind: 'graded', passed: 1, total: 5, recorded: true, stuck: false, mastered: false, later: false,
+        tests: Array.from({ length: 5 }, (_, i) => ({ hidden: false, name: String(i + 1), status: i === 1 ? 'pass' : 'fail', ...(i === 0 ? { message: 'No stopping rule' } : {}) })),
+      };
+    };
+  });
+  expect(screen.queryByRole('button', { name: 'Try it' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Run' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('textbox', { name: 'answers.yaml' })).not.toBeInTheDocument();
+  await user.click(within(screen.getByRole('group', { name: 'Situation 1?' })).getByRole('radio', { name: 'Retry forever' }));
+  await user.click(within(screen.getByRole('group', { name: 'Situation 2?' })).getByRole('radio', { name: 'Bound work' }));
+  // Checking one answer at a time would reveal the key, so Check waits for every answer.
+  expect(screen.getByRole('button', { name: 'Check' })).toBeDisabled();
+  for (const n of [3, 4, 5]) await user.click(within(screen.getByRole('group', { name: `Situation ${n}?` })).getByRole('radio', { name: 'Bound work' }));
+  await user.click(screen.getByRole('button', { name: 'Check' }));
+  expect(await within(results()).findByText('No stopping rule')).toBeInTheDocument();
+  expect(results()).toHaveTextContent('Question 1: Wrong');
+  expect(results()).toHaveTextContent('Question 2: Right');
+  expect(results()).not.toHaveTextContent('Bound work');
 });

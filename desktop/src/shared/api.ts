@@ -157,8 +157,8 @@ export interface Computer {
 
 // ---------- roadmap (§4.2) ----------
 
-/** How the learner practises: graded coding activities, or lessons only (core style `none`). */
-export type Practice = 'code' | 'none';
+/** How the learner practises: graded code or quizzes, or lessons only (core style `none`). */
+export type Practice = 'code' | 'quiz' | 'none';
 
 /** How deep the roadmap goes, as the learner chose: about 8, 15 or 25 to 30 single-skill topics. */
 export type Depth = 'overview' | 'standard' | 'in-depth';
@@ -312,7 +312,7 @@ export interface VisibleTest {
   expected?: string;
 }
 
-export interface Activity {
+interface ActivityBase {
   id: string;
   concept: string;
   title: string;
@@ -323,6 +323,12 @@ export interface Activity {
   /** The track's run command, for io activities only: they have Run. */
   run?: string;
 }
+
+export type QuizQuestion = { text: string; choices: { text: string }[] };
+export type Activity = ActivityBase & (
+  | { style?: 'io' | 'unit'; questions?: never }
+  | { style: 'quiz'; questions: QuizQuestion[] }
+);
 
 /** What Run's program printed, or a stage starting with its time limit, for the countdown. */
 export type RunOutput = { run: string; stream: 'stdout' | 'stderr'; text: string } | { run: string; started: 'build' | 'run'; limitMs: number };
@@ -369,8 +375,9 @@ export type CheckResult =
       passed: number;
       total: number;
       tests: TestView[];
-      /** False for a check of the unedited starter (core §7). */
+      /** False for an unedited starter or a quiz that already has a recorded check (core §7). */
       recorded: boolean;
+      note?: string;
       stuck: boolean;
       mastered: boolean;
       /** Another topic is ready, so "Come back later" moves on (§4.4). */

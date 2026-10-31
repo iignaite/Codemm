@@ -119,6 +119,7 @@ describe('dispatch', () => {
 
 it('validates the practice choice and the Activities switch', async () => {
   expect(await dispatch(echo, 'research', [{ topic: 'History', known: '', depth: 'standard', practice: 'none' }])).toMatchObject({ method: 'research' });
-  expect(() => dispatch(echo, 'research', [{ topic: 'History', known: '', depth: 'standard', practice: 'quiz' }])).toThrow('Bad input');
+  expect(await dispatch(echo, 'research', [{ topic: 'History', known: '', depth: 'standard', practice: 'quiz' }])).toMatchObject({ method: 'research' });
+  expect(() => dispatch(echo, 'research', [{ topic: 'History', known: '', depth: 'standard', practice: 'both' }])).toThrow('Bad input');
   expect(() => dispatch(echo, 'setActivities', ['off'])).toThrow('Bad input');
 });

@@ -1,3 +1,4 @@
+import { quizFiles, quizRoadmap } from "./quiz-fixture.js";
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -362,4 +363,19 @@ it("returns learn and covered through MCP without a track", async () => {
   expect(await call("next_step")).toEqual({ kind: "learn", concept: "a", lesson: "intro" });
   await call("mark_lesson_read", { id: "intro" });
   expect(await call("progress")).toMatchObject({ concepts: [{ covered: true }], next: { kind: "done" } });
+});
+
+
+it("saves and checks a quiz through MCP without a track", async () => {
+  const { client, call } = await connect({ tools: ["save_roadmap", "next_step", "save_exercise", "get_exercise", "check"] });
+  await call("save_roadmap", { course: "quiz", roadmap: quizRoadmap });
+  expect(await call("next_step")).toMatchObject({ kind: "author", style: "quiz" });
+  await call("save_exercise", { files: quizFiles() });
+  const ex = await call("get_exercise");
+  expect(JSON.stringify(ex)).not.toMatch(/correct|why/);
+  const unanswered = await client.callTool({ name: "check", arguments: {} });
+  expect((unanswered.content as { text: string }[])[0]!.text).toBe("codemm:error\nAnswer every question, then check.");
+  writeFileSync(join(ex.path, "answers.yaml"), "1: 1\n2: 1\n3: 1\n4: 1\n5: 1\n");
+  expect(await call("check")).toMatchObject({ recorded: true, total: 5 });
+  expect(await call("check")).toMatchObject({ recorded: false, total: 5 });
 });
