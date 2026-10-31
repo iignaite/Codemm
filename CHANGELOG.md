@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0-beta.9
+
+- **Choose how you practise.** A new course can have coding activities, quizzes or lessons only, so a topic you can't practise with code, such as design or theory, still gets a course. Activities can be switched on or off later from the course, and your progress is kept either way.
+- **Quizzes.** Your agent writes multiple-choice quizzes from the lesson. Each quiz counts once, its answers stay inside Codemm until you check, and a topic you're stuck on gets a fresh quiz after you reread its lesson.
+- **Roadmaps grounded in their sources.** Research records what each topic should practise and the usual mistakes, with the sources it read. Then your agent reviews the roadmap against those sources before you see it. A failed review never holds you up.
+- **Activities aimed at what you missed.** The next activity's writer knows which of your tests failed last time. Hidden tests are passed on only by number, never by content.
+
 ## 1.0.0-beta.8
 
 - **Practice without Docker now sets itself up.** Your agent looks up the WebAssembly build of the language on its release page, instead of guessing a link, so the setup for a computer without Docker works. Tested with Claude Code and Codex: each set up Python with Docker hidden and wrote activities that grade correctly.
