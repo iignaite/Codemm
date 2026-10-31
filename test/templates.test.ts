@@ -352,15 +352,29 @@ describe("research and teaching quality", () => {
     }
   });
 
+  // A live review of a Harness Engineering roadmap (2026-10-31) fixed one statistic but passed practices no test can
+  // grade, six blog sources out of nine, and a roadmap with no sandboxing or evaluation topics.
+  it("defines a gradeable practice and a primary source, and has the review check coverage first", () => {
+    for (const text of [AGENTS_SECTION, JOB_BRIEFS.research, JOB_BRIEFS.review]) {
+      expect(text).toMatch(/a test with no model in it can grade: never a real model's behaviour or the quality of prose/);
+      expect(text).toMatch(/vendor marketing, personal blogs and summaries are secondary/);
+    }
+    // The sharper review swapped in ten primary sources, all from one vendor.
+    for (const text of [AGENTS_SECTION, JOB_BRIEFS.research]) expect(text).toMatch(/from more than one organization when the field has several/);
+    expect(JOB_BRIEFS.review).toMatch(/every source is from one organization/);
+    expect(JOB_BRIEFS.review).toMatch(/First list the core skills the primary sources name/);
+    expect(JOB_BRIEFS.review).toMatch(/more than half the sources are secondary/);
+  });
+
   it("has a roadmap change keep each kept concept's practice, pitfalls and refs", () => {
     expect(JOB_BRIEFS.roadmap).toMatch(/Keep each kept concept's `practice`, `pitfalls` and `refs`/);
   });
 
   it("has the review job check the roadmap against its sources, and fix it or say why not", () => {
     const brief = JOB_BRIEFS.review;
-    expect(brief).toMatch(/a core skill of the topic is missing/);
+    expect(brief).toMatch(/a core skill from your list is missing/);
     expect(brief).toMatch(/isn't supported by the sources its `refs` name/);
-    expect(brief).toMatch(/a concept no graded activity could practise/);
+    expect(brief).toMatch(/rewrite it into one that is, or fold the concept into a neighbour's lesson/);
     expect(brief).toMatch(/If nothing should change, don't save, and say why/);
   });
 

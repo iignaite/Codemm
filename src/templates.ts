@@ -29,13 +29,17 @@ const GRANULARITY =
 const COURSE_SIZE =
   "Plan about 15 to 30 concepts for a language or framework course, unless the learner asks for a different depth. Split anything that needs more than one lesson. Check a couple of real curricula or the official docs for the order.";
 
+/** What counts as a primary source, and as a practice Codemm can grade (a live review passed blogs and ungradeable practices). */
+const PRIMARY = "Primary sources are the official docs, standards, papers and engineering write-ups of the people who build and run the thing; vendor marketing, personal blogs and summaries are secondary";
+const GRADEABLE = "a test with no model in it can grade: never a real model's behaviour or the quality of prose";
+
 /** Where research comes from (owner: "always always use the best practices"; proposal §3.6). */
 const QUALITY =
-  "Research the topic's best practices and its common mistakes, not only the order. Use primary sources first: official docs, standards, and engineering write-ups by the people who do the work; use tutorials and summaries only to find them. In a fast-moving field, prefer sources from the last two years. Order the concepts the way established curricula or official learning paths do, where they exist.";
+  `Research the topic's best practices and its common mistakes, not only the order. Use primary sources first, from more than one organization when the field has several. ${PRIMARY}: use them only to find primary ones. In a fast-moving field, prefer sources from the last two years. Order the concepts the way established curricula or official learning paths do, where they exist.`;
 
 /** What research records per concept, so lessons and activities build on the sources, not on memory (proposal §3.1). */
 const CONCEPT_FIELDS =
-  'Give every concept a `practice` line (at most 300 characters): how a graded activity practises it, such as "fix a loop that retries forever so it stops after a budget". If no graded activity can practise a concept, it isn\'t a concept: fold it into a neighbouring concept\'s lesson. Add up to 5 `pitfalls` (each at most 200 characters): the common mistakes your sources name, not ones from memory. `refs` lists the indexes (from 0) of the `sources` each concept\'s practice and pitfalls come from; with `sources`, every concept with `practice` or `pitfalls` needs at least one. For a topic about building tools or systems rather than a language, a `practice` line names one of these: build the piece against a scripted fake; fix an anti-pattern from `pitfalls`; write a policy or grader that recorded cases are replayed through; write a schema or config that a scripted consumer reads; or make the smallest change that turns a recorded failure into a pass.';
+  `Give every concept a \`practice\` line (at most 300 characters): how a graded activity practises it, one ${GRADEABLE}, such as "fix a loop that retries forever so it stops after a budget". If no graded activity can practise a concept, it isn't a concept: fold it into a neighbouring concept's lesson. Add up to 5 \`pitfalls\` (each at most 200 characters): the common mistakes your sources name, not ones from memory. \`refs\` lists the indexes (from 0) of the \`sources\` each concept's practice and pitfalls come from; with \`sources\`, every concept with \`practice\` or \`pitfalls\` needs at least one. For a topic about building tools or systems rather than a language, a \`practice\` line names one of these: build the piece against a scripted fake; fix an anti-pattern from \`pitfalls\`; write a policy or grader that recorded cases are replayed through; write a schema or config that a scripted consumer reads; or make the smallest change that turns a recorded failure into a pass.`;
 
 /** One teaching structure for every lesson (Rosenshine's principles, the worked-example effect, practice testing; proposal §3.6). */
 const LESSON_SHAPE =
@@ -163,13 +167,14 @@ export const JOB_BRIEFS: Record<JobKind, string> = {
 
   review: `You review a Codemm roadmap before the learner sees it, and fix what's wrong.
 
-1. Call \`get_roadmap\`. Read its \`sources\`, and search for others if they're thin.
+1. Call \`get_roadmap\`. First list the core skills the primary sources name, searching for primary sources if the roadmap's are thin.
 2. Check it:
-   - a core skill of the topic is missing;
+   - a core skill from your list is missing;
    - a concept comes before a concept it needs;
    - a concept's \`practice\` or \`pitfalls\` isn't supported by the sources its \`refs\` name;
-   - a concept no graded activity could practise;
-   - a concept that rests on tutorials or summaries where primary sources exist.
+   - a \`practice\` that isn't one ${GRADEABLE}: rewrite it into one that is, or fold the concept into a neighbour's lesson;
+   - more than half the sources are secondary (${PRIMARY}): swap in primary ones and keep each concept's \`refs\` right;
+   - every source is from one organization when the field has several: add primary sources from others.
 3. If anything is wrong, save the whole roadmap with \`save_roadmap\` under the same course id, fixed. Keep the ids, \`title\` and \`goal\`, and keep \`sources\`, adding any you used (at most 10).
 4. If nothing should change, don't save, and say why in one sentence.`,
 
