@@ -32,6 +32,9 @@ describe('course view', () => {
     expect(unread.topics[1]).toMatchObject({ activity: 'locked', lessons: [{ state: 'ready' }] });
     const writing = courseView(progress({ kind: 'author', concept: 'state', difficulty: 1, lesson: null }), [], ready, new Set(['lesson:state']));
     expect(writing.topics[1]).toMatchObject({ activity: 'writing', lessons: [{ state: 'writing' }] });
+    // Once saved, the lesson is the job's own: it counts once while the job ends, not beside a row still writing.
+    const saved = courseView(progress({ kind: 'practice', exercise: 'e', concept: 'state', lesson: 'state-1' }), [{ id: 'state-1', concept: 'state', title: 'What state is', read: false }], ready, new Set(['lesson:state']));
+    expect(saved.topics[1].lessons).toEqual([{ id: 'state-1', title: 'What state is', state: 'ready' }]);
     // A lesson whose job failed keeps its row, for Try again; the activity waits for it.
     const failed = courseView(progress({ kind: 'practice', exercise: 'e', concept: 'state', lesson: 'state-1' }), [], ready, new Set(), undefined, 'state');
     expect(failed.topics[1]).toMatchObject({ activity: 'locked', lessons: [{ title: 'Lesson', state: 'failed' }] });
