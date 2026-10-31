@@ -84,3 +84,21 @@ it('does not share setup progress or failures with a course whose activities are
   await t.api.switchCourse(first);
   expect(await t.api.course()).not.toHaveProperty('stalled');
 });
+
+it('researches a quiz, starts no setup, and restores quiz after activities are switched off', async () => {
+  const t = live({ research: (job) => {
+    t.c.roadmap = { course: boundOf(job), goal: 'Judgment', style: 'quiz', concepts: [{ id: 'a', title: 'A', requires: [] }] };
+    return {};
+  } });
+  await t.api.connect('claude');
+  const r = await settle(() => t.api.research({ topic: 'Judgment', known: '', depth: 'standard', practice: 'quiz' }), (r) => r.state === 'done', 'Research');
+  expect(t.jobs.ran[0].brief).toContain('Save style: quiz and no track.');
+  await t.api.approve(r.roadmap!.concepts);
+  await until(t.api, (c) => c.topics[0].lessons.length > 0);
+  expect((await t.api.course())!.setup).toBe('ready');
+  await t.api.setActivities(false);
+  await t.api.setActivities(true);
+  expect(t.c.roadmap).toMatchObject({ style: 'quiz' });
+  expect(t.c.roadmap).not.toHaveProperty('track');
+  expect(t.jobs.ran.some((j) => j.kind === 'setup' || j.kind === 'roadmap')).toBe(false);
+});

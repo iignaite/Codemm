@@ -116,3 +116,14 @@ describe('views (§2.2, D4)', () => {
     expect(filterReply('Look at what you pass to printf.', material)).toBe('Look at what you pass to printf.');
   });
 });
+
+
+it('projects a quiz with only question and choice text and keeps the check recording note', () => {
+  const questions = [{ text: 'Decide', choices: [{ text: 'A', correct: true }, { text: 'B', why: 'CANARY' }, { text: 'C', why: 'CANARY' }] }];
+  const view = activityView({ course: 'c', exercise: 'q', path: '/private', style: 'quiz', concepts: ['a'], difficulty: 1,
+    statement: '# Decide\n\nScenario', files: ['answers.yaml'], visibleTests: [], questions,
+  }, { 'answers.yaml': { text: '1: null', digest: 'd' } }, 'a');
+  expect(view).toMatchObject({ style: 'quiz', questions: [{ text: 'Decide', choices: [{ text: 'A' }, { text: 'B' }, { text: 'C' }] }] });
+  expect(JSON.stringify(view)).not.toMatch(/correct|why|CANARY|private/);
+  expect(checkView({ ...core, recorded: false, note: 'Answer every question.' }, { stuck: false, mastered: false, later: false })).toMatchObject({ recorded: false, note: 'Answer every question.' });
+});

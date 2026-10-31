@@ -125,7 +125,7 @@ export function createServer(ws: string, version: string, { course, tools, deskt
     {
       description:
         "Create or update the course roadmap and make it active in this workspace. YAML with title (the course's name in a few plain words, " +
-        "at most 60 characters), goal, track (id@version, optional only for none), style (io|unit|none), concepts [{id, title, requires, practice?, pitfalls?, refs?}] and optional sources " +
+        "at most 60 characters), goal, track (id@version; none for quiz, optional for none), style (io|unit|quiz|none), concepts [{id, title, requires, practice?, pitfalls?, refs?}] and optional sources " +
         "[{title, url}]; refs are indexes into sources. Keep concept ids stable when you edit it.",
       inputSchema: { course: z.string().describe("Course id, e.g. c-pointers"), roadmap: z.string().describe("Roadmap YAML") },
     },
@@ -153,20 +153,20 @@ export function createServer(ws: string, version: string, { course, tools, deskt
     "save_exercise",
     {
       description:
-        "Author tool. Save an exercise (exercise.yaml, README.md, starter/, solution/, mutants/<name>/, tests/visible/, tests/hidden/). " +
+        "Author tool. Save an exercise (exercise.yaml, README.md, starter/, solution/, mutants/<name>/, tests/visible/, tests/hidden/; a quiz: exercise.yaml, README.md, quiz.yaml). " +
         "Codemm runs every gate and stores it only if all pass. Returns only the exercise id; report nothing else to the tutor.",
       inputSchema: { files },
     },
     ({ files: f }) => respond(() => app.saveExercise(ws, fileMap(f), course, progress ? app.gateProgressTo(progress) : undefined)),
   );
 
-  if (want("get_exercise")) server.registerTool("get_exercise", { description: "Show an exercise to the learner: statement, the file(s) to edit, visible tests and hint.", inputSchema: { slug } }, ({ slug: s }) =>
+  if (want("get_exercise")) server.registerTool("get_exercise", { description: "Show an exercise to the learner: statement, the file(s) to edit, visible tests and hint; for a quiz, its questions and choices, never the key.", inputSchema: { slug } }, ({ slug: s }) =>
     respond(() => app.getExercise(ws, s, course)),
   );
 
   if (want("check")) server.registerTool(
     "check",
-    { description: "Grade the learner's current code against all tests and record the attempt. Hidden tests report only pass or fail.", inputSchema: { slug } },
+    { description: "Grade the learner's current code against all tests and record the attempt. Hidden tests report only pass or fail. A quiz is graded once every question is answered, and only its first check is recorded.", inputSchema: { slug } },
     ({ slug: s }) => respond(() => app.checkExercise(ws, s, course)),
   );
 

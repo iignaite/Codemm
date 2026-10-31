@@ -31,7 +31,7 @@ export function briefsFrom(base: Record<JobKind, string>, platform: NodeJS.Platf
   const brief = (kind: JobKind, ...details: (string | false | undefined)[]) => [base[kind], ...details.filter(Boolean)].join('\n\n');
   return {
     research: (course: string, topic: string, known: string, depth: Depth, practice: Practice = 'code') =>
-      brief('research', `Course id: ${course}`, `The learner wants to learn: ${topic}`, known ? `They already know: ${known}` : 'They know nothing about it yet.', `Depth: ${DEPTH[depth]}. Each topic is one skill.`, practice === 'none' && 'Save style: none and no track.'),
+      brief('research', `Course id: ${course}`, `The learner wants to learn: ${topic}`, known ? `They already know: ${known}` : 'They know nothing about it yet.', `Depth: ${DEPTH[depth]}. Each topic is one skill.`, practice !== 'code' && `Save style: ${practice} and no track.`),
     review: () => brief('review'),
     roadmap: (request: string) => brief('roadmap', `The learner asks: ${request}`),
     easier: (concept: string, title: string) => brief('roadmap', `Make "${title}" (${concept}) easier: add one smaller topic that it requires.`),

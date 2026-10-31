@@ -170,11 +170,11 @@ export function createLive(d: LiveDeps): Live {
   };
   /**
    * Runs a track's operation once Docker isn't starting, tracked for quitting from the start: quitting waits for
-   * it, and an operation still waiting when quitting starts never runs. A WASI track's never waits for Docker.
+   * it, and an operation still waiting when quitting starts never runs. A trackless course or WASI track never waits for Docker.
    */
   const whenReady = <T>(track: string | undefined, operation: () => Promise<T>): Promise<T> =>
     tracked(
-      (onWasi(track) ? Promise.resolve() : dockerReady()).then(() => {
+      (!track || onWasi(track) ? Promise.resolve() : dockerReady()).then(() => {
         if (stopping) throw new SafeError('Codemm is quitting.');
         return operation();
       }),
@@ -806,12 +806,14 @@ export function createLive(d: LiveDeps): Live {
       if (!course) throw new SafeError('No course.');
       const { course: _, ...roadmap } = core.getRoadmap(ws, course);
       if (on === (roadmap.style !== 'none')) return;
-      if (on && !roadmap.track) {
+      const previous = d.state.read().activityStyles?.[course];
+      if (on && previous === 'quiz') {
+        await core.saveRoadmap(ws, course, JSON.stringify({ ...roadmap, style: 'quiz' }), course);
+      } else if (on && !roadmap.track) {
         await roadmapJob(course, briefs.roadmap('Turn on graded coding activities: choose a track and a style for this course.'), () => () => core.getRoadmap(ws, course).style !== 'none');
       } else if (on) {
         // Back to the style the course had, if its track still offers it.
         const styles = core.listTracks().find((t) => t.track === roadmap.track)?.styles;
-        const previous = d.state.read().activityStyles?.[course];
         const style = previous && styles?.includes(previous) ? previous : styles?.[0] ?? previous;
         if (!style) throw new SafeError('Choose a coding style in the roadmap first.');
         await core.saveRoadmap(ws, course, JSON.stringify({ ...roadmap, style }), course);

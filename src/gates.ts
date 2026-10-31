@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { stringify } from "yaml";
 import { judgeTrack, trackImageTag } from "./store.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +10,7 @@ import { CASE_OUTPUT_MB, caseDigest, type Expected, gradeRuns, type IoRun, type 
 import { GENERATOR_SECONDS, generatorFailed, type JudgeTrack, runSets, type WasiToolchain } from "./judge.js";
 import { buildImage, type BuildStep, inspectImage } from "./sandbox.js";
 import {
-  type CourseRecord, type ExerciseRecord, type ExerciseSpec, LIMITS, parseExerciseYaml, parseTrackYaml, type Style, type TrackRecord, type TrackSpec,
+  type CourseRecord, type ExerciseRecord, type ExerciseSpec, LIMITS, parseQuizYaml, parseExerciseYaml, parseTrackYaml, type Style, type TrackRecord, type TrackSpec,
   type WasiRecord,
 } from "./schemas.js";
 import { ensureToolchain } from "./toolchain.js";
@@ -353,7 +355,7 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
   if (taken.has(spec.slug)) throw new GateError("valid", `the slug "${spec.slug}" is already used in this course. Pick a new one.`);
   if (course.style === "none") throw new GateError("valid", "This course has lessons only. Turn activities on to practise.");
   const style = spec.style ?? course.style;
-  if (!track.styles.includes(style)) throw new GateError("valid", `the track offers ${track.styles.join(", ")}, not style "${style}".`);
+  if (style === "quiz" || !track.styles.includes(style)) throw new GateError("valid", `the track offers ${track.styles.join(", ")}, not style "${style}".`);
   const known = new Set(course.concepts.map((c) => c.id));
   for (const c of spec.concepts) if (!known.has(c)) throw new GateError("valid", `concept "${c}" isn't in the roadmap.`);
 
@@ -386,6 +388,28 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
     throw new GateError("valid", `add at least 1 visible and ${style === "io" ? "2 hidden inputs" : "1 hidden test file"} (found ${counts.visible} and ${counts.hidden}).`);
   }
   return { spec, style, starter, solution, mutants, sets };
+}
+
+/** Quiz gates run under the course lock only. Hash ordering shuffles once, before commit. */
+export function verifyQuiz(course: CourseRecord, files: FileMap, taken: Set<string>, earlier: string[]) {
+  const spec = parseExerciseYaml(files["exercise.yaml"] ?? "");
+  if (spec.style !== "quiz") throw new GateError("valid", "A quiz course needs style: quiz.");
+  if (taken.has(spec.slug)) throw new GateError("valid", "the slug is already used in this course. Pick a new one.");
+  if (spec.concepts.some((id) => !course.concepts.some((c) => c.id === id))) throw new GateError("valid", "the concepts must exist in the roadmap.");
+  if (!files["README.md"]?.trim()) throw new GateError("valid", "README.md (the statement) is missing or empty.");
+  if (Object.keys(files).some((p) => !["exercise.yaml", "README.md", "quiz.yaml"].includes(p))) throw new GateError("valid", "A quiz holds only exercise.yaml, README.md and quiz.yaml.");
+  const quiz = parseQuizYaml(files["quiz.yaml"] ?? "");
+  const normalize = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
+  const previous = new Set(earlier.flatMap((yaml) => parseQuizYaml(yaml).questions.map((q) => normalize(q.text))));
+  for (const [i, q] of quiz.questions.entries()) {
+    if (new Set(q.choices.map((c) => normalize(c.text))).size !== q.choices.length) throw new GateError("valid", `Question ${i + 1} repeats a choice's text.`);
+    if (previous.has(normalize(q.text))) throw new GateError("valid", `Question ${i + 1} repeats a question from an earlier quiz.`);
+  }
+  const questions = quiz.questions.map((q, i) => ({ ...q, choices: q.choices
+    .map((choice, j) => ({ choice, order: createHash("sha256").update(`${spec.slug}:${i}:${j}`).digest("hex") }))
+    .sort((a, b) => a.order.localeCompare(b.order)).map(({ choice }) => choice) }));
+  const record: Extract<ExerciseRecord, { style: "quiz" }> = { ...spec, style: "quiz", format_version: 1, createdAt: new Date().toISOString() };
+  return { record, files: { ...files, "quiz.yaml": stringify({ questions }) } };
 }
 
 /** The exercise gate running, by name only: the reference passes, the starter fails, the tests catch each mutant. */

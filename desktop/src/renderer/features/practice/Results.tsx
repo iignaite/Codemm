@@ -38,6 +38,7 @@ export interface Ways {
 }
 
 interface Props {
+  quiz?: boolean;
   shown: Shown;
   name: string;
   topic: string;
@@ -72,7 +73,7 @@ export function Results(props: Props) {
   );
 }
 
-function Body({ shown, name, topic, visibleTests, ways }: Props) {
+function Body({ shown, name, topic, visibleTests, ways, quiz }: Props) {
   if (shown.kind === 'idle') return <div className="idle">Only Check is graded.</div>;
   if (shown.kind === 'busy') {
     return (
@@ -112,6 +113,7 @@ function Body({ shown, name, topic, visibleTests, ways }: Props) {
       </>
     );
   }
+  if (quiz) return <QuizResults result={result} ways={ways} />;
   if (result.passed === result.total) {
     return (
       <div className="outcome">
@@ -214,4 +216,24 @@ function TestLines({ tests, visibleTests }: { tests: TestView[]; visibleTests: V
       })}
     </>
   );
+}
+
+
+/** A quiz reports only right or wrong and the picked choice's explanation. A failed quiz needs a new activity. */
+function QuizResults({ result, ways }: { result: Extract<CheckResult, { kind: 'graded' }>; ways: Ways }) {
+  return <div className="stack quiz-results">
+    <h2 className="h3">{result.passed} of {result.total} right</h2>
+    {result.tests.map((t) => !t.hidden && <div key={t.name}>
+      <p>Question {t.name}: {t.status === 'pass' ? 'Right' : 'Wrong'}</p>
+      {t.status !== 'pass' && t.message && <p className="sub">{t.message}</p>}
+    </div>)}
+    {!result.recorded && <p className="quiet-text">{result.note ?? "This check wasn't recorded."}</p>}
+    <div className="actions">
+      {result.stuck ? <>
+        <Button onClick={ways.reread}>Reread the lesson</Button>
+        <Button variant="ghost" onClick={ways.easier}>Try an easier one</Button>
+        {result.later && <Button variant="ghost" onClick={ways.later}>Come back later</Button>}
+      </> : <Button onClick={ways.next}>Continue</Button>}
+    </div>
+  </div>;
 }

@@ -18,7 +18,7 @@ function testViews(tests: CoreCheckView['tests']): TestView[] {
 }
 
 export function checkView(core: CoreCheckView, concept: { stuck: boolean; mastered: boolean; later: boolean }): CheckResult {
-  return { kind: 'graded', passed: core.passed, total: core.total, tests: testViews(core.tests), recorded: core.recorded, stuck: concept.stuck, mastered: concept.mastered, later: concept.later };
+  return { kind: 'graded', passed: core.passed, total: core.total, tests: testViews(core.tests), recorded: core.recorded, ...(core.note ? { note: core.note } : {}), stuck: concept.stuck, mastered: concept.mastered, later: concept.later };
 }
 
 export function tryView(core: CoreCheckView): TryResult {
@@ -97,7 +97,7 @@ function plainTitle(heading: string): string {
 /** The statement's first heading is the activity's title; the rest is its text. */
 export function activityView(ex: CoreExercise, files: Record<string, { text: string; digest: string }>, concept: string): Activity {
   const m = /^#\s+([^\n]+)\n+/.exec(ex.statement);
-  return {
+  const activity = {
     id: ex.exercise,
     concept,
     title: m ? plainTitle(m[1]) : 'Activity',
@@ -106,6 +106,8 @@ export function activityView(ex: CoreExercise, files: Record<string, { text: str
     files: ex.files.filter((p) => files[p]).map((path) => ({ path, text: files[path].text, digest: files[path].digest })),
     ...(ex.style === 'io' && ex.run ? { run: ex.run } : {}),
   };
+  if (ex.style === 'quiz') return { ...activity, style: 'quiz', questions: ex.questions!.map((q) => ({ text: q.text, choices: q.choices.map((c) => ({ text: c.text })) })) };
+  return activity;
 }
 
 // ---------- the reply filter (§2.2) ----------

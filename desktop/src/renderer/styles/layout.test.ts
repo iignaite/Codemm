@@ -12,7 +12,7 @@ describe('the page never scrolls', () => {
   it("gives the workspace one row as tall as the window, so a long column scrolls inside itself", () => {
     expect(rule('.ws')).toContain('grid-template-rows: minmax(0, 1fr)');
     // Stacked in a narrow window, the rows are as tall as their content and the workspace scrolls.
-    expect(css).toMatch(/\.ws, \.ws\.lesson \{[^}]*grid-template-rows: none; overflow-y: auto;/);
+    expect(css).toMatch(/\.ws, \.ws\.lesson, \.ws\.quiz \{[^}]*grid-template-rows: none; overflow-y: auto;/);
   });
 
   it('clips the window, which a scrollIntoView cannot scroll', () => {

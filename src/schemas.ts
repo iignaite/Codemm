@@ -8,7 +8,9 @@ const MAX_YAML_BYTES = 65_536;
 const Id = z.string().regex(ID_PATTERN, "must be 1-64 lowercase letters, digits, '.', '_' or '-'");
 const Style = z.enum(["io", "unit"]);
 export type Style = z.infer<typeof Style>;
-export type CourseStyle = Style | "none";
+const ExerciseStyle = z.enum(["io", "unit", "quiz"]);
+export type ExerciseStyle = z.infer<typeof ExerciseStyle>;
+export type CourseStyle = ExerciseStyle | "none";
 
 /** time_ms is per io case, or for a unit track's whole test command (DESIGN §4.3). */
 export const LIMITS = { time_ms: { min: 100, max: 120_000, default: 2000 }, memory_mb: { min: 64, max: 2048, default: 256 } };
@@ -165,6 +167,7 @@ const TrackRef = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}@[1-9][0-9]{0,8}$/,
 const RoadmapYaml = z.discriminatedUnion("style", [
   RoadmapBase.extend({ style: Style, track: TrackRef }),
   RoadmapBase.extend({ style: z.literal("none"), track: TrackRef.optional() }),
+  RoadmapBase.extend({ style: z.literal("quiz"), track: z.undefined().optional() }),
 ]);
 export type Roadmap = z.infer<typeof RoadmapYaml>;
 
@@ -207,7 +210,7 @@ export function parseRoadmapYaml(yaml: string): Roadmap {
 const ExerciseYaml = z
   .object({
     slug: Id,
-    style: Style.optional(),
+    style: ExerciseStyle.optional(),
     concepts: z.array(Id).min(1).max(10).refine((c) => new Set(c).size === c.length, "concepts must not repeat"),
     difficulty: z.number().int().min(1).max(3),
     hint: z.string().max(2000).optional(),
@@ -216,6 +219,37 @@ const ExerciseYaml = z
 export type ExerciseSpec = z.infer<typeof ExerciseYaml>;
 
 export const parseExerciseYaml = (yaml: string): ExerciseSpec => parseWith(ExerciseYaml, yaml, "exercise.yaml");
+
+const Quiz = z.object({
+  questions: z.array(z.object({
+    text: z.string().trim().min(1),
+    choices: z.array(z.object({
+      text: z.string().trim().min(1), correct: z.literal(true).optional(), why: z.string().trim().min(1).optional(),
+    }).strict()).min(3).max(5)
+      .refine((choices) => choices.filter((c) => c.correct).length === 1, "exactly one correct choice")
+      .refine((choices) => choices.every((c) => c.correct || c.why), "each wrong choice needs why"),
+  }).strict()).min(5).max(10),
+}).strict();
+export type Quiz = z.infer<typeof Quiz>;
+export type Answers = Record<string, number | null>;
+
+/** Quiz diagnostics must never quote the key, even a YAML parser's source excerpt or an unknown key. */
+export function parseQuizYaml(yaml: string): Quiz {
+  try {
+    return parseWith(Quiz, yaml, "quiz.yaml");
+  } catch {
+    throw new CodemmError("Invalid quiz.yaml: write 5 to 10 questions with text, each with 3 to 5 choices with text, exactly one correct: true, and why on every wrong choice.");
+  }
+}
+
+/** Validate once at the file boundary; missing answers become null. Numbers start at one. */
+export function parseAnswersYaml(yaml: string, quiz: Quiz): Answers {
+  const answers = parseWith(z.record(z.string().regex(/^[1-9][0-9]*$/), z.number().int().positive().nullable()), yaml, "answers.yaml");
+  if (Object.entries(answers).some(([n, choice]) => !quiz.questions[Number(n) - 1] || (choice !== null && choice > quiz.questions[Number(n) - 1]!.choices.length))) {
+    throw new CodemmError("Invalid answers.yaml: use the question and choice numbers shown in the quiz.");
+  }
+  return Object.fromEntries(quiz.questions.map((_, i) => [i + 1, answers[i + 1] ?? null]));
+}
 
 // Records Codemm itself writes. Each carries format_version so a future release can migrate forward.
 
@@ -247,23 +281,26 @@ export type TrackRecord = z.infer<typeof TrackRecord>;
 export const CourseRecord = z.discriminatedUnion("style", [
   RoadmapYaml.options[0].extend({ format_version: z.literal(1), course: Id }),
   RoadmapYaml.options[1].extend({ format_version: z.literal(1), course: Id }),
+  RoadmapYaml.options[2].extend({ format_version: z.literal(1), course: Id }),
 ]);
 export type CourseRecord = z.infer<typeof CourseRecord>;
 
-export const ExerciseRecord = z.object({
+const ExerciseBase = z.object({
   format_version: z.literal(1),
   slug: Id,
-  style: Style,
   concepts: z.array(Id),
   difficulty: z.number().int(),
   hint: z.string().optional(),
-  track: z.string(),
   createdAt: z.string(),
   /** io: expected stdout per case name, written from the reference; a long one as its digest, size and start. */
   expected: z.record(z.string(), z.union([z.string(), z.object({ sha256: z.string(), bytes: z.number().int().nonnegative(), head: z.string() })])).optional(),
   /** unit: test names per set, recorded from the reference. */
   inventory: z.object({ visible: z.array(z.string()), hidden: z.array(z.string()) }).optional(),
 });
+export const ExerciseRecord = z.discriminatedUnion("style", [
+  ExerciseBase.extend({ style: Style, track: z.string() }),
+  ExerciseBase.extend({ style: z.literal("quiz"), track: z.undefined().optional() }),
+]);
 export type ExerciseRecord = z.infer<typeof ExerciseRecord>;
 
 export const WorkspaceConfig = z.object({

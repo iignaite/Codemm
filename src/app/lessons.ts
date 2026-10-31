@@ -59,7 +59,7 @@ export async function saveLesson(ws: string, input: unknown, bound?: string): Pr
     if (!course.concepts.some((c) => c.id === lesson.concept)) throw new CodemmError(`"${lesson.concept}" is not in the roadmap for ${courseId}.`);
     if (store.listLessons(courseId).some((l) => l.id === lesson.id)) throw new CodemmError(`Lesson id "${lesson.id}" is already used in ${courseId}. Pick a new id.`);
     const track = examples.length > 0 && course.track ? store.readTrack(course.track) : undefined;
-    const style = course.style === "none" ? track?.styles[0] : course.style;
+    const style = course.style === "quiz" ? undefined : course.style === "none" ? track?.styles[0] : course.style;
     if (examples.length > 0) {
       if (!track || !style) throw new CodemmError(course.track ? `Examples run in ${course.track}, which isn't set up yet. Save the lesson without examples.` : "Examples need an installed track. Save the lesson without examples.");
       examples.forEach((files, i) => assertExampleFits(i + 1, files, track, style));

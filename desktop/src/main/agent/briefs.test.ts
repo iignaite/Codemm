@@ -127,3 +127,7 @@ it('carries the lessons-only choice as a research detail', () => {
   expect(briefs.research('course', 'History', '', 'standard', 'none')).toContain('Save style: none and no track.');
   expect(briefs.research('course', 'History', '', 'standard', 'code')).not.toContain('style: none');
 });
+
+it('carries quiz practice to the research brief without a track', () => {
+  expect(briefs.research('judgment', 'Judgment', '', 'standard', 'quiz')).toContain('Save style: quiz and no track.');
+});

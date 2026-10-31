@@ -184,3 +184,16 @@ it('sends Lessons only with the goal', async () => {
   await user.type(screen.getByRole('textbox', { name: 'What do you want to learn?' }), 'History{Enter}');
   await waitFor(() => expect(asked[0]).toEqual({ topic: 'History', known: '', depth: 'standard', practice: 'none' }));
 });
+
+it('offers Quiz and carries the choice to research', async () => {
+  const asked: unknown[] = [];
+  const { api } = await mockWithCourse();
+  api.research = async (goal) => { asked.push(goal); return { state: 'running' }; };
+  renderApp({ to: 'goal' }, api);
+  const user = userEvent.setup();
+  await user.type(screen.getByRole('textbox', { name: 'What do you want to learn?' }), 'Judgment');
+  await user.click(screen.getByRole('radio', { name: 'Quiz' }));
+  await user.click(screen.getByRole('button', { name: 'Start' }));
+  await waitFor(() => expect(asked[0]).toMatchObject({ practice: 'quiz' }));
+  expect(screen.queryByText(/isn't set up yet/)).not.toBeInTheDocument();
+});
