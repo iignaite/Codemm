@@ -68,13 +68,20 @@ describe('jobs (§3.2)', () => {
     let tools: string[] = [];
     expect(await runJob(job(agent.exe, { kind: 'review', server: (allowed) => ((tools = allowed), { command: '/app', args: [] }) }))).toMatchObject({ ok: true });
     expect(tools).toEqual(['get_roadmap', 'save_roadmap']);
-    expect(JOBS.review).toMatchObject({ deadlineMs: 600_000, web: true });
+    expect(JOBS.review).toMatchObject({ deadlineMs: 300_000, web: true });
     expect(agent.runs()).toBe(1);
   });
 
   it('a review that times out fails even with a turn-based done check', async () => {
     const agent = fakeAgent([init], { hang: true });
     expect(await runJob(job(agent.exe, { kind: 'review', deadlineMs: 300 }))).toMatchObject({ ok: false, problem: 'failed' });
+    expect(agent.runs()).toBe(1);
+  });
+
+  it('does not relaunch a failed review', async () => {
+    const agent = fakeAgent([init, failure('Review failed')]);
+    expect(await runJob(job(agent.exe, { kind: 'review' }))).toMatchObject({ ok: false, problem: 'failed' });
+    expect(agent.runs()).toBe(1);
   });
 
   it('reports what the run used, with its session', async () => {

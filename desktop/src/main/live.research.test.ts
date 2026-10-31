@@ -46,8 +46,11 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     expect(await t.api.research(goal)).toEqual({ state: 'running' });
     await vi.waitFor(() => expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review']));
     expect(await t.api.research(goal)).toEqual({ state: 'running' });
+    expect(await t.api.draft()).toBeNull();
+    await expect(t.api.approve(t.c.roadmap!.concepts)).rejects.toThrow('still being checked');
     release();
     await vi.waitFor(async () => expect(await t.api.research(goal)).toMatchObject({ state: 'done', roadmap: { title: 'Reviewed course' } }));
+    expect(await t.api.draft()).toMatchObject({ title: 'Reviewed course' });
     expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review']);
   });
 
@@ -59,6 +62,7 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     } }, { log });
     const r = await researched(t);
     expect(r).toMatchObject({ state: 'done', roadmap: { title: 'React' } });
+    expect(await t.api.draft()).toMatchObject({ title: 'React' });
     expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review']);
     expect(log.mock.calls.some(([event]) => event === 'review-error' || event === 'review-no-change')).toBe(true);
   });

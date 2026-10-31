@@ -137,6 +137,7 @@ export function createLive(d: LiveDeps): Live {
   const livePath = d.livePath ?? (async () => {});
   const briefs = briefsFrom(core.JOB_BRIEFS);
   const running = new Map<string, Running>();
+  const reviewing = new Set<string>();
   /**
    * One-at-a-time queues, by name (§3.2, §4.13): each course's foreground lane, background queue and tutor turns
    * (`fg:`, `bg:`, `tutor:` and the course), and across courses, track builds and author jobs: Docker-heavy work.
@@ -256,15 +257,17 @@ export function createLive(d: LiveDeps): Live {
    */
   const safeIn = (course: string | undefined) => (text: string) => !course || shown(text, hidden(course)) === text;
 
-  /** The roadmap not approved yet: the active course, unless it is one of the learner's courses. */
+  /** The roadmap not approved yet: the active course, unless it is under review or one of the learner's courses. */
   function draft(): CoreRoadmap | null {
     const roadmap = roadmapOrNull();
-    return roadmap && !coursesOf(d.state.read()).includes(roadmap.course) ? roadmap : null;
+    return roadmap && !reviewing.has(roadmap.course) && !coursesOf(d.state.read()).includes(roadmap.course) ? roadmap : null;
   }
 
   /** Saves the learner's edits to the active roadmap (the draft, if there is one) through core's roadmap rules (§4.2). JSON is YAML. */
   async function saveConcepts(concepts: Concept[]) {
     const current = core.getRoadmap(ws);
+    // The review's own save would replace the learner's edits.
+    if (reviewing.has(current.course)) throw new SafeError('The roadmap is still being checked. Try again in a moment.');
     const { title, goal, track, style, sources } = current;
     const byId = new Map(current.concepts.map((c) => [c.id, c]));
     const merged = concepts.map(({ id, title, requires }) => {
@@ -705,6 +708,7 @@ export function createLive(d: LiveDeps): Live {
               runs.add(saving);
               await saving.finally(() => runs.delete(saving));
               if (!stopping) {
+                reviewing.add(course);
                 try {
                   const before = JSON.stringify(core.getRoadmap(ws, course));
                   const review = await start(`review:${course}`, 'fg', 'review', briefs.review(), course, (turn) => turn.ok);
@@ -712,6 +716,8 @@ export function createLive(d: LiveDeps): Live {
                   else if (JSON.stringify(core.getRoadmap(ws, course)) === before) log('review-no-change', {});
                 } catch (e) {
                   log('review-error', errorFields(e));
+                } finally {
+                  reviewing.delete(course);
                 }
               }
             }
