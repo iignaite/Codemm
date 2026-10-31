@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react';
 import type { CourseView, Usage } from '../../../shared/api';
 import { useRouter } from '../../app/router';
 import { useBusy } from '../../app/useBusy';
-import { Button } from '../../ui/Button';
 import { useApi } from '../../app/api';
 import { Failed, Stale, Stalled } from '../../app/Problems';
 import { useCourse } from '../../app/useCourse';
@@ -38,16 +37,16 @@ export function CourseMap() {
         <Path course={course} />
       </div>
       <Aside course={course} usage={usage ?? null}>
-        <div className="card row">
-          <span className="fill" id="activities-label">Activities</span>
-          <Button role="switch" aria-labelledby="activities-label" aria-checked={course.activities} disabled={changing.busy} onClick={() => changing.guard(async () => {
+        <div className="card activities">
+          <h2 className="h3 fill" id="activities-label">Activities</h2>
+          <button type="button" className="switch" role="switch" aria-labelledby="activities-label" aria-checked={course.activities} disabled={changing.busy} onClick={() => changing.guard(async () => {
             try {
               await api.setActivities(!course.activities);
               reload();
             } catch (e) {
               fail(e);
             }
-          })}>{course.activities ? 'On' : 'Off'}</Button>
+          })}><span className="thumb" /></button>
         </div>
       </Aside>
       {course.stalled && <Stalled stalled={course.stalled} work={course.stalledWork} later={course.later} retry={reload} />}
