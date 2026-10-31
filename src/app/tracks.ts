@@ -217,7 +217,8 @@ async function recheckExercises(ref: string, track: TrackRecord, what: "image" |
       count += 1;
       const { files } = store.readExercise(courseId, ex.slug);
       try {
-        const again = await verifyExercise(track, course, files, new Set());
+        // In the exercise's own style: a course whose activities are off keeps its track and its exercises.
+        const again = await verifyExercise(track, { ...course, track: ref, style: ex.style }, files, new Set());
         if (JSON.stringify(digests(again.expected)) !== JSON.stringify(digests(ex.expected)) || JSON.stringify(again.inventory) !== JSON.stringify(ex.inventory)) {
           changed.push(`${courseId}/${ex.slug}: results changed`);
         }

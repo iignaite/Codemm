@@ -12,7 +12,8 @@ const eventConcepts = (e: LearnerEvent): string[] => (e.kind === "check" ? e.con
  * The track may be a draft that isn't installed yet (next_step then says "setup"), and may change until the
  * course has exercises. A stuck concept that gains a prerequisite gets a `retry` event: a fresh start.
  */
-export async function saveRoadmap(ws: string, course: string, yaml: string, bound?: string): Promise<{ course: string; concepts: number }> {
+/** Saving makes the course active in `ws`, unless `activate` is false: the app re-saving one of the learner's courses mustn't replace a new course's draft. */
+export async function saveRoadmap(ws: string, course: string, yaml: string, bound?: string, activate = true): Promise<{ course: string; concepts: number }> {
   if (bound && course !== bound) throw new CodemmError(`This job saves only course "${bound}".`);
   const roadmap = parseRoadmapYaml(yaml);
   const record: CourseRecord = { format_version: 1, course, ...roadmap };
@@ -53,7 +54,7 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
   await store.withLock(store.courseLockPath(course), () => roadmap.track
     ? store.withLock(store.trackLockPath(store.parseTrackRef(roadmap.track).id), save)
     : save());
-  await store.updateWorkspace(ws, (config) => ({ ...config, course, current: config.course === course ? config.current : undefined }));
+  if (activate) await store.updateWorkspace(ws, (config) => ({ ...config, course, current: config.course === course ? config.current : undefined }));
   return { course, concepts: roadmap.concepts.length };
 }
 

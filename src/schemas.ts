@@ -323,8 +323,9 @@ export const LearnerEventSchema = z.discriminatedUnion("kind", [
     total: z.number().int().positive(),
     assisted: z.boolean(),
     missed: z.object({
-      visible: z.array(z.string()).max(50),
-      hidden: z.array(z.number().int().positive()).max(50),
+      // Codemm records at most 50 of each; reading keeps 50, so a later Codemm that records more doesn't damage the log.
+      visible: z.array(z.string()).transform((v) => v.slice(0, 50)),
+      hidden: z.array(z.number().int().positive()).transform((h) => h.slice(0, 50)),
     }).optional(),
   }),
   z.object({ format_version: z.literal(1), kind: z.literal("skip"), at: z.string(), concept: Id }),

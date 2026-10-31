@@ -145,8 +145,10 @@ describe.runIf(posix)("check progress for unit exercises", () => {
 
   it("records at most 50 misses per set, keeping their shown names and indexes", async () => {
     const names = Array.from({ length: 51 }, (_, i) => `case-${i + 1}`);
+    // Hidden names of their own, so recording one would show.
+    const secrets = Array.from({ length: 51 }, (_, i) => `secret-${i + 1}`);
     // Only t is reported (passing); the other inventory entries are graded as errors.
-    const ws = await unitExercise(["t", ...names], ["t", ...names]);
+    const ws = await unitExercise(["t", ...secrets], ["t", ...names]);
     writeFileSync(join(ws, "exercises", "units", "maxof", "lib.sh"), "# edited\n");
     fakeDocker("streams");
     const view = await app.checkExercise(ws);
@@ -155,6 +157,7 @@ describe.runIf(posix)("check progress for unit exercises", () => {
       kind: "check",
       missed: { visible: names.slice(0, 50).map((name) => `visible/${name}`), hidden: Array.from({ length: 50 }, (_, i) => i + 2) },
     })]);
+    expect(JSON.stringify({ view, events: store.readEvents("units"), step: app.nextStep(ws) })).not.toContain("secret-");
   });
 
   it("reports each phase once, with no count, because the runner reports at the end", async () => {

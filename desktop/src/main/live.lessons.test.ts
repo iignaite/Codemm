@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { desktopState } from './state';
-import { boundOf, live, practising, researched, settle, until } from './testing/fakes';
+import { boundOf, coreError, live, practising, researched, settle, until } from './testing/fakes';
 
 async function lessonsOnly() {
   const t = live({ roadmap: (job) => {
@@ -101,4 +101,53 @@ it('researches a quiz, starts no setup, and restores quiz after activities are s
   expect(t.c.roadmap).toMatchObject({ style: 'quiz' });
   expect(t.c.roadmap).not.toHaveProperty('track');
   expect(t.jobs.ran.some((j) => j.kind === 'setup' || j.kind === 'roadmap')).toBe(false);
+
+it("keeps a new course's draft when another course's Activities switch is used", async () => {
+  const t = live();
+  await practising(t);
+  const first = t.c.roadmap!.course;
+  // A second course researched but not approved yet: the workspace's draft.
+  const second = await settle(() => t.api.research({ topic: 'Python', known: '', depth: 'standard', practice: 'code' }), (r) => r.state === 'done', 'Research');
+  expect(t.c.active).not.toBe(first);
+  await t.api.setActivities(false);
+  expect(t.c.courses.get(first)).toMatchObject({ style: 'none' });
+  expect(await t.api.draft()).toMatchObject({ title: second.roadmap!.title });
+});
+
+it('refuses the switch while a roadmap job is changing the course, whose save would undo it', async () => {
+  let finish!: () => void;
+  const t = live({ roadmap: () => new Promise((resolve) => { finish = () => resolve({}); }) });
+  await practising(t);
+  const easier = t.api.easier(t.c.roadmap!.concepts[0].id);
+  await settle(async () => Boolean(finish), Boolean, 'Roadmap job');
+  await expect(t.api.setActivities(false)).rejects.toThrow('The roadmap is changing. Try again in a moment.');
+  finish();
+  await easier;
+});
+
+it('asks the roadmap job for a style when activities come on with a track but no remembered style', async () => {
+  const t = live({ roadmap: (job) => {
+    Object.assign(t.c.courses.get(boundOf(job))!, { style: 'io' });
+    return {};
+  } });
+  await practising(t);
+  const course = t.c.roadmap!.course;
+  t.c.courses.set(course, { ...t.c.roadmap!, style: 'none', track: 'nowhere@1' });
+  await t.api.setActivities(true);
+  expect(t.jobs.ran.at(-1)!.kind).toBe('roadmap');
+  expect(t.c.courses.get(course)).toMatchObject({ style: 'io' });
+});
+
+it("keeps setup progress working when another course's record is damaged", async () => {
+  const t = live({ setup: () => new Promise(() => {}) });
+  const r = await researched(t);
+  await t.api.approve(r.roadmap!.concepts);
+  await settle(async () => (await t.api.jobProgress()).some((j) => j.kind === 'setup'), Boolean, 'Setup');
+  desktopState(t.dir).update((s) => ({ ...s, courses: [...(s.courses ?? []), 'broken'] }));
+  const getRoadmap = t.app.getRoadmap;
+  t.app.getRoadmap = (ws, course, ...rest) => {
+    if (course === 'broken') throw coreError("Codemm's record /h/courses/broken/course.json is damaged.", 'damaged');
+    return getRoadmap(ws, course, ...rest);
+  };
+  expect((await t.api.jobProgress()).some((j) => j.kind === 'setup')).toBe(true);
 });
