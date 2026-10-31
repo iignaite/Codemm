@@ -105,7 +105,7 @@ export interface CoreApp {
   /** `track` is `id@version`; `engine` is what runs its code: Docker, or wasmtime for a WASI track (core §4.5). */
   listTracks(): { track: string; styles: string[]; files: string[]; engine?: 'docker' | 'wasi' }[];
   rebuildTrack(ref: string): Promise<unknown>;
-  saveRoadmap(ws: string, course: string, yaml: string, bound?: string): Promise<{ course: string }>;
+  saveRoadmap(ws: string, course: string, yaml: string, bound?: string, activate?: boolean): Promise<{ course: string }>;
   progress(ws: string, bound?: string): CoreProgress;
   /** Containers whose owning Codemm process is gone are removed (doctor --fix's rule). Added by scripts/core-entry.ts. */
   cleanupLeftovers(): Promise<void>;

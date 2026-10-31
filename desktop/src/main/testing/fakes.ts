@@ -128,9 +128,10 @@ export function fakeCore() {
     listTracks: () => c.tracks.map((track) => ({ track, styles: ['io'], files: ['main.c'], engine: c.wasi.has(track) ? 'wasi' : 'docker' })),
     cleanupLeftovers: async () => void c.cleanups++,
     rebuildTrack: async () => ({}),
-    saveRoadmap: async (_ws, course, yaml) => {
+    saveRoadmap: async (_ws, course, yaml, _bound, activate = true) => {
       const parsed = JSON.parse(yaml);
-      c.roadmap = { course, ...parsed };
+      if (activate) c.roadmap = { course, ...parsed };
+      else c.courses.set(course, { course, ...parsed });
       return { course };
     },
     progress: (_ws, bound) => {
