@@ -101,6 +101,7 @@ it('researches a quiz, starts no setup, and restores quiz after activities are s
   expect(t.c.roadmap).toMatchObject({ style: 'quiz' });
   expect(t.c.roadmap).not.toHaveProperty('track');
   expect(t.jobs.ran.some((j) => j.kind === 'setup' || j.kind === 'roadmap')).toBe(false);
+});
 
 it("keeps a new course's draft when another course's Activities switch is used", async () => {
   const t = live();

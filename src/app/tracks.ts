@@ -213,7 +213,9 @@ async function recheckExercises(ref: string, track: TrackRecord, what: "image" |
   for (const courseId of store.listCourses()) {
     const course = store.readCourse(courseId);
     if (!course) continue;
-    for (const ex of store.listExercises(courseId).filter((e) => e.track === ref)) {
+    for (const ex of store.listExercises(courseId)) {
+      // A quiz runs nothing on a track.
+      if (ex.style === "quiz" || ex.track !== ref) continue;
       count += 1;
       const { files } = store.readExercise(courseId, ex.slug);
       try {
