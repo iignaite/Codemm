@@ -351,6 +351,7 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
     throw new GateError("valid", (e as Error).message);
   }
   if (taken.has(spec.slug)) throw new GateError("valid", `the slug "${spec.slug}" is already used in this course. Pick a new one.`);
+  if (course.style === "none") throw new GateError("valid", "This course has lessons only. Turn activities on to practise.");
   const style = spec.style ?? course.style;
   if (!track.styles.includes(style)) throw new GateError("valid", `the track offers ${track.styles.join(", ")}, not style "${style}".`);
   const known = new Set(course.concepts.map((c) => c.id));

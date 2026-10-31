@@ -35,7 +35,7 @@ const path: Valid = (v) => typeof v === 'string' && v.length <= 512 && v.split('
 /** The renderer's id for one Try it, Check or Run, echoed in its events. */
 const runId: Valid = (v) => typeof v === 'string' && /^[a-z0-9-]{1,64}$/.test(v);
 const digest: Valid = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
-const goal = shape({ topic: text(LIMITS.topic, 1), known: text(LIMITS.known), depth: oneOf('overview', 'standard', 'in-depth') });
+const goal = shape({ topic: text(LIMITS.topic, 1), known: text(LIMITS.known), depth: oneOf('overview', 'standard', 'in-depth'), practice: oneOf('code', 'none') });
 const concept = shape({ id, title: text(LIMITS.title, 1), requires: list(id, 200) });
 const concepts = list(concept, 200, 1);
 const place: Valid = (v) => shape({ lessonId: id })(v) || shape({ activityId: id })(v);
@@ -66,6 +66,7 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress'
   course: [],
   courses: [],
   switchCourse: [id],
+  setActivities: [(v) => typeof v === 'boolean'],
   install: [digest],
   retrySetup: [],
   retryJobs: [],

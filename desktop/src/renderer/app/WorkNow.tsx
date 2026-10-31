@@ -94,7 +94,7 @@ export function WorkNow({ course, slim = false }: { course: Course; slim?: boole
   useEffect(() => {
     if (route.to === 'research') researching = route.goal;
   }, [route]);
-  const jobs = listed(useJobs(() => true, []), useShownJobs());
+  const jobs = listed(useJobs((p) => course?.activities !== false || (p.kind !== 'setup' && p.kind !== 'author'), [course?.activities]), useShownJobs());
   if (jobs.length === 0) return null;
   return (
     <ul className="work" aria-label="Codemm is working">

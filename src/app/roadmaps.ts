@@ -17,9 +17,9 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
   const roadmap = parseRoadmapYaml(yaml);
   const record: CourseRecord = { format_version: 1, course, ...roadmap };
   // Course lock, then the track's lock (as saveExercise does), so an install can't land between this check and the save.
-  await store.withLock(store.courseLockPath(course), () => store.withLock(store.trackLockPath(store.parseTrackRef(roadmap.track).id), async () => {
-    const track = store.readTrack(roadmap.track);
-    if (track && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
+  const save = async () => {
+    const track = roadmap.track ? store.readTrack(roadmap.track) : undefined;
+    if (track && roadmap.style !== "none" && !track.styles.includes(roadmap.style)) throw new CodemmError(`Track ${roadmap.track} offers ${track.styles.join(", ")}, not style "${roadmap.style}".`);
     let retries: string[] = [];
     const existing = store.readCourse(course);
     if (existing) {
@@ -49,7 +49,10 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
     // and the re-save writes the roadmap. Until then, a concept can be offered before its new prerequisite exists.
     for (const concept of retries) store.appendEvent(course, { format_version: 1, kind: "retry", at: new Date().toISOString(), concept });
     store.writeCourse(record);
-  }));
+  };
+  await store.withLock(store.courseLockPath(course), () => roadmap.track
+    ? store.withLock(store.trackLockPath(store.parseTrackRef(roadmap.track).id), save)
+    : save());
   await store.updateWorkspace(ws, (config) => ({ ...config, course, current: config.course === course ? config.current : undefined }));
   return { course, concepts: roadmap.concepts.length };
 }
@@ -57,6 +60,6 @@ export async function saveRoadmap(ws: string, course: string, yaml: string, boun
 /** With `withContract`, an installed track's contract too (as next_step's author step has it), for lesson examples. */
 export function getRoadmap(ws: string, bound?: string, withContract = false) {
   const { course, title, goal, track, style, concepts, sources } = activeCourse(ws, bound);
-  const installed = withContract ? store.readTrack(track) : undefined;
-  return { course, ...(title ? { title } : {}), goal, track, style, concepts, ...(sources ? { sources } : {}), ...(installed ? { contract: trackContract(installed, style) } : {}) };
+  const installed = withContract && track ? store.readTrack(track) : undefined;
+  return { course, ...(title ? { title } : {}), goal, track, style, concepts, ...(sources ? { sources } : {}), ...(installed ? { contract: trackContract(installed, style === "none" ? installed.styles[0]! : style) } : {}) };
 }

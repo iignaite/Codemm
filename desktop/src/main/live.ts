@@ -224,12 +224,15 @@ export function createLive(d: LiveDeps): Live {
     }
   };
   /** The learner's courses on a track, and `course`: they share its setup (§4.13). */
-  const onTrack = (ref: string, course: string) => [...new Set([course, ...coursesOf(d.state.read()).filter((c) => trackOf(c) === ref)])];
+  const onTrack = (ref: string, course: string) => [...new Set([course, ...coursesOf(d.state.read())])].filter((c) => {
+    const r = roadmapOrNull(c);
+    return r?.track === ref && r.style !== 'none';
+  });
   /** A course's name: the words typed for a course from before titles (W-5), kept as it was, else the agent's title, else its goal. */
   const nameOf = (r: CoreRoadmap) => d.state.read().names?.[r.course] ?? r.title ?? r.goal;
   /** A roadmap as shown. Its sources are agent text too, so one that quotes hidden material, or can't be checked, is dropped. */
   const roadmapShown = (r: CoreRoadmap): Roadmap => {
-    const view = roadmapView(r, installed(r.track), nameOf(r));
+    const view = roadmapView(r, Boolean(r.track && installed(r.track)), nameOf(r));
     const filter = hidden();
     return { ...view, sources: view.sources.filter((s) => shown(s.title, filter) === s.title && shown(s.url, filter) === s.url) };
   };
@@ -286,7 +289,7 @@ export function createLive(d: LiveDeps): Live {
   /** The window hears the jobs of the course on screen, research and the draft, but not another course's (§4.13). */
   const heard = ({ course, track }: Audience) => {
     const s = d.state.read();
-    if (track) return s.approved !== undefined && trackOf(s.approved) === track;
+    if (track) return s.approved !== undefined && onTrack(track, s.approved).includes(s.approved);
     return !course || course === s.approved || !coursesOf(s).includes(course);
   };
   const tellJob = (p: JobProgress, audience: Audience) => {
@@ -477,7 +480,8 @@ export function createLive(d: LiveDeps): Live {
 
   /** One consent before setup (§4.1): propose, wait for the learner, build exactly what they saw. */
   function setupState(progress: CoreProgress): Setup {
-    const ref = progress.track;
+    const ref = progress.next.kind === 'setup' ? progress.next.track : progress.track;
+    if (!ref || progress.style === 'none') return { state: 'ready' };
     const setup = setupOf(ref);
     if (installed(ref)) return { state: 'ready' };
     if (setup.installing) return { state: 'installing' };
@@ -501,8 +505,8 @@ export function createLive(d: LiveDeps): Live {
       if (!roadmap) return;
       const progress = core.progress(ws, roadmap.course);
       const state = progress.next.kind === 'setup' ? setupState(progress) : ({ state: 'ready' } as const);
-      if (state.state === 'proposing') {
-        const ref = progress.track;
+      if (state.state === 'proposing' && progress.next.kind === 'setup') {
+        const ref = progress.next.track;
         const setup = setupOf(ref);
         const before = new Set(core.listProposals().map((p) => p.digest));
         // Done once it proposed: the proposal may already be gone if the learner approved it and its gates failed.
@@ -529,7 +533,7 @@ export function createLive(d: LiveDeps): Live {
     const concept = progress.concepts.find((c) => c.id === currentConcept(progress));
     if (!concept) return;
     const lessons = () => core.listLessons(ws, course).filter((l) => l.concept === concept.id).length;
-    if (lessons() === 0) {
+    if (progress.next.kind === 'learn' ? progress.next.lesson === null : lessons() === 0) {
       // The course's first lesson runs in the foreground, beside setup (§3.2).
       const lane = core.listLessons(ws, course).length === 0 ? 'fg' : 'bg';
       background(`lesson:${course}:${concept.id}`, 'lesson', briefs.lesson(concept.id, concept.title), course, () => lessons() > 0, { lane, concept: concept.id });
@@ -559,7 +563,7 @@ export function createLive(d: LiveDeps): Live {
     await cancel((key) => (!shared && key === `setup:${before.track}`) || key.startsWith(`author:${course}:`));
     const outcome = await foreground(`roadmap:${course}`, 'roadmap', brief, course, done(saved));
     const after = core.getRoadmap(ws, course);
-    if (after.track !== before.track && !shared) {
+    if (before.track && after.track !== before.track && !shared) {
       await core.dropProposal(before.track);
       setups.delete(before.track);
     }
@@ -700,7 +704,7 @@ export function createLive(d: LiveDeps): Live {
         };
         // Research counts as running until its sources save and its review ends, so a poll starts no second agent.
         finishing.add(key);
-        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth), course, () => roadmapOrNull()?.course === course, { onSource })
+        start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth, goal.practice), course, () => roadmapOrNull()?.course === course, { onSource })
           .then(async (o) => {
             if (o.ok) {
               // Quitting waits for this save, like any other run (stop()).
@@ -745,7 +749,7 @@ export function createLive(d: LiveDeps): Live {
       // One of the learner's courses now, on screen (§4.13).
       d.state.update((s) => ({ ...s, approved: course, courses: [...coursesOf(s).filter((c) => c !== course), course] }));
       // Its setup starts fresh, unless another course on its track is installing it.
-      if (!setups.get(track)?.installing) setups.delete(track);
+      if (track && !setups.get(track)?.installing) setups.delete(track);
       resume(course);
     },
 
@@ -786,7 +790,7 @@ export function createLive(d: LiveDeps): Live {
       const s = d.state.read();
       return coursesOf(s).flatMap((id) => {
         const r = roadmapOrNull(id);
-        return r ? [{ id, title: nameOf(r), goal: r.goal, track: trackName(r.track), current: id === s.approved }] : [];
+        return r ? [{ id, title: nameOf(r), goal: r.goal, track: r.track ? trackName(r.track) : '', current: id === s.approved }] : [];
       });
     },
 
@@ -797,8 +801,33 @@ export function createLive(d: LiveDeps): Live {
       schedule(course);
     },
 
+    async setActivities(on) {
+      const course = approved();
+      if (!course) throw new SafeError('No course.');
+      const { course: _, ...roadmap } = core.getRoadmap(ws, course);
+      if (on === (roadmap.style !== 'none')) return;
+      if (on && !roadmap.track) {
+        await roadmapJob(course, briefs.roadmap('Turn on graded coding activities: choose a track and a style for this course.'), () => () => core.getRoadmap(ws, course).style !== 'none');
+      } else if (on) {
+        // Back to the style the course had, if its track still offers it.
+        const styles = core.listTracks().find((t) => t.track === roadmap.track)?.styles;
+        const previous = d.state.read().activityStyles?.[course];
+        const style = previous && styles?.includes(previous) ? previous : styles?.[0] ?? previous;
+        if (!style) throw new SafeError('Choose a coding style in the roadmap first.');
+        await core.saveRoadmap(ws, course, JSON.stringify({ ...roadmap, style }), course);
+      } else {
+        // Off: its activity jobs stop, and its setup too unless another course with activities shares the track.
+        const shared = coursesOf(d.state.read()).some((c) => c !== course && trackOf(c) === roadmap.track && core.getRoadmap(ws, c).style !== 'none');
+        await cancel((key) => key.startsWith(`author:${course}:`) || (!shared && key === `setup:${roadmap.track}`));
+        d.state.update((s) => ({ ...s, activityStyles: { ...s.activityStyles, [course]: roadmap.style } }));
+        await core.saveRoadmap(ws, course, JSON.stringify({ ...roadmap, style: 'none' }), course);
+      }
+      resume(course);
+    },
+
     async install(digest) {
-      const { course, track: ref } = core.progress(ws, approved());
+      const { course, track: ref, style } = core.progress(ws, approved());
+      if (!ref || style === 'none') throw new SafeError('This course needs no setup.');
       // This install's own setup: approving the course again replaces it, and this one must not touch that.
       const mine = setupOf(ref);
       const proposal = mine.approved?.digest === digest ? mine.approved : latestProposal(ref, mine);
@@ -857,7 +886,7 @@ export function createLive(d: LiveDeps): Live {
     async retrySetup() {
       const course = approved();
       const roadmap = course ? roadmapOrNull(course) : null;
-      if (roadmap) setups.delete(roadmap.track);
+      if (roadmap?.track) setups.delete(roadmap.track);
       resume(course);
     },
 

@@ -27,7 +27,7 @@ export function Outline({ topic, current }: { topic: TopicView; current: string 
           </button>
         ),
       )}
-      {open ? (
+      {topic.activity !== 'none' && (open ? (
         <button type="button" className="item link" onClick={() => go({ to: 'practice', concept: topic.id })}>
           <Icon name="code" color="var(--ink)" size={18} />
           Activity
@@ -45,7 +45,7 @@ export function Outline({ topic, current }: { topic: TopicView; current: string 
           </span>
           {topic.activity === 'locked' && <span className="locked">Opens after you finish the lessons</span>}
         </>
-      )}
+      ))}
     </nav>
   );
 }

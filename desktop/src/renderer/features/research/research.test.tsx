@@ -9,7 +9,7 @@ describe('research progress', () => {
   it('names the goal tidily, not with the punctuation typed', async () => {
     const api = createMock();
     api.research = async () => ({ state: 'running' });
-    renderApp({ to: 'research', goal: { topic: ' springboot? ', known: '', depth: 'standard' } }, api);
+    renderApp({ to: 'research', goal: { topic: ' springboot? ', known: '', depth: 'standard', practice: 'code' } }, api);
     expect(await screen.findByRole('heading', { name: 'Researching Springboot' })).toBeInTheDocument();
   });
 
@@ -18,7 +18,7 @@ describe('research progress', () => {
     let hear: (p: JobProgress) => void = () => undefined;
     api.onJobProgress = (listener) => ((hear = listener), () => undefined);
     api.research = async () => ({ state: 'running' });
-    renderApp({ to: 'research', goal: { topic: 'Systems', known: '', depth: 'standard' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'Systems', known: '', depth: 'standard', practice: 'code' } }, api);
     await screen.findByRole('heading', { name: 'Researching Systems' });
     act(() => hear({ job: 'review-1', kind: 'review', stage: 1, steps: [], count: 0, thinking: true, elapsedMs: 0, idleMs: 0 }));
     expect(screen.getByText('Reviewing the roadmap')).toBeInTheDocument();
@@ -34,7 +34,7 @@ describe('research progress', () => {
       hear({ job: 'j1', kind: 'research', stage: 1, steps: [...steps], count: steps.length, thinking: true, elapsedMs: 0, idleMs: 0 });
     };
     api.research = async () => ({ state: 'running' });
-    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard', practice: 'code' } }, api);
     await screen.findByRole('heading', { name: 'Researching React' });
     act(() => tell({ kind: 'search', query: 'react roadmap 2026' }));
     act(() => tell({ kind: 'read', url: 'roadmap.sh/react' }));
@@ -55,7 +55,7 @@ describe('research progress', () => {
     let answer: (ps: JobProgress[]) => void = () => undefined;
     api.jobProgress = () => new Promise((r) => (answer = r));
     api.research = async () => ({ state: 'running' });
-    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard', practice: 'code' } }, api);
     await screen.findByRole('heading', { name: 'Researching React' });
     const job: JobProgress = { job: 'j1', kind: 'research', stage: 1, steps: [{ kind: 'search', query: 'react hooks' }], count: 1, thinking: true, elapsedMs: 0, idleMs: 0 };
     act(() => hear({ ...job, ended: true }));
@@ -69,7 +69,7 @@ describe('research progress', () => {
     api.onJobProgress = (listener) => ((hear = listener), () => undefined);
     api.jobProgress = async () => [{ job: 'j1', kind: 'research', stage: 1, steps: [{ kind: 'search', query: 'react hooks' }], count: 4, thinking: true, elapsedMs: 9000, idleMs: 0 }];
     api.research = async () => ({ state: 'running' });
-    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard' } }, api);
+    renderApp({ to: 'research', goal: { topic: 'React', known: '', depth: 'standard', practice: 'code' } }, api);
     expect(await screen.findByText('Searching react hooks')).toBeInTheDocument();
     expect(screen.getByText('4 steps')).toBeInTheDocument();
     act(() => hear({ job: 'j2', kind: 'tutor', stage: 0, steps: [{ kind: 'step', label: 'Reading the lesson' }], count: 1, thinking: true, elapsedMs: 0, idleMs: 0 }));
@@ -78,7 +78,7 @@ describe('research progress', () => {
 });
 
 describe('research that fails', () => {
-  const goal = { topic: 'React', known: '', depth: 'standard' as const };
+  const goal = { topic: 'React', known: '', depth: 'standard' as const, practice: 'code' as const };
 
   it('says research could not finish, and why, when its read fails while it runs: not a failed refresh', async () => {
     const api = createMock();

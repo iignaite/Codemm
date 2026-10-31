@@ -40,7 +40,7 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     expect(shown!.total.runs).toBe(1);
     // Researching a new roadmap makes it the workspace's draft; the approved course, the one on screen, keeps its usage.
     const onScreen = t.c.roadmap!.course;
-    const goal = { topic: 'Python', known: '', depth: 'standard' } as const;
+    const goal = { topic: 'Python', known: '', depth: 'standard', practice: 'code' } as const;
     let r = await t.api.research(goal);
     for (let i = 0; i < 20 && r.state === 'running'; i++) {
       await new Promise((res) => setTimeout(res, 5));
@@ -120,7 +120,7 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     for (const l of course.topics[0].lessons) if (l.state === 'ready') await t.api.markRead(l.id);
     await until(t.api, (c) => c.topics[0].activity === 'open');
     // A new roadmap is researched: the workspace now belongs to that draft, with no current exercise.
-    const goal = { topic: 'Vue', known: '', depth: 'standard' } as const;
+    const goal = { topic: 'Vue', known: '', depth: 'standard', practice: 'code' } as const;
     let next = await t.api.research(goal);
     for (let i = 0; i < 20 && next.state === 'running'; i++) {
       await new Promise((res) => setTimeout(res, 5));
@@ -349,7 +349,7 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
     const heard: JobProgress[] = [];
     t.api.onJobProgress((p) => heard.push(p));
     await t.api.connect('claude');
-    await t.api.research({ topic: 'React', known: '', depth: 'standard' });
+    await t.api.research({ topic: 'React', known: '', depth: 'standard', practice: 'code' });
     await vi.waitFor(() => expect(heard.at(-1)?.ended).toBe(true));
     expect(heard[1]).toMatchObject({ kind: 'research', retry: { attempt: 2, of: 2 } });
   });

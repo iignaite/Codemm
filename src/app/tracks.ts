@@ -75,7 +75,7 @@ function hasContainerCli(): boolean {
 function assertCoursesFit(ref: string, styles: string[]): void {
   for (const id of store.listCourses()) {
     const course = store.readCourse(id);
-    if (course?.track === ref && !styles.includes(course.style)) {
+    if (course?.track === ref && course.style !== "none" && !styles.includes(course.style)) {
       throw new CodemmError(`Course "${id}" needs style "${course.style}", but ${ref} offers ${styles.join(", ")}. Add ${course.style} to the track's styles, with its probes.`);
     }
   }

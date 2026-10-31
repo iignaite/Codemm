@@ -288,7 +288,7 @@ textarea.field { height: auto; padding: 12px 16px; line-height: 1.5; resize: ver
 .leaf .blade-art { position: absolute; inset: 0; overflow: visible; }
 .leaf.flip .blade-art { transform: scaleX(-1); }
 .leaf .blade { fill: #fff; stroke: var(--faint); stroke-width: 1.75; stroke-linejoin: round; }
-.leaf.mastered .blade { fill: var(--green-ink); stroke: var(--green-ink); }
+.leaf:is(.mastered, .covered) .blade { fill: var(--green-ink); stroke: var(--green-ink); }
 .leaf.now .blade { stroke: var(--green-ink); stroke-width: 2.5; }
 .leaf > :not(.blade-art) { position: relative; }
 .stop-row { grid-column: 2; grid-row: 1; min-height: 58px; display: flex; flex-wrap: wrap; align-items: center; column-gap: 16px; animation: up .45s var(--ease) backwards; animation-delay: calc(var(--d) + 80ms); }

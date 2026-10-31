@@ -3,7 +3,7 @@ import type { CourseView, TopicView } from '../../shared/api';
 import { continueRoute, reviewText, settled } from './course';
 
 const topic = (over: Partial<TopicView> = {}): TopicView => ({ id: 'a', title: 'A', state: 'now', mastery: 0, stuck: false, lessons: [], activity: 'locked', ...over });
-const course = (over: Partial<CourseView> = {}): CourseView => ({ title: 'G', goal: 'G', track: 't', setup: 'ready', topics: [topic()], done: false, ...over });
+const course = (over: Partial<CourseView> = {}): CourseView => ({ title: 'G', goal: 'G', track: 't', setup: 'ready', activities: true, topics: [topic()], done: false, ...over });
 
 describe('settled', () => {
   it('keeps reading while setup or the current topic is being written, until that work stops', () => {

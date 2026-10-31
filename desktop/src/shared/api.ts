@@ -157,6 +157,9 @@ export interface Computer {
 
 // ---------- roadmap (§4.2) ----------
 
+/** How the learner practises: graded coding activities, or lessons only (core style `none`). */
+export type Practice = 'code' | 'none';
+
 /** How deep the roadmap goes, as the learner chose: about 8, 15 or 25 to 30 single-skill topics. */
 export type Depth = 'overview' | 'standard' | 'in-depth';
 
@@ -165,6 +168,7 @@ export interface Goal {
   /** What the learner says they already know, in their words. */
   known: string;
   depth: Depth;
+  practice: Practice;
 }
 
 export interface Concept {
@@ -181,6 +185,7 @@ export interface Roadmap {
   /** The track's display name, from list_tracks or the agent's proposal. */
   track: string;
   installed: boolean;
+  activities: boolean;
   concepts: Concept[];
   /** The roadmaps and docs the agent used. Opened only in the system browser (§2.1). */
   sources: { title: string; url: string }[];
@@ -224,10 +229,10 @@ export interface Proposal {
   files: { path: string; text: string }[];
 }
 
-export type TopicState = 'mastered' | 'now' | 'later';
+export type TopicState = 'covered' | 'mastered' | 'now' | 'later';
 /** `failed`: the job writing it stopped, and the learner tries again (§5). */
 export type LessonState = 'writing' | 'failed' | 'ready' | 'read';
-export type ActivityState = 'writing' | 'locked' | 'open' | 'passed';
+export type ActivityState = 'none' | 'writing' | 'locked' | 'open' | 'passed';
 
 export interface TopicView {
   id: string;
@@ -250,6 +255,7 @@ export interface CourseView {
   goal: string;
   track: string;
   setup: SetupState;
+  activities: boolean;
   setupProblem?: SetupProblem;
   proposal?: Proposal;
   topics: TopicView[];
@@ -464,6 +470,7 @@ export interface CodemmApi {
   courses(): Promise<CourseSummary[]>;
   /** Puts another of the learner's courses on screen; the work it still needs starts. */
   switchCourse(course: string): Promise<void>;
+  setActivities(on: boolean): Promise<void>;
   /** Builds the proposal the learner saw. Also retries after an offline or low-disk failure. */
   install(digest: string): Promise<void>;
   /** Runs the setup job again, after its proposals failed their gates. */

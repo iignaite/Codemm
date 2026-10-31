@@ -25,7 +25,7 @@ Status: trimmed to the owner-approved 1.0 scope (the scope ledger, 17 Oct 2026),
 - **Connect:** Claude Code and Codex, with a sign-in check. Codemm installs any of the three agents, and Docker, when they're missing (§3.1, §6.1). Cursor is experimental.
 - **Check this computer:** the environment matrix in §6.1.
 - **Learn:**
-  1. Pick a goal, and the agent writes a roadmap; it may research first.
+  1. Pick a goal and how to practise: Code or Lessons only. The agent researches and writes a roadmap.
   2. Approve the roadmap, ask for changes, or edit it: rename, reorder, add or remove topics.
   3. Give one consent before setup.
   4. Read lessons, which are static text, and take notes.
@@ -296,6 +296,10 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 
 ### 4.2 Roadmap draft and edits
 
+The goal form offers Code (the default) or Lessons only. The choice travels with the goal; for Lessons only, the desktop research brief adds "Save style: none and no track."
+
+The course map has an **Activities** switch, On or Off. Off re-saves `style: none`, keeping the track and all history, and stops this course's author jobs and any setup job it alone needs. On restores the track's offered style; for a track offering both, `desktop.json` keeps the course's previous coding style. Without a track, On runs the existing roadmap job with "Turn on graded coding activities: choose a track and a style for this course." Setup then follows the ordinary flow.
+
 - **Draft before setup.**
   - `save_roadmap` accepts a track that isn't installed yet, if it is a valid `id@version`.
   - `next_step` returns `{ kind: "setup", track }` until it is installed.
@@ -316,6 +320,8 @@ Each addition lands in its own module (`schemas`, `store`, `learner`, `app`, `mc
 - **A fresh start after a new prerequisite.** When a re-save adds a prerequisite to a concept that is stuck, `save_roadmap` appends `{ kind: "retry", at, concept }`. Replaying a `retry` resets that concept's fail streak and leaves mastery unchanged. Without it, the concept would be stuck again as soon as the new prerequisite was mastered.
 
 ### 4.3 Lessons
+
+A lessons-only course follows core's `learn` step. `lesson: null` starts a lesson job; an id waits for that lesson to be read. It starts no setup or author jobs. The course map and topic pages show lessons read, omit activities and reviews, and finish only when core returns `done`. Next on a topic's last lesson returns to the map. The sidebar hides Practice. Saved lessons, notes and runnable examples on an installed track remain available when switching either way.
 
 - **Saving.** `save_lesson { id, concept, title, markdown, examples? }`. The id is new in the course, the concept is in the roadmap, and the Markdown is at most 64 KB. Optional runnable examples are checked by running them in the sandbox (core §5).
 - **Storage.** `courses/<course>/lessons/<id>/` holds:

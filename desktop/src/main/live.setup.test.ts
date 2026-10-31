@@ -49,7 +49,7 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     await t.api.install(proposal!.digest);
     await until(t.api, (c) => c.setup === 'installing');
     // Course B is researched and approved while A's install still runs.
-    const goal = { topic: 'Vue', known: '', depth: 'standard' } as const;
+    const goal = { topic: 'Vue', known: '', depth: 'standard', practice: 'code' } as const;
     let next = await t.api.research(goal);
     for (let i = 0; i < 20 && next.state === 'running'; i++) {
       await new Promise((res) => setTimeout(res, 5));

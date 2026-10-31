@@ -19,7 +19,7 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' 
   openWindowsUpdate: [],
   restartWindows: [],
   tracks: [],
-  research: [{ topic: 'React', known: 'Python', depth: 'standard' }],
+  research: [{ topic: 'React', known: 'Python', depth: 'standard', practice: 'code' }],
   reviseRoadmap: [concepts, 'Add testing'],
   approve: [concepts],
   draft: [],
@@ -27,6 +27,7 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' 
   course: [],
   courses: [],
   switchCourse: ['react-1'],
+  setActivities: [false],
   install: ['a'.repeat(64)],
   retrySetup: [],
   retryJobs: [],
@@ -91,9 +92,9 @@ describe('dispatch', () => {
   });
 
   it('rejects goals and roadmaps with the wrong shape', () => {
-    expect(() => dispatch(echo, 'research', [{ topic: '', known: '', depth: 'standard' }])).toThrow('Bad input');
+    expect(() => dispatch(echo, 'research', [{ topic: '', known: '', depth: 'standard', practice: 'code' }])).toThrow('Bad input');
     // How deep the roadmap goes: one of three presets, always given.
-    for (const depth of ['overview', 'standard', 'in-depth']) expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', depth }])).not.toThrow();
+    for (const depth of ['overview', 'standard', 'in-depth']) expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', depth, practice: 'code' }])).not.toThrow();
     expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '', depth: 'bottomless' }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'research', [{ topic: 'React', known: '' }])).toThrow('Bad input');
     expect(() => dispatch(echo, 'research', [{ topic: 'React' }])).toThrow('Bad input');
@@ -114,4 +115,10 @@ describe('dispatch', () => {
     for (const path of bad) expect(() => dispatch(echo, 'saveFile', ['a', path, '', 'b'.repeat(64)])).toThrow('Bad input');
     expect(() => dispatch(echo, 'saveFile', ['a', 'big', 'x'.repeat(1_048_577), 'b'.repeat(64)])).toThrow('Bad input');
   });
+});
+
+it('validates the practice choice and the Activities switch', async () => {
+  expect(await dispatch(echo, 'research', [{ topic: 'History', known: '', depth: 'standard', practice: 'none' }])).toMatchObject({ method: 'research' });
+  expect(() => dispatch(echo, 'research', [{ topic: 'History', known: '', depth: 'standard', practice: 'quiz' }])).toThrow('Bad input');
+  expect(() => dispatch(echo, 'setActivities', ['off'])).toThrow('Bad input');
 });

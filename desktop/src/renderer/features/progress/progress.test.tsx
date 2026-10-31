@@ -342,3 +342,44 @@ describe('usage', () => {
     expect(screen.queryByRole('region', { name: 'Usage' })).not.toBeInTheDocument();
   });
 });
+
+it('shows lessons read and an Activities switch, with no activity on topic pages', async () => {
+  const user = userEvent.setup();
+  const { api } = await mockWithCourse({ read: true });
+  await api.setActivities(false);
+  renderApp({ to: 'learn' }, api);
+  expect(await screen.findByRole('heading', { name: 'Lessons read' })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Mastery' })).not.toBeInTheDocument();
+  const toggle = screen.getByRole('switch', { name: 'Activities' });
+  expect(toggle).not.toBeChecked();
+  await user.click(screen.getByRole('button', { name: 'Continue' }));
+  expect(screen.queryByText('Activity')).not.toBeInTheDocument();
+});
+
+it('switches Activities on and off from the course map', async () => {
+  const user = userEvent.setup();
+  const { api } = await mockWithCourse();
+  renderApp({ to: 'learn' }, api);
+  const toggle = await screen.findByRole('switch', { name: 'Activities' });
+  expect(toggle).toBeChecked();
+  await user.click(toggle);
+  await screen.findByRole('heading', { name: 'Lessons read' });
+  expect(toggle).not.toBeChecked();
+  await user.click(toggle);
+  await screen.findByRole('heading', { name: 'Mastery' });
+  expect(toggle).toBeChecked();
+});
+
+it('finishes a lessons-only topic from the reader and returns to the map', async () => {
+  const user = userEvent.setup();
+  const { api, course } = await mockWithCourse();
+  await api.setActivities(false);
+  renderApp({ to: 'lesson', lessonId: course.topics[0].lessons[0].id }, api);
+  await screen.findByRole('button', { name: 'Next' });
+  expect(screen.queryByText('Activity')).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Next' }));
+  await screen.findByRole('heading', { name: 'useState' });
+  await user.click(screen.getByRole('button', { name: 'Next' }));
+  expect(await screen.findByRole('heading', { name: 'Lessons read' })).toBeInTheDocument();
+  expect((await api.course())!.topics[0].state).toBe('covered');
+});

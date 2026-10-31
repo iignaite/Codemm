@@ -58,24 +58,25 @@ export async function saveLesson(ws: string, input: unknown, bound?: string): Pr
     const course = store.readCourse(courseId)!;
     if (!course.concepts.some((c) => c.id === lesson.concept)) throw new CodemmError(`"${lesson.concept}" is not in the roadmap for ${courseId}.`);
     if (store.listLessons(courseId).some((l) => l.id === lesson.id)) throw new CodemmError(`Lesson id "${lesson.id}" is already used in ${courseId}. Pick a new id.`);
+    const track = examples.length > 0 && course.track ? store.readTrack(course.track) : undefined;
+    const style = course.style === "none" ? track?.styles[0] : course.style;
     if (examples.length > 0) {
-      const track = store.readTrack(course.track);
-      if (!track) throw new CodemmError(`Examples run in ${course.track}, which isn't set up yet. Save the lesson without examples.`);
-      examples.forEach((files, i) => assertExampleFits(i + 1, files, track, course.style));
+      if (!track || !style) throw new CodemmError(course.track ? `Examples run in ${course.track}, which isn't set up yet. Save the lesson without examples.` : "Examples need an installed track. Save the lesson without examples.");
+      examples.forEach((files, i) => assertExampleFits(i + 1, files, track, style));
       await ensureImage(track);
       for (const [i, files] of examples.entries()) {
-        const run = await runOne(track, course.style, files);
+        const run = await runOne(track, style, files);
         if (!run.clean) throw new CodemmError(`Example ${i + 1} didn't run cleanly (exit ${run.exit}):\n${cap(run.errors || run.output, 2000)}`);
       }
     }
     const { markdown, examples: _, ...meta } = lesson;
-    const checked = examples.length ? { examples: examples.length, track: course.track, style: course.style } : {};
+    const checked = examples.length ? { examples: examples.length, track: course.track, style } : {};
     store.writeLesson(courseId, { format_version: 1, ...meta, created: new Date().toISOString(), ...checked }, markdown, examples);
   };
   // Examples run on the track's image, so hold its lock too (course, then track, as saveExercise does).
   await store.withLock(store.courseLockPath(courseId), async () => {
     const track = store.readCourse(courseId)!.track;
-    return examples.length > 0 ? store.withLock(store.trackLockPath(store.parseTrackRef(track).id), save) : save();
+    return examples.length > 0 && track ? store.withLock(store.trackLockPath(store.parseTrackRef(track).id), save) : save();
   });
   return { lesson: lesson.id };
 }

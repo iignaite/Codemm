@@ -4,7 +4,7 @@ import { isSafeLink } from './links';
 import { AGENT_INFO } from './connect';
 import { createMock, scenario, SCENARIOS, type MockOptions } from './mock';
 
-const goal = { topic: 'React', known: 'Python', depth: 'standard' as const };
+const goal = { topic: 'React', known: 'Python', depth: 'standard' as const, practice: 'code' as const };
 
 async function roadmapped(options?: MockOptions) {
   const api = createMock(options);
@@ -364,8 +364,8 @@ describe('mock: job progress (§4.11)', () => {
     const heard: JobProgress[] = [];
     api.onJobProgress((p) => heard.push(p));
     await api.connect('claude');
-    let r = await api.research({ topic: 'React', known: '', depth: 'standard' });
-    while (r.state === 'running') r = await api.research({ topic: 'React', known: '', depth: 'standard' });
+    let r = await api.research({ topic: 'React', known: '', depth: 'standard', practice: 'code' });
+    while (r.state === 'running') r = await api.research({ topic: 'React', known: '', depth: 'standard', practice: 'code' });
     await api.approve(r.roadmap!.concepts);
     await api.course();
     expect(new Set(heard.map((p) => p.kind))).toEqual(new Set(['research', 'review', 'setup', 'lesson']));
@@ -377,8 +377,8 @@ describe('mock: job progress (§4.11)', () => {
   it('slow: a job holds each stage over several reads, and jobProgress lists it meanwhile', async () => {
     const api = createMock({ slow: 2 });
     await api.connect('claude');
-    let r = await api.research({ topic: 'React', known: '', depth: 'standard' });
-    while (r.state === 'running') r = await api.research({ topic: 'React', known: '', depth: 'standard' });
+    let r = await api.research({ topic: 'React', known: '', depth: 'standard', practice: 'code' });
+    while (r.state === 'running') r = await api.research({ topic: 'React', known: '', depth: 'standard', practice: 'code' });
     await api.approve(r.roadmap!.concepts);
     await api.course();
     expect((await api.jobProgress()).map((p) => [p.kind, p.stage])).toEqual([['setup', 0], ['lesson', 0]]);
@@ -408,7 +408,7 @@ describe('mock: job progress (§4.11)', () => {
     const heard: JobProgress[] = [];
     api.onJobProgress((p) => heard.push(p));
     await api.connect('claude');
-    await api.research({ topic: 'React', known: '', depth: 'standard' });
+    await api.research({ topic: 'React', known: '', depth: 'standard', practice: 'code' });
     expect(heard[0]!.idleMs).toBeGreaterThan(90_000);
   });
 });

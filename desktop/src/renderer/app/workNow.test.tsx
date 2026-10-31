@@ -5,7 +5,7 @@ import { createMock } from '../../main/mock';
 import { jobAt, jobBus, mockWithCourse, mockWithRoadmap, renderApp } from '../test-utils';
 
 const TOPIC = 'javascript-basics';
-const GOAL = { topic: 'React', known: '', depth: 'standard' as const };
+const GOAL = { topic: 'React', known: '', depth: 'standard' as const, practice: 'code' as const };
 const sidebar = () => screen.getByRole('navigation', { name: 'Main' });
 const working = () => within(sidebar()).queryByRole('list', { name: 'Codemm is working' });
 /** What each listed job says, in order: what it is, then its stage. */

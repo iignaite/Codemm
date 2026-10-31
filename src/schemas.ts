@@ -8,6 +8,7 @@ const MAX_YAML_BYTES = 65_536;
 const Id = z.string().regex(ID_PATTERN, "must be 1-64 lowercase letters, digits, '.', '_' or '-'");
 const Style = z.enum(["io", "unit"]);
 export type Style = z.infer<typeof Style>;
+export type CourseStyle = Style | "none";
 
 /** time_ms is per io case, or for a unit track's whole test command (DESIGN §4.3). */
 export const LIMITS = { time_ms: { min: 100, max: 120_000, default: 2000 }, memory_mb: { min: 64, max: 2048, default: 256 } };
@@ -143,13 +144,11 @@ const httpsUrl = z.string().max(2000).refine((u) => {
 /** The roadmaps and docs the agent used while planning (optional). */
 const Source = z.object({ title: z.string().min(1).max(120), url: httpsUrl }).strict();
 
-const RoadmapYaml = z
+const RoadmapBase = z
   .object({
     /** The course's name as the learner would say it (optional: a course without one is named by its goal). */
     title: z.string().trim().min(1).max(60).optional(),
     goal: z.string().min(1).max(500),
-    track: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}@[1-9][0-9]{0,8}$/, "track must be pinned as id@version"),
-    style: Style,
     concepts: z
       .array(z.object({
         id: Id, title: z.string().min(1).max(200), requires: z.array(Id).max(20).default([]),
@@ -162,6 +161,11 @@ const RoadmapYaml = z
     sources: z.array(Source).max(10, "list at most 10 sources").optional(),
   })
   .strict();
+const TrackRef = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}@[1-9][0-9]{0,8}$/, "track must be pinned as id@version");
+const RoadmapYaml = z.discriminatedUnion("style", [
+  RoadmapBase.extend({ style: Style, track: TrackRef }),
+  RoadmapBase.extend({ style: z.literal("none"), track: TrackRef.optional() }),
+]);
 export type Roadmap = z.infer<typeof RoadmapYaml>;
 
 /** Structural roadmap rules: unique ids, known prerequisites, no cycles (Kahn's algorithm). */
@@ -240,7 +244,10 @@ export const TrackRecord = z.union([
 ]);
 export type TrackRecord = z.infer<typeof TrackRecord>;
 
-export const CourseRecord = RoadmapYaml.extend({ format_version: z.literal(1), course: Id });
+export const CourseRecord = z.discriminatedUnion("style", [
+  RoadmapYaml.options[0].extend({ format_version: z.literal(1), course: Id }),
+  RoadmapYaml.options[1].extend({ format_version: z.literal(1), course: Id }),
+]);
 export type CourseRecord = z.infer<typeof CourseRecord>;
 
 export const ExerciseRecord = z.object({

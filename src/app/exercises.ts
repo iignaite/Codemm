@@ -5,7 +5,7 @@ import { type ExerciseGate, verifyExercise } from "../gates.js";
 import { type CaseFrames, expectedText, gradeIo, redact, type ShownResult, type Status, type TestResult, type TestSet } from "../grading.js";
 import { judgeSets } from "../judge.js";
 import { type ProgramOptions, type ProgramRun, runProgram } from "../program.js";
-import { lastCheck, nextStep as pickNext, type Step } from "../learner.js";
+import { lastCheck, nextLesson, nextStep as pickNext, type LessonStep, type Step } from "../learner.js";
 import { type CourseRecord, type ExerciseRecord, type TrackRecord } from "../schemas.js";
 import * as store from "../store.js";
 import { activeCourse, ensureImage, installedTrack, learnerDir, noteAssistLocked, quietly, trackContract } from "./shared.js";
@@ -29,6 +29,7 @@ export type TrackContract = {
 
 export type NextStep =
   | Step
+  | LessonStep
   | { kind: "setup"; track: string }
   | (Extract<Step, { kind: "author" }> & { title: string; practice?: string; pitfalls?: string[]; style: string; track: string; contract: TrackContract; earlier: Earlier[] } & LearnerContext);
 
@@ -72,6 +73,7 @@ const pickFor = (course: CourseRecord) =>
 
 export function nextStep(ws: string, bound?: string): NextStep {
   const course = activeCourse(ws, bound);
+  if (course.style === "none") return nextLesson(course, store.readEvents(course.course), store.listLessons(course.course));
   const track = store.readTrack(course.track);
   if (!track) return { kind: "setup", track: course.track };
   if (!track.styles.includes(course.style)) {
@@ -95,6 +97,7 @@ export async function saveExercise(ws: string, files: FileMap, bound?: string, o
   const { record, track } = await store.withLock(store.courseLockPath(courseId), () => {
     // Re-read under the course lock, then lock that course's current track: a draft's track can change.
     const course = store.readCourse(courseId)!;
+    assertActivities(course);
     return store.withLock(store.trackLockPath(store.parseTrackRef(course.track).id), async () => {
       const track = installedTrack(course.track);
       await ensureImage(track);
@@ -142,8 +145,13 @@ function learnerFiles(record: ExerciseRecord, files: FileMap, track: TrackRecord
 /** An io test's input file: `NN.in`, or `NN.gen`, a script whose output is the input (DESIGN §6). */
 const ioInput = /\.(in|gen)$/;
 
+function assertActivities(course: CourseRecord): asserts course is Extract<CourseRecord, { style: "io" | "unit" }> {
+  if (course.style === "none") throw new CodemmError("This course has lessons only. Turn activities on to practise.");
+}
+
 function loadExercise(ws: string, slug?: string, bound?: string) {
   const course = activeCourse(ws, bound);
+  assertActivities(course);
   const config = store.readWorkspace(ws);
   const preferred = slug ?? (config.course === course.course ? config.current : undefined);
   const next = preferred ? undefined : pickFor(course);

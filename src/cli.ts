@@ -66,6 +66,7 @@ function describeStep(step: app.NextStep): string {
     return step.lesson === null ? `Ask your agent for a lesson on ${step.concept}.` : `Read lesson "${step.lesson}" with your agent.`;
   }
   switch (step.kind) {
+    case "learn": return step.lesson === null ? `Ask your agent for a lesson on ${step.concept}.` : `Read lesson "${step.lesson}" with your agent.`;
     case "setup": return `Ask your agent to set up ${step.track}.`;
     case "practice": return `Practice "${step.exercise}" (${step.concept}, difficulty ${step.difficulty}).`;
     case "author": return `Ask your agent for a new ${step.concept} ${step.review ? "review " : ""}exercise (difficulty ${step.difficulty}).`;
@@ -95,9 +96,15 @@ async function main(argv: string[]): Promise<number> {
     }
     case "status": {
       const p = app.progress(ws);
-      print(`${p.course}: ${p.goal} (${p.track})`);
-      for (const c of p.concepts) print(`  ${c.mastered ? "✓" : c.stuck ? "!" : "·"} ${c.title} [${c.id}] mastery ${c.mastery.toFixed(2)}, difficulty ${c.difficulty}`);
-      print(describeStep(p.next));
+      print(`${p.course}: ${p.goal}${p.track ? ` (${p.track})` : ""}`);
+      if (p.style === "none") {
+        const lessons = app.listLessons(ws);
+        for (const c of p.concepts) {
+          const own = lessons.filter((l) => l.concept === c.id);
+          print(`  ${c.title}: ${own.filter((l) => l.read).length} of ${own.length} lessons read`);
+        }
+      } else for (const c of p.concepts) print(`  ${c.mastered ? "✓" : c.stuck ? "!" : "·"} ${c.title} [${c.id}] mastery ${c.mastery.toFixed(2)}, difficulty ${c.difficulty}`);
+      print(p.style === "none" && p.next.kind === "done" ? "Every concept is covered." : describeStep(p.next));
       return 0;
     }
     case "test":

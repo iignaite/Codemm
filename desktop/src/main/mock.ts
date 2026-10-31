@@ -351,7 +351,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   function unlock(concept: string) {
     const topic = topicOf(concept);
     // An activity still being written opens once its author job ends (tick).
-    if (topic.activity === 'passed' || topic.activity === 'writing' || course?.setup !== 'ready') return;
+    if (!course?.activities || topic.activity === 'passed' || topic.activity === 'writing' || course?.setup !== 'ready') return;
     topic.activity = topic.lessons.every((l) => l.state === 'read') ? 'open' : 'locked';
   }
 
@@ -362,9 +362,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   function advance() {
     const c = course!;
     const requires = (id: string) => approved!.concepts.find((x) => x.id === id)?.requires ?? [];
-    const ready = c.topics.filter((t) => t.state !== 'mastered' && requires(t.id).every((r) => topicOf(r).state === 'mastered' || deferred.has(r)));
-    c.topics.filter((t) => t.state === 'now').forEach((t) => (t.state = 'later'));
-    c.done = c.topics.every((t) => t.state === 'mastered');
+    const complete = (t: CourseView['topics'][number]) => c.activities ? t.mastery === 1 : t.lessons.length > 0 && t.lessons.every((l) => l.state === 'read');
+    c.topics.forEach((t) => { t.state = complete(t) ? c.activities ? 'mastered' : 'covered' : 'later'; });
+    const ready = c.topics.filter((t) => !complete(t) && requires(t.id).every((r) => complete(topicOf(r)) || deferred.has(r)));
+    c.done = c.topics.every(complete);
     const next = ready.find((t) => !deferred.has(t.id)) ?? ready[0];
     if (next) start(next.id);
   }
@@ -390,7 +391,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     if (!now) return;
     const writing = now.lessons.find((l) => l.state === 'writing');
     if (writing && !busy(`${current}:lesson:${now.id}`, 'lesson', now.id)) writing.state = 'ready';
-    if (now.activity === 'writing' && c.setup === 'ready' && !busy(`${current}:author:${now.id}`, 'author', now.id)) now.activity = 'locked';
+    if (c.activities && now.activity === 'writing' && c.setup === 'ready' && !busy(`${current}:author:${now.id}`, 'author', now.id)) now.activity = 'locked';
     unlock(now.id);
   }
 
@@ -696,6 +697,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         title: shownTopic(goal.topic),
         goal: goal.topic,
         track: goal.topic,
+        activities: goal.practice !== 'none',
         installed: tracks.some((t) => t.name === goal.topic),
         concepts: TOPICS.map(([title, requires]) => ({ id: slugOf(title), title, requires: [...requires] })),
         sources: [],
@@ -720,7 +722,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       lessons = new Map();
       activities = new Map();
       deferred = new Set();
-      course = { title: roadmap.title, goal: roadmap.goal, track: roadmap.track, setup: roadmap.installed ? 'ready' : 'proposing', done: false, topics: edited.map(addConcept) };
+      course = { title: roadmap.title, goal: roadmap.goal, track: roadmap.track, activities: roadmap.activities, setup: !roadmap.activities || roadmap.installed ? 'ready' : 'proposing', done: false, topics: edited.map(addConcept) };
       current = `course-${kept.size + 1}`;
       kept.set(current, { course, approved, lessons, activities, deferred });
       advance();
@@ -750,7 +752,14 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async course() {
       if (!course) return null;
       tick(course);
-      return { ...structuredClone(course), ...(options.stalled ? { stalled: options.stalled } : {}), ...(options.stalled && options.stalledWork ? { stalledWork: options.stalledWork } : {}), ...(options.stalled && options.laterTopic ? { later: options.laterTopic } : {}) };
+      return { ...structuredClone(course), topics: course.topics.map((t) => ({ ...structuredClone(t), ...(!course!.activities ? { activity: 'none' as const, stuck: false } : {}) })), ...(options.stalled ? { stalled: options.stalled } : {}), ...(options.stalled && options.stalledWork ? { stalledWork: options.stalledWork } : {}), ...(options.stalled && options.laterTopic ? { later: options.laterTopic } : {}) };
+    },
+
+    async setActivities(on) {
+      if (!course) throw new Error('No course');
+      course.activities = on;
+      course.setup = !on || tracks.some((t) => t.name === course!.track) ? 'ready' : 'proposing';
+      advance();
     },
 
     async install(digest) {
@@ -788,6 +797,10 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       const lesson = find(lessons, id);
       const ref = topicOf(lesson.concept).lessons.find((l) => l.id === id)!;
       if (ref.state !== 'writing') ref.state = 'read';
+      if (!course!.activities) {
+        deferred.delete(lesson.concept);
+        advance();
+      }
       unlock(lesson.concept);
     },
 

@@ -13,7 +13,7 @@ export function renderApp(start: Route = { to: 'welcome' }, api: CodemmApi = cre
 export async function mockWithRoadmap(options?: MockOptions): Promise<{ api: CodemmApi; roadmap: Roadmap }> {
   const api = createMock(options);
   await api.connect('claude');
-  const goal = { topic: 'React', known: '', depth: 'standard' as const };
+  const goal = { topic: 'React', known: '', depth: 'standard' as const, practice: 'code' as const };
   let r = await api.research(goal);
   while (r.state === 'running') r = await api.research(goal);
   return { api, roadmap: r.roadmap! };

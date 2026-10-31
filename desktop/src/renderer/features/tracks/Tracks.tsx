@@ -56,7 +56,7 @@ export function Tracks() {
 
   function start(e: FormEvent) {
     e.preventDefault();
-    if (topic.trim()) go({ to: 'research', goal: { topic: topic.trim(), known: '', depth: 'standard' } });
+    if (topic.trim()) go({ to: 'research', goal: { topic: topic.trim(), known: '', depth: 'standard', practice: 'code' } });
   }
 
   return (

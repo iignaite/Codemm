@@ -67,7 +67,7 @@ export function Sidebar({ slim: slimHere = false }: { slim?: boolean }) {
     const target = typeof to === 'function' ? await to() : to;
     if (shown.current === from && !sameRoute(target, route)) go(target);
   }
-  const nav = items.map((item) => (
+  const nav = items.filter((item) => item.key !== 'practice' || course?.activities !== false).map((item) => (
     <button
       key={item.key}
       type="button"

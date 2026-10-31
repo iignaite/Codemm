@@ -34,6 +34,7 @@ export function TopicPage({ topicId }: { topicId: string }) {
         <h1 className="h1 a-up">{topic.title}</h1>
         {/* A failed setup says so above the lessons, which stay readable. */}
         {course.setup === 'failed' && <SetupFailed course={course} topicId={topicId} onRetry={reload} />}
+        {!course.activities && <p className="sub">{topic.lessons.filter((l) => l.state === 'read').length} of {topic.lessons.length} lessons read</p>}
         <Items topic={topic} onRetry={reload} />
         {(course.setup === 'proposing' || course.setup === 'installing') &&
           (setupJob ? (
@@ -92,7 +93,7 @@ function Items({ topic, onRetry }: { topic: TopicView; onRetry: () => void }) {
           )}
         </div>
       ))}
-      <div className={`row a-up${open ? '' : ' off'}${topic.activity === 'writing' ? ' writing' : ''}`} style={stagger(topic.lessons.length, 300)}>
+      {topic.activity !== 'none' && <div className={`row a-up${open ? '' : ' off'}${topic.activity === 'writing' ? ' writing' : ''}`} style={stagger(topic.lessons.length, 300)}>
         <Icon name="code" color="var(--faint)" size={18} />
         <span className="fill">{topic.review ? 'Review' : 'Activity'}</span>
         {open ? (
@@ -105,7 +106,7 @@ function Items({ topic, onRetry }: { topic: TopicView; onRetry: () => void }) {
         ) : (
           <span className="locked"><Icon name="lock" color="var(--faint)" size={16} />Opens after you finish the lessons</span>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
