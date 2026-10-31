@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { ElectronApplication, Page } from '@playwright/test';
+import { join } from 'node:path';
 import { expect as baseExpect, test } from './launch';
 
 // Screens change after IPC round trips to the app; slow CI runners need more than the default 5 s.
@@ -149,6 +150,35 @@ test('every screen of the journey passes WCAG AA checks', async ({ launch }) => 
   await audit(page, 'goal, with a roadmap to resume');
   await button(page, 'Resume roadmap').click();
   await expect(heading(page, 'Vue')).toBeVisible();
+  await app.close();
+});
+
+test('the quiz journey passes WCAG AA checks', async ({ launch }) => {
+  const { app, page } = await launch();
+  await connect(page);
+  await expect(heading(page, 'What do you want to learn?')).toBeVisible();
+  await page.getByRole('textbox', { name: 'What do you want to learn?' }).fill('React');
+  await page.getByRole('radio', { name: 'Quiz', exact: true }).check();
+  await button(page, 'Start').click();
+  await expect(heading(page, 'Researching React')).toBeVisible();
+  await expect(button(page, 'Approve')).toBeVisible({ timeout: 15_000 });
+  await button(page, 'Approve').click();
+  await button(page, 'Read What javascript basics is').click();
+  await button(page, 'Next').click();
+  await button(page, 'Next').click();
+  await expect(heading(page, 'Click Counter quiz')).toBeVisible();
+  await expect(button(page, 'Check')).toBeDisabled();
+  await audit(page, 'quiz activity');
+  if (process.env.QUIZ_SHOTS) await page.screenshot({ path: join(process.env.QUIZ_SHOTS, 'quiz-activity.png') });
+  const questions = page.getByRole('group');
+  await expect(questions).toHaveCount(5);
+  for (let i = 0; i < 5; i++) await questions.nth(i).getByRole('radio').nth(i === 0 ? 1 : 0).check();
+  await button(page, 'Check').click();
+  const results = page.getByRole('region', { name: 'Results' });
+  await expect(results.getByRole('heading', { name: '4 of 5 right' })).toBeVisible();
+  await expect(results.getByText('Changing a local variable does not update the screen.')).toBeVisible();
+  await audit(page, 'quiz results');
+  if (process.env.QUIZ_SHOTS) await page.screenshot({ path: join(process.env.QUIZ_SHOTS, 'quiz-results.png') });
   await app.close();
 });
 

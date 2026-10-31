@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parse, stringify } from 'yaml';
 import { CHANGED, NO_AGENT, PLAN_LIMIT, REBUILD, SIGNED_OUT, type CodemmApi, type CourseView, type JobProgress } from '../shared/api';
 import { isSafeLink } from './links';
 import { AGENT_INFO } from './connect';
@@ -6,11 +7,11 @@ import { createMock, scenario, SCENARIOS, type MockOptions } from './mock';
 
 const goal = { topic: 'React', known: 'Python', depth: 'standard' as const, practice: 'code' as const };
 
-async function roadmapped(options?: MockOptions) {
+async function roadmapped(options?: MockOptions, practice: 'code' | 'quiz' = 'code') {
   const api = createMock(options);
   await api.connect('claude');
-  let r = await api.research(goal);
-  while (r.state === 'running') r = await api.research(goal);
+  let r = await api.research({ ...goal, practice });
+  while (r.state === 'running') r = await api.research({ ...goal, practice });
   return { api, roadmap: r.roadmap! };
 }
 
@@ -56,6 +57,74 @@ async function practising(options?: MockOptions) {
   for (const l of course.topics[0].lessons) await api.markRead(l.id);
   return { api, activity: await api.activity(course.topics[0].id) };
 }
+
+describe('mock: quiz', () => {
+  async function quiz() {
+    const { api, roadmap } = await roadmapped({ docker: 'missing', imageMissing: true, style: 'io' }, 'quiz');
+    await api.approve(roadmap.concepts);
+    return { api, roadmap, activity: await api.activity(roadmap.concepts[0].id) };
+  }
+
+  it('needs no setup or track and gives every concept questions without a key', async () => {
+    const { api, roadmap } = await quiz();
+    expect(await api.course()).toMatchObject({ setup: 'ready', activities: true });
+    expect((await api.course())!.proposal).toBeUndefined();
+    expect(await api.tracks()).toEqual([]);
+    for (const concept of roadmap.concepts) {
+      const activity = await api.activity(concept.id);
+      expect(activity.style).toBe('quiz');
+      if (activity.style !== 'quiz') throw new Error('Expected a quiz');
+      expect(activity.statement).not.toBe('');
+      expect(activity.questions).toHaveLength(5);
+      for (const question of activity.questions) {
+        expect(Object.keys(question)).toEqual(['text', 'choices']);
+        expect(question.choices).toHaveLength(3);
+        for (const choice of question.choices) expect(Object.keys(choice)).toEqual(['text']);
+      }
+      expect(activity.visibleTests).toEqual([]);
+      expect(activity.run).toBeUndefined();
+      expect(activity.files.map((f) => f.path)).toEqual(['answers.yaml']);
+      expect(parse(activity.files[0].text)).toEqual({ 1: null, 2: null, 3: null, 4: null, 5: null });
+      expect((await api.lesson(`${concept.id}-1`)).examples).toEqual([]);
+    }
+    await api.setActivities(false);
+    await api.setActivities(true);
+    expect(await api.course()).toMatchObject({ setup: 'ready' });
+  });
+
+  it('requires all answers, grades only picked choices and records only the first full check', async () => {
+    const { api, activity } = await quiz();
+    let digest = activity.files[0].digest;
+    const save = async (answers: Record<number, number | null>) => {
+      digest = await api.saveFile(activity.id, 'answers.yaml', stringify(answers), digest);
+    };
+    await expect(api.check(activity.id)).rejects.toThrow('Answer every question, then check.');
+    await save({ 1: 1, 2: 1, 3: 1, 4: 1 });
+    await expect(api.check(activity.id)).rejects.toThrow('Answer every question, then check.');
+    await save({ 1: 2, 2: 1, 3: 1, 4: 1, 5: 1 });
+    const result = await api.check(activity.id);
+    expect(result).toMatchObject({ kind: 'graded', passed: 4, total: 5, recorded: true, mastered: false });
+    if (result.kind !== 'graded') throw new Error('Expected a grade');
+    expect(result.tests).toEqual([
+      { hidden: false, name: '1', status: 'fail', message: 'Changing a local variable does not update the screen.' },
+      ...['2', '3', '4', '5'].map((name) => ({ hidden: false, name, status: 'pass' })),
+    ]);
+    const before = await api.course();
+    await save({ 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 });
+    expect(await api.check(activity.id)).toMatchObject({ passed: 5, recorded: false, mastered: false });
+    expect(await api.course()).toEqual(before);
+  });
+
+  it('masters a topic on a first passing check and refuses Try it and Run', async () => {
+    const { api, activity } = await quiz();
+    await expect(api.tryIt(activity.id)).rejects.toThrow("A quiz has no practice run. Check it when you're ready.");
+    await expect(api.runProgram(activity.id, 'quiz-run')).rejects.toThrow("Run isn't available");
+    await api.saveFile(activity.id, 'answers.yaml', stringify({ 1: 1, 2: 1, 3: 1, 4: 1, 5: 1 }), activity.files[0].digest);
+    expect(await api.check(activity.id)).toMatchObject({ passed: 5, total: 5, recorded: true, mastered: true });
+    expect((await api.course())!.topics[0]).toMatchObject({ mastery: 1, activity: 'passed' });
+    expect(await api.check(activity.id)).toMatchObject({ recorded: false, mastered: true });
+  });
+});
 
 describe('mock: installing an agent', () => {
   it('installs a missing agent step by step, then checks its sign-in; signing in connects it on the next look', async () => {
