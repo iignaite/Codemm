@@ -174,7 +174,7 @@ export function parseRoadmapYaml(yaml: string): Roadmap {
   }
   for (const c of r.concepts) {
     if (c.refs?.some((ref) => ref >= (r.sources?.length ?? 0))) throw new CodemmError(`Invalid roadmap: "${c.id}" has a ref out of range.`);
-    if (r.sources?.length && (c.practice !== undefined || c.pitfalls !== undefined) && !c.refs?.length) {
+    if (r.sources?.length && (c.practice !== undefined || c.pitfalls?.length) && !c.refs?.length) {
       throw new CodemmError(`Invalid roadmap: "${c.id}" needs at least one ref for its practice or pitfalls.`);
     }
     if (new Set(c.requires).size !== c.requires.length) throw new CodemmError(`Invalid roadmap: "${c.id}" lists a prerequisite more than once.`);

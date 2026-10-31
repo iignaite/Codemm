@@ -236,7 +236,11 @@ describe("roadmap practice and sources", () => {
     expect(() => parseRoadmapYaml(yaml({ refs: [sources?.length ?? 0] }, sources))).toThrow(/Invalid roadmap:.*ref.*range/);
   });
 
-  it.each([{ practice: "Fix a loop" }, { pitfalls: ["No budget"] }, { pitfalls: [] }, { practice: "Fix a loop", refs: [] }])
+  it("allows empty pitfalls without refs when sources exist", () => {
+    expect(parseRoadmapYaml(yaml({ pitfalls: [] }, [source])).concepts[0]).toMatchObject({ pitfalls: [] });
+  });
+
+  it.each([{ practice: "Fix a loop" }, { pitfalls: ["No budget"] }, { practice: "Fix a loop", refs: [] }])
     ("requires refs for practice or pitfalls with sources (%j)", (fields) => {
       expect(() => parseRoadmapYaml(yaml(fields, [source]))).toThrow(/Invalid roadmap:.*ref/);
     });
