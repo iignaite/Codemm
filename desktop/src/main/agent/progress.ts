@@ -51,9 +51,9 @@ export function jobTracker(kind: JobKind, { id = randomUUID(), concept, track, n
   const reach = (n: number) => (stage = Math.max(stage, Math.min(n, last)));
 
   function step(s: JobStep & { href?: string }) {
-    // Only research shows web steps (§3.2). Setup searches too, to find a release file, but its screen shows its own
-    // stages. Another job's agent may still search (Codex has no switch for it), and its queries and pages could carry
-    // an exercise still being written, which the reply filter doesn't know yet.
+    // Only research shows web steps (§3.2). Review and setup search too, but their screens show their own stages. Another
+    // job's agent may still search (Codex has no switch for it), and its queries and pages could carry an exercise still
+    // being written, which the reply filter doesn't know yet.
     if (s.kind !== 'step' && kind !== 'research') return;
     const shown: JobStep = s.kind === 'read' ? { kind: 'read', url: s.url } : s;
     const text = s.kind === 'search' ? s.query : s.kind === 'read' ? (s.href ?? s.url) : s.label;

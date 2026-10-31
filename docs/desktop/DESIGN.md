@@ -110,7 +110,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 | Headless turn | `claude -p <brief> --output-format stream-json --verbose` | `codex exec --json --skip-git-repo-check <brief>` | `cursor-agent -p --output-format stream-json --approve-mcps --trust [--model <m>] <brief>`, run in a job folder |
 | Codemm server | `--mcp-config <json> --strict-mcp-config` | `-c mcp_servers.codemm.{command,args,env}=…` | `.cursor/mcp.json` in the job folder, `<userData>/agents/cursor-<config hash>` (no flag exists, and the workspace and `~/.cursor` stay untouched) |
 | Codemm tools | `--allowedTools mcp__codemm__<tool>,…` | `-c mcp_servers.codemm.enabled_tools=[…]`, then `default_tools_approval_mode="approve"` | `.cursor/cli.json` in the job folder: `permissions.allow` `Mcp(codemm:<tool>)`, … |
-| Built-in tools | `--tools ""` (web search and fetch for the research and setup jobs only) | `--ignore-user-config`, `--disable shell_tool --disable unified_exec --disable browser_use --disable computer_use --disable apps --disable multi_agent`, `-c sandbox_mode="read-only"`, and `-c web_search="disabled"` except for research and setup | The same file denies `Shell(*)`, `Read` and `Write` of `**` and `/**`, and `WebFetch(*)` except for research and setup. Those two add `--force`, since print mode approves web search and fetch only with it |
+| Built-in tools | `--tools ""` (web search and fetch for the research, review and setup jobs only) | `--ignore-user-config`, `--disable shell_tool --disable unified_exec --disable browser_use --disable computer_use --disable apps --disable multi_agent`, `-c sandbox_mode="read-only"`, and `-c web_search="disabled"` except for research, review and setup | The same file denies `Shell(*)`, `Read` and `Write` of `**` and `/**`, and `WebFetch(*)` except for research, review and setup. Those three add `--force`, since print mode approves web search and fetch only with it |
 | Follow-up turn | `--resume <session_id>` | `codex exec resume <thread_id>` | `--resume <chatId>` |
 | Sign-in check | `claude auth status --json`, field `loggedIn` | `codex login status`, exit 0 and "Logged in" | `cursor-agent status`, "Not logged in" |
 
@@ -124,7 +124,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
   - Code mode (`functions.exec`) remains, because Codex calls MCP tools through it. Whether it can read files is unproven. Hidden data is therefore protected by the reply filter and the honor system, under the reworded invariant (decision 10).
 - **Cursor.**
   - It reads MCP servers and permissions from its working directory, and keeps chats per working directory. So each job runs in a Codemm-owned folder named by its config: the same config gets the same folder, and a tutor turn resumes its chat. `--trust` stops an untrusted folder from halting print mode.
-  - The folder's `cli.json` allows only the job's Codemm tools. It denies the shell, file reads and writes, and web fetches outside research and setup. Deny rules win over the learner's own allow list.
+  - The folder's `cli.json` allows only the job's Codemm tools. It denies the shell, file reads and writes, and web fetches outside research, review and setup. Deny rules win over the learner's own allow list.
   - **What the canary showed** (a signed-in run asked to break out, with and without `--force`):
     - The shell, file reads and writes were denied, inside the job folder and outside it.
     - Grep returned no matches and glob no file names, though glob reported a file count.
@@ -234,7 +234,7 @@ Proved for Claude Code and Codex in [agent-bridge.md](agent-bridge.md). Cursor w
 | Author | `next_step`, `save_exercise` | a new exercise exists for the job's concept and difficulty |
 | Tutor | `progress`, `next_step`, `get_exercise`, `get_lesson`, `mark_lesson_read`, `get_roadmap`, `list_tracks` | the turn ends without error |
 
-After research, one review job checks the roadmap in a fresh session and may save corrections. It runs in the foreground on the same course, with web access and a 10-minute deadline.
+After research, one review job checks the roadmap in a fresh session and may save corrections. It runs in the foreground on the same course, with web access, one attempt and a 5-minute deadline. The roadmap cannot be resumed or edited while the review runs.
 
 - **Bound to a course.** Every job's server gets `--course <course>`, so switching courses in the app can't redirect a job's save.
 - **Checking the result.** "Done when" is checked against core records created after the job started, never against the agent's text. Before relaunching a failed job, main checks again, because a save can commit just before a crash.
@@ -245,12 +245,13 @@ After research, one review job checks the roadmap in a fresh session and may sav
   | Job | Deadline | Retry bound |
   |---|---|---|
   | Research | 10 min | — |
+  | Roadmap review | 5 min | One attempt; never relaunched |
   | Setup | 10 min per proposal, then core's 10 min build limit | 5 proposals per setup |
   | Lesson | 5 min | 3 failed `save_lesson` calls |
   | Author | 15 min | 3 failed `save_exercise` calls |
   | Tutor | 5 min | — |
 
-  The bridge counts failed saves from `tool_result` events and cancels the job at the bound. A failed job is relaunched once at most, and never when the failure is an infrastructure failure or a plan limit (§6.1). An author relaunches in its own session (§3.2); a resume the agent refuses (it exits before starting) doesn't count, and that relaunch runs fresh. After that, the learner gets the failure screen (§5). When it is an activity its agent couldn't write (not a review, which comes first whatever was skipped) and leaving that topic for later opens another, the banner offers "Come back later" beside Try again. Choosing it during any other stall changes no stall and starts no agent. With it, the course moves on to the next topic, whose lesson and activity are written, and the topic comes back once nothing else is open.
+  The bridge counts failed saves from `tool_result` events and cancels the job at the bound. Except for a roadmap review, a failed job is relaunched once at most, and never when the failure is an infrastructure failure or a plan limit (§6.1). An author relaunches in its own session (§3.2); a resume the agent refuses (it exits before starting) doesn't count, and that relaunch runs fresh. After that, the learner gets the failure screen (§5). When it is an activity its agent couldn't write (not a review, which comes first whatever was skipped) and leaving that topic for later opens another, the banner offers "Come back later" beside Try again. Choosing it during any other stall changes no stall and starts no agent. With it, the course moves on to the next topic, whose lesson and activity are written, and the topic comes back once nothing else is open.
 - **Practice protection.** Tutor turns have no edit tools in Claude Code or Codex. The learner edits; Codemm explains. This doesn't depend on the Claude hook, and it is not a security boundary (§3.1).
 - **Stuck.**
   - "Reread the lesson" opens the lesson.
@@ -407,7 +408,7 @@ Core §7 schedules reviews of mastered concepts at 1, 3, 7, 21 and 60 days. In t
 
 - **Progress.** The stream parsers in `agent/claude.ts` and `agent/codex.ts`, with the shared steps in `agent/stream.ts`, read both CLIs: Claude Code's `WebSearch` and `WebFetch` tool uses, and Codex's `web_search` items (queries and `open_page`). It emits `search` (a query, at most 120 characters), `read` (https only, shown as host and path) and `step` (a fixed label for each Codemm tool, such as "Saving the roadmap"). Nothing comes from a file path, a file's contents or Codemm's records. The research job's steps travel with its progress (§4.11). The research screen lists them quietly, the latest first and fading as they age, with a step count.
 - **Reads become sources.** When research has saved the roadmap, the https pages it read join the agent's own `sources` (at most 10), saved through core's roadmap rules.
-- **Review.** After sources save, research stays running until the review ends. A failed or timed-out review, or one that makes no change, is logged and the learner still gets the roadmap.
+- **Review.** After sources save, research stays running until the review ends. The review gets one attempt with a 5-minute deadline and is never relaunched. While it runs, the roadmap is not offered as a draft and cannot be resumed or edited. A failed or timed-out review, or one that makes no change, is logged and the learner still gets the roadmap.
 
 - **Saving.** The research job lists the roadmaps and docs it used as the roadmap's optional `sources` (core §5). A roadmap change keeps them unless asked otherwise, and the app's own roadmap edits carry them over.
 - **Showing.** The roadmap and course-edit screens show a quiet "Sources" line under the heading, so a long roadmap never pushes it out of view. Each link opens only after a click, in the system browser, through main's `shell.openExternal`, and main accepts only https links. Nothing loads inside the app window.
@@ -443,7 +444,7 @@ Every long step shows its live progress, so the learner always knows where it is
 - **What a report holds** (`JobProgress` in `shared/api.ts`). It is a whole snapshot, so a later one replaces an earlier one.
   - An opaque id for this run of the job, its kind, the topic for a lesson or author job, and the track's name (never its ref) for a rebuild.
   - The stage reached, an index into `JOB_STAGES` (`shared/progress.ts`).
-  - The latest 8 steps, newest first, and a count of all of them. Steps come from the stream parser (§4.9): searches, pages as host and path, and a fixed label per Codemm tool. Searches and pages are shown for research only: another job's agent may still search (Codex has no switch for it), and what it looks up could carry an exercise still being written, which the reply filter doesn't know yet.
+  - The latest 8 steps, newest first, and a count of all of them. Steps come from the stream parser (§4.9): searches, pages as host and path, and a fixed label per Codemm tool. Searches and pages are shown for research only: review and setup search too but show their own stages, and another job's agent may still search (Codex has no switch for it), and what it looks up could carry an exercise still being written, which the reply filter doesn't know yet.
   - A retry, after a failed save within the bound in §3.2, or 2 of 2 when a failed job is relaunched. The counts stay in the report, but nothing shows them: a retry reads "Taking a little longer", one line, everywhere.
   - A real fraction within the stage, where one exists: a setup's build steps, or which of the exercise's 3 gates runs.
   - Whether the agent is thinking, which is false while one of Codemm's own tools runs, and the time since the job started and since its last event.
