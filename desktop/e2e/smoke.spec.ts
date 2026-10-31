@@ -204,7 +204,7 @@ test('check progress reaches the page as phase and counts only', async ({ launch
       throw new Error(`${what} never settled`);
     };
     await call('connect', 'claude');
-    const goal = { topic: 'React', known: '', depth: 'standard' };
+    const goal = { topic: 'React', known: '', depth: 'standard', practice: 'code' };
     const r = await poll(() => call('research', goal), (v) => v.state !== 'running', 'Research');
     await call('approve', r.roadmap.concepts);
     let c = await poll(() => call('course'), (v) => v.setup === 'consent', 'Setup consent');
@@ -244,7 +244,7 @@ test('Run streams a program through the bridge, with typed input', async ({ laun
       throw new Error(`${what} never settled`);
     };
     await call('connect', 'claude');
-    const goal = { topic: 'Python', known: '', depth: 'standard' };
+    const goal = { topic: 'Python', known: '', depth: 'standard', practice: 'code' };
     const r = await poll(() => call('research', goal), (v) => v.state !== 'running', 'Research');
     await call('approve', r.roadmap.concepts);
     let c = await poll(() => call('course'), (v) => v.setup === 'consent', 'Setup consent');

@@ -62,11 +62,12 @@ function printCheck(r: app.CheckView): void {
 }
 
 function describeStep(step: app.NextStep): string {
-  if ((step.kind === "practice" || step.kind === "author") && step.lesson !== undefined) {
+  // A lesson to read comes first, on learn, practice and author alike.
+  if ((step.kind === "learn" || step.kind === "practice" || step.kind === "author") && step.lesson !== undefined) {
     return step.lesson === null ? `Ask your agent for a lesson on ${step.concept}.` : `Read lesson "${step.lesson}" with your agent.`;
   }
   switch (step.kind) {
-    case "learn": return step.lesson === null ? `Ask your agent for a lesson on ${step.concept}.` : `Read lesson "${step.lesson}" with your agent.`;
+    case "learn": return `Read about ${step.concept} with your agent.`;
     case "setup": return `Ask your agent to set up ${step.track}.`;
     case "practice": return `Practice "${step.exercise}" (${step.concept}, difficulty ${step.difficulty}).`;
     case "author": return `Ask your agent for a new ${step.concept} ${step.review ? "review " : ""}exercise (difficulty ${step.difficulty}).`;

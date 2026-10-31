@@ -568,7 +568,17 @@ it("keeps lesson examples on a retained track's coding style when activities are
   expect(app.listLessons(ws)).toEqual([]);
 });
 
+it("re-saves a course without making it active when asked, so another course's draft stays active", async () => {
+  await app.saveRoadmap(ws, "shell", roadmap());
+  await app.saveRoadmap(ws, "draft", roadmap());
+  await app.saveRoadmap(ws, "shell", roadmap().replace("style: io", "style: none"), "shell", false);
+  expect(app.getRoadmap(ws).course).toBe("draft");
+  expect(app.getRoadmap(ws, "shell").style).toBe("none");
+});
+
 it("allows proposing a coding track retained by a lessons-only course", async () => {
+  // As in "setup proposals": nothing on PATH, so a runner with wasmtime and no Docker gets the same answer.
+  fakeDocker("missing");
   await app.saveRoadmap(ws, "shell", roadmap().replace("style: io", "style: none"));
   expect(await app.proposeTrack(readFileMap(join(import.meta.dirname, "fixtures", "tracks", "shell-io")))).toMatchObject({ proposed: "shell-io@1" });
 });

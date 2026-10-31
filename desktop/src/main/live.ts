@@ -225,8 +225,13 @@ export function createLive(d: LiveDeps): Live {
   };
   /** The learner's courses on a track, and `course`: they share its setup (§4.13). */
   const onTrack = (ref: string, course: string) => [...new Set([course, ...coursesOf(d.state.read())])].filter((c) => {
-    const r = roadmapOrNull(c);
-    return r?.track === ref && r.style !== 'none';
+    // A course whose roadmap can't be read shares nothing, as in trackOf: one damaged record mustn't stop the others.
+    try {
+      const r = roadmapOrNull(c);
+      return r?.track === ref && r.style !== 'none';
+    } catch {
+      return false;
+    }
   });
   /** A course's name: the words typed for a course from before titles (W-5), kept as it was, else the agent's title, else its goal. */
   const nameOf = (r: CoreRoadmap) => d.state.read().names?.[r.course] ?? r.title ?? r.goal;
@@ -806,21 +811,21 @@ export function createLive(d: LiveDeps): Live {
       if (!course) throw new SafeError('No course.');
       const { course: _, ...roadmap } = core.getRoadmap(ws, course);
       if (on === (roadmap.style !== 'none')) return;
-      if (on && !roadmap.track) {
-        await roadmapJob(course, briefs.roadmap('Turn on graded coding activities: choose a track and a style for this course.'), () => () => core.getRoadmap(ws, course).style !== 'none');
-      } else if (on) {
-        // Back to the style the course had, if its track still offers it.
+      // A roadmap job's own save would undo the switch, or the switch its change.
+      if (running.has(`roadmap:${course}`)) throw new SafeError('The roadmap is changing. Try again in a moment.');
+      if (on) {
+        // Back to the style the course had, if its track still offers it; with no track or no style known, the agent chooses.
         const styles = core.listTracks().find((t) => t.track === roadmap.track)?.styles;
         const previous = d.state.read().activityStyles?.[course];
         const style = previous && styles?.includes(previous) ? previous : styles?.[0] ?? previous;
-        if (!style) throw new SafeError('Choose a coding style in the roadmap first.');
-        await core.saveRoadmap(ws, course, JSON.stringify({ ...roadmap, style }), course);
+        if (roadmap.track && style) await core.saveRoadmap(ws, course, JSON.stringify({ ...roadmap, style }), course, false);
+        else await roadmapJob(course, briefs.roadmap('Turn on graded coding activities: choose a track and a style for this course.'), () => () => core.getRoadmap(ws, course).style !== 'none');
       } else {
         // Off: its activity jobs stop, and its setup too unless another course with activities shares the track.
         const shared = coursesOf(d.state.read()).some((c) => c !== course && trackOf(c) === roadmap.track && core.getRoadmap(ws, c).style !== 'none');
         await cancel((key) => key.startsWith(`author:${course}:`) || (!shared && key === `setup:${roadmap.track}`));
         d.state.update((s) => ({ ...s, activityStyles: { ...s.activityStyles, [course]: roadmap.style } }));
-        await core.saveRoadmap(ws, course, JSON.stringify({ ...roadmap, style: 'none' }), course);
+        await core.saveRoadmap(ws, course, JSON.stringify({ ...roadmap, style: 'none' }), course, false);
       }
       resume(course);
     },
