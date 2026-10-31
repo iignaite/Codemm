@@ -222,9 +222,9 @@ export const parseExerciseYaml = (yaml: string): ExerciseSpec => parseWith(Exerc
 
 const Quiz = z.object({
   questions: z.array(z.object({
-    text: z.string().trim().min(1),
+    text: z.string().trim().min(1).max(1000),
     choices: z.array(z.object({
-      text: z.string().trim().min(1), correct: z.literal(true).optional(), why: z.string().trim().min(1).optional(),
+      text: z.string().trim().min(1).max(300), correct: z.literal(true).optional(), why: z.string().trim().min(1).max(500).optional(),
     }).strict()).min(3).max(5)
       .refine((choices) => choices.filter((c) => c.correct).length === 1, "exactly one correct choice")
       .refine((choices) => choices.every((c) => c.correct || c.why), "each wrong choice needs why"),
@@ -238,7 +238,7 @@ export function parseQuizYaml(yaml: string): Quiz {
   try {
     return parseWith(Quiz, yaml, "quiz.yaml");
   } catch {
-    throw new CodemmError("Invalid quiz.yaml: write 5 to 10 questions with text, each with 3 to 5 choices with text, exactly one correct: true, and why on every wrong choice.");
+    throw new CodemmError("Invalid quiz.yaml: write 5 to 10 questions with text (at most 1000 characters), each with 3 to 5 choices with text (at most 300 characters), exactly one correct: true, and why (at most 500 characters) on every wrong choice.");
   }
 }
 

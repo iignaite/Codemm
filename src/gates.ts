@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomInt } from "node:crypto";
 import { stringify } from "yaml";
 import { judgeTrack, trackImageTag } from "./store.js";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -390,7 +390,7 @@ function validate(track: TrackRecord, course: CourseRecord, files: FileMap, take
   return { spec, style, starter, solution, mutants, sets };
 }
 
-/** Quiz gates run under the course lock only. Hash ordering shuffles once, before commit. */
+/** Quiz gates run under the course lock only. Choices shuffle once, before commit. */
 export function verifyQuiz(course: CourseRecord, files: FileMap, taken: Set<string>, earlier: string[]) {
   const spec = parseExerciseYaml(files["exercise.yaml"] ?? "");
   if (spec.style !== "quiz") throw new GateError("valid", "A quiz course needs style: quiz.");
@@ -401,13 +401,21 @@ export function verifyQuiz(course: CourseRecord, files: FileMap, taken: Set<stri
   const quiz = parseQuizYaml(files["quiz.yaml"] ?? "");
   const normalize = (text: string) => text.toLowerCase().replace(/\s+/g, " ").trim();
   const previous = new Set(earlier.flatMap((yaml) => parseQuizYaml(yaml).questions.map((q) => normalize(q.text))));
+  const seen = new Set<string>();
   for (const [i, q] of quiz.questions.entries()) {
     if (new Set(q.choices.map((c) => normalize(c.text))).size !== q.choices.length) throw new GateError("valid", `Question ${i + 1} repeats a choice's text.`);
     if (previous.has(normalize(q.text))) throw new GateError("valid", `Question ${i + 1} repeats a question from an earlier quiz.`);
+    if (seen.has(normalize(q.text))) throw new GateError("valid", `Question ${i + 1} repeats a question in this quiz.`);
+    seen.add(normalize(q.text));
   }
-  const questions = quiz.questions.map((q, i) => ({ ...q, choices: q.choices
-    .map((choice, j) => ({ choice, order: createHash("sha256").update(`${spec.slug}:${i}:${j}`).digest("hex") }))
-    .sort((a, b) => a.order.localeCompare(b.order)).map(({ choice }) => choice) }));
+  const questions = quiz.questions.map((q) => {
+    const choices = [...q.choices];
+    for (let i = choices.length - 1; i > 0; i--) {
+      const j = randomInt(i + 1);
+      [choices[i], choices[j]] = [choices[j]!, choices[i]!];
+    }
+    return { ...q, choices };
+  });
   const record: Extract<ExerciseRecord, { style: "quiz" }> = { ...spec, style: "quiz", format_version: 1, createdAt: new Date().toISOString() };
   return { record, files: { ...files, "quiz.yaml": stringify({ questions }) } };
 }

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
+import { randomInt } from "node:crypto";
 import { join } from "node:path";
 import { parse } from "yaml";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -7,6 +8,11 @@ import * as store from "../src/store.js";
 import { parseTrackYaml } from "../src/schemas.js";
 import { quizFiles, quizQuestions, quizRoadmap } from "./quiz-fixture.js";
 import { tempDir } from "./temp.js";
+
+vi.mock("node:crypto", async (importOriginal) => {
+  const crypto = await importOriginal<typeof import("node:crypto")>();
+  return { ...crypto, randomInt: vi.fn(crypto.randomInt) };
+});
 
 let ws: string;
 beforeEach(() => { vi.stubEnv("CODEMM_HOME", tempDir()); ws = tempDir(); });
@@ -81,6 +87,14 @@ it("rejects invalid files, unknown concepts, used slugs and earlier questions", 
   await expect(app.saveExercise(ws, quizFiles("second", repeated))).rejects.toThrow(/earlier quiz/);
 });
 
+it("rejects repeated question text within a quiz, ignoring case and spacing", async () => {
+  await setup();
+  const questions = quizQuestions();
+  questions[1]!.text = " FIRST \n situation   1? ";
+  await expect(app.saveExercise(ws, quizFiles("first", questions))).rejects.toThrow("Question 2 repeats a question in this quiz.");
+  expect(store.listExercises("quiz")).toEqual([]);
+});
+
 it("refuses a check until every question is answered, records only the first complete check, and refuses Test and Run", async () => {
   await setup(); await saved();
   // Grading one answer at a time would reveal the key before the recorded check.
@@ -110,6 +124,37 @@ it("records one concurrent check and progresses to a new quiz, then stuck after 
   expect(app.nextStep(ws)).toEqual({ kind: "stuck", concept: "a" });
 });
 
+it("retries a stuck quiz concept only after its lesson is acknowledged, without re-recording checks", async () => {
+  await app.saveRoadmap(ws, "quiz", JSON.stringify({ goal: "Judgment", style: "quiz", concepts: [{ id: "a", title: "A" }, { id: "b", title: "B" }] }));
+  await app.saveLesson(ws, { id: "intro", concept: "a", title: "Intro", markdown: "Read this." });
+  await app.markLessonRead(ws, "intro");
+  for (const slug of ["first", "second"]) {
+    await saved(slug); await answer(key(slug), slug); await app.checkExercise(ws, slug);
+  }
+  const before = app.progress(ws).concepts[0];
+  expect(app.nextStep(ws)).toEqual({ kind: "stuck", concept: "a" });
+  app.getLesson(ws, "intro");
+  await app.saveLesson(ws, { id: "other", concept: "b", title: "Other", markdown: "Another concept." });
+  await app.markLessonRead(ws, "other");
+  expect(app.nextStep(ws)).toEqual({ kind: "stuck", concept: "a" });
+  await app.markLessonRead(ws, "intro");
+  expect(app.nextStep(ws)).toMatchObject({ kind: "author", concept: "a", difficulty: 1, style: "quiz" });
+  expect(app.progress(ws).concepts[0]).toEqual({ ...before, stuck: false });
+  await app.markLessonRead(ws, "intro");
+  expect(store.readEvents("quiz").filter((e) => e.kind === "retry")).toHaveLength(1);
+  expect(store.readEvents("quiz").filter((e) => e.kind === "read" && e.lesson === "intro")).toHaveLength(1);
+  await answer(key("second", true), "second");
+  expect(await app.checkExercise(ws, "second")).toMatchObject({ recorded: false });
+  expect(store.readEvents("quiz").filter((e) => e.kind === "check")).toHaveLength(2);
+  for (const slug of ["third", "fourth"]) {
+    await saved(slug); await answer(key(slug), slug); await app.checkExercise(ws, slug);
+  }
+  expect(app.nextStep(ws)).toEqual({ kind: "stuck", concept: "a" });
+  await app.saveLesson(ws, { id: "reteach", concept: "a", title: "Again", markdown: "Try this explanation." });
+  await app.markLessonRead(ws, "reteach");
+  expect(app.nextStep(ws)).toMatchObject({ kind: "author", concept: "a", difficulty: 1, style: "quiz" });
+});
+
 it("rejects invalid answer numbers without recording", async () => {
   await setup(); await saved();
   for (const answers of [{ 1: 0 }, { 1: 4 }, { 6: 1 }, { 1: 1.5 }] as Record<string, number>[]) {
@@ -129,17 +174,25 @@ it("a recorded perfect quiz moves mastery like a code check and cannot switch to
 });
 
 
-it("shuffles deterministically once, recovers missing learner files and uses only the course lock for saving", async () => {
+it("shuffles choices once with private randomness and keeps each choice's key and explanation", async () => {
+  await setup();
+  const random = vi.mocked(randomInt).mockClear().mockImplementation(() => 0);
+  try {
+    const ex = await saved();
+    expect(random).toHaveBeenCalledTimes(10);
+    const stored = parse(store.readExercise("quiz", "first").files["quiz.yaml"]!).questions;
+    expect(stored.map((q: ReturnType<typeof quizQuestions>[number]) => q.choices)).toEqual(quizQuestions().map((q) => [q.choices[1], q.choices[2], q.choices[0]]));
+    expect((await app.getExercise(ws, "first")).questions).toEqual(ex.questions);
+    expect(random).toHaveBeenCalledTimes(10);
+  } finally { random.mockReset(); }
+});
+
+it("recovers missing learner files and uses only the course lock for saving", async () => {
   await setup();
   const lock = vi.spyOn(store, "withLock");
   try {
     const ex = await saved();
     expect(lock.mock.calls.map(([path]) => path)).toEqual([store.courseLockPath("quiz")]);
-    const stored = store.readExercise("quiz", "first").files["quiz.yaml"]!;
-    expect(parse(stored).questions.map((q: ReturnType<typeof quizQuestions>[number]) => q.choices)).not.toEqual(quizQuestions().map((q) => q.choices));
-    await app.saveRoadmap(ws, "other", quizRoadmap);
-    await app.saveExercise(ws, quizFiles());
-    expect(store.readExercise("other", "first").files["quiz.yaml"]).toBe(stored);
     rmSync(join(ex.path, "answers.yaml"));
     await app.getExercise(ws, "first", "quiz");
     expect(parse(readFileSync(join(ex.path, "answers.yaml"), "utf8"))[1]).toBeNull();

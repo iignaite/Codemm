@@ -432,6 +432,10 @@ describe("quizzes (proposal §3.2, §3.6)", () => {
     expect(JOB_BRIEFS.author).toMatch(/the track's contract \(none for a quiz\)/);
   });
 
+  it("tells the tutor how a stuck quiz topic gets a new quiz", () => {
+    expect(AGENTS_SECTION).toMatch(/In a quiz course, once they've reread its lesson, call `mark_lesson_read` for it: that starts a new quiz/);
+  });
+
   it("never lets the tutor give a quiz's key", () => {
     for (const text of [AGENTS_SECTION, JOB_BRIEFS.tutor]) {
       expect(text).toMatch(/In a quiz, never say which choice is right, not even by its number or letter: explain only why a choice the learner picked is wrong/);

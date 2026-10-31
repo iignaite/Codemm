@@ -445,11 +445,11 @@ Gates 4 to 7 only ask whether everything passes, so their io runs stop a set at 
 **Quiz gates.** A quiz has exactly `exercise.yaml` (`style: quiz`), `README.md` (the scenario) and `quiz.yaml`. The latter holds `questions`, each with `text` and `choices`. Each choice has `text`, optional `correct: true`, and `why` for a wrong choice. It stays in the store.
 
 1. The schema validates, the slug is new and the concepts exist.
-2. There are 5 to 10 questions, each with 3 to 5 choices, exactly one marked correct and a nonempty `why` on every wrong choice.
+2. There are 5 to 10 questions, each with 3 to 5 choices, exactly one marked correct and a nonempty `why` on every wrong choice. Question text is at most 1000 characters, choice text 300 and `why` 500; invalid quiz diagnostics list the limits without quoting private content.
 3. Choice texts within a question differ, ignoring case and spacing.
-4. No question repeats one from an earlier quiz in the course, ignoring case and spacing. Rewordings can pass; the gates do not prove the key is right.
+4. No question repeats another in this quiz or one from an earlier quiz in the course, ignoring case and spacing. Rewordings can pass; the gates do not prove the key is right.
 
-These replace the code gates and run without a sandbox, under the course lock only. Once they pass, choices are shuffled deterministically from the slug and stored through the same atomic commit. That stored order is the only order; reads never shuffle again. The workspace receives only `README.md` and `answers.yaml`, with each question number mapped to null initially. The learner replaces null with a choice number; both start at 1.
+These replace the code gates and run without a sandbox, under the course lock only. Once they pass, each question's choices are shuffled once with Fisher–Yates using `node:crypto`'s `randomInt`, independently of the public slug, and stored through the same atomic commit. That stored order is the only order; reads never shuffle again. The workspace receives only `README.md` and `answers.yaml`, with each question number mapped to null initially. The learner replaces null with a choice number; both start at 1.
 
 **Quiz grading.** Grading is pure: `passed` counts right answers and `total` counts questions. Missing or null answers are wrong. Invalid question or choice numbers are refused. Each result shows right or wrong; a wrong answer includes only the picked choice's `why`. It never identifies the right choice or shows an unpicked explanation. Test is refused with "A quiz has no practice run. Check it when you're ready." Run is unavailable.
 
@@ -490,7 +490,7 @@ Checks before the due time are ordinary checks. A concept that drops below maste
 2. If a mastered concept's review is due, the earliest due first: return `review` with the concept, its difficulty and an exercise of that concept at that difficulty the learner has never checked; if there is none, return `author` with `review: true`.
 3. Candidates are concepts that aren't mastered and whose prerequisites are each mastered or deferred (skipped since a check of an exercise written for them), in topological order with ties broken by roadmap order.
 4. Among candidates that aren't deferred, take the lowest mastery; the first in order wins ties. If every candidate is deferred, take the first in order.
-5. If that concept is stuck, return `stuck`.
+5. If that concept is stuck, return `stuck`. The tutor re-teaches; in a quiz course, acknowledging a lesson for that concept (including re-acknowledging an older lesson) appends the existing `retry` event under the course lock, the smallest way to reset its streak without changing learner rules or recording another check on a quiz.
 6. Otherwise, if an exercise exists for that concept at its current difficulty with no perfect check, return `practice`. The earliest-created such exercise wins. Before applying these rules, `pickFor` leaves out every quiz with a recorded check, including failed ones. It therefore asks for a new quiz rather than offering an unrecordable retry forever. Two failed quizzes at difficulty 1 make the concept stuck, just like two failed code checks.
 7. Otherwise return `author` with the concept, difficulty and the course style.
 8. If there are no candidates, return `done`. A review can still come due later.

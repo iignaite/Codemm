@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { exampleRefs, LearnerEventSchema, parseExerciseYaml, parseLesson, parseRoadmapYaml, parseTrackYaml, TrackRecord } from "../src/schemas.js";
+import { exampleRefs, LearnerEventSchema, parseExerciseYaml, parseLesson, parseQuizYaml, parseRoadmapYaml, parseTrackYaml, TrackRecord } from "../src/schemas.js";
+import { quizQuestions } from "./quiz-fixture.js";
+
+describe("quiz text limits", () => {
+  it.each([
+    ["question", 1000, (q: ReturnType<typeof quizQuestions>, text: string) => { q[0]!.text = text; }],
+    ["choice", 300, (q: ReturnType<typeof quizQuestions>, text: string) => { q[0]!.choices[0]!.text = text; }],
+    ["why", 500, (q: ReturnType<typeof quizQuestions>, text: string) => { q[0]!.choices[1]!.why = text; }],
+  ] as const)("caps %s text at %i without exposing the key", (_, limit, change) => {
+    const questions = quizQuestions();
+    change(questions, "PRIVATE".padEnd(limit, "x"));
+    expect(() => parseQuizYaml(JSON.stringify({ questions }))).not.toThrow();
+    change(questions, "PRIVATE".padEnd(limit + 1, "x"));
+    expect(() => parseQuizYaml(JSON.stringify({ questions }))).toThrow("Invalid quiz.yaml: write 5 to 10 questions with text (at most 1000 characters), each with 3 to 5 choices with text (at most 300 characters), exactly one correct: true, and why (at most 500 characters) on every wrong choice.");
+  });
+});
 
 describe("check events", () => {
   const check = { format_version: 1, kind: "check", at: "2026-10-31T00:00:00Z", exercise: "e", concepts: ["a"], difficulty: 1, passed: 0, total: 102, assisted: false };

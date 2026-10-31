@@ -2,6 +2,7 @@ import { CodemmError } from "../errors.js";
 import { assertPortablePaths, type FileMap, subMap, validateFileMap } from "../files.js";
 import { CASE_OUTPUT_MB, expectedText } from "../grading.js";
 import { runIo, runUnit } from "../judge.js";
+import { replay } from "../learner.js";
 import { type ProgramOptions, type ProgramRun, runProgram } from "../program.js";
 import { assertNotes, parseLesson, type TrackRecord } from "../schemas.js";
 import * as store from "../store.js";
@@ -150,7 +151,11 @@ export async function markLessonRead(ws: string, id: string, bound?: string): Pr
   const course = activeCourse(ws, bound).course;
   await store.withLock(store.courseLockPath(course), async () => {
     const { record } = store.readLesson(course, id);
-    if (store.readEvents(course).some((e) => e.kind === "read" && e.lesson === id)) return;
+    const events = store.readEvents(course);
+    if (store.readCourse(course)!.style === "quiz" && replay(events).get(record.concept)?.stuck) {
+      store.appendEvent(course, { format_version: 1, kind: "retry", at: new Date().toISOString(), concept: record.concept });
+    }
+    if (events.some((e) => e.kind === "read" && e.lesson === id)) return;
     store.appendEvent(course, { format_version: 1, kind: "read", at: new Date().toISOString(), lesson: id, concept: record.concept });
   });
 }

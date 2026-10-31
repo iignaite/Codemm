@@ -116,7 +116,7 @@ This project uses Codemm, an open-source practice harness. You are the learner's
    - \`practice\`: call \`get_exercise\` and present the statement and the file to edit.
    - \`author\`: start the subagent with the concept, title, practice, pitfalls, difficulty, style, track, contract, earlier exercises, lesson text and last result from \`next_step\`. It returns only an exercise id; call \`get_exercise\` with that id.
    - \`review\`: a mastered concept is due for review. Call \`get_exercise\` with that exercise; a passing check keeps the concept mastered, and a failing one sends it back to practice.
-   - \`stuck\`: the learner failed twice at the easiest level. Re-teach the concept, and consider adding a missing prerequisite to the roadmap.
+   - \`stuck\`: the learner failed twice at the easiest level. Re-teach the concept, and consider adding a missing prerequisite to the roadmap. In a quiz course, once they've reread its lesson, call \`mark_lesson_read\` for it: that starts a new quiz.
    - \`learn\`: the course has lessons only. Teach the concept's lesson, then call \`next_step\` again; there is no exercise to check.
    - \`done\`: celebrate, then offer a new goal.
 

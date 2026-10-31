@@ -1,8 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { npm } from "./npm.js";
 import { quizFiles, quizRoadmap } from "./quiz-fixture.js";
-import { symlinkSync, chmodSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -369,31 +366,16 @@ it("returns learn and covered through MCP without a track", async () => {
 });
 
 
-it("saves and checks a quiz through the packed MCP server without a track", async () => {
-  const root = join(import.meta.dirname, "..");
-  const out = tempDir("codemm-quiz-pack-");
-  const packed = JSON.parse(await npm(["pack", "--json", "--cache", join(out, "cache"), "--pack-destination", out], root))[0];
-  execFileSync("tar", ["-xf", join(out, packed.filename), "-C", out]);
-  // Reuse installed dependencies: no package install or network for this trackless round trip.
-  symlinkSync(join(root, "node_modules"), join(out, "package", "node_modules"), "junction");
-  client = new Client({ name: "quiz-test", version: "1" });
-  await client.connect(new StdioClientTransport({ command: process.execPath,
-    args: [join(out, "package", "dist", "cli.js"), "mcp", "--workspace", ws, "--tools", "save_roadmap,next_step,save_exercise,get_exercise,check"],
-    env: { ...process.env, CODEMM_HOME: process.env.CODEMM_HOME! } as Record<string, string>,
-  }));
-  const call = async (name: string, args: Record<string, unknown> = {}) => {
-    const r = await client!.callTool({ name, arguments: args });
-    expect(r.isError).not.toBe(true);
-    return JSON.parse((r.content as { text: string }[])[0]!.text);
-  };
+it("saves and checks a quiz through MCP without a track", async () => {
+  const { client, call } = await connect({ tools: ["save_roadmap", "next_step", "save_exercise", "get_exercise", "check"] });
   await call("save_roadmap", { course: "quiz", roadmap: quizRoadmap });
   expect(await call("next_step")).toMatchObject({ kind: "author", style: "quiz" });
   await call("save_exercise", { files: quizFiles() });
   const ex = await call("get_exercise");
   expect(JSON.stringify(ex)).not.toMatch(/correct|why/);
-  const unanswered = await client!.callTool({ name: "check", arguments: {} });
+  const unanswered = await client.callTool({ name: "check", arguments: {} });
   expect((unanswered.content as { text: string }[])[0]!.text).toBe("codemm:error\nAnswer every question, then check.");
   writeFileSync(join(ex.path, "answers.yaml"), "1: 1\n2: 1\n3: 1\n4: 1\n5: 1\n");
   expect(await call("check")).toMatchObject({ recorded: true, total: 5 });
   expect(await call("check")).toMatchObject({ recorded: false, total: 5 });
-}, 120_000);
+});
