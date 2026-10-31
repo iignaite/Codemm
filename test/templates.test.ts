@@ -183,6 +183,8 @@ describe("activities built on the lesson and the learner's last result", () => {
       expect(text).toMatch(/`last`/);
       // Proposal §3.3: what the learner missed reaches the author, hidden tests by number only.
       expect(text).toMatch(/`missed`: the visible tests they failed, by name, and the hidden ones, by number/);
+      // The misses are named within that exercise, which `earlier` lists.
+      expect(text).toMatch(/`last` is the learner's last graded attempt on this concept: its `exercise`, from `earlier`/);
       expect(text).toMatch(/find the mistake from what they missed, and write the next activity at it/);
     }
   });

@@ -9,11 +9,11 @@ describe("check events", () => {
     expect(LearnerEventSchema.parse({ ...check, future: true })).toEqual(check);
   });
 
-  it("keeps up to 50 visible names and 50 hidden indexes", () => {
+  it("reads up to 50 visible names and 50 hidden indexes, and drops the rest instead of calling the log damaged", () => {
     const missed = { visible: Array.from({ length: 50 }, (_, i) => `visible/${i}`), hidden: Array.from({ length: 50 }, (_, i) => i + 1) };
     expect(LearnerEventSchema.parse({ ...check, missed })).toEqual({ ...check, missed });
-    expect(LearnerEventSchema.safeParse({ ...check, missed: { ...missed, visible: [...missed.visible, "extra"] } }).success).toBe(false);
-    expect(LearnerEventSchema.safeParse({ ...check, missed: { ...missed, hidden: [...missed.hidden, 51] } }).success).toBe(false);
+    // A later Codemm may record more; this one still reads the log.
+    expect(LearnerEventSchema.parse({ ...check, missed: { visible: [...missed.visible, "extra"], hidden: [...missed.hidden, 51] } })).toEqual({ ...check, missed });
   });
 
   it.each([0, -1, 1.5, "hidden/secret"])("rejects a hidden index of %j", (index) => {
