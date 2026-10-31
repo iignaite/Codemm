@@ -47,6 +47,7 @@ describe('job briefs', () => {
     // The track caches what the whole course will use, so the setup agent hears the course's concepts.
     expect(briefs.setup('django@1', 'unit', undefined, ['Project structure', 'Models and migrations'])).toContain('The course covers: Project structure; Models and migrations.');
     expect(briefs.author()).toBe(JOB_BRIEFS.author);
+    expect(briefs.review()).toBe(JOB_BRIEFS.review);
   });
 
   it("gives the tutor the learner's own code and question", () => {
@@ -103,7 +104,7 @@ describe('job briefs', () => {
 // JOBS is the one list of each job's Codemm tools (DESIGN §3.2); core's briefs must keep to it.
 describe('each job\'s tools and its brief', () => {
   const kinds = Object.keys(JOBS) as JobKind[];
-  const named = (brief: string) => new Set(brief.match(new RegExp(`\\b(${TOOL_NAMES.join('|')})\\b`, 'g')));
+  const named = (brief: string) => new Set(brief.match(new RegExp(`(?<!-)\\b(${TOOL_NAMES.join('|')})\\b(?!-)`, 'g')));
 
   it('has a core brief for exactly the desktop\'s jobs, so the two JobKinds agree', () => {
     expect(Object.keys(JOB_BRIEFS).sort()).toEqual([...kinds].sort());

@@ -13,6 +13,17 @@ describe('research progress', () => {
     expect(await screen.findByRole('heading', { name: 'Researching Springboot' })).toBeInTheDocument();
   });
 
+  it('shows the review on the research screen while the roadmap waits', async () => {
+    const api = createMock();
+    let hear: (p: JobProgress) => void = () => undefined;
+    api.onJobProgress = (listener) => ((hear = listener), () => undefined);
+    api.research = async () => ({ state: 'running' });
+    renderApp({ to: 'research', goal: { topic: 'Systems', known: '', depth: 'standard' } }, api);
+    await screen.findByRole('heading', { name: 'Researching Systems' });
+    act(() => hear({ job: 'review-1', kind: 'review', stage: 1, steps: [], count: 0, thinking: true, elapsedMs: 0, idleMs: 0 }));
+    expect(screen.getByText('Reviewing the roadmap')).toBeInTheDocument();
+  });
+
   it('lists what research is looking at, the latest first, with a step count', async () => {
     const api = createMock();
     let hear: (p: JobProgress) => void = () => undefined;

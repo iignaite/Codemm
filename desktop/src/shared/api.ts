@@ -387,7 +387,7 @@ export interface UsageTotals {
 
 /** A course's usage per job kind, and in total. */
 export interface CourseUsage {
-  kinds: Partial<Record<'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor', UsageTotals>>;
+  kinds: Partial<Record<'research' | 'review' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor', UsageTotals>>;
   total: UsageTotals;
 }
 
@@ -518,8 +518,8 @@ export interface CodemmApi {
 /** One thing a job did: a web search, an https page (host and path) or one of Codemm's steps (§4.11). */
 export type JobStep = { kind: 'search'; query: string } | { kind: 'read'; url: string } | { kind: 'step'; label: string };
 
-/** The agent jobs (§3.2): research, a roadmap change, setup, a lesson, an activity (author) and a tutor turn. */
-export type AgentJobKind = 'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor';
+/** The agent jobs (§3.2): research, review, a roadmap change, setup, a lesson, an activity (author) and a tutor turn. */
+export type AgentJobKind = 'research' | 'review' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor';
 
 /** Everything that reports progress (§4.11): the agent jobs, and Codemm's own rebuild of a track. */
 export type JobKind = AgentJobKind | 'rebuild';

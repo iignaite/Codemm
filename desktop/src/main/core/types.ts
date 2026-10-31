@@ -37,7 +37,7 @@ export interface CoreRoadmap {
   goal: string;
   track: string;
   style: string;
-  concepts: { id: string; title: string; requires: string[] }[];
+  concepts: { id: string; title: string; requires: string[]; practice?: string; pitfalls?: string[]; refs?: number[] }[];
   /** The roadmaps and docs the research job used (core §5): https links only. */
   sources?: { title: string; url: string }[];
 }
@@ -82,7 +82,7 @@ export interface CoreProgramRun {
 
 export interface CoreApp {
   /** core templates.ts: one brief per agent job, the same text the terminal uses. */
-  JOB_BRIEFS: Record<'research' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor', string>;
+  JOB_BRIEFS: Record<'research' | 'review' | 'roadmap' | 'setup' | 'lesson' | 'author' | 'tutor', string>;
   /** core doctor.ts: whether the sandbox is cut off from the host network (Check this computer's last row). */
   networkIsolation(): Promise<{ name: string; ok: boolean; detail: string; kind?: 'offline' | 'disk' | 'docker' }>;
   /** core sandbox.ts: the arguments that ask the engine for its version and kind of containers. */

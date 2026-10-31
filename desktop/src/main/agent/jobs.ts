@@ -19,6 +19,8 @@ interface JobSpec {
   /** The save tool whose failures count toward the bound. */
   save?: string;
   web?: boolean;
+  /** A failed job relaunches once unless false. */
+  relaunch?: boolean;
   /** A relaunch continues the failed attempt's session, told to change its approach, instead of starting fresh. */
   resumes?: true;
 }
@@ -26,6 +28,7 @@ interface JobSpec {
 const MIN = 60_000;
 export const JOBS: Record<JobKind, JobSpec> = {
   research: { tools: ['list_tracks', 'save_roadmap'], deadlineMs: 10 * MIN, web: true },
+  review: { tools: ['get_roadmap', 'save_roadmap'], deadlineMs: 5 * MIN, web: true, relaunch: false },
   roadmap: { tools: ['get_roadmap', 'save_roadmap'], deadlineMs: 10 * MIN },
   setup: { tools: ['list_tracks', 'save_track'], deadlineMs: 10 * MIN, web: true },
   lesson: { tools: ['get_roadmap', 'save_lesson'], deadlineMs: 5 * MIN, save: 'save_lesson' },
@@ -211,7 +214,7 @@ async function once(job: Job): Promise<Attempt> {
  */
 export async function runJob(job: Job): Promise<JobOutcome> {
   let last: Attempt | undefined;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < (JOBS[job.kind].relaunch === false ? 1 : 2); attempt++) {
     if (job.signal?.aborted) break;
     // Checked before every launch, the relaunch included.
     if (job.blocked?.()) return { ok: false, problem: 'unstoppable', text: last?.text ?? [] };

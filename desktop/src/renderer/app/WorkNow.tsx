@@ -22,6 +22,8 @@ function whatOf(p: JobProgress, course: Course): string {
   switch (p.kind) {
     case 'research':
       return researching ? `Researching ${shownTopic(researching.topic)}` : 'Researching';
+    case 'review':
+      return 'Reviewing the roadmap';
     case 'roadmap':
       return 'Changing the roadmap';
     case 'setup':
@@ -54,6 +56,7 @@ export async function editorRoute(api: CodemmApi): Promise<Route> {
 async function placeOf(p: JobProgress, course: Course, api: CodemmApi): Promise<Route> {
   switch (p.kind) {
     case 'research':
+    case 'review':
       return researching ? { to: 'research', goal: researching } : { to: 'goal' };
     case 'roadmap':
       return editorRoute(api);

@@ -6,7 +6,7 @@ export const claude: AgentCli = {
   bin: 'claude',
   launch({ prompt, server, tools, model, resume, web }) {
     const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose'];
-    // No built-in tools (no shell, no file reads), so only the codemm server's tools exist. Research and setup may search
+    // No built-in tools (no shell, no file reads), so only the codemm server's tools exist. Research, review and setup may search
     // the web; print mode refuses a tool that isn't allowed, so the web tools are allowed too.
     const webTools = web ? ['WebSearch', 'WebFetch'] : [];
     args.push('--tools', webTools.join(','), '--mcp-config', JSON.stringify({ mcpServers: { codemm: server } }), '--strict-mcp-config');

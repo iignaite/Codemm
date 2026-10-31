@@ -218,7 +218,7 @@ describe('launch arguments (§3.1)', () => {
     expect(args.slice(0, 4)).toEqual(['exec', '--json', '--skip-git-repo-check', '--ignore-user-config']);
     expect(args.flatMap((a, i) => (args[i - 1] === '-c' ? [a] : []))).toEqual([
       'sandbox_mode="read-only"',
-      // Only research may search the web (§3.2).
+      // Only research, review and setup may search the web (§3.2).
       'web_search="disabled"',
       'mcp_servers.codemm.command="/abs/Codemm"',
       'mcp_servers.codemm.args=["/abs/core/cli.js","mcp","--workspace","/ws"]',

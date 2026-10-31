@@ -8,7 +8,7 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
   it('proposes setup, builds only the proposal the learner saw, then writes lessons and an activity', async () => {
     const t = live();
     const activity = await practising(t);
-    expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'setup', 'lesson', 'author']);
+    expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review', 'setup', 'lesson', 'author']);
     expect(activity).toMatchObject({ id: 'values-easy-1', concept: 'values', title: 'Count up', statement: 'Print one.' });
     expect(JSON.stringify(activity)).not.toContain('/Users/me');
   });
@@ -275,7 +275,7 @@ describe('live CodemmApi: setup consent and install (§4.1)', () => {
     const t = live();
     await researched(t);
     expect(await t.api.course()).toBeNull();
-    expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research']);
+    expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review']);
   });
 
   it('a Docker failure during setup keeps the proposal, and Docker stopping during a Check is not counted', async () => {

@@ -38,7 +38,7 @@ const bridge: Bridge = {
       s?.kind === 'search' ? [{ kind: 'search', query: text(s.query, 120) }]
         : s?.kind === 'read' ? [{ kind: 'read', url: text(s.url, 200) }]
           : s?.kind === 'step' ? [{ kind: 'step', label: text(s.label, 160) }] : [];
-    const kinds = ['research', 'roadmap', 'setup', 'lesson', 'author', 'tutor', 'rebuild'];
+    const kinds = ['research', 'review', 'roadmap', 'setup', 'lesson', 'author', 'tutor', 'rebuild'];
     const forward = (_event: unknown, p: Record<string, unknown>) => {
       if (typeof p?.job !== 'string' || !kinds.includes(p.kind as string)) return;
       const retry = p.retry as { attempt?: unknown; of?: unknown } | undefined;

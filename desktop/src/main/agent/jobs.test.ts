@@ -63,6 +63,27 @@ describe('jobs (§3.2)', () => {
     expect(await runJob(job(agent.exe))).toEqual({ ok: true, session: 's1', text: ['Look at line 3.'] });
   });
 
+  it('a review can finish without saving, with only its roadmap tools', async () => {
+    const agent = fakeAgent([init, success]);
+    let tools: string[] = [];
+    expect(await runJob(job(agent.exe, { kind: 'review', server: (allowed) => ((tools = allowed), { command: '/app', args: [] }) }))).toMatchObject({ ok: true });
+    expect(tools).toEqual(['get_roadmap', 'save_roadmap']);
+    expect(JOBS.review).toMatchObject({ deadlineMs: 300_000, web: true });
+    expect(agent.runs()).toBe(1);
+  });
+
+  it('a review that times out fails even with a turn-based done check', async () => {
+    const agent = fakeAgent([init], { hang: true });
+    expect(await runJob(job(agent.exe, { kind: 'review', deadlineMs: 300 }))).toMatchObject({ ok: false, problem: 'failed' });
+    expect(agent.runs()).toBe(1);
+  });
+
+  it('does not relaunch a failed review', async () => {
+    const agent = fakeAgent([init, failure('Review failed')]);
+    expect(await runJob(job(agent.exe, { kind: 'review' }))).toMatchObject({ ok: false, problem: 'failed' });
+    expect(agent.runs()).toBe(1);
+  });
+
   it('reports what the run used, with its session', async () => {
     const used = { type: 'result', subtype: 'success', is_error: false, total_cost_usd: 0.05, usage: { input_tokens: 10, cache_read_input_tokens: 90, output_tokens: 7 } };
     const agent = fakeAgent([init, say('Done.'), used]);
@@ -88,9 +109,9 @@ describe('jobs (§3.2)', () => {
     expect(server).toEqual(JOBS.lesson.tools);
   });
 
-  it('lets research and setup use the web, and no other job: a WASI track names a release file only a page can show', () => {
+  it('lets research, review and setup use the web, and no other job', () => {
     const web = Object.entries(JOBS).filter(([, spec]) => spec.web).map(([kind]) => kind);
-    expect(web.sort()).toEqual(['research', 'setup']);
+    expect(web.sort()).toEqual(['research', 'review', 'setup']);
   });
 
   it('is done only when its check against core records passes, never on the agent\'s word', async () => {

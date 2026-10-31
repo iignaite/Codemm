@@ -73,6 +73,14 @@ describe("roadmap draft", () => {
     expect(app.getRoadmap(ws).sources).toEqual([{ title: "POSIX shell", url: "https://pubs.opengroup.org/onlinepubs/9799919799/" }]);
   });
 
+  it("returns practice, pitfalls and refs after saving and re-saving a roadmap", async () => {
+    const yaml = roadmap('  - { id: sh.basics, title: Basics, practice: "Fix a loop", pitfalls: ["No budget"], refs: [0] }\n')
+      + 'sources: [{ title: Guide, url: "https://example.com/guide" }]\n';
+    await app.saveRoadmap(ws, "shell", yaml);
+    await app.saveRoadmap(ws, "shell", yaml.replace("title: Basics", "title: First steps"));
+    expect(app.getRoadmap(ws).concepts).toEqual([{ id: "sh.basics", title: "First steps", requires: [], practice: "Fix a loop", pitfalls: ["No budget"], refs: [0] }]);
+  });
+
   it("returns the roadmap as saved", async () => {
     await app.saveRoadmap(ws, "shell", roadmap());
     expect(app.getRoadmap(ws)).toEqual({
@@ -145,6 +153,13 @@ describe("roadmap draft", () => {
 });
 
 describe("the author step", () => {
+  it.each([{ practice: "Fix a loop" }, { pitfalls: ["No budget"] }, { practice: "Fix a loop", pitfalls: [] }])
+    ("passes the concept's practice and pitfalls to the author (%j)", async (fields) => {
+      installFake();
+      await app.saveRoadmap(ws, "shell", JSON.stringify({ goal: "G", track: "shell-io@1", style: "io", concepts: [{ id: "a", title: "A", ...fields }] }));
+      expect(app.nextStep(ws)).toMatchObject({ kind: "author", title: "A", ...fields });
+    });
+
   it("gives a fresh author the exact target and the installed track's learner-safe contract", async () => {
     const files = readFileMap(join(import.meta.dirname, "fixtures", "tracks", "custom-unit"));
     const spec = parseTrackYaml(files["track.yaml"]!);

@@ -68,7 +68,7 @@ describe('found once installed, with no restart (§3.1)', () => {
     const refresh = () => new Promise<void>((resolve) => setTimeout(() => (order.push('fresh'), resolve()), 5));
     const t = live({ research: (_job, usual) => (order.push('job'), usual()) }, { livePath: refresh });
     await researched(t);
-    // Connect brings it up to date, and so does the job, just before it starts.
-    expect(order).toEqual(['fresh', 'fresh', 'job']);
+    // Connect brings it up to date, and so does each job just before it starts: research, then its review.
+    expect(order).toEqual(['fresh', 'fresh', 'job', 'fresh']);
   });
 });

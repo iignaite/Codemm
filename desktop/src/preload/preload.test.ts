@@ -29,6 +29,7 @@ describe('preload: job progress (§4.11)', () => {
   it('lets every kind of job through, a rebuild with its track name', async () => {
     const kinds = Object.keys(JOB_STAGES);
     expect(kinds).toContain('rebuild');
+    expect(kinds).toContain('review');
     const heard = await heardFrom(...kinds.map((kind) => report({ kind })), report({ kind: 'rebuild', track: 'Python', job: 'j2' }));
     expect(heard.map((p) => p.kind)).toEqual([...kinds, 'rebuild']);
     expect(heard.at(-1)).toMatchObject({ job: 'j2', kind: 'rebuild', track: 'Python' });

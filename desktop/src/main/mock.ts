@@ -124,6 +124,7 @@ type Beat = { stage: number; step?: JobStep; codemm?: true; retry?: JobProgress[
 const CHECKING = step('Codemm is checking the exercise');
 const gate = (n: number, label: string, retry?: JobProgress['retry']): Beat => ({ stage: 2, step: step(label), codemm: true, part: { done: n, total: 3 }, ...(retry ? { retry } : {}) });
 const BEATS: Record<Exclude<JobKind, 'research' | 'rebuild'> | 'install', Beat[]> = {
+  review: [{ stage: 0 }, { stage: 1, step: step('Reading the roadmap') }, { stage: 2, step: step('Saving the roadmap'), codemm: true }],
   roadmap: [{ stage: 0 }, { stage: 1, step: step('Reading the roadmap') }, { stage: 2, step: step('Saving the roadmap'), codemm: true }],
   setup: [{ stage: 0 }, { stage: 0, step: step('Checking the installed tracks') }, { stage: 0, step: step('Proposing the setup'), codemm: true }],
   install: [1, 2, 3, 4, 5].map((done): Beat => ({ stage: 1, codemm: true, part: { done, total: 5 } })).concat([{ stage: 2, codemm: true }]),
@@ -241,7 +242,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   // The course on screen: its lessons, activities, roadmap and view. Switching swaps them for another course's (§4.13).
   let lessons = new Map<string, Lesson>();
   let activities = new Map<string, { activity: Activity; fails: number }>();
-  let research: { topic: string; calls: number; job: string; started: number } | null = null;
+  let research: { topic: string; calls: number; job: string; review: string; started: number } | null = null;
   /** The roadmap research wrote or the learner edited; a draft until approved. */
   let roadmap: Roadmap | null = null;
   let drafting = false;
@@ -667,7 +668,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async research(goal) {
       agentJob();
-      if (research?.topic !== goal.topic) research = { topic: goal.topic, calls: 0, job: `mock-${++jobCount}`, started: Date.now() };
+      if (research?.topic !== goal.topic) research = { topic: goal.topic, calls: 0, job: `mock-${++jobCount}`, review: `mock-${++jobCount}`, started: Date.now() };
       // What research looks at, a step per call (per `slow` calls when slow): the last step saves.
       const all: JobStep[] = [
         { kind: 'search', query: `${goal.topic} roadmap` }, { kind: 'read', url: 'roadmap.sh/react' }, { kind: 'read', url: 'react.dev/learn' },
@@ -682,7 +683,14 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         tellJob(reported(options.slow ? Math.ceil(research.calls / options.slow) : research.calls));
         return { state: 'running' };
       }
-      tellJob({ ...reported(all.length), ended: true });
+      if (research.calls === shown + 1) tellJob({ ...reported(all.length), ended: true });
+      const beat = Math.ceil((research.calls - shown) / (options.slow || 1));
+      const review = report(research.review, 'review', BEATS.review.slice(0, beat), research.started);
+      if (beat <= BEATS.review.length) {
+        tellJob(review);
+        return { state: 'running' };
+      }
+      tellJob({ ...review, ended: true });
       roadmap = {
         // As an agent would title it: the live app shows the agent's title (§4.13).
         title: shownTopic(goal.topic),

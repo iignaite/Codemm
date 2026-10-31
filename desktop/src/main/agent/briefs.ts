@@ -32,6 +32,7 @@ export function briefsFrom(base: Record<JobKind, string>, platform: NodeJS.Platf
   return {
     research: (course: string, topic: string, known: string, depth: Depth) =>
       brief('research', `Course id: ${course}`, `The learner wants to learn: ${topic}`, known ? `They already know: ${known}` : 'They know nothing about it yet.', `Depth: ${DEPTH[depth]}. Each topic is one skill.`),
+    review: () => brief('review'),
     roadmap: (request: string) => brief('roadmap', `The learner asks: ${request}`),
     easier: (concept: string, title: string) => brief('roadmap', `Make "${title}" (${concept}) easier: add one smaller topic that it requires.`),
     /** `concepts`: the course's concept titles, so the track caches every dependency the course will use. */

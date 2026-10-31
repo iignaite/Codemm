@@ -361,7 +361,12 @@ track: react@1              # a track pinned by version; it may not be installed
 style: unit                 # the default style for new exercises; must be offered by the track
 concepts:
   - { id: react.jsx, title: "JSX", requires: [] }
-  - { id: react.state, title: "State with hooks", requires: [react.jsx] }
+  - id: react.state
+    title: "State with hooks"
+    requires: [react.jsx]
+    practice: "Fix a component that stores a derived value instead of calculating it"
+    pitfalls: ["Duplicating state that can be calculated from existing state"]
+    refs: [0]
 sources:                    # optional: the roadmaps and docs the agent used, at most 10
   - { title: "React docs: Thinking in React", url: "https://react.dev/learn/thinking-in-react" }
 ```
@@ -369,6 +374,8 @@ sources:                    # optional: the roadmaps and docs the agent used, at
 - **First save** creates the course. Concept order in the file is the tie-break order.
 - **Title** is optional: the course's name as the learner would say it, which the desktop app shows (desktop §4.13). Blank space around it is dropped. A course without one is named by its goal.
 - **Sources** are optional: at most 10, each a `title` of at most 120 characters and an https `url` with no credentials. The app shows them and opens them only in the learner's browser.
+- **Practice and pitfalls** are optional on each concept: `practice` is trimmed, 1 to 300 characters; `pitfalls` has at most 5 strings, each 1 to 200 characters. They are checked for structure only.
+- **Refs** are optional on each concept: at most 10 distinct nonnegative integer indexes into `sources`, starting at 0. Every ref must be in range. When sources are nonempty, a concept with `practice` or nonempty `pitfalls` must have at least one ref.
 - **A draft track.** The track may not be installed yet. Then `next_step` returns `setup` until it is. Proposing or installing a track that a course names but whose styles lack that course's style is refused, so a course can't be stranded; an install checks this under the track lock, which roadmap saves also take (after the course lock). `next_step` fails with "Edit the roadmap's style" if an installed track still doesn't offer it. Exercises, `get_exercise` and `check` need the installed track.
 - **Re-saving** an existing course may change `title`, `goal`, concept titles and order, add concepts, and change `requires` while staying acyclic. Edits keep concept ids, so renaming changes only the title. It may change `track` while the course has no exercises.
 - **Re-saving is rejected** if it changes `track` after exercises exist, or removes a concept that an exercise, event or lesson uses.
@@ -411,7 +418,7 @@ A failure goes back to the caller with the failing gate and capped output. Hidde
 4. For each style, the fail probe gets at least one `fail` and no `error`.
 5. The pass probe passes again with a sixth of the time limit, half of what every exercise's reference gets (gate 3 below), and gives identical results. A probe that only fit a third left tracks whose framework starts once per io case flaky at every exercise's speed gate. At the `time_ms` ceiling, which can't be raised, and on a rebuild (an installed track's files can't change), it keeps a third. A track that fails here is told to raise `limits.time_ms` or `limits.memory_mb`, or, when `time_ms` is already at its ceiling, to make the command faster (cache everything at build time, and call the compiler and test runner directly rather than a build tool).
 
-**Roadmap gate:** the schema and §5 rules hold, there are no unknown prerequisites, and there are no cycles (Kahn's algorithm).
+**Roadmap gate:** the schema and §5 rules hold, there are no unknown prerequisites, and there are no cycles (Kahn's algorithm). Every concept ref is in range of `sources`; when sources are nonempty, each concept with `practice` or nonempty `pitfalls` has at least one ref.
 
 **Exercise gates:**
 1. **Valid:**
@@ -486,8 +493,8 @@ The MCP tools and CLI commands are thin calls into one application module.
 | `list_tracks` | — | installed tracks: id, version, styles |
 | `save_track` | `files` | `{ installed: "id@v", warning? }` or diagnostics; with `--desktop`, `{ proposed: "id@v", note }` (§4.4) |
 | `save_roadmap` | `course`, `roadmap` (YAML text) | ok or errors |
-| `get_roadmap` | — | `{ course, title?, goal, track, style, concepts }` |
-| `next_step` | — | `setup` / `review` / `practice` / `author` / `stuck` / `done`; `author` carries the concept's `title`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests), and, when there are any, `lessonText` (the concept's lessons, newest first, at most 32 KB) and `last` (the learner's last check on the concept as `passed`, `total` and `assisted` only) |
+| `get_roadmap` | — | `{ course, title?, goal, track, style, concepts, sources? }`; concepts have `id`, `title`, `requires` and optional `practice`, `pitfalls`, `refs` |
+| `next_step` | — | `setup` / `review` / `practice` / `author` / `stuck` / `done`; `author` carries the concept's `title`, optional `practice` and `pitfalls`, `style`, `track` and the track's `contract` (learner `files`, the `build`/`run` or `test` command, `limits`, and `examples`: the track's passing probe solution and its tests), and, when there are any, `lessonText` (the concept's lessons, newest first, at most 32 KB) and `last` (the learner's last check on the concept as `passed`, `total` and `assisted` only) |
 | `save_exercise` | `files` | `{ exercise: slug }` only, or diagnostics |
 | `get_exercise` | `slug?` | statement, learner file paths, visible tests, hint, and for io the track's run command; a generated visible input shows its generator (`generated: true`), and a long expected output its first 64 KB with `expectedBytes` |
 | `check` | `slug?` | per-test results (hidden tests: index and status only), `recorded`, `note?` |

@@ -14,10 +14,11 @@ describe('live CodemmApi: agent jobs: models, lanes, stalls, the tutor, progress
   it('runs every job with the chosen model: the recommended one until the learner picks another', async () => {
     const t = live();
     await researched(t);
-    expect(t.jobs.ran.map((j) => j.model)).toEqual(['sonnet']);
+    // Research, then its review.
+    expect(t.jobs.ran.map((j) => j.model)).toEqual(['sonnet', 'sonnet']);
     await t.api.chooseModel('claude', 'haiku');
     await t.api.reviseRoadmap(t.c.roadmap!.concepts, 'Add testing');
-    expect(t.jobs.ran.map((j) => j.model)).toEqual(['sonnet', 'haiku']);
+    expect(t.jobs.ran.map((j) => j.model)).toEqual(['sonnet', 'sonnet', 'haiku']);
   });
 
   it("records what each job's agent reported, under its course and kind, for the course on screen", async () => {

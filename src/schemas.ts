@@ -151,7 +151,12 @@ const RoadmapYaml = z
     track: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}@[1-9][0-9]{0,8}$/, "track must be pinned as id@version"),
     style: Style,
     concepts: z
-      .array(z.object({ id: Id, title: z.string().min(1).max(200), requires: z.array(Id).max(20).default([]) }).strict())
+      .array(z.object({
+        id: Id, title: z.string().min(1).max(200), requires: z.array(Id).max(20).default([]),
+        practice: z.string().trim().min(1).max(300).optional(),
+        pitfalls: z.array(z.string().min(1).max(200)).max(5).optional(),
+        refs: z.array(z.number().int().min(0)).max(10).refine((refs) => new Set(refs).size === refs.length, "refs must not repeat").optional(),
+      }).strict())
       .min(1, "add at least one concept")
       .max(200),
     sources: z.array(Source).max(10, "list at most 10 sources").optional(),
@@ -168,6 +173,10 @@ export function parseRoadmapYaml(yaml: string): Roadmap {
     ids.add(c.id);
   }
   for (const c of r.concepts) {
+    if (c.refs?.some((ref) => ref >= (r.sources?.length ?? 0))) throw new CodemmError(`Invalid roadmap: "${c.id}" has a ref out of range.`);
+    if (r.sources?.length && (c.practice !== undefined || c.pitfalls?.length) && !c.refs?.length) {
+      throw new CodemmError(`Invalid roadmap: "${c.id}" needs at least one ref for its practice or pitfalls.`);
+    }
     if (new Set(c.requires).size !== c.requires.length) throw new CodemmError(`Invalid roadmap: "${c.id}" lists a prerequisite more than once.`);
     for (const req of c.requires) if (!ids.has(req)) throw new CodemmError(`Invalid roadmap: "${c.id}" requires unknown concept "${req}".`);
   }
