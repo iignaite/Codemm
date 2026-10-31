@@ -362,6 +362,9 @@ it('switches Activities on and off from the course map', async () => {
   renderApp({ to: 'learn' }, api);
   const toggle = await screen.findByRole('switch', { name: 'Activities' });
   expect(toggle).toBeChecked();
+  // A switch, not a button: an "On" or "Off" button reads as the action it would take.
+  expect(toggle).not.toHaveClass('btn');
+  expect(toggle).toHaveTextContent('');
   await user.click(toggle);
   await screen.findByRole('heading', { name: 'Lessons read' });
   expect(toggle).not.toBeChecked();
