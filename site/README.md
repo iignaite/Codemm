@@ -3,7 +3,7 @@
 The public landing page, live at https://codemm.vercel.app. It's a static site with no server code and no dependencies, and it collects no personal data: no forms, no accounts, no cookies. The only measurement is Vercel Web Analytics, which counts page views in aggregate without cookies.
 
 ```
-public/   the page, styles, scripts, fonts and images (copied to dist/ by build.mjs)
+public/   the page, styles, scripts, fonts, images and the launch video (copied to dist/ by build.mjs)
 scripts/  dev.mjs, a local server with vercel.json's headers
 test/     node:test suites
 ```
