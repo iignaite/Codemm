@@ -58,6 +58,12 @@ test('the site is static and collects no personal data', () => {
     assert.match(page, /<p class="lead">Your agent writes the learning path\. Codemm grades you\.<\/p>/);
     assert.match(page, /reject the incorrect versions your agent wrote/);
     assert.match(page, /with your own account/);
+    // The launch video plays only when asked (no autoplay, nothing downloaded up front),
+    // from this site, with a poster.
+    assert.match(page, /<video [^>]*\bcontrols\b[^>]*\bpreload="none"[^>]*\bposter="\/video\/codemm-launch-poster\.jpg"/);
+    assert.doesNotMatch(page, /\bautoplay\b/);
+    assert.match(page, /<source src="\/video\/codemm-launch\.mp4" type="video\/mp4">/);
+    for (const f of ['codemm-launch.mp4', 'codemm-launch-poster.jpg']) assert.ok(files.includes(join('video', f)), f);
     // The design rules allow no dots: no dotted or dashed strokes or borders.
     const css = readFileSync(join(out, 'styles.css'), 'utf8');
     assert.doesNotMatch(css, /stroke-dasharray|\b(dotted|dashed)\b/);
@@ -74,6 +80,7 @@ test('Vercel serves files only, with a CSP that reaches only this site and GitHu
   assert.match(csp, /default-src 'none'/);
   assert.match(csp, /script-src 'self';/);
   assert.match(csp, /connect-src 'self' https:\/\/api\.github\.com;/);
+  assert.match(csp, /media-src 'self';/);
   assert.match(csp, /form-action 'none'/);
   assert.match(csp, /frame-ancestors 'none'/);
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));

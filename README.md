@@ -20,6 +20,12 @@
   <img src="https://img.shields.io/badge/app-macOS%20%7C%20Windows%20%28beta%29-0E2754" alt="App: macOS and Windows (beta)">
 </p>
 
+<p align="center">
+  <a href="https://codemm.vercel.app/#watch"><img src="site/public/video/codemm-launch-poster.jpg" alt="The Codemm app on Count Tree Nodes, with 3 of 6 tests passed. Click to watch the one-minute launch video." width="720"></a>
+  <br>
+  <a href="https://codemm.vercel.app/#watch"><strong>▶ Watch the one-minute video</strong></a>
+</p>
+
 ## What is Codemm
 
 Codemm is an open-source app for learning to code by practice. Your own coding agent (Claude Code or Codex, with your own account) writes the lessons and exercises. Codemm checks each exercise against its tests, grades your code in a sandbox, and tracks what you've mastered.
