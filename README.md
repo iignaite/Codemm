@@ -12,7 +12,7 @@
   </picture>
 </p>
 
-<p align="center"><strong>Supercharge your coding journey with your own coding agent.</strong></p>
+<p align="center"><strong>Learn any language or framework one step at a time, with your own coding agent as the tutor.</strong></p>
 
 <p align="center">
   <a href="https://github.com/iignaite/Codemm/actions/workflows/ci.yml"><img src="https://github.com/iignaite/Codemm/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
@@ -21,9 +21,11 @@
 </p>
 
 <p align="center">
-  <a href="https://codemm.vercel.app/#watch"><img src="site/public/video/codemm-launch-poster.jpg" alt="The Codemm app on Count Tree Nodes, with 3 of 6 tests passed. Click to watch the one-minute launch video." width="720"></a>
+  <a href="https://codemm.vercel.app/#watch"><img src="docs/media/codemm-demo.gif" alt="Codemm going from choosing an agent to a roadmap, a lesson, a hint and 6 of 6 tests passed on a binary tree exercise, at double speed." width="720"></a>
   <br>
-  <a href="https://codemm.vercel.app/#watch"><strong>▶ Watch the one-minute video</strong></a>
+  <a href="https://codemm.vercel.app/#watch"><strong>▶ Watch the one-minute video with sound</strong></a>
+  ·
+  <a href="https://medium.com/@gaille.amolong1/why-learning-to-code-with-ai-doesnt-stick-a9330d7f492a"><strong>Read the story behind it</strong></a>
 </p>
 
 ## What is Codemm
@@ -45,7 +47,7 @@ Codemm launches your agent; it never calls a model API, and it never reads, stor
 
 ## Install (beta)
 
-A private beta is planned once the packaged app passes its macOS and Windows journeys. When a beta build is published on the [Releases page](https://github.com/iignaite/Codemm/releases), download the installer for your computer:
+Beta builds are on the [Releases page](https://github.com/iignaite/Codemm/releases). Download the installer for your computer:
 
 - **macOS** (Apple Silicon or Intel): the `.dmg`. Beta builds are unsigned: open the app once, then choose System Settings, Privacy & Security, Open Anyway.
 - **Windows** (x64): the installer. Beta builds are unsigned: in the SmartScreen prompt, choose More info, then Run anyway.
