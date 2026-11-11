@@ -141,6 +141,10 @@ Your agent uses the MCP tools `list_tracks`, `save_track`, `save_roadmap`, `get_
 
 Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) first; Codemm stays small on purpose.
 
+## More from the author
+
+- **[Grape](https://github.com/gael55x/Grape)** gives your coding agent session-aware repository context. It sends only the context a turn needs, skips what the session already has, and flags anything that went stale. It runs locally as an MCP server and CLI.
+
 ## License
 
 [MIT](LICENSE)
