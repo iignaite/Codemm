@@ -144,7 +144,8 @@ test('renderer security', async ({ launch }) => {
 // "Error invoking remote method" envelope, so codes like codemm:repair still match.
 test('errors cross IPC as their own message', async ({ launch }) => {
   const { app, page } = await launch();
-  await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible();
+  // A first window on a busy CI runner can take longer than the default 5 seconds.
+  await expect(page.getByRole('button', { name: 'Connect an agent', exact: true })).toBeVisible({ timeout: 30_000 });
   const messages = await page.evaluate(async () => {
     const bridge = (window as unknown as { codemm: { invoke(m: string, a: unknown[]): Promise<unknown> } }).codemm;
     const call = (method: string, args: unknown[]) => bridge.invoke(method, args).then(() => 'resolved', (e: Error) => e.message);

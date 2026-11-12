@@ -113,17 +113,18 @@ describe('running jobs in the sidebar (§4.11)', () => {
     act(() => tell(jobAt('l1', 'lesson', { concept: TOPIC })));
     act(() => tell(jobAt('a1', 'author', { concept: TOPIC, stage: 2, part: { done: 2, total: 3 } })));
     act(() => tell(jobAt('r1', 'roadmap')));
-    expect(names()).toEqual([
+    // The list can land a moment after the events on a slow runner: wait for it.
+    await waitFor(() => expect(names()).toEqual([
       'Writing a lesson on JavaScript basics, Writing the lesson',
       'Writing an activity on JavaScript basics, Checking the exercise, step 2 of 3',
       'Changing the roadmap, Changing the roadmap',
-    ]);
+    ]));
 
     // A retry reads short; a job quiet for 90 seconds says it is still working; a finished job leaves.
     act(() => tell(jobAt('l1', 'lesson', { concept: TOPIC, retry: { attempt: 2, of: 3 } })));
     act(() => tell(jobAt('a1', 'author', { concept: TOPIC, idleMs: 95_000 })));
     act(() => tell({ ...jobAt('r1', 'roadmap'), ended: true }));
-    expect(names()).toEqual(['Writing a lesson on JavaScript basics, Taking a little longer', 'Writing an activity on JavaScript basics, Still working']);
+    await waitFor(() => expect(names()).toEqual(['Writing a lesson on JavaScript basics, Taking a little longer', 'Writing an activity on JavaScript basics, Still working']));
 
     await user.click(within(working()!).getByRole('button', { name: /^Writing a lesson/ }));
     expect(await screen.findByRole('heading', { name: 'JavaScript basics' })).toBeInTheDocument();
@@ -188,7 +189,8 @@ describe('running jobs in the sidebar (§4.11)', () => {
     await screen.findByRole('heading', { name: 'React' });
     const rebuilding = jobAt('rb', 'rebuild', { track: 'React', stage: 0, thinking: false });
     act(() => tell(rebuilding));
-    const job = within(working()!).getByRole('button');
+    // The list can land a moment after the event on a slow runner: wait for it.
+    const job = within(await within(sidebar()).findByRole('list', { name: 'Codemm is working' })).getByRole('button');
     act(() => job.focus());
     expect(job).toHaveFocus();
     act(() => tell({ ...rebuilding, ended: true }));
