@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-beta.11
+
+- **Your roadmap shows sooner.** It opens as soon as research ends, while Codemm double-checks it in the background. You can edit or approve it right away: your first change stops the check, and your roadmap is the one that's saved.
+- **A practice time for your calendar.** Pick a time and how often on the course map, and Codemm saves a repeating event you can open in your calendar app. Nothing is sent anywhere.
+- **Know when a topic comes back.** When you master a topic, the result says when its review is due, such as "Review tomorrow."
+
 ## 1.0.0-beta.10
 
 - **Lesson counts stay steady.** A topic no longer shows an extra lesson for a moment while its lesson is being written.
