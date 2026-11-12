@@ -3,7 +3,7 @@
 // registry, which a running process never sees in its own environment (§3.1).
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { find, type Where } from './agent/find';
 import { livePath } from './agent/livePath';
 import { computerCheck } from './computer';
@@ -68,7 +68,8 @@ describe('found once installed, with no restart (§3.1)', () => {
     const refresh = () => new Promise<void>((resolve) => setTimeout(() => (order.push('fresh'), resolve()), 5));
     const t = live({ research: (_job, usual) => (order.push('job'), usual()) }, { livePath: refresh });
     await researched(t);
-    // Connect brings it up to date, and so does each job just before it starts: research, then its review.
-    expect(order).toEqual(['fresh', 'fresh', 'job', 'fresh']);
+    // Connect brings it up to date, and so does each job just before it starts: research, then its review, which runs
+    // after the roadmap shows.
+    await vi.waitFor(() => expect(order).toEqual(['fresh', 'fresh', 'job', 'fresh']));
   });
 });

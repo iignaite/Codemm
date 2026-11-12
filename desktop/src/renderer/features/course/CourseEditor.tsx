@@ -3,7 +3,7 @@ import type { Concept, Roadmap } from '../../../shared/api';
 import { addTopic, moveTopic, removeTopic, renameTopic } from '../../../shared/roadmap';
 import { useApi } from '../../app/api';
 import { cacheFor, lessonCache } from '../../app/cache';
-import { useJob } from '../../app/useJob';
+import { useJobs } from '../../app/useJob';
 import { useRouter } from '../../app/router';
 import { Button } from '../../ui/Button';
 import { Field } from '../../ui/Field';
@@ -31,8 +31,10 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
   const [request, setRequest] = useState('');
   const [asking, setAsking] = useState(false);
   const dragFrom = useRef<string>(undefined);
-  // "Ask Codemm for changes" and Go deeper run a roadmap-change job (§4.11).
-  const job = useJob((p) => p.kind === 'roadmap', []);
+  // "Ask Codemm for changes" and Go deeper run a roadmap-change job (§4.11). A new roadmap's review runs beside it (§4.9).
+  const jobs = useJobs((p) => p.kind === 'roadmap' || p.kind === 'review', []);
+  const job = jobs.filter((j) => j.progress.kind === 'roadmap').at(-1);
+  const review = jobs.find((j) => j.progress.kind === 'review');
   // A change the learner started, left and came back to is running here too: the same locks apply (the sidebar opens
   // this screen for it), and when it ends the draft it changed is read again.
   const working = asking || Boolean(job);
@@ -49,6 +51,22 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
     }
   }, [job]);
 
+  // Codemm double-checks a new roadmap in the background (§4.9). The learner can edit or approve meanwhile, and main stops
+  // the check at the first edit. A check that ends before any edit may have saved corrections, so the draft is read again.
+  const edited = useRef(false);
+  const reviewed = useRef(false);
+  useEffect(() => {
+    if (review) reviewed.current = true;
+    else if (reviewed.current) {
+      reviewed.current = false;
+      if (!edited.current) api.draft().then((draft) => {
+        if (!draft || edited.current) return;
+        setConcepts(draft.concepts);
+        setSources(draft.sources);
+      }, (err: unknown) => fail(err));
+    }
+  }, [review]);
+
   /** Applies an edit and saves it, so the draft survives leaving or closing Codemm; or says why it was refused. */
   function edit(change: (cs: Concept[]) => Concept[]) {
     if (working) return;
@@ -60,6 +78,7 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
       setReply('');
       return;
     }
+    edited.current = true;
     setConcepts(next);
     setNotice('');
     setReply('');
@@ -91,6 +110,7 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
 
   /** Codemm changes the roadmap as it stands now, so the learner's own edits wait until it's done (an open one closes). */
   async function change(text: string, keep?: { id: string; title: string }) {
+    edited.current = true;
     setAsking(true);
     setEditing(undefined);
     setAdding(false);
@@ -176,8 +196,10 @@ export function CourseEditor({ roadmap }: { roadmap: Roadmap }) {
               !job && <p className="quiet-text">Updating the roadmap…</p>
             ) : reply ? (
               <div className="note"><Markdown text={reply} className="md small" /></div>
+            ) : notice ? (
+              <p className="alert">{notice}</p>
             ) : (
-              notice && <p className="alert">{notice}</p>
+              review && <p className="quiet-text">Codemm is double-checking this path. You can edit or approve it now.</p>
             )}
           </div>
           <div className="editor-actions">

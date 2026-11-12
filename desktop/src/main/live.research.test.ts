@@ -4,6 +4,12 @@ import { type JobProgress } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
 import { HELD_BACK } from './views';
 
+/** Runs `then` once the job is stopped, even when that happened before the fake agent began to listen. */
+function whenStopped(job: { signal?: AbortSignal }, then: () => void) {
+  if (job.signal!.aborted) then();
+  else job.signal!.addEventListener('abort', then, { once: true });
+}
+
 describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
   it('needs a connected agent before research', async () => {
     const t = live();
@@ -23,7 +29,7 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     expect([job.cwd, job.agentDir]).toEqual(['/Users/me/Codemm', '/userData/agents']);
   });
 
-  it('reviews once on the same course after sources save, and stays running until review ends', async () => {
+  it('shows the roadmap once sources save, and reviews it on the same course in the background', async () => {
     let release: () => void = () => undefined;
     const waiting = new Promise<void>((resolve) => (release = resolve));
     const t = live({
@@ -45,13 +51,45 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     const goal = { topic: 'Systems', known: '', depth: 'standard' as const, practice: 'code' as const };
     expect(await t.api.research(goal)).toEqual({ state: 'running' });
     await vi.waitFor(() => expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review']));
-    expect(await t.api.research(goal)).toEqual({ state: 'running' });
-    expect(await t.api.draft()).toBeNull();
-    await expect(t.api.approve(t.c.roadmap!.concepts)).rejects.toThrow('still being checked');
+    // The learner sees the roadmap while the review runs.
+    await vi.waitFor(async () => expect(await t.api.research(goal)).toMatchObject({ state: 'done', roadmap: { title: 'Systems' } }));
+    expect(await t.api.draft()).toMatchObject({ title: 'Systems' });
     release();
-    await vi.waitFor(async () => expect(await t.api.research(goal)).toMatchObject({ state: 'done', roadmap: { title: 'Reviewed course' } }));
-    expect(await t.api.draft()).toMatchObject({ title: 'Reviewed course' });
+    // A review that ends before any edit leaves its corrections in the draft.
+    await vi.waitFor(async () => expect(await t.api.draft()).toMatchObject({ title: 'Reviewed course' }));
     expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review']);
+  });
+
+  it.each(['approve', 'saveDraft', 'reviseRoadmap'] as const)('%s stops a running review first, and the learner\'s roadmap wins', async (method) => {
+    const t = live({
+      review: (job) => new Promise((resolve) => {
+        // A save that lands while the agent is being stopped.
+        whenStopped(job, () => {
+          t.c.roadmap = { ...t.c.roadmap!, concepts: [{ id: 'review', title: 'From the review', requires: [] }] };
+          resolve({ ok: false, problem: 'failed' });
+        });
+      }),
+    });
+    const r = await researched(t);
+    await vi.waitFor(() => expect(t.jobs.ran.at(-1)?.kind).toBe('review'));
+    const concepts = [{ id: 'values', title: 'Mine', requires: [] }];
+    if (method === 'reviseRoadmap') await t.api.reviseRoadmap(concepts, 'Keep it short');
+    else await t.api[method](concepts);
+    expect(r.state).toBe('done');
+    const review = t.jobs.ran.find((j) => j.kind === 'review')!;
+    expect(review.signal!.aborted).toBe(true);
+    // A change request then runs on the learner's roadmap (the fake agent adds Testing).
+    expect(t.c.roadmap!.concepts.map((c) => c.title)).toEqual(method === 'reviseRoadmap' ? ['Mine', 'Testing'] : ['Mine']);
+    await t.api.stop();
+  });
+
+  it('refuses an edit while a review it could not stop may still save', async () => {
+    const t = live({
+      review: (job) => new Promise((resolve) => whenStopped(job, () => resolve({ ok: false, problem: 'unstoppable' }))),
+    });
+    const r = await researched(t);
+    await vi.waitFor(() => expect(t.jobs.ran.at(-1)?.kind).toBe('review'));
+    await expect(t.api.saveDraft(r.roadmap!.concepts)).rejects.toThrow('still being checked');
   });
 
   it.each(['failed', 'no save', 'throws'])('keeps successful research when review %s', async (failure) => {
@@ -63,8 +101,9 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     const r = await researched(t);
     expect(r).toMatchObject({ state: 'done', roadmap: { title: 'React' } });
     expect(await t.api.draft()).toMatchObject({ title: 'React' });
+    // The review runs after the roadmap shows, so its end is waited for.
+    await vi.waitFor(() => expect(log.mock.calls.some(([event]) => event === 'review-error' || event === 'review-no-change')).toBe(true));
     expect(t.jobs.ran.map((j) => j.kind)).toEqual(['research', 'review']);
-    expect(log.mock.calls.some(([event]) => event === 'review-error' || event === 'review-no-change')).toBe(true);
   });
 
   it('does not review failed research', async () => {
