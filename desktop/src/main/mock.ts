@@ -748,7 +748,8 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         job: research!.job, kind: 'research', stage: n === all.length ? 2 : 1, steps: all.slice(0, n).reverse(), count: n, thinking: n !== all.length,
         elapsedMs: Date.now() - research!.started + quietMs(), idleMs: quietMs(),
       });
-      const shown = options.slow ? all.length * options.slow : 2;
+      // One step per read, so the research screen stays on view about as long as it did while it also waited for the review.
+      const shown = options.slow ? all.length * options.slow : all.length;
       if (++research.calls <= shown) {
         tellJob(reported(options.slow ? Math.ceil(research.calls / options.slow) : research.calls));
         return { state: 'running' };
