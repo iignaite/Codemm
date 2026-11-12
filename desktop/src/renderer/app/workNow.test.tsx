@@ -174,7 +174,8 @@ describe('running jobs in the sidebar (§4.11)', () => {
     await screen.findByRole('heading', { name: 'React' });
     const rebuilding = jobAt('rb', 'rebuild', { track: 'React', stage: 0, thinking: false });
     act(() => tell(rebuilding));
-    const job = within(working()!).getByRole('button');
+    // The list can land a moment after the event on a slow runner: wait for it.
+    const job = within(await within(sidebar()).findByRole('list', { name: 'Codemm is working' })).getByRole('button');
     act(() => job.focus());
     expect(job).toHaveFocus();
     act(() => tell({ ...rebuilding, ended: true }));
