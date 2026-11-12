@@ -276,13 +276,12 @@ export function createLive(d: LiveDeps): Live {
   /** Saves the learner's edits to the active roadmap (the draft, if there is one) through core's roadmap rules (§4.2). JSON is YAML. */
   async function saveConcepts(concepts: Concept[]) {
     // The learner's roadmap wins: a review still checking it stops first, and its agent is gone before this saves.
-    const review = running.get(`review:${core.getRoadmap(ws).course}`);
-    if (review) {
-      review.stop.abort();
-      const stopped = await review.outcome.catch(() => undefined);
-      // An agent that survived its cancel may still save over the learner's edits, and only quitting stops it (§3.1).
-      if (stopped?.problem === 'unstoppable') throw problemError('unstoppable');
-    }
+    const course = core.getRoadmap(ws).course;
+    await stopReviews((c) => c === course);
+    // An agent that survived its cancel may still save over the learner's edits, and only quitting stops it (§3.1).
+    if (unstoppableReviews.has(course)) throw problemError('unstoppable');
+    // A review that hasn't started yet never will: the learner has made this roadmap theirs.
+    used.add(course);
     const current = core.getRoadmap(ws);
     const { title, goal, track, style, sources } = current;
     const byId = new Map(current.concepts.map((c) => [c.id, c]));
@@ -613,11 +612,27 @@ export function createLive(d: LiveDeps): Live {
   // Run's programs, by run id (§4.10): programs.ts. They run on the approved course's track, so wait for Docker only on a Docker track.
   const programRuns = programs({ whenDockerReady: (operation) => whenReady(trackOf(approved()), operation), log });
 
+  /** Courses the learner edited or approved: no review starts on them (§4.9). */
+  const used = new Set<string>();
+  /** Courses whose review agent survived its cancel: their roadmap may still change, so no edit saves until quit (§3.1). */
+  const unstoppableReviews = new Set<string>();
+
+  /** Stops the reviews of the courses that match, and waits until their agents are gone. */
+  async function stopReviews(match: (course: string) => boolean) {
+    const reviews = [...running].filter(([key]) => key.startsWith('review:') && match(key.slice('review:'.length)));
+    for (const [, r] of reviews) r.stop.abort();
+    const ended = await Promise.all(reviews.map(([, r]) => r.outcome.catch(() => undefined)));
+    ended.forEach((o, i) => o?.problem === 'unstoppable' && unstoppableReviews.add(reviews[i][0].slice('review:'.length)));
+  }
+
   /** Checks a researched roadmap in the background while the learner already sees it; the learner's first edit stops it. */
   async function review(course: string) {
+    // Only the draft research just wrote, before the learner has touched it: never an approved or replaced course.
+    if (used.has(course) || coursesOf(d.state.read()).includes(course) || roadmapOrNull()?.course !== course) return;
     try {
       const before = JSON.stringify(core.getRoadmap(ws, course));
       const outcome = await start(`review:${course}`, 'fg', 'review', briefs.review(), course, (turn) => turn.ok);
+      if (outcome.problem === 'unstoppable') unstoppableReviews.add(course);
       if (!outcome.ok) log('review-error', { problem: outcome.problem });
       else if (JSON.stringify(core.getRoadmap(ws, course)) === before) log('review-no-change', {});
     } catch (e) {
@@ -719,6 +734,8 @@ export function createLive(d: LiveDeps): Live {
       }
       if (!running.has(key) && !finishing.has(key)) {
         await d.connect.chosen();
+        // A new course becomes the draft: the last draft's review stops first, or its save would make that course active again.
+        await stopReviews(() => true);
         // A new course, on a server that saves only it (§4.6).
         const course = courseId(goal.topic, Date.now());
         const reads: { title: string; url: string }[] = [];

@@ -89,8 +89,50 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     });
     const r = await researched(t);
     await vi.waitFor(() => expect(t.jobs.ran.at(-1)?.kind).toBe('review'));
-    // Waiting can't help: no agent stops or starts again until Codemm quits.
+    // Waiting can't help: no agent stops or starts again until Codemm quits. Every later edit and Approve is refused too.
     await expect(t.api.saveDraft(r.roadmap!.concepts)).rejects.toThrow(UNSTOPPABLE);
+    await expect(t.api.saveDraft(r.roadmap!.concepts)).rejects.toThrow(UNSTOPPABLE);
+    await expect(t.api.approve(r.roadmap!.concepts)).rejects.toThrow(UNSTOPPABLE);
+  });
+
+  it("researching a new course stops the last draft's review first, so its save can't switch the course back", async () => {
+    let firstCourse = '';
+    const t = live({
+      review: (job) => new Promise((resolve) => whenStopped(job, () => {
+        // A save that lands while the agent is stopped: it makes its own course active, as core's save_roadmap does.
+        t.c.roadmap = { ...t.c.courses.get(firstCourse)! };
+        resolve({ ok: false, problem: 'failed' });
+      })),
+    });
+    const first = await researched(t);
+    firstCourse = t.c.active!;
+    await vi.waitFor(() => expect(t.jobs.ran.at(-1)?.kind).toBe('review'));
+    const review = t.jobs.ran.at(-1)!;
+    const goal = { topic: 'Rust', known: '', depth: 'standard' as const, practice: 'code' as const };
+    await t.api.research(goal);
+    expect(review.signal!.aborted).toBe(true);
+    await vi.waitFor(async () => expect(await t.api.research(goal)).toMatchObject({ state: 'done' }));
+    // The new course is the draft, whatever the stopped review saved while it was being stopped.
+    expect(t.c.active).not.toBe(firstCourse);
+    expect((await t.api.draft())!.goal).toBe('Rust');
+    expect(first.state).toBe('done');
+    await t.api.stop();
+  });
+
+  it.each(['saveDraft', 'approve'] as const)('starts no review once the learner has used the roadmap (%s before research ends)', async (method) => {
+    const t = live({
+      research: async (_job, usual) => {
+        const out = usual();
+        // The draft is readable as soon as research saves it; the learner acts before research's turn ends.
+        if (method === 'approve') await t.api.approve(t.c.roadmap!.concepts);
+        else await t.api.saveDraft(t.c.roadmap!.concepts);
+        return out;
+      },
+    });
+    expect(await researched(t)).toMatchObject({ state: 'done' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.jobs.ran.map((j) => j.kind)).not.toContain('review');
+    await t.api.stop();
   });
 
   it.each(['failed', 'no save', 'throws'])('keeps successful research when review %s', async (failure) => {
