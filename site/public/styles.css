@@ -146,6 +146,8 @@ h1 { max-width: 11em; font-size: clamp(42px, 5.8vw, 74px); line-height: 1.02; le
 .page-emm { width: 120px; margin-bottom: 20px; }
 .download { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 36px; }
 .hero-download { align-items: flex-start; margin-top: 32px; }
+.hero-note { max-width: 32em; margin-top: 14px; font-size: 15px; line-height: 1.5; color: var(--muted); }
+.hero-note a, .proof-note a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .primaries { display: flex; flex-wrap: wrap; gap: 12px; }
 .download:not(.hero-download) .primaries { justify-content: center; }
 .chip-hint { color: var(--muted); font-size: 14px; }
@@ -275,6 +277,7 @@ h1 { max-width: 11em; font-size: clamp(42px, 5.8vw, 74px); line-height: 1.02; le
   .walk { order: 5; width: 100%; max-width: 460px; margin: 16px auto 0; }
   .hero .hero-download { order: 3; }
   .hero .source { order: 4; }
+  .hero .hero-note { order: 4; }
   .row, .row.flip { grid-template-columns: minmax(0, 1fr); }
   .row.flip .row-text { order: 0; }
   .proof-list, .needs { grid-template-columns: minmax(0, 1fr); }
