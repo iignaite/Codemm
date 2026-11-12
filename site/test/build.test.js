@@ -55,7 +55,7 @@ test('the site is static and collects no personal data', () => {
     // Say only what Codemm checks: exercises against their tests, which must reject the
     // incorrect versions the agent wrote. Lessons aren't checked, and nothing is "proven".
     assert.doesNotMatch(page, /\bprove[ns]?\b|\bproof that\b|every broken|own plan|guarantee/i);
-    assert.match(page, /<p class="lead">Your agent writes the lessons and exercises\. Codemm tests every exercise before you see it, grades your code in a sandbox, and gives hints instead of answers\.<\/p>/);
+    assert.match(page, /<p class="lead">Your agent writes the lessons and exercises\. Codemm tests every exercise before you see it, grades your code in a sandbox, and gives hints without writing your code\.<\/p>/);
     // What a visitor needs is said next to the first Download, not only at the bottom of the page.
     assert.match(page, /id="get"[\s\S]*?<p class="hero-note">Free and open source\. Needs Claude Code, Codex or Cursor signed in, and Docker/);
     // The measured claim links to the results it comes from.
