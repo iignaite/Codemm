@@ -6,11 +6,17 @@ import type { PracticeTime } from '../shared/api';
 const SUMMARY = 'Practice with Codemm';
 const RRULE = { daily: 'FREQ=DAILY', weekdays: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' };
 
-/** The calendar file for a practice time: today at that time if it is still ahead, otherwise tomorrow. */
+/**
+ * The calendar file for a practice time: the first day it fits, today if the time is still ahead, never a weekend for
+ * weekdays. `uid` names the series, so saving again for the same course replaces it in the calendar (with SEQUENCE).
+ */
 export function practiceCalendar({ time, repeat, course, now, uid }: PracticeTime & { course: string; now: Date; uid: string }): string {
   const [hour, minute] = time.split(':').map(Number);
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute);
-  if (start <= now) start.setDate(start.getDate() + 1);
+  // The day only: the time is written as chosen, so an hour a clock change skips stays the hour the learner picked.
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+  const ahead = now.getHours() * 60 + now.getMinutes() < hour * 60 + minute;
+  if (!ahead) day.setDate(day.getDate() + 1);
+  while (repeat === 'weekdays' && (day.getDay() === 0 || day.getDay() === 6)) day.setDate(day.getDate() + 1);
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -18,9 +24,11 @@ export function practiceCalendar({ time, repeat, course, now, uid }: PracticeTim
     'CALSCALE:GREGORIAN',
     'BEGIN:VEVENT',
     `UID:${uid}@codemm`,
+    // Minutes since 1970: a later save of the same series replaces an earlier one.
+    `SEQUENCE:${Math.floor(now.getTime() / 60_000)}`,
     `DTSTAMP:${now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}`,
     // Floating local time: the event follows the learner's time zone.
-    `DTSTART:${local(start)}`,
+    `DTSTART:${day.getFullYear()}${pad(day.getMonth() + 1)}${pad(day.getDate())}T${pad(hour)}${pad(minute)}00`,
     'DURATION:PT30M',
     `RRULE:${RRULE[repeat]}`,
     `SUMMARY:${SUMMARY}`,
@@ -37,10 +45,15 @@ export function practiceCalendar({ time, repeat, course, now, uid }: PracticeTim
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
-const local = (d: Date) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}T${pad(d.getHours())}${pad(d.getMinutes())}00`;
 
-/** A TEXT value: backslash, semicolon, comma and line breaks escaped. */
-const escape = (text: string) => text.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+/** A TEXT value: backslash, semicolon, comma and every line break escaped, other control characters but tab dropped. */
+const escape = (text: string) =>
+  text
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r\n|\r|\n/g, '\\n')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '');
 
 /** Folds a line at 75 octets (a continuation starts with one space), never inside a character. */
 function fold(line: string): string {

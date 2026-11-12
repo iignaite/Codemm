@@ -1,7 +1,6 @@
 // The CodemmApi over the real core and the learner's own agent (DESIGN §2–§6).
 // Main calls core `app` functions in-process; agent jobs run through the
 // bridge; everything returned goes through views.ts.
-import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -814,8 +813,14 @@ export function createLive(d: LiveDeps): Live {
       const course = approved();
       const roadmap = course ? roadmapOrNull(course) : null;
       if (!roadmap || !d.saveFile) throw new SafeError('No course yet.');
-      const text = practiceCalendar({ ...plan, course: roadmap.title ?? roadmap.goal, now: new Date(), uid: randomUUID() });
-      return { saved: await d.saveFile('Codemm practice.ics', text) };
+      // One series per course: saving a new time again replaces it in the calendar.
+      const text = practiceCalendar({ ...plan, course: nameOf(roadmap), now: new Date(), uid: `practice-${course}` });
+      try {
+        return { saved: await d.saveFile('Codemm practice.ics', text) };
+      } catch (e) {
+        log('practice-time-error', errorFields(e));
+        throw new SafeError("Codemm couldn't save the file. Choose another folder and try again.");
+      }
     },
 
     async setActivities(on) {

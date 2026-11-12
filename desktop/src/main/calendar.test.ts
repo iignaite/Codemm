@@ -19,6 +19,7 @@ describe('practice time calendar file (§4.15)', () => {
       'CALSCALE:GREGORIAN',
       'BEGIN:VEVENT',
       'UID:abc@codemm',
+      `SEQUENCE:${Math.floor(morning.getTime() / 60_000)}`,
       `DTSTAMP:${utcStamp(morning)}`,
       'DTSTART:20261112T190000',
       'DURATION:PT30M',
@@ -51,6 +52,41 @@ describe('practice time calendar file (§4.15)', () => {
   it('crosses a month end', () => {
     const ics = practiceCalendar({ time: '06:00', repeat: 'daily', course: 'React', now: new Date(2026, 10, 30, 8, 0), uid: 'abc' });
     expect(lines(ics)).toContain('DTSTART:20261201T060000');
+  });
+
+  it('starts weekdays on the next weekday: never a Saturday or Sunday', () => {
+    // Saturday 14 Nov 2026, and Friday 13 Nov after the time.
+    const saturday = practiceCalendar({ time: '19:00', repeat: 'weekdays', course: 'React', now: new Date(2026, 10, 14, 10, 0), uid: 'abc' });
+    expect(lines(saturday)).toContain('DTSTART:20261116T190000');
+    const fridayNight = practiceCalendar({ time: '07:00', repeat: 'weekdays', course: 'React', now: new Date(2026, 10, 13, 21, 0), uid: 'abc' });
+    expect(lines(fridayNight)).toContain('DTSTART:20261116T070000');
+    // Every day may start on a weekend.
+    expect(lines(practiceCalendar({ time: '19:00', repeat: 'daily', course: 'React', now: new Date(2026, 10, 14, 10, 0), uid: 'abc' }))).toContain('DTSTART:20261114T190000');
+  });
+
+  it('keeps the chosen time on a day whose clocks skip that hour', () => {
+    const zone = process.env.TZ;
+    process.env.TZ = 'America/New_York';
+    try {
+      // 02:30 doesn't exist on 14 Mar 2027 in New York; the repeating event still says 02:30.
+      const ics = practiceCalendar({ time: '02:30', repeat: 'daily', course: 'React', now: new Date(2027, 2, 13, 22, 0), uid: 'abc' });
+      expect(lines(ics)).toContain('DTSTART:20270314T023000');
+    } finally {
+      if (zone === undefined) delete process.env.TZ;
+      else process.env.TZ = zone;
+    }
+  });
+
+  it('crosses a year end', () => {
+    expect(lines(practiceCalendar({ time: '06:00', repeat: 'daily', course: 'React', now: new Date(2026, 11, 31, 8, 0), uid: 'abc' }))).toContain('DTSTART:20270101T060000');
+  });
+
+  it('keeps control characters out of the file, a lone carriage return included', () => {
+    const ics = practiceCalendar({ time: '19:00', repeat: 'daily', course: 'A\rX-INJ:1 B\u0007C\tD', now: morning, uid: 'abc' });
+    const unfolded = ics.replace(/\r\n /g, '');
+    expect(unfolded).toContain('DESCRIPTION:Course: A\\nX-INJ:1 BC\tD.');
+    expect(unfolded.split('\r\n').some((l) => l.startsWith('X-INJ'))).toBe(false);
+    expect(unfolded.replace(/\r\n/g, '')).not.toMatch(/[\u0000-\u0008\u000a-\u001f\u007f]/);
   });
 
   it("escapes the course's name and folds long lines at 75 octets, counting multibyte characters", () => {
