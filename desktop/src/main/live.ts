@@ -277,8 +277,8 @@ export function createLive(d: LiveDeps): Live {
     if (review) {
       review.stop.abort();
       const stopped = await review.outcome.catch(() => undefined);
-      // An agent that survived its cancel may still save over the learner's edits.
-      if (stopped?.problem === 'unstoppable') throw new SafeError('The roadmap is still being checked. Try again in a moment.');
+      // An agent that survived its cancel may still save over the learner's edits, and only quitting stops it (§3.1).
+      if (stopped?.problem === 'unstoppable') throw problemError('unstoppable');
     }
     const current = core.getRoadmap(ws);
     const { title, goal, track, style, sources } = current;

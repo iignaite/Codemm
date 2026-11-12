@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { type JobProgress } from '../shared/api';
+import { UNSTOPPABLE, type JobProgress } from '../shared/api';
 import { CANARY, live, practising, researched, until } from './testing/fakes';
 import { HELD_BACK } from './views';
 
@@ -83,13 +83,14 @@ describe('live CodemmApi: research, roadmaps and drafts (§4.2, §4.9)', () => {
     await t.api.stop();
   });
 
-  it('refuses an edit while a review it could not stop may still save', async () => {
+  it('refuses an edit while a review it could not stop may still save, and says to quit Codemm (§3.1)', async () => {
     const t = live({
       review: (job) => new Promise((resolve) => whenStopped(job, () => resolve({ ok: false, problem: 'unstoppable' }))),
     });
     const r = await researched(t);
     await vi.waitFor(() => expect(t.jobs.ran.at(-1)?.kind).toBe('review'));
-    await expect(t.api.saveDraft(r.roadmap!.concepts)).rejects.toThrow('still being checked');
+    // Waiting can't help: no agent stops or starts again until Codemm quits.
+    await expect(t.api.saveDraft(r.roadmap!.concepts)).rejects.toThrow(UNSTOPPABLE);
   });
 
   it.each(['failed', 'no save', 'throws'])('keeps successful research when review %s', async (failure) => {
