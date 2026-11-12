@@ -811,6 +811,12 @@ export function createMock(options: MockOptions = {}): CodemmApi {
       return { ...structuredClone(course), topics: course.topics.map((t) => ({ ...structuredClone(t), ...(!course!.activities ? { activity: 'none' as const, stuck: false } : {}) })), ...(options.stalled ? { stalled: options.stalled } : {}), ...(options.stalled && options.stalledWork ? { stalledWork: options.stalledWork } : {}), ...(options.stalled && options.laterTopic ? { later: options.laterTopic } : {}) };
     },
 
+    async savePracticeTime() {
+      if (!course) throw new Error('No course yet.');
+      // The mock writes no file: as if the learner saved it.
+      return { saved: true };
+    },
+
     async setActivities(on) {
       if (!course) throw new Error('No course');
       course.activities = on;

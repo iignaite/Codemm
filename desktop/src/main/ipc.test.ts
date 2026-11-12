@@ -28,6 +28,7 @@ const GOOD: Record<Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress' 
   courses: [],
   switchCourse: ['react-1'],
   setActivities: [false],
+  savePracticeTime: [{ time: '19:00', repeat: 'daily' }],
   install: ['a'.repeat(64)],
   retrySetup: [],
   retryJobs: [],
@@ -122,4 +123,10 @@ it('validates the practice choice and the Activities switch', async () => {
   expect(await dispatch(echo, 'research', [{ topic: 'History', known: '', depth: 'standard', practice: 'quiz' }])).toMatchObject({ method: 'research' });
   expect(() => dispatch(echo, 'research', [{ topic: 'History', known: '', depth: 'standard', practice: 'both' }])).toThrow('Bad input');
   expect(() => dispatch(echo, 'setActivities', ['off'])).toThrow('Bad input');
+});
+
+it('validates a practice time (§4.15)', async () => {
+  expect(await dispatch(echo, 'savePracticeTime', [{ time: '07:05', repeat: 'weekdays' }])).toMatchObject({ method: 'savePracticeTime' });
+  for (const bad of [{ time: '7:05', repeat: 'daily' }, { time: '24:00', repeat: 'daily' }, { time: '19:60', repeat: 'daily' }, { time: '19:00', repeat: 'weekly' }, { time: '19:00', repeat: 'daily', path: '/tmp/x.ics' }, { time: '19:00' }])
+    expect(() => dispatch(echo, 'savePracticeTime', [bad])).toThrow('Bad input');
 });

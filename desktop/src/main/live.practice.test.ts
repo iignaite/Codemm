@@ -116,6 +116,14 @@ describe('live CodemmApi: the activity: files, Try it, Check, Run and lesson exa
     expect(await t.api.check(activity.id)).toMatchObject({ kind: 'graded', passed: 2, mastered: true, tests: [{ hidden: false }, { hidden: true, index: 1, status: 'pass' }] });
   });
 
+  it('says how many days until a topic it masters comes back for review (§3.2)', async () => {
+    const t = live();
+    const activity = await practising(t);
+    t.c.reviewDue.set('values', new Date(Date.now() + 86_400_000 - 60_000).toISOString());
+    await t.api.saveFile(activity.id, 'main.c', 'count + 1', activity.files[0].digest);
+    expect(await t.api.check(activity.id)).toMatchObject({ kind: 'graded', mastered: true, reviewIn: 1 });
+  });
+
   it('a Docker failure is not counted, for Check and for Try it', async () => {
     const t = live();
     const activity = await practising(t);

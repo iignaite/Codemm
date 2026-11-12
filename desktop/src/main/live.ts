@@ -1,6 +1,7 @@
 // The CodemmApi over the real core and the learner's own agent (DESIGN §2–§6).
 // Main calls core `app` functions in-process; agent jobs run through the
 // bridge; everything returned goes through views.ts.
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -32,7 +33,8 @@ import type { connector } from './connect';
 import { infraOf, kindOf } from './core/failures';
 import { errorFields, SafeError } from './errors';
 import type { CoreApp, CoreProgress, CoreRoadmap } from './core/types';
-import { courseView, currentConcept, otherReady, type Setup } from './courseView';
+import { practiceCalendar } from './calendar';
+import { courseView, currentConcept, otherReady, reviewDays, type Setup } from './courseView';
 import { noLog, type Log } from './log';
 import { asNotCounted, rebuildFailure } from './notCounted';
 import { programs } from './programs';
@@ -69,6 +71,8 @@ export interface LiveDeps {
    * restart when WSL needs one (dockerDesktop.ts, §6.1).
    */
   docker?: { install(): void; open(): Promise<void>; windowsUpdate(): Promise<void>; restartWindows(): Promise<void> };
+  /** Asks the learner where to save a file under this name, and saves the text there; false when they cancel (§4.15). */
+  saveFile?: (name: string, text: string) => Promise<boolean>;
 }
 
 export interface Live extends CodemmApi {
@@ -806,6 +810,14 @@ export function createLive(d: LiveDeps): Live {
       schedule(course);
     },
 
+    async savePracticeTime(plan) {
+      const course = approved();
+      const roadmap = course ? roadmapOrNull(course) : null;
+      if (!roadmap || !d.saveFile) throw new SafeError('No course yet.');
+      const text = practiceCalendar({ ...plan, course: roadmap.title ?? roadmap.goal, now: new Date(), uid: randomUUID() });
+      return { saved: await d.saveFile('Codemm practice.ics', text) };
+    },
+
     async setActivities(on) {
       const course = approved();
       if (!course) throw new SafeError('No course.');
@@ -965,7 +977,7 @@ export function createLive(d: LiveDeps): Live {
         dockerWorked(course);
         // A graded check can move its course on: the next topic's lesson and activity.
         schedule(course);
-        return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false, later: otherReady(progress, concepts) });
+        return checkView(view, { stuck: state?.stuck ?? false, mastered: state?.mastered ?? false, reviewIn: reviewDays(state?.reviewDue, Date.now()), later: otherReady(progress, concepts) });
       } catch (e) {
         return asNotCounted(e, log, 'check', 'not-counted');
       }

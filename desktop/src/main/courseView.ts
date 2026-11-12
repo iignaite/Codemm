@@ -7,6 +7,12 @@ import { trackName } from './views';
 export type Setup = { state: Exclude<SetupState, 'failed'>; proposal?: Proposal } | { state: 'failed'; problem: SetupProblem; proposal?: Proposal };
 
 /** The topic to work on: the next step's, or while setting up, the first one whose prerequisites are mastered. */
+/** Whole days until a scheduled review, or undefined when there is none or it is due (core §7). */
+export function reviewDays(reviewDue: string | undefined, now: number): number | undefined {
+  const left = reviewDue ? Date.parse(reviewDue) - now : 0;
+  return left > 0 ? Math.ceil(left / 86_400_000) : undefined;
+}
+
 export function currentConcept(progress: CoreProgress): string | undefined {
   const next = progress.next;
   if ('concept' in next) return next.concept;
@@ -56,8 +62,7 @@ export function courseView(
     else if (isCurrent && next.kind === 'stuck') activity = 'open';
     else if (isCurrent) activity = 'writing';
     // Only future reviews count down; an overdue one waits its turn behind the review core offers now.
-    const left = c.reviewDue ? Date.parse(c.reviewDue) - now : 0;
-    const reviewIn = !review && left > 0 ? Math.ceil(left / 86_400_000) : undefined;
+    const reviewIn = review ? undefined : reviewDays(c.reviewDue, now);
     return {
       // Before its first check a topic has only core's starting estimate, not mastery the learner showed.
       id: c.id, title: c.title, state: c.mastered ? 'mastered' : isCurrent ? 'now' : 'later', mastery: c.attempts > 0 ? c.mastery : 0, stuck: c.stuck, lessons: own, activity,
