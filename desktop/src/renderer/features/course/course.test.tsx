@@ -279,6 +279,44 @@ describe('a roadmap change that started elsewhere', () => {
   });
 });
 
+describe('the background review (§4.9)', () => {
+  it('lets the learner edit and approve while Codemm double-checks, and shows its corrections when it ends first', async () => {
+    const { api, roadmap } = await mockWithRoadmap();
+    const tell = jobBus(api);
+    const review = jobAt('v1', 'review');
+    tell(review);
+    renderApp({ to: 'course', roadmap }, api);
+    expect(await screen.findByText('Codemm is double-checking this path. You can edit or approve it now.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Add a topic' })).toBeEnabled();
+
+    api.draft = async () => ({ ...roadmap, concepts: [...roadmap.concepts, { id: 'testing', title: 'Testing', requires: [] }] });
+    act(() => tell({ ...review, ended: true }));
+    expect(await screen.findByText('Testing')).toBeInTheDocument();
+    expect(screen.queryByText(/double-checking/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the learner's edit when the review ends after it", async () => {
+    const { api, roadmap } = await mockWithRoadmap();
+    const tell = jobBus(api);
+    const review = jobAt('v1', 'review');
+    tell(review);
+    renderApp({ to: 'course', roadmap }, api);
+    await screen.findByText(/double-checking/);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Add a topic' }));
+    await user.type(screen.getByRole('textbox', { name: 'Topic name' }), 'Mine{Enter}');
+    expect(await screen.findByText('Mine')).toBeInTheDocument();
+
+    let read = false;
+    api.draft = async () => ((read = true), { ...roadmap, concepts: [{ id: 'review', title: 'From the review', requires: [] }] });
+    act(() => tell({ ...review, ended: true }));
+    await waitFor(() => expect(screen.queryByText(/double-checking/)).not.toBeInTheDocument());
+    expect(read).toBe(false);
+    expect(screen.getByText('Mine')).toBeInTheDocument();
+  });
+});
+
 describe('a long roadmap', () => {
   it('scrolls its topics above a footer of its own, so Approve never covers the Ask box', async () => {
     // The real stylesheet (tests run from desktop/), so the computed style is the one the window uses.

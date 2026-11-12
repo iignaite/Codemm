@@ -286,7 +286,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
   let activities = new Map<string, { activity: Activity; fails: number; checked?: boolean }>();
   let quiz = false;
   let draftQuiz = false;
-  let research: { topic: string; calls: number; job: string; review: string; started: number } | null = null;
+  let research: { topic: string; calls: number; job: string; started: number } | null = null;
   /** The roadmap research wrote or the learner edited; a draft until approved. */
   let roadmap: Roadmap | null = null;
   let drafting = false;
@@ -493,6 +493,21 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     return false;
   }
   /** A job a call waits for (a roadmap change, a tutor turn): it plays through, half a second per beat when slow. */
+  /** The review playing beside a new roadmap until it ends or the learner's first edit stops it, as live does (§4.9). */
+  let review: { job: string; started: number } | undefined;
+  async function playReview() {
+    const r = (review = { job: `mock-${++jobCount}`, started: Date.now() });
+    for (let i = 1; i <= BEATS.review.length && review === r; i++) {
+      tellJob(report(r.job, 'review', BEATS.review.slice(0, i), r.started));
+      if (options.slow) await new Promise((t) => setTimeout(t, options.slow! * 500));
+    }
+    if (review === r) stopReview();
+  }
+  function stopReview() {
+    if (!review) return;
+    tellJob({ ...report(review.job, 'review', BEATS.review, review.started), ended: true });
+    review = undefined;
+  }
   async function playThrough(kind: 'roadmap' | 'tutor') {
     const job = `mock-${++jobCount}`;
     const started = Date.now();
@@ -723,7 +738,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async research(goal) {
       agentJob();
-      if (research?.topic !== goal.topic) research = { topic: goal.topic, calls: 0, job: `mock-${++jobCount}`, review: `mock-${++jobCount}`, started: Date.now() };
+      if (research?.topic !== goal.topic) research = { topic: goal.topic, calls: 0, job: `mock-${++jobCount}`, started: Date.now() };
       // What research looks at, a step per call (per `slow` calls when slow): the last step saves.
       const all: JobStep[] = [
         { kind: 'search', query: `${goal.topic} roadmap` }, { kind: 'read', url: 'roadmap.sh/react' }, { kind: 'read', url: 'react.dev/learn' },
@@ -738,14 +753,11 @@ export function createMock(options: MockOptions = {}): CodemmApi {
         tellJob(reported(options.slow ? Math.ceil(research.calls / options.slow) : research.calls));
         return { state: 'running' };
       }
-      if (research.calls === shown + 1) tellJob({ ...reported(all.length), ended: true });
-      const beat = Math.ceil((research.calls - shown) / (options.slow || 1));
-      const review = report(research.review, 'review', BEATS.review.slice(0, beat), research.started);
-      if (beat <= BEATS.review.length) {
-        tellJob(review);
-        return { state: 'running' };
+      if (research.calls === shown + 1) {
+        tellJob({ ...reported(all.length), ended: true });
+        // The roadmap shows at once, while its review plays in the background (§4.9).
+        void playReview();
       }
-      tellJob({ ...review, ended: true });
       draftQuiz = goal.practice === 'quiz';
       roadmap = {
         // As an agent would title it: the live app shows the agent's title (§4.13).
@@ -764,6 +776,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
     async reviseRoadmap(edited, request) {
       agentJob();
       if (!roadmap) throw new Error('No roadmap');
+      stopReview();
       await playThrough('roadmap');
       roadmap = { ...roadmap, concepts: addTopic(edited, request) };
       return { roadmap: structuredClone(roadmap), changed: true, text: '' };
@@ -771,6 +784,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async approve(edited) {
       if (!roadmap) throw new Error('No roadmap');
+      stopReview();
       roadmap = { ...roadmap, concepts: structuredClone(edited) };
       approved = structuredClone(roadmap);
       quiz = draftQuiz;
@@ -802,6 +816,7 @@ export function createMock(options: MockOptions = {}): CodemmApi {
 
     async saveDraft(edited) {
       if (!drafting || !roadmap) throw new Error('No roadmap to edit.');
+      stopReview();
       roadmap = { ...roadmap, concepts: structuredClone(edited) };
     },
 

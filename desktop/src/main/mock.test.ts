@@ -16,7 +16,7 @@ async function roadmapped(options?: MockOptions, practice: 'code' | 'quiz' = 'co
 }
 
 describe('mock naming', () => {
-  it('reports review progress after research and before returning the roadmap', async () => {
+  it('reports review progress after research, as the roadmap shows', async () => {
     const api = createMock();
     await api.connect('claude');
     const heard: JobProgress[] = [];
