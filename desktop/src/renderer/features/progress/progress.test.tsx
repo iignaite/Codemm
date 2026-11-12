@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { CodemmApi } from '../../../shared/api';
@@ -409,4 +409,39 @@ it('finishes a lessons-only topic from the reader and returns to the map', async
   await user.click(screen.getByRole('button', { name: 'Next' }));
   expect(await screen.findByRole('heading', { name: 'Lessons read' })).toBeInTheDocument();
   expect((await api.course())!.topics[0].state).toBe('covered');
+});
+
+describe('practice time (§4.15)', () => {
+  it('saves a repeating practice time to a calendar file the learner keeps', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    const plans: unknown[] = [];
+    api.savePracticeTime = async (plan) => (plans.push(plan), { saved: true });
+    renderApp({ to: 'learn' }, api);
+    const card = await screen.findByRole('region', { name: 'Practice time' });
+    expect(card).toHaveTextContent('Pick a time to practice. Codemm saves it as a repeating event for your calendar.');
+    const time = within(card).getByLabelText('Time');
+    const often = within(card).getByRole('combobox', { name: 'How often' });
+    expect(time).toHaveValue('19:00');
+    expect(often).toHaveValue('daily');
+    fireEvent.change(time, { target: { value: '07:30' } });
+    await user.selectOptions(often, 'weekdays');
+    await user.click(within(card).getByRole('button', { name: 'Save to calendar' }));
+    expect(plans).toEqual([{ time: '07:30', repeat: 'weekdays' }]);
+    expect(await within(card).findByText('Saved. Open the file to add it to your calendar.')).toBeInTheDocument();
+  });
+
+  it('says nothing when the learner cancels the save, and needs a time', async () => {
+    const user = userEvent.setup();
+    const { api } = await mockWithCourse();
+    let calls = 0;
+    api.savePracticeTime = async () => (calls++, { saved: false });
+    renderApp({ to: 'learn' }, api);
+    const card = await screen.findByRole('region', { name: 'Practice time' });
+    await user.click(within(card).getByRole('button', { name: 'Save to calendar' }));
+    await waitFor(() => expect(calls).toBe(1));
+    expect(within(card).queryByText(/^Saved/)).not.toBeInTheDocument();
+    fireEvent.change(within(card).getByLabelText('Time'), { target: { value: '' } });
+    expect(within(card).getByRole('button', { name: 'Save to calendar' })).toBeDisabled();
+  });
 });

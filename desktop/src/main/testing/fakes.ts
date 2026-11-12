@@ -71,6 +71,8 @@ export function fakeCore() {
     bound: [] as (string | undefined)[],
     cleanups: 0,
     mastered: new Set<string>(),
+    /** When each mastered concept's next review is due (core §7), for the concepts a test sets. */
+    reviewDue: new Map<string, string>(),
     /** Concepts the learner left for later since their last check: they unlock the topics after them (core §7). */
     skipped: new Set<string>(),
     /** The concept core says the learner is stuck on. */
@@ -144,7 +146,7 @@ export function fakeCore() {
         goal: r.goal,
         track: r.track,
         style: r.style,
-        concepts: r.concepts.map((x) => ({ ...x, covered: c.lessons.some((l) => l.concept === x.id) && c.lessons.filter((l) => l.concept === x.id).every((l) => c.reads.has(l.id)), mastery: c.mastered.has(x.id) ? 1 : 0.5, mastered: c.mastered.has(x.id), attempts: 0, stuck: c.stuck === x.id })),
+        concepts: r.concepts.map((x) => ({ ...x, covered: c.lessons.some((l) => l.concept === x.id) && c.lessons.filter((l) => l.concept === x.id).every((l) => c.reads.has(l.id)), mastery: c.mastered.has(x.id) ? 1 : 0.5, mastered: c.mastered.has(x.id), attempts: 0, stuck: c.stuck === x.id, ...(c.reviewDue.has(x.id) ? { reviewDue: c.reviewDue.get(x.id) } : {}) })),
         next: next(bound),
       };
     },

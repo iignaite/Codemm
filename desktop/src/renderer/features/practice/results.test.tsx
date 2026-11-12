@@ -140,6 +140,14 @@ describe('stuck', () => {
 describe('the words', () => {
   const all = (tests: CoreCheckView['tests']): CoreCheckView => ({ ...core, passed: tests.length, total: tests.length, tests: tests.map((t) => ({ ...t, status: 'pass' as const })) });
 
+  it('says when a mastered topic comes back for review, and nothing when none is scheduled (§3.2)', () => {
+    const view = render(<Results shown={{ kind: 'check', result: checkView(all(core.tests), { stuck: false, mastered: true, later: true, reviewIn: 1 }), keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(results()).toHaveTextContent('Review tomorrow.');
+    view.unmount();
+    render(<Results shown={{ kind: 'check', result: checkView(all(core.tests), { stuck: false, mastered: true, later: true }), keepTrying: false }} name="Emm" topic="State" visibleTests={visibleTests} ways={ways} />);
+    expect(results()).not.toHaveTextContent('Review');
+  });
+
   it('says a mastered topic once, however its title ends', () => {
     render(<Results shown={{ kind: 'check', result: checkView(all(core.tests), { stuck: false, mastered: true, later: true }), keepTrying: false }} name="Emm" topic="What is a closure?" visibleTests={visibleTests} ways={ways} />);
     expect(results()).toHaveTextContent('You mastered What is a closure?');

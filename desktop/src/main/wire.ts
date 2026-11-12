@@ -1,8 +1,9 @@
 // Builds the live CodemmApi (DESIGN §2): the bundled core in-process, agents
 // and Docker found on this computer, and agent jobs whose MCP server is the
 // bundled core run with this app as Node (§2, §7).
-import { app, net } from 'electron';
+import { app, BrowserWindow, dialog, net } from 'electron';
 import { mkdirSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AGENT_CLIS } from './agent/agents';
@@ -121,6 +122,15 @@ export function liveApi({ coreDir, wasmtimeDir, userData, log }: Places): Live {
     // On Windows, what installers added to the registry's PATH since Codemm started (§3.1): agents, and Docker for
     // Check this computer and core's docker calls, rely on it. A steady clock: one set back would hold off the next read.
     livePath: livePath({ platform: process.platform, env: process.env, run: nodeRun, now: () => performance.now() }),
+    // The learner picks where a file Codemm hands them goes (§4.15); the renderer never sees or names a path.
+    saveFile: async (name, text) => {
+      const options = { defaultPath: join(app.getPath('documents'), name), filters: [{ name: 'Calendar', extensions: ['ics'] }] };
+      const window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+      const { canceled, filePath } = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options);
+      if (canceled || !filePath) return false;
+      await writeFile(filePath, text, 'utf8');
+      return true;
+    },
   });
 }
 
