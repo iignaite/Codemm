@@ -10,6 +10,7 @@ import { stagger } from '../../ui/motion';
 import { Goal } from '../learn/Goal';
 import { Complete } from './Complete';
 import { Path } from './Path';
+import { PracticeTime } from './PracticeTime';
 import { SetupProgress } from './SetupProgress';
 
 /** The course as a path the learner moves along, with mastery so far and what the agent used beside it. */
@@ -52,6 +53,7 @@ export function CourseMap() {
           })}><span className="thumb" /></button>
           {changing.busy && <p className="quiet-text why" id="activities-why" role="status">Turning activities {turning}</p>}
         </div>
+        <PracticeTime />
       </Aside>
       {course.stalled && <Stalled stalled={course.stalled} work={course.stalledWork} later={course.later} retry={reload} />}
       {stale !== undefined && <Stale error={stale} retry={reload} />}

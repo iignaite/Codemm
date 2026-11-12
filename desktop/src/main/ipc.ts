@@ -67,6 +67,7 @@ const ARGS: { [K in Exclude<keyof CodemmApi, 'onCheckProgress' | 'onJobProgress'
   courses: [],
   switchCourse: [id],
   setActivities: [(v) => typeof v === 'boolean'],
+  savePracticeTime: [shape({ time: (v) => typeof v === 'string' && /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(v), repeat: oneOf('daily', 'weekdays') })],
   install: [digest],
   retrySetup: [],
   retryJobs: [],

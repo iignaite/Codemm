@@ -77,6 +77,7 @@ describe('the learner-safe boundary (D4)', () => {
       courses: [],
       switchCourse: [onScreen],
       setActivities: [true],
+      savePracticeTime: [{ time: '19:00', repeat: 'daily' }],
       draft: [],
       lesson: ['values-1'],
       saveNotes: ['values-1', 'my note'],

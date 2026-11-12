@@ -5,6 +5,7 @@ import { Emm } from '../../ui/Emm';
 import { Icon, Status } from '../../ui/Icon';
 import { stagger } from '../../ui/motion';
 import { Busy } from '../../ui/Busy';
+import { reviewText } from '../../app/course';
 
 /** The core names visible results "visible/<name>"; the exercise names its tests "<name>". */
 export const testName = (name: string) => name.replace(/^visible\//, '');
@@ -121,6 +122,8 @@ function Body({ shown, name, topic, visibleTests, ways, quiz }: Props) {
         <div className="stack loose">
           <h2 className="h2 won a-pop" style={stagger(0, 300)}>{result.passed} of {result.total} passed</h2>
           <p className="sub a-up" style={stagger(0, 600)}>{sentence(result.mastered ? `You mastered ${topic}` : `Keep practicing ${topic}`)}</p>
+          {/* The reason to come back (§3.2): when Codemm brings this topic back for review. */}
+          {result.reviewIn && <p className="quiet-text a-up" style={stagger(0, 700)}>{reviewText(result.reviewIn)}.</p>}
           <div className="a-up" style={stagger(0, 800)}><Button size="lg" onClick={ways.next}>Continue</Button></div>
         </div>
       </div>

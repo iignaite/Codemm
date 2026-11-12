@@ -193,6 +193,12 @@ export interface Roadmap {
 
 export type JobState = 'running' | 'done' | 'failed';
 
+/** A repeating practice time (§4.15): a local time of day, HH:MM, every day or on weekdays. */
+export interface PracticeTime {
+  time: string;
+  repeat: 'daily' | 'weekdays';
+}
+
 /** The research job writes the roadmap; poll until it's done. */
 export interface Research {
   state: JobState;
@@ -380,6 +386,8 @@ export type CheckResult =
       note?: string;
       stuck: boolean;
       mastered: boolean;
+      /** Whole days until the topic's next review, when one is scheduled and not yet due (core §7). */
+      reviewIn?: number;
       /** Another topic is ready, so "Come back later" moves on (§4.4). */
       later: boolean;
     }
@@ -478,6 +486,8 @@ export interface CodemmApi {
   /** Puts another of the learner's courses on screen; the work it still needs starts. */
   switchCourse(course: string): Promise<void>;
   setActivities(on: boolean): Promise<void>;
+  /** Saves a repeating practice time for the course on screen as a calendar file where the learner chooses (§4.15). */
+  savePracticeTime(plan: PracticeTime): Promise<{ saved: boolean }>;
   /** Builds the proposal the learner saw. Also retries after an offline or low-disk failure. */
   install(digest: string): Promise<void>;
   /** Runs the setup job again, after its proposals failed their gates. */
