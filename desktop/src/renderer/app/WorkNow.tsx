@@ -56,8 +56,9 @@ export async function editorRoute(api: CodemmApi): Promise<Route> {
 async function placeOf(p: JobProgress, course: Course, api: CodemmApi): Promise<Route> {
   switch (p.kind) {
     case 'research':
-    case 'review':
       return researching ? { to: 'research', goal: researching } : { to: 'goal' };
+    // A review checks a roadmap the learner already sees (§4.9), and a change edits one.
+    case 'review':
     case 'roadmap':
       return editorRoute(api);
     case 'setup': {

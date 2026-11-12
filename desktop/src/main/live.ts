@@ -140,7 +140,6 @@ export function createLive(d: LiveDeps): Live {
   const livePath = d.livePath ?? (async () => {});
   const briefs = briefsFrom(core.JOB_BRIEFS);
   const running = new Map<string, Running>();
-  const reviewing = new Set<string>();
   /**
    * One-at-a-time queues, by name (§3.2, §4.13): each course's foreground lane, background queue and tutor turns
    * (`fg:`, `bg:`, `tutor:` and the course), and across courses, track builds and author jobs: Docker-heavy work.
@@ -268,17 +267,23 @@ export function createLive(d: LiveDeps): Live {
    */
   const safeIn = (course: string | undefined) => (text: string) => !course || shown(text, hidden(course)) === text;
 
-  /** The roadmap not approved yet: the active course, unless it is under review or one of the learner's courses. */
+  /** The roadmap not approved yet: the active course, unless it is one of the learner's courses. It shows while its review runs. */
   function draft(): CoreRoadmap | null {
     const roadmap = roadmapOrNull();
-    return roadmap && !reviewing.has(roadmap.course) && !coursesOf(d.state.read()).includes(roadmap.course) ? roadmap : null;
+    return roadmap && !coursesOf(d.state.read()).includes(roadmap.course) ? roadmap : null;
   }
 
   /** Saves the learner's edits to the active roadmap (the draft, if there is one) through core's roadmap rules (§4.2). JSON is YAML. */
   async function saveConcepts(concepts: Concept[]) {
+    // The learner's roadmap wins: a review still checking it stops first, and its agent is gone before this saves.
+    const review = running.get(`review:${core.getRoadmap(ws).course}`);
+    if (review) {
+      review.stop.abort();
+      const stopped = await review.outcome.catch(() => undefined);
+      // An agent that survived its cancel may still save over the learner's edits, and only quitting stops it (§3.1).
+      if (stopped?.problem === 'unstoppable') throw problemError('unstoppable');
+    }
     const current = core.getRoadmap(ws);
-    // The review's own save would replace the learner's edits.
-    if (reviewing.has(current.course)) throw new SafeError('The roadmap is still being checked. Try again in a moment.');
     const { title, goal, track, style, sources } = current;
     const byId = new Map(current.concepts.map((c) => [c.id, c]));
     const merged = concepts.map(({ id, title, requires }) => {
@@ -608,6 +613,18 @@ export function createLive(d: LiveDeps): Live {
   // Run's programs, by run id (§4.10): programs.ts. They run on the approved course's track, so wait for Docker only on a Docker track.
   const programRuns = programs({ whenDockerReady: (operation) => whenReady(trackOf(approved()), operation), log });
 
+  /** Checks a researched roadmap in the background while the learner already sees it; the learner's first edit stops it. */
+  async function review(course: string) {
+    try {
+      const before = JSON.stringify(core.getRoadmap(ws, course));
+      const outcome = await start(`review:${course}`, 'fg', 'review', briefs.review(), course, (turn) => turn.ok);
+      if (!outcome.ok) log('review-error', { problem: outcome.problem });
+      else if (JSON.stringify(core.getRoadmap(ws, course)) === before) log('review-no-change', {});
+    } catch (e) {
+      log('review-error', errorFields(e));
+    }
+  }
+
   /** Research jobs that ended but whose sources aren't saved yet. */
   const finishing = new Set<string>();
 
@@ -710,7 +727,7 @@ export function createLive(d: LiveDeps): Live {
         const onSource = (source: { title: string; url: string }) => {
           if (safe(source.url)) reads.push({ title: source.title.slice(0, 120), url: source.url });
         };
-        // Research counts as running until its sources save and its review ends, so a poll starts no second agent.
+        // Research counts as running until its sources save, so a poll starts no second agent.
         finishing.add(key);
         start(key, 'fg', 'research', briefs.research(course, goal.topic, goal.known, goal.depth, goal.practice), course, () => roadmapOrNull()?.course === course, { onSource })
           .then(async (o) => {
@@ -719,19 +736,8 @@ export function createLive(d: LiveDeps): Live {
               const saving = addReads(course, reads).catch((e: Error) => log('sources-error', errorFields(e)));
               runs.add(saving);
               await saving.finally(() => runs.delete(saving));
-              if (!stopping) {
-                reviewing.add(course);
-                try {
-                  const before = JSON.stringify(core.getRoadmap(ws, course));
-                  const review = await start(`review:${course}`, 'fg', 'review', briefs.review(), course, (turn) => turn.ok);
-                  if (!review.ok) log('review-error', { problem: review.problem });
-                  else if (JSON.stringify(core.getRoadmap(ws, course)) === before) log('review-no-change', {});
-                } catch (e) {
-                  log('review-error', errorFields(e));
-                } finally {
-                  reviewing.delete(course);
-                }
-              }
+              // The review starts before the roadmap shows, so the learner's first edit or Approve always finds it to stop.
+              if (!stopping) void review(course);
             }
             outcomes.set(key, o);
           })

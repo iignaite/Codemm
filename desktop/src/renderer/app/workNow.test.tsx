@@ -22,6 +22,20 @@ describe('running jobs in the sidebar (§4.11)', () => {
     expect(names()).toEqual(['Reviewing the roadmap, Reviewing the roadmap']);
   });
 
+  it('opens the roadmap a review is checking, never a new research (§4.9)', async () => {
+    const user = userEvent.setup();
+    const { api, roadmap } = await mockWithRoadmap();
+    let researched = false;
+    api.research = async () => ((researched = true), { state: 'running' });
+    const tell = jobBus(api);
+    renderApp({ to: 'tracks' }, api);
+    await screen.findByRole('heading', { name: 'Tracks' });
+    act(() => tell(jobAt('review-1', 'review')));
+    await user.click(within(sidebar()).getByRole('button', { name: 'Reviewing the roadmap, Reviewing the roadmap' }));
+    expect(await screen.findByRole('heading', { name: roadmap.title })).toBeInTheDocument();
+    expect(researched).toBe(false);
+  });
+
   it("keeps a track's setup in view after the learner leaves the topic page, and opens it again", async () => {
     const user = userEvent.setup();
     // Slow enough that the job is still on its first stage however long the clicks take.
