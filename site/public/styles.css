@@ -298,3 +298,16 @@ h1 { max-width: 11em; font-size: clamp(42px, 5.8vw, 74px); line-height: 1.02; le
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* Tutor report card */
+.report { width: 100%; max-width: 640px; margin-top: 40px; border-collapse: collapse; border-radius: 16px; overflow: hidden; background: var(--surface); border: 1px solid var(--frame-line); text-align: left; font-size: 16px; }
+.report th, .report td { padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.report tbody tr:last-child th, .report tbody tr:last-child td { border-bottom: 0; }
+.report thead th { font: 700 14px var(--sans); color: var(--muted); }
+.report tbody th { font-weight: 700; }
+.report td { white-space: nowrap; }
+.report-note { max-width: 32em; margin-top: 14px; color: var(--muted); font-size: 15px; }
+.report-limits { margin: 10px 0 12px; padding-left: 20px; color: var(--muted); font-size: 15px; }
+.report-limits li + li { margin-top: 4px; }
+.report-challenge { text-align: center; color: var(--muted); font-size: 15px; }
+@media (max-width: 560px) { .report th, .report td { padding: 12px 10px; font-size: 15px; } .report td { white-space: normal; } }

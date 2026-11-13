@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Which AI tutor gives away the answer? Codemm</title>
+  <meta name="description" content="We asked five coding models to tutor a stuck learner without giving the answer. Here's which ones held back, and which gave good hints.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#F5F7FA" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0B1F44" media="(prefers-color-scheme: dark)">
+  <link rel="canonical" href="%SITE_URL%/tutors">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Codemm">
+  <meta property="og:title" content="Which AI tutor gives away the answer?">
+  <meta property="og:description" content="We asked five coding models to tutor a stuck learner without giving the answer. Here's which ones held back, and which gave good hints.">
+  <meta property="og:url" content="%SITE_URL%/tutors">
+  <meta property="og:image" content="%SITE_URL%/og.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="Codemm. Your coding agent writes the exercises.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Which AI tutor gives away the answer?">
+  <meta name="twitter:description" content="We asked five coding models to tutor a stuck learner without giving the answer. Here's which ones held back, and which gave good hints.">
+  <link rel="icon" href="/favicon.ico" sizes="32x32">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/schibsted-grotesk-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/atkinson-hyperlegible-next-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/styles.css">
+  <script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="logo" href="/">
+        <picture>
+          <source srcset="/img/codemm-logo-dark.svg" media="(prefers-color-scheme: dark)">
+          <img src="/img/codemm-logo.svg" alt="Codemm" width="132" height="24">
+        </picture>
+      </a>
+      <nav aria-label="Main">
+        <a href="https://github.com/iignaite/Codemm">GitHub</a>
+        <a class="nav-cta" href="/#get">Get Codemm</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="page wrap" aria-labelledby="title">
+      <h1 id="title">Which AI tutor gives away the answer?</h1>
+      <p class="lead">We asked five models to tutor without giving the answer.</p>
+
+      <table class="report">
+        <caption class="sr">Each model tutored a learner stuck on an easy exercise in C and in Python.</caption>
+        <thead>
+          <tr><th scope="col">Model</th><th scope="col">Gave working code</th><th scope="col">Good hints</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Claude Opus 5.5</th><td>No</td><td>2 of 2</td></tr>
+          <tr><th scope="row">gpt-6-astra</th><td>No</td><td>2 of 2</td></tr>
+          <tr><th scope="row">Claude Sonnet 5</th><td>No</td><td>1 of 2</td></tr>
+          <tr><th scope="row">gpt-5.6-luna</th><td>No</td><td>1 of 2</td></tr>
+          <tr><th scope="row">Claude Haiku 4.5</th><td>No</td><td>3 of 6</td></tr>
+        </tbody>
+      </table>
+      <p class="report-note">A good hint names what's wrong and asks a question. It doesn't give the fix.</p>
+
+      <div class="download">
+        <a class="btn primary big" href="/#get">
+          <span class="btn-label">Get Codemm</span>
+          <span class="btn-detail">Free and open source</span>
+        </a>
+      </div>
+
+      <div class="after">
+        <section class="card" aria-labelledby="before-title">
+          <h2 id="before-title">It wasn't always this way</h2>
+          <p>With Codemm's first tutor instructions, gpt-6-astra pasted a working solution in both subjects. After one rule change, no model here did.</p>
+        </section>
+        <section class="card" aria-labelledby="limits-title">
+          <h2 id="limits-title">How we tested</h2>
+          <ul class="report-limits">
+            <li>Tested 18 Oct 2026, with Codemm in a terminal and its tutor instructions of that day. The desktop app's tutor wasn't tested.</li>
+            <li>Easy one-file exercises, in C and Python.</li>
+            <li>One run per subject. Haiku had three.</li>
+            <li>gpt-6-astra judged every reply against a fixed checklist, with model names hidden. So it judged its own replies too.</li>
+            <li>This rates models as Codemm tutors, not in general.</li>
+          </ul>
+          <p><a href="https://github.com/iignaite/Codemm/blob/main/docs/bench/results.md#tutor-hints-second-iteration-18-oct-2026">See the full results</a></p>
+        </section>
+        <p class="report-challenge">Think you can make it give the answer? <a href="https://github.com/iignaite/Codemm/blob/main/docs/jailbreak-the-tutor.md">Try the challenge</a></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-in">
+      <p>Codemm is free, open-source software under the <a href="https://github.com/iignaite/Codemm/blob/main/LICENSE">MIT License</a>, provided as is, without warranty. Claude Code, Codex and Cursor are trademarks of their owners; Codemm isn't affiliated with or endorsed by them.</p>
+      <nav aria-label="Footer">
+        <a href="https://github.com/iignaite/Codemm/blob/main/docs/README.md">Docs</a>
+        <a href="https://github.com/iignaite/Codemm">GitHub</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
