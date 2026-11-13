@@ -56,7 +56,7 @@ test('the site is static and collects no personal data', () => {
     // incorrect versions the agent wrote. Lessons aren't checked, and nothing is "proven".
     assert.doesNotMatch(page, /\bprove[ns]?\b|\bproof that\b|every broken|own plan|guarantee/i);
     // The hero stays short: a headline, one line, the buttons and one note.
-    assert.match(page, /<p class="lead">Exercises tested before you see them\. Hints that never write your code\.<\/p>/);
+    assert.match(page, /<h1 id="title">Your coding agent, now your tutor\.<\/h1>\s*<p class="lead">It writes the exercises\. You write the code\.<\/p>/);
     assert.match(page, /id="get"[\s\S]*?<p class="hero-note">Free and open source\. Works with your coding agent\. <a href="#needs">What you need<\/a><\/p>\s*<\/div>/);
     // What you need names the agents and Docker.
     assert.match(page, /id="needs"[\s\S]*?Docker Desktop[\s\S]*?Claude Code, Codex or Cursor, signed in/);
