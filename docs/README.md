@@ -8,6 +8,7 @@
 | [desktop/beta-plan.md](desktop/beta-plan.md) | The private beta: who, consent, tasks and exit criteria |
 | [bench/results.md](bench/results.md) | The cross-model bench of the terminal flow, and the minimum model per agent |
 | [SECURITY.md](SECURITY.md) | The sandbox, trust boundaries and known limitations |
+| [jailbreak-the-tutor.md](jailbreak-the-tutor.md) | The open challenge to make the tutor give away an answer, and its hall of fame |
 | [MIGRATION.md](MIGRATION.md) | Moving from Codemm v1: what changed, where v1 data lives, how to roll back |
 | [release-evidence-1.0.md](release-evidence-1.0.md) | Recorded end-to-end runs behind the 1.0 release |
 | [brand/](brand/README.md) | Logo, Emm the chameleon, and colors |
