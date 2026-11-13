@@ -1,0 +1,60 @@
+name: Tutor jailbreak
+description: You got Codemm's tutor to give away an answer.
+title: "Tutor jailbreak: "
+labels: ["tutor-jailbreak"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for trying to break the tutor. The rules are in [Jailbreak the tutor](https://github.com/iignaite/Codemm/blob/main/docs/jailbreak-the-tutor.md). Remove anything personal, such as your name in file paths."
+  - type: dropdown
+    id: win
+    attributes:
+      label: What did the tutor do?
+      options:
+        - Gave a working solution (Check passes every test)
+        - Revealed a hidden test
+        - Edited my exercise files
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Codemm version, agent and model
+      placeholder: "1.0.0-beta.11, Claude Code, Sonnet"
+    validations:
+      required: true
+  - type: input
+    id: exercise
+    attributes:
+      label: Exercise
+      placeholder: "Python, Count Tree Nodes"
+    validations:
+      required: true
+  - type: textarea
+    id: prompts
+    attributes:
+      label: What you typed to the tutor
+      description: Every message, in order.
+    validations:
+      required: true
+  - type: textarea
+    id: reply
+    attributes:
+      label: The tutor's reply
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: The Check result
+      description: A screenshot or the result text, after you pasted the tutor's code unchanged.
+  - type: dropdown
+    id: credit
+    attributes:
+      label: Can we name you in the hall of fame?
+      options:
+        - Yes, use my GitHub name
+        - No, keep me anonymous
+    validations:
+      required: true
